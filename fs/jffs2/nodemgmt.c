@@ -11,6 +11,15 @@
  *
  * ChangeLog:
  *     27-Nov-2002 Lineo Japan, Inc.  add effective-gc mode
+ *     15-Nov-2002 Lineo Japan, Inc.  add nodemerge facility
+ *     11-Nov-2002 Lineo Japan, Inc.  add reserved blocks for superuser
+ *     29-Oct-2002 Lineo Japan, Inc.  add reserved blocks for badblocks
+ *				      add c->cont_gc_count
+ *     24-Oct-2002 Lineo Japan, Inc.  separate jffs2_reserve_space into
+ *       *_normal and *_deletion
+ *
+ * ChangeLog:
+ *     27-Nov-2002 Lineo Japan, Inc.  add effective-gc mode
  *     24-Nov-2002 SHARP  modify storage-full conditions, and add erasing_dirty_size
  *     15-Nov-2002 Lineo Japan, Inc.  add nodemerge facility
  *     11-Nov-2002 Lineo Japan, Inc.  add reserved blocks for superuser

@@ -212,6 +212,7 @@ ENTRY(cpu_pxa_do_suspend)
 	str		r1, [r0, #UVIR_PWR_PCFR]
 #endif
 
+
 #if defined(CONFIG_SABINAL_DISCOVERY)
 	ldr     r0, GPCRx
 	mvn     r1, #0

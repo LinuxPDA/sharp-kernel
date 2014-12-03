@@ -1056,8 +1056,14 @@ int ts_cotulla_init(void)
 	res_y = 320;
 
 	cal_ok = 1;
+
+#if defined(CONFIG_ARCH_SHARP_SL_J)
 	x_rev = 1;
 	y_rev = 0;
+#else
+	x_rev = 0;
+	y_rev = 1;
+#endif
 	xyswap = 1;
 #else
 	res_x = 240;

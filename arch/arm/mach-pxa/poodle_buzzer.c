@@ -18,6 +18,7 @@
  * GNU General Public License for more details.
  *
  * ChangeLog:
+ *	16-Jan-2003 SHARP sleep_on -> interruptible_sleep_on
  * 
  */
 #include <linux/module.h>
@@ -165,12 +166,14 @@ static void change_freq( int new_freq )
 
 static void poodle_buzzer_thread(void)
 {
+  // daemonize();
   strcpy(current->comm, "buzzer");
+  sigfillset(&current->blocked);
 
   while(1) {
     if (buzzer_soundid==0) {
       //while(buzzer_soundid==0)
-	sleep_on(&buzzer_proc);
+	interruptible_sleep_on(&buzzer_proc);
     } else {
       if (wm8731_busy()) {
 	if (buzzer_soundid==SHARP_BUZ_SCHEDULE_ALARM) {

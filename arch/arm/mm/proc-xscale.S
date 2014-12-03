@@ -21,6 +21,8 @@
  *
  * Change Log
  *	31-Jul-2002 Lineo Japan, Inc.  for ARCH_PXA
+ *	16-Jan-2003 SHARP enable non-cached bufferable page
+ *	20-Mar-2003 SHARP supported PXA255
  */
 
 #include <linux/config.h>
@@ -816,7 +818,8 @@ ENTRY(cpu_xscale_set_pte)
 	orreq	r2, r2, #PTE_EXT_TEX(1)
 
 #if CACHE_WRITE_THROUGH
-	bic	r2, r2, #L_PTE_BUFFERABLE
+	tst	r1, #L_PTE_CACHEABLE
+	bicne	r2, r2, #L_PTE_BUFFERABLE	@ clear B only if C is set
 #else
 	@
 	@ Errata 40: The B bit must be cleared for a user read-only
@@ -900,11 +903,14 @@ cpu_manu_name:
 cpu_80200_name:
 	.asciz	"XScale-80200"
 
+cpu_pxa210_name:
+	.asciz	"XScale-PXA210"
+
 cpu_pxa250_name:
 	.asciz	"XScale-PXA250"
 
-cpu_pxa210_name:
-	.asciz	"XScale-PXA210"
+cpu_pxa255_name:
+	.asciz	"XScale-PXA255"
 
 	.align
 
@@ -989,21 +995,27 @@ cpu_80200_info:
 	.long	cpu_80200_name
 	.size	cpu_80200_info, . - cpu_80200_info
 
-	.type	cpu_pxa250_info, #object
-cpu_pxa250_info:
-	.long	cpu_manu_name
-	.long	cpu_pxa250_name
-	.size	cpu_pxa250_info, . - cpu_pxa250_info
-
 	.type	cpu_pxa210_info, #object
 cpu_pxa210_info:
 	.long	cpu_manu_name
 	.long	cpu_pxa210_name
 	.size	cpu_pxa210_info, . - cpu_pxa210_info
 
+	.type	cpu_pxa250_info, #object
+cpu_pxa250_info:
+	.long	cpu_manu_name
+	.long	cpu_pxa250_name
+	.size	cpu_pxa250_info, . - cpu_pxa250_info
+
+	.type	cpu_pxa255_info, #object
+cpu_pxa255_info:
+	.long	cpu_manu_name
+	.long	cpu_pxa255_name
+	.size	cpu_pxa255_info, . - cpu_pxa255_info
+
 	.type	cpu_arch_name, #object
 cpu_arch_name:
-	.asciz	"armv5"
+	.asciz	"armv5te"
 	.size	cpu_arch_name, . - cpu_arch_name
 
 	.type	cpu_elf_name, #object
@@ -1031,6 +1043,23 @@ __80200_proc_info:
 	.long	xscale_processor_functions
 	.size	__80200_proc_info, . - __80200_proc_info
 
+	.type	__pxa210_proc_info,#object
+__pxa210_proc_info:
+	.long	0x69052920
+	.long	0xfffffff0
+#if CACHE_WRITE_THROUGH
+	.long	0x00000c0a
+#else
+	.long	0x00000c0e
+#endif
+	b	__xscale_setup
+	.long	cpu_arch_name
+	.long	cpu_elf_name
+	.long	HWCAP_SWP|HWCAP_HALF|HWCAP_THUMB|HWCAP_FAST_MULT|HWCAP_EDSP
+	.long	cpu_pxa210_info
+	.long	xscale_processor_functions
+	.size	__pxa210_proc_info, . - __pxa210_proc_info
+
 	.type	__pxa250_proc_info,#object
 __pxa250_proc_info:
 	.long	0x69052100
@@ -1048,10 +1077,10 @@ __pxa250_proc_info:
 	.long	xscale_processor_functions
 	.size	__pxa250_proc_info, . - __pxa250_proc_info
 
-	.type	__pxa210_proc_info,#object
-__pxa210_proc_info:
-	.long	0x69052900
-	.long	0xffffff00
+	.type	__pxa255_proc_info,#object
+__pxa255_proc_info:
+	.long	0x69052d00
+	.long	0xfffffff0
 #if CACHE_WRITE_THROUGH
 	.long	0x00000c0a
 #else
@@ -1061,7 +1090,7 @@ __pxa210_proc_info:
 	.long	cpu_arch_name
 	.long	cpu_elf_name
 	.long	HWCAP_SWP|HWCAP_HALF|HWCAP_THUMB|HWCAP_FAST_MULT|HWCAP_EDSP
-	.long	cpu_pxa210_info
+	.long	cpu_pxa255_info
 	.long	xscale_processor_functions
-	.size	__pxa210_proc_info, . - __pxa210_proc_info
+	.size	__pxa255_proc_info, . - __pxa255_proc_info
 

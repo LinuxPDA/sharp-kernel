@@ -59,7 +59,7 @@
  *
  * Change Log
  *      12-Dec-2002 Sharp Corporation  for Poodle and Corgi
-  */
+ */
 
 static char *serial_version = "5.05c";
 static char *serial_revdate = "2001-07-08";
@@ -414,6 +414,10 @@ void set_discovery_serial(void){
 
 #define CONFIG_DISCOVERY_DVT
 
+#if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
+#define CONFIG_SHARPSL_PXA
+#endif
+
 #include <asm/arch/power_consumption.h>
 
 #define xpa2X0_is_ff_uart(iomem)	((iomem) == (void *)&FFUART)
@@ -529,8 +533,28 @@ static _INLINE_ unsigned int serial_in(struct async_struct *info, int offset)
 #endif
 	case SERIAL_IO_MEM:
 #if defined(CONFIG_ARCH_SHARP_SL)
+
+#ifdef CONFIG_SHARPSL_PXA
+	  {
+	    unsigned int read;
+
+	    read  = readl((unsigned long) info->iomem_base + (offset<<info->iomem_reg_shift));
+	    if ( offset == UART_MSR ) {
+	      if ( read & UART_MSR_CTS )
+		read &= ~UART_MSR_CTS;
+	      else
+		read |= UART_MSR_CTS;
+	      if ( read & UART_MSR_DSR )
+		read &= ~UART_MSR_DSR;
+	      else
+		read |= UART_MSR_DSR;
+	    }
+	    return read;
+	  }
+#else
 		return readl((unsigned long) info->iomem_base +
 			     (offset<<info->iomem_reg_shift));
+#endif
 #else
 		return readb((unsigned long) info->iomem_base +
 			     (offset<<info->iomem_reg_shift));
@@ -560,8 +584,23 @@ static _INLINE_ void serial_out(struct async_struct *info, int offset,
 #endif
 	case SERIAL_IO_MEM:
 #if defined(CONFIG_ARCH_SHARP_SL)
+
+#ifdef CONFIG_SHARPSL_PXA
+	  if ( offset == UART_MCR ) {
+	    if ( value & UART_MCR_RTS )
+	      value &= ~UART_MCR_RTS;
+	    else
+	      value |= UART_MCR_RTS;
+
+	    if ( value & UART_MCR_DTR )
+	      value &= ~UART_MCR_DTR;
+	    else
+	      value |= UART_MCR_DTR;
+	  }
+#endif
 		writel(value, (unsigned long) info->iomem_base +
 		      (offset<<info->iomem_reg_shift));
+
 #else
 		writeb(value, (unsigned long) info->iomem_base +
 			      (offset<<info->iomem_reg_shift));
@@ -1095,7 +1134,7 @@ static _INLINE_ void check_modem_status(struct async_struct *info)
 	}
 	if (info->flags & ASYNC_CTS_FLOW) {
 		if (info->tty->hw_stopped) {
-#ifdef CONFIG_DISCOVERY_DVT
+#if defined(CONFIG_DISCOVERY_DVT) && !defined(CONFIG_SHARPSL_PXA)
 //			if (!(status & UART_MSR_CTS)) {
 			if( !(status & UART_MSR_CTS) ^
 			    !(info->io_type == SERIAL_IO_MEM) ){
@@ -1112,7 +1151,7 @@ static _INLINE_ void check_modem_status(struct async_struct *info)
 				return;
 			}
 		} else {
-#ifdef CONFIG_DISCOVERY_DVT
+#if defined(CONFIG_DISCOVERY_DVT) && !defined(CONFIG_SHARPSL_PXA)
 //			if (status & UART_MSR_CTS) {
 			if( !(status & UART_MSR_CTS) ^
 			    (info->io_type == SERIAL_IO_MEM) ){
@@ -1775,7 +1814,7 @@ static int startup(struct async_struct * info)
 
 	info->MCR = 0;
 	if (info->tty->termios->c_cflag & CBAUD)
-#ifdef CONFIG_DISCOVERY_DVT
+#if defined(CONFIG_DISCOVERY_DVT) && !defined(CONFIG_SHARPSL_PXA)
 		{if(info->io_type == SERIAL_IO_MEM)
 		info->MCR = UART_MCR_DTR & ~(UART_MCR_RTS);
 		else info->MCR = UART_MCR_DTR | UART_MCR_RTS;}
@@ -1971,7 +2010,7 @@ static void shutdown(struct async_struct * info)
 	serial_out(info, UART_LCR, serial_inp(info, UART_LCR) & ~UART_LCR_SBC);
 	
 	if (!info->tty || (info->tty->termios->c_cflag & HUPCL))
-#ifdef CONFIG_DISCOVERY_DVT
+#if defined(CONFIG_DISCOVERY_DVT) && !defined(CONFIG_SHARPSL_PXA)
 		{if(info->io_type == SERIAL_IO_MEM){
 		info->MCR &= ~(UART_MCR_DTR);
 		info->MCR |= (UART_MCR_RTS);
@@ -2518,7 +2557,7 @@ static void rs_throttle(struct tty_struct * tty)
 		rs_send_xchar(tty, STOP_CHAR(tty));
 
 	if (tty->termios->c_cflag & CRTSCTS)
-#ifdef CONFIG_DISCOVERY_DVT
+#if defined(CONFIG_DISCOVERY_DVT) && !defined(CONFIG_SHARPSL_PXA)
 		{if(info->io_type == SERIAL_IO_MEM)
 		info->MCR |= UART_MCR_RTS;
 		else info->MCR &= ~UART_MCR_RTS;}
@@ -2552,7 +2591,7 @@ static void rs_unthrottle(struct tty_struct * tty)
 			rs_send_xchar(tty, START_CHAR(tty));
 	}
 	if (tty->termios->c_cflag & CRTSCTS)
-#ifdef CONFIG_DISCOVERY_DVT
+#if defined(CONFIG_DISCOVERY_DVT) && !defined(CONFIG_SHARPSL_PXA)
 		{if(info->io_type == SERIAL_IO_MEM)
 		info->MCR &= ~(UART_MCR_RTS);
 		else info->MCR |= UART_MCR_RTS;}
@@ -2796,7 +2835,7 @@ static int get_modem_info(struct async_struct * info, unsigned int *value)
 	restore_flags(flags);
 	
 	if(info->io_type == SERIAL_IO_MEM){
-#ifdef CONFIG_DISCOVERY_DVT
+#if defined(CONFIG_DISCOVERY_DVT) && !defined(CONFIG_SHARPSL_PXA)
 	result =  (!(control & UART_MCR_RTS) ? TIOCM_RTS : 0)
 #else
 	result =  ((control & UART_MCR_RTS) ? TIOCM_RTS : 0)
@@ -2813,7 +2852,7 @@ static int get_modem_info(struct async_struct * info, unsigned int *value)
 		| ((status  & UART_MSR_DCD) ? TIOCM_CAR : 0)
 		| ((status  & UART_MSR_RI) ? TIOCM_RNG : 0)
 		| ((status  & UART_MSR_DSR) ? TIOCM_DSR : 0)
-#ifdef CONFIG_DISCOVERY_DVT
+#if defined(CONFIG_DISCOVERY_DVT) && !defined(CONFIG_SHARPSL_PXA)
 		| (!(status  & UART_MSR_CTS) ? TIOCM_CTS : 0);
 #else
 		| ((status  & UART_MSR_CTS) ? TIOCM_CTS : 0);
@@ -2851,7 +2890,7 @@ static int set_modem_info(struct async_struct * info, unsigned int cmd,
 		if (arg & TIOCM_RTS) {
 			if(info->io_type == SERIAL_IO_MEM){
 			if (!xpa2X0_is_st_uart(info->iomem_base))
-#ifdef CONFIG_DISCOVERY_DVT
+#if defined(CONFIG_DISCOVERY_DVT) && !defined(CONFIG_SHARPSL_PXA)
 				info->MCR &= ~(UART_MCR_RTS);
 #else
 				info->MCR |= UART_MCR_RTS;
@@ -2881,7 +2920,7 @@ static int set_modem_info(struct async_struct * info, unsigned int cmd,
 		if (arg & TIOCM_RTS)
 	                {if(info->io_type == SERIAL_IO_MEM){
 			if (!xpa2X0_is_st_uart(info->iomem_base))
-#ifdef CONFIG_DISCOVERY_DVT
+#if defined(CONFIG_DISCOVERY_DVT) && !defined(CONFIG_SHARPSL_PXA)
 				info->MCR |= UART_MCR_RTS;
 #else
 				info->MCR &= ~UART_MCR_RTS;
@@ -2908,7 +2947,7 @@ static int set_modem_info(struct async_struct * info, unsigned int cmd,
 		break;
 	case TIOCMSET:
 		if(info->io_type == SERIAL_IO_MEM){
-#ifdef CONFIG_DISCOVERY_DVT
+#if defined(CONFIG_DISCOVERY_DVT) && !defined(CONFIG_SHARPSL_PXA)
 		info->MCR = ((info->MCR | UART_MCR_RTS & ~(
 #else
 		info->MCR = ((info->MCR & ~(UART_MCR_RTS |
@@ -2924,7 +2963,7 @@ static int set_modem_info(struct async_struct * info, unsigned int cmd,
 #endif
 					    UART_MCR_LOOP |
 					    UART_MCR_DTR))
-#ifdef CONFIG_DISCOVERY_DVT
+#if defined(CONFIG_DISCOVERY_DVT) && !defined(CONFIG_SHARPSL_PXA)
 			     | ((arg & TIOCM_RTS) ? (info->MCR & ~(UART_MCR_RTS)) : ( 0 | UART_MCR_RTS ) )
 #else
 			     | ((arg & TIOCM_RTS) ? UART_MCR_RTS : 0)
@@ -3328,7 +3367,7 @@ static void rs_set_termios(struct tty_struct *tty, struct termios *old_termios)
 	/* Handle transition to B0 status */
 	if ((old_termios->c_cflag & CBAUD) &&
 	    !(cflag & CBAUD)) {
-#ifdef CONFIG_DISCOVERY_DVT
+#if defined(CONFIG_DISCOVERY_DVT) && !defined(CONFIG_SHARPSL_PXA)
 		info->MCR &= ~(UART_MCR_DTR);
 		info->MCR |= (UART_MCR_RTS);
 #else
@@ -3345,7 +3384,7 @@ static void rs_set_termios(struct tty_struct *tty, struct termios *old_termios)
 		info->MCR |= UART_MCR_DTR;
 		if (!(tty->termios->c_cflag & CRTSCTS) || 
 		    !test_bit(TTY_THROTTLED, &tty->flags)) {
-#ifdef CONFIG_DISCOVERY_DVT
+#if defined(CONFIG_DISCOVERY_DVT) && !defined(CONFIG_SHARPSL_PXA)
 			info->MCR &= ~UART_MCR_RTS;
 #else
 			info->MCR |= UART_MCR_RTS;
@@ -3694,7 +3733,7 @@ static int block_til_ready(struct tty_struct *tty, struct file * filp,
 		    (tty->termios->c_cflag & CBAUD))
 			serial_out(info, UART_MCR,
 				   serial_inp(info, UART_MCR) |
-#ifdef CONFIG_DISCOVERY_DVT
+#if defined(CONFIG_DISCOVERY_DVT) && !defined(CONFIG_SHARPSL_PXA)
 				( (info->io_type == SERIAL_IO_MEM) ?
 				   ((UART_MCR_DTR) & ~(UART_MCR_RTS)):
 				   ((UART_MCR_DTR | UART_MCR_RTS))
@@ -3867,6 +3906,14 @@ static int rs_open(struct tty_struct *tty, struct file * filp)
 #endif
 	}
 
+#if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
+	xpa210_discovery_serial_power_on();
+	if (xpa2X0_is_ff_uart(info->iomem_base)) {
+		CKEN |= CKEN6_FFUART;
+		if ( !change_power_mode(LOCK_FCS_FFUART, 1) ) return -EAGAIN;
+	}
+#endif
+
 	/*
 	 * Start up serial port
 	 */
@@ -3904,7 +3951,7 @@ static int rs_open(struct tty_struct *tty, struct file * filp)
 	info->session = current->session;
 	info->pgrp = current->pgrp;
 
-#if (defined(CONFIG_SABINAL_DISCOVERY) && (CONFIG_DISCOVERY_EVT2)) || defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
+#if (defined(CONFIG_SABINAL_DISCOVERY) && (CONFIG_DISCOVERY_EVT2))
 	xpa210_discovery_serial_power_on();
 	if (xpa2X0_is_ff_uart(info->iomem_base)) {
 		CKEN |= CKEN6_FFUART;
@@ -3975,13 +4022,13 @@ static inline int line_info(char *buf, struct serial_state *state)
 
 	stat_buf[0] = 0;
 	stat_buf[1] = 0;
-#ifdef CONFIG_DISCOVERY_DVT
+#if defined(CONFIG_DISCOVERY_DVT) && !defined(CONFIG_SHARPSL_PXA)
 	if (!(control & UART_MCR_RTS))
 #else
 	if (control & UART_MCR_RTS)
 #endif
 		strcat(stat_buf, "|RTS");
-#ifdef CONFIG_DISCOVERY_DVT
+#if defined(CONFIG_DISCOVERY_DVT) && !defined(CONFIG_SHARPSL_PXA)
 	if (!(status & UART_MSR_CTS))
 #else
 	if (status & UART_MSR_CTS)
@@ -4163,6 +4210,7 @@ static unsigned detect_uart_irq (struct serial_state * state)
 	irqs = probe_irq_on();
 	serial_outp(&scr_info, UART_MCR, 0);
 	udelay (10);
+#if defined(CONFIG_DISCOVERY_DVT) && !defined(CONFIG_SHARPSL_PXA)
 	if (state->flags & ASYNC_FOURPORT)  {
 		if( scr_info.io_type == SERIAL_IO_MEM )
 		serial_outp(&scr_info, UART_MCR,
@@ -4199,6 +4247,15 @@ static unsigned detect_uart_irq (struct serial_state * state)
 		else serial_outp(&scr_info, UART_MCR,
 			UART_MCR_DTR | UART_MCR_RTS | UART_MCR_OUT2);
 	}
+#else
+	if (state->flags & ASYNC_FOURPORT)  {
+		serial_outp(&scr_info, UART_MCR,
+			    UART_MCR_DTR | UART_MCR_RTS);
+	} else {
+		serial_outp(&scr_info, UART_MCR,
+			    UART_MCR_DTR | UART_MCR_RTS | UART_MCR_OUT2);
+	}
+#endif
 	serial_outp(&scr_info, UART_IER, 0x0f);	/* enable all intrs */
 	(void)serial_inp(&scr_info, UART_LSR);
 	(void)serial_inp(&scr_info, UART_RX);
@@ -6663,7 +6720,7 @@ static inline void wait_for_xmitr(struct async_struct *info)
 	if (info->flags & ASYNC_CONS_FLOW) {
 		tmout = 1000000;
 		while (--tmout &&
-#ifdef CONFIG_DISCOVERY_DVT
+#if defined(CONFIG_DISCOVERY_DVT) && !defined(CONFIG_SHARPSL_PXA)
 		       ((serial_in(info, UART_MSR) & UART_MSR_CTS) == 1));
 #else
 		       ((serial_in(info, UART_MSR) & UART_MSR_CTS) == 0));
@@ -6892,7 +6949,7 @@ static int __init serial_console_setup(struct console *co, char *options)
 #else
 	serial_out(info, UART_IER, 0);
 #endif
-#ifdef CONFIG_DISCOVERY_DVT
+#if defined(CONFIG_DISCOVERY_DVT) && !defined(CONFIG_SHARPSL_PXA)
 	serial_out(info, UART_MCR, UART_MCR_DTR & ~(UART_MCR_RTS));
 #else
 	serial_out(info, UART_MCR, UART_MCR_DTR | UART_MCR_RTS);

@@ -44,6 +44,10 @@
 #include <net/irda/wrapper.h>
 #include <net/irda/timer.h>
 #include <net/irda/parameters.h>
+#ifdef CONFIG_PM
+#include <linux/pm.h>
+#include <linux/apm_bios.h>
+#endif
 
 extern struct proc_dir_entry *proc_irda;
 
@@ -169,6 +173,14 @@ EXPORT_SYMBOL(irtty_unregister_dongle);
 EXPORT_SYMBOL(irtty_set_packet_mode);
 #endif
 
+#ifdef CONFIG_PM
+static struct pm_dev *irda_pm_dev;
+static int irda_pm_callback(struct pm_dev* pm_dev, pm_request_t req, void* data);
+static void irda_suspend(void);
+static void irda_resume(void);
+#endif
+
+
 int __init irda_init(void)
 {
 	IRDA_DEBUG(0, __FUNCTION__ "()\n");
@@ -194,6 +206,9 @@ int __init irda_init(void)
 #ifdef CONFIG_IRCOMM
 	ircomm_init();
 	ircomm_tty_init();
+#endif
+#ifdef CONFIG_PM
+	irda_pm_dev = pm_register(PM_COTULLA_DEV, 0, irda_pm_callback);
 #endif
 	return 0;
 }
@@ -238,3 +253,95 @@ void irda_notify_init(notify_t *notify)
 	strncpy(notify->name, "Unknown", NOTIFY_MAX_NAME);
 }
 
+#ifdef CONFIG_PM
+static int irda_pm_callback(struct pm_dev* pm_dev, pm_request_t req, void* data)
+{
+	switch (req) {
+	case PM_SUSPEND:
+		irda_suspend();
+		break;
+	case PM_RESUME:
+		irda_resume();
+		break;
+		
+	}
+
+	return 0;
+}
+
+extern struct irlmp_cb *irlmp;
+extern hashbin_t *irlap;
+extern void irda_task_suspend(void);
+extern void irttp_suspend(void);
+extern void iriap_suspend(void);
+
+static void irda_suspend(void)
+{
+	unsigned long flags;
+	struct irlap_cb *self_lap;
+	struct lsap_cb *self_lsap;
+	struct lap_cb *lap;
+
+	IRDA_DEBUG(1, __FUNCTION__"()\n");
+
+	// kill timers
+	del_timer(&irlmp->discovery_timer);
+	IRDA_DEBUG(2, __FUNCTION__"() delete discovery timer\n");
+
+	save_flags(flags);
+	cli();
+	self_lap = (struct irlap_cb *) hashbin_get_first(irlap);
+	while (self_lap != NULL) {
+		ASSERT(self_lap->magic == LAP_MAGIC, break;);
+
+		del_timer(&self_lap->slot_timer);
+		del_timer(&self_lap->query_timer);
+		del_timer(&self_lap->discovery_timer);
+		del_timer(&self_lap->final_timer);
+		del_timer(&self_lap->poll_timer);
+		del_timer(&self_lap->wd_timer);
+		del_timer(&self_lap->backoff_timer);
+		del_timer(&self_lap->media_busy_timer);
+		IRDA_DEBUG(2, __FUNCTION__"() delete irlap timers\n");
+
+		self_lap = (struct irlap_cb *) hashbin_get_next(irlap);
+	}
+
+	self_lsap = (struct lsap_cb *) hashbin_get_first( irlmp->unconnected_lsaps);
+	while (self_lsap != NULL) {
+		ASSERT(self_lsap->magic == LMP_LSAP_MAGIC, break;);
+
+		del_timer(&self_lsap->watchdog_timer);
+		self_lsap = (struct lsap_cb *) hashbin_get_next(
+			irlmp->unconnected_lsaps);
+		IRDA_DEBUG(2, __FUNCTION__"() delete lsap timers\n");
+	}
+
+	lap = (struct lap_cb *) hashbin_get_first(irlmp->links);
+	while (lap != NULL) {
+		ASSERT(lap->magic == LMP_LAP_MAGIC, return;);
+
+		del_timer(&lap->idle_timer);
+		lap = (struct lap_cb *) hashbin_get_next(irlmp->links);
+		IRDA_DEBUG(2, __FUNCTION__"() delete lap timers\n");
+	}
+
+	irda_task_suspend();
+	irttp_suspend();
+
+	restore_flags(flags);
+
+	return;
+}
+
+static void irda_resume(void)
+{
+	IRDA_DEBUG(1, __FUNCTION__"()\n");
+
+	// start timers
+	init_timer(&irlmp->discovery_timer);
+   	irlmp_start_discovery_timer(irlmp, sysctl_discovery_timeout*HZ);
+
+	return;
+}
+#endif

@@ -19,7 +19,8 @@
  *  drivers/video/skeletonfb.c
  *
  * ChangeLog:
- *
+ *  28-02-2003 SHARP supported VRAM image cache for ver.1.3
+ *  19-03-2003 SHARP disabled VRAM image cache for ver.1.3
  */
 
 // define this here because unistd.h needs it
@@ -54,6 +55,8 @@ extern int errno;
 
 #include "w100fb.h"
 #include <linux/pm.h>
+
+//#define _IMAGE_CACHE_SUPPORT // for image cache on video memory
 
 #ifdef CONFIG_PM
 #include <asm/arch/sharpsl_param.h>
@@ -94,7 +97,11 @@ static void lcdtg_i2c_wait_ack(u8 base_data);
 #define W100_PHYS_ADDRESS 0x08000000
 #define W100_REG_BASE     (W100_PHYS_ADDRESS+REG_OFFSET)
 #define W100_FB_BASE      (W100_PHYS_ADDRESS+MEM_EXT_BASE_VALUE)
+#ifdef _IMAGE_CACHE_SUPPORT
+#define REMAPPED_FB_LEN   0x200000
+#else //_IMAGE_CACHE_SUPPORT
 #define REMAPPED_FB_LEN   0x15ffff
+#endif //_IMAGE_CACHE_SUPPORT
 #define REMAPPED_CFG_LEN  0x10
 #define REMAPPED_MMR_LEN  0x2000
 #define W100_PHYS_ADR_LEN 0x1000000
@@ -112,6 +119,7 @@ static void lcdtg_i2c_wait_ack(u8 base_data);
 #define W100INIT_ITEM_WITH_VAL 2
 
 #define W100FB_POWERDOWN       0x57415201 /* WAL\01 */
+#define W100FB_CONFIG_EX       0x57415202 /* WAL\02 */
 
 // General frame buffer data structures
 struct w100fb_info {
@@ -175,10 +183,36 @@ int w100fb_lcdMode = LCD_MODE_UNKOWN; //default UNKOWN
 static u16 *gSaveImagePtr[640] = {NULL};
 #define SAVE_IMAGE_MAX_SIZE ((640 * 480 * BITS_PER_PIXEL) / 8)
 
+#ifdef _IMAGE_CACHE_SUPPORT // for image cache on video memory
+
+#define IMG_CACHE_MALLOC_SIZE 0x1000
+#define IMG_CACHE_OFFSET_VGA (0x97008)
+#define IMG_CACHE_TOTAL_SIZE_VGA (0x200000-0x4000-IMG_CACHE_OFFSET_VGA)
+#define IMG_CACHE_SKIP_MARK (0xffffffff)
+
+static u32 *save_img_cache_ptr=NULL;
+static u32 save_img_alloc_num=0;
+#define __PRINTK(arg...) //printk(arg)
+#undef __SUM //for debug
+
+static u32* save_image_cache(u32 *alloc_num);
+static int restore_image_cache(u32 *img_src,u32 alloc_num);
+static int cleanup_image_cache(u32 *img_src,u32 alloc_num);
+
+// defalut don't skip
+static int start_skip_save_image_no = (-1);
+static int end_skip_save_image_no = (-1);
+#endif //_IMAGE_CACHE_SUPPORT
+
 int w100fb_isblank = 0;
 
 static int fb_blank_normal = 0;
 static int isSuspended_tg_only = 0;
+
+#if defined(CONFIG_ARCH_SHARP_SL)
+// checking in mm/omm_kill.c
+int disable_signal_to_mm = 0;
+#endif
 
 int w100fb_init(void);
 int w100fb_setup(char*);
@@ -755,6 +789,25 @@ static void w100_set_disp(const void *unused, struct display *disp,
   temp32 |= 0x00800000;
   writel(temp32, remapped_regs+mmDISP_DEBUG2);
 
+#ifdef _IMAGE_CACHE_SUPPORT // FOR RESOLUTION CHANGE
+  // VGA only
+  if(LCD_MODE_480 == w100fb_lcdMode){
+    __PRINTK("RESOLUTION CHANGE: save image cache ... ");
+
+    if(save_img_cache_ptr || save_img_alloc_num){
+      __PRINTK("ERROR!\n");
+    }else{
+      save_img_cache_ptr = save_image_cache(&save_img_alloc_num);
+
+      if(save_img_cache_ptr && save_img_alloc_num){
+	__PRINTK("SUCCESS!\n");
+      }else{
+	__PRINTK("ERROR!!\n");
+      }
+    }
+  }
+#endif //_IMAGE_CACHE_SUPPORT
+
   switch(w100fb_lcdMode){
   case LCD_MODE_480:
       if(current_par.xres == 320 && current_par.yres == 240){
@@ -798,7 +851,7 @@ static void w100_set_disp(const void *unused, struct display *disp,
 	  w100_clear_screen(LCD_SHARP_QVGA,NULL);
 	  writel(0xBFFFA000, remapped_regs+mmMC_EXT_MEM_LOCATION);
 	  w100_InitExtMem(LCD_SHARP_VGA);
-	  w100_clear_screen(LCD_SHARP_VGA,0xF1A00000);
+	  w100_clear_screen(LCD_SHARP_VGA,(void*)0xF1A00000);
 	  w100_vsync();
 	  w100_init_sharp_lcd(LCD_SHARP_VGA);
 	  lcdtg_lcd_change(LCD_SHARP_VGA);
@@ -824,7 +877,7 @@ static void w100_set_disp(const void *unused, struct display *disp,
 	  w100_clear_screen(LCD_SHARP_QVGA,NULL);
 	  writel(0xBFFFA000, remapped_regs+mmMC_EXT_MEM_LOCATION);
 	  w100_InitExtMem(LCD_SHARP_VGA);
-	  w100_clear_screen(LCD_SHARP_VGA,0xF1A00000);
+	  w100_clear_screen(LCD_SHARP_VGA,(void*)0xF1A00000);
 	  w100_vsync();
 	  w100_init_sharp_lcd(LCD_SHARP_VGA);
 	  lcdtg_lcd_change(LCD_SHARP_VGA);
@@ -851,6 +904,27 @@ static void w100_set_disp(const void *unused, struct display *disp,
       printk("resolution error !!! \n");
       break;
   }
+
+#ifdef _IMAGE_CACHE_SUPPORT // FOR RESOLUTION CHANGE
+  if(LCD_MODE_480 == w100fb_lcdMode){
+
+    __PRINTK("RESOLUTION CHANGE: restore image cache ... ");
+    if(save_img_cache_ptr != NULL &&
+       save_img_alloc_num != 0){
+
+      if(!restore_image_cache(save_img_cache_ptr,save_img_alloc_num)){
+	save_img_cache_ptr = NULL;
+	save_img_alloc_num = 0;
+	__PRINTK("SUCCESS!\n");
+      }else{
+	__PRINTK("ERROR!!\n");
+      }
+
+    }else{
+      __PRINTK("ERROR!\n");
+    }
+  }
+#endif //_IMAGE_CACHE_SUPPORT
 
   // Set the initial contrast to something sane
   w100_gamma_init();
@@ -1013,6 +1087,13 @@ void w100fb_cleanup(struct fb_info *info)
 	  }
   }
   isRemapped = 0;
+
+#ifdef _IMAGE_CACHE_SUPPORT //FOR CLEANUP
+  cleanup_image_cache(save_img_cache_ptr,
+		      save_img_alloc_num);
+  save_img_cache_ptr = NULL;
+  save_img_alloc_num = 0;
+#endif //_IMAGE_CACHE_SUPPORT
 }
 
 #ifdef MODULE
@@ -1081,6 +1162,87 @@ static int w100fb_ioctl(struct inode *inode, struct file *file, u_int cmd,
       }
   }
   break;
+
+#if defined(CONFIG_ARCH_SHARP_SL)
+  case W100FB_CONFIG_EX:
+    {
+      int *setup_arg = (int*)arg;
+      int mode;
+
+      // a)arg = NULL: check this ioctl.
+      // b)arg[0] = 0: disable memory check (disable signal).
+      // c)arg[0] = 1: enable memory check (enable signal).
+      // d)arg[0] = 2: set image cache info.
+      if(setup_arg == NULL)
+	return 0;
+
+      mode = setup_arg[0];
+      switch(mode){
+      case 0:
+	if(disable_signal_to_mm == 0){
+
+	  //printk("[w100fb] set the image cache info!\n");
+
+	  // disable memory check
+	  disable_signal_to_mm = 1;
+
+	  return 0;
+	}
+	break;
+      case 1:
+	if(disable_signal_to_mm == 1){
+
+	  //printk("[w100fb] reset the image cache info!\n");
+
+	  // enable memory check
+	  disable_signal_to_mm = 0;
+	  return 0;
+
+	}
+	break;
+#ifdef _IMAGE_CACHE_SUPPORT
+      case 2:
+	{
+	  u32 start,end;
+	  start = (u32)setup_arg[1];
+	  end = (u32)setup_arg[2];
+
+	  if(start < 0 || end > (REMAPPED_FB_LEN-1) || start > end){
+	    // error ... don't skip.
+	    start_skip_save_image_no = (-1);
+	    end_skip_save_image_no = (-1);
+	    return -EINVAL;
+	  }
+
+	  __PRINTK("[w100fb] start=%x, end=%x\n",start,end);
+
+	  if(start != 0 || end != 0){
+	    start = start/IMG_CACHE_MALLOC_SIZE + 1;
+	    end = end/IMG_CACHE_MALLOC_SIZE - 1;
+
+	    __PRINTK("[w100fb] start_no=%x, end_no=%x\n",start,end);
+
+	    if(start <= end){
+	      // do skip.
+	      start_skip_save_image_no = start;
+	      end_skip_save_image_no = end;
+	      return 0;
+	    }
+	  }
+	  // don't skip.
+	  start_skip_save_image_no = (-1);
+	  end_skip_save_image_no = (-1);
+	  return 0;
+	}
+#endif //_IMAGE_CACHE_SUPPORT
+      default:
+	break;
+      }
+    }
+    return -EINVAL;
+    break;
+#endif
+
   default:
     return -EINVAL;
   }
@@ -3204,6 +3366,260 @@ static void lcdtg_lcd_change(u32 mode)
 	lcdtg_ssp_send( RESCTL_ADRS, RESCTL_QVGA );
 }
 
+#ifdef _IMAGE_CACHE_SUPPORT //
+
+// vga only
+//#undef __PRINTK
+//#define __PRINTK(arg...) printk(arg)
+//#define __SUM
+static u32* save_image_cache(u32 *alloc_num)
+{
+  u32 *img_src=NULL;
+  u32 *img_dst=NULL;
+  u32 img_size=0;
+  u32 img_kmalloc_num=0;
+  int i,j;
+#ifdef __SUM
+  u32 sum=0;
+#endif 
+
+#if defined(CONFIG_ARCH_SHARP_SL)
+    // checking in mm/omm_kill.c
+    //disable_signal_to_mm = 1; //@DEBUG
+#endif
+
+  __PRINTK("save image cache\n");
+  img_src = (u32*)remapped_fbuf + IMG_CACHE_OFFSET_VGA/sizeof(u32);
+  img_size = IMG_CACHE_TOTAL_SIZE_VGA;
+
+  __PRINTK(" - remapped_fbuf = %x\n",(int)remapped_fbuf);
+  __PRINTK(" - img_src = %x\n",(int)img_src);
+  __PRINTK(" - img_size = %x\n",img_size);
+
+  img_kmalloc_num = (img_size+IMG_CACHE_MALLOC_SIZE)/IMG_CACHE_MALLOC_SIZE;
+  img_dst = kmalloc(img_kmalloc_num*sizeof(u32),GFP_KERNEL);
+  if(img_dst == NULL)
+    goto save_img_cache_err;
+
+  __PRINTK(" - img_kmalloc_num = %d\n",img_kmalloc_num);
+  __PRINTK(" - img_dst = %x\n",(int)img_dst);
+
+  for(i=0;i<img_kmalloc_num;i++) img_dst[i] = (u32)NULL;
+
+  for(i=0;i<img_kmalloc_num;i++){
+#if 1 //skip image data
+    if(i < start_skip_save_image_no || i > end_skip_save_image_no ||
+       start_skip_save_image_no < 0 || end_skip_save_image_no < 0){
+      img_dst[i] = (u32)kmalloc(IMG_CACHE_MALLOC_SIZE,GFP_KERNEL);
+    }else{
+      img_dst[i] = IMG_CACHE_SKIP_MARK;
+    }
+#else
+    img_dst[i] = (u32)kmalloc(IMG_CACHE_MALLOC_SIZE,GFP_KERNEL);
+#endif
+
+    __PRINTK(" - malloc[%d] = %x\n",i,(int)img_dst[i]);
+
+    if(img_dst[i] == (u32)NULL){
+      img_kmalloc_num = i;
+      for(i=0;i<img_kmalloc_num;i++){
+#if 1 //skip image data
+	if(img_dst[i] != IMG_CACHE_SKIP_MARK){
+	  kfree((void*)img_dst[i]);
+	}
+#else
+	kfree((void*)img_dst[i]);
+#endif
+	__PRINTK("-- error: free[%d]=%x,i\n",img_dst[i]);
+      }
+      goto save_img_cache_err;
+    }
+  }
+
+  __PRINTK(" - img_src = %x\n",(int)img_src);
+
+  for(i=0;i<img_kmalloc_num;i++){
+    u32 *dst = (u32*)img_dst[i];
+#if 1 //skip image data
+    if((u32)dst == IMG_CACHE_SKIP_MARK){
+      __PRINTK("...save_skip[%d] = %x\n",i,dst);
+      for(j=0;j<(IMG_CACHE_MALLOC_SIZE/sizeof(u32));j++){
+	img_src++;
+	img_size -= sizeof(u32);
+	if((int)img_size <= 0){
+	  i=img_kmalloc_num; // for break!
+	  break;
+	}
+      }
+      if(i==img_kmalloc_num)
+	break;
+      continue;
+    }
+    __PRINTK("...save_exec[%d] = %x\n",i,dst);
+#endif
+    for(j=0;j<(IMG_CACHE_MALLOC_SIZE/sizeof(u32));j++){
+      dst[j] = *img_src;
+#ifdef __SUM
+      sum+=*img_src;
+#endif
+      img_src++;
+      img_size -= sizeof(u32);
+      if((int)img_size <= 0){
+	i=img_kmalloc_num; // for break!
+	break;
+      }
+    }
+  }
+  __PRINTK(" - SUCCESS!!\n");
+#ifdef __SUM
+  __PRINTK(" - SUM=%x\n",(int)sum);
+#endif
+
+  *alloc_num = img_kmalloc_num;
+
+#if defined(CONFIG_ARCH_SHARP_SL)
+    // checking in mm/omm_kill.c
+  //disable_signal_to_mm = 0; //@DEBUG
+  //disable_signal_to_mm = 1; //@DEBUG
+#endif
+
+  return img_dst;
+
+//
+ save_img_cache_err:
+  __PRINTK(" - ERROR!!\n");
+  if(img_dst){
+    kfree(img_dst);
+  }
+  *alloc_num = 0;
+
+#if defined(CONFIG_ARCH_SHARP_SL)
+    // checking in mm/omm_kill.c
+  // disable_signal_to_mm = 0; //@DEBUG
+  //  disable_signal_to_mm = 1; //@DEBUG
+#endif
+
+  return NULL;
+}
+
+//#undef __PRINTK
+//#define __PRINTK(arg...) printk(arg)
+
+static int restore_image_cache(u32 *img_src,u32 alloc_num)
+{
+  u32 *img_dst=NULL;
+  u32 img_size=0;
+  int i,j;
+#ifdef __SUM
+  u32 sum=0;
+#endif
+
+  if(img_src == NULL)
+    return -1; //ERROR
+
+  if(alloc_num == 0)
+    return -2; //ERROR
+
+  __PRINTK("restore image cache\n");
+  img_dst = (u32*)remapped_fbuf + IMG_CACHE_OFFSET_VGA/sizeof(u32);
+  img_size = IMG_CACHE_TOTAL_SIZE_VGA;
+
+  __PRINTK(" - remapped_fbuf = %x\n",(int)remapped_fbuf);
+  __PRINTK(" - img_src = %x\n",(int)img_src);
+  __PRINTK(" - img_dst = %x\n",(int)img_dst);
+
+  for(i=0;i<alloc_num;i++){
+    u32 *src = (u32*)img_src[i];
+#if 1 //skip image data
+    if((u32)src == IMG_CACHE_SKIP_MARK){
+      __PRINTK("...restore_skip[%d] = %x\n",i,src);
+      for(j=0;j<(IMG_CACHE_MALLOC_SIZE/sizeof(u32));j++){
+	img_dst++;
+	img_size -= sizeof(u32);
+	if((int)img_size <= 0){
+	  i=alloc_num; // for break!
+	  break;
+	}
+      }
+      if(i==alloc_num)
+	break;
+      continue;
+    }
+    __PRINTK("...restore_exec[%d] = %x\n",i,src);
+#else
+    __PRINTK(" -- %d:[%x]\n",i,img_src[i]);
+#endif
+
+    for(j=0;j<(IMG_CACHE_MALLOC_SIZE/sizeof(u32));j++){
+	*img_dst = src[j];
+#ifdef __SUM
+	sum+=*img_dst;
+#endif
+	img_dst++;
+	img_size -= sizeof(u32);
+	if((int)img_size <= 0){
+	  i=alloc_num; // for break!
+	  break;
+	}
+    }
+    //__PRINTK(" - free[%d] = %x\n",i,src);
+    //kfree(src);
+  }
+
+  __PRINTK(" - restore finished !!\n");
+
+  for(i=0;i<alloc_num;i++){
+    __PRINTK(" - free[%d] = %x\n",i,img_src[i]);
+#if 1 //skip image data
+    if(img_src[i] != IMG_CACHE_SKIP_MARK)
+      kfree((void*)img_src[i]);
+#else
+    kfree((void*)img_src[i]);
+#endif
+  }
+
+  __PRINTK(" - free[img_src] = %x\n",(int)img_src);
+  kfree((void*)img_src);
+
+  __PRINTK(" - SUCCESS!!\n");
+#ifdef __SUM
+  __PRINTK(" - SUM=%x\n",sum);
+#endif
+
+#if 1 //skip image data
+  start_skip_save_image_no = (-1);
+  end_skip_save_image_no = (-1);
+#endif 
+  return 0; //SUCCESS
+}
+
+static int cleanup_image_cache(u32 *img_src,u32 alloc_num)
+{
+  int i;
+
+  if(img_src == NULL)
+    return -1; //ERROR
+
+  if(alloc_num == 0)
+    return -2; //ERROR
+
+  __PRINTK("cleanup image cache \n");
+  __PRINTK(" - img_src = %x\n",(int)img_src);
+
+  for(i=0;i<alloc_num;i++){
+    __PRINTK(" -- %d:[%x]\n",i,img_src[i]);
+#if 1 //skip image data
+    if(img_src[i] != IMG_CACHE_SKIP_MARK)
+      kfree((void*)img_src[i]);
+#else
+    kfree((void*)img_src[i]);
+#endif
+  }
+  kfree((void*)img_src);
+
+  return 0; //SUCCESS
+}
+#endif //_IMAGE_CACHE_SUPPORT
 
 static void w100_pm_suspend(int suspend_mode)
 {
@@ -3248,6 +3664,26 @@ static void w100_pm_suspend(int suspend_mode)
 		gSaveImagePtr[i] = NULL;
 	}
 
+#ifdef _IMAGE_CACHE_SUPPORT // FOR SUSPEND
+//#undef __PRINTK
+//#define __PRINTK(arg...) //printk(arg)
+	// VGA only
+	if(w100fb_lcdMode == LCD_MODE_480){
+	  __PRINTK("SUSPEND: save image cache ... ");
+	  if(save_img_alloc_num != 0 || save_img_cache_ptr != NULL){
+	    __PRINTK("ERROR!\n");
+	  }else{
+	    save_img_cache_ptr = save_image_cache(&save_img_alloc_num);
+
+	    if(save_img_alloc_num == 0 || save_img_cache_ptr == NULL){
+	      __PRINTK("ERROR!!\n");
+	    }else{
+	      __PRINTK("SUCCESS!\n");
+	    }
+	  }
+	}
+#endif //_IMAGE_CACHE_SUPPORT
+
     lcdtg_suspend();
 
     if(suspend_mode == 1){
@@ -3284,6 +3720,27 @@ static void w100_pm_resume(int resume_mode)
 		}
     }
 
+#ifdef _IMAGE_CACHE_SUPPORT // FOR RESUME
+//#undef __PRINTK
+//#define __PRINTK(arg...) //printk(arg)
+    // VGA only
+    if(w100fb_lcdMode == LCD_MODE_480){
+      __PRINTK("RESUME: restore image cache ... ");
+      if(save_img_alloc_num == 0 || save_img_cache_ptr == NULL){
+	__PRINTK("ERROR!\n");
+      }else{
+	if(restore_image_cache(save_img_cache_ptr,
+			     save_img_alloc_num)){
+	  __PRINTK("ERROR!!\n");
+	}else{
+	  save_img_alloc_num=0;
+	  save_img_cache_ptr=NULL;
+	  __PRINTK("SUCCESS!\n");
+	}
+      }
+    }
+#endif //_IMAGE_CACHE_SUPPORT
+
     lcdtg_resume();
 
 }
@@ -3297,6 +3754,7 @@ static int w100_pm_callback(struct pm_dev* pm_dev,
 		if (!w100fb_isblank) {
 		    w100_pm_suspend( 0 );
 		    fb_blank_normal = 0;
+
 		}
 		break;
 		

@@ -605,3 +605,21 @@ void setup_dma(int channel, char *buffer, int count, int mode)
 
 	release_dma_lock(flags);
 }
+
+#ifdef CONFIG_PM
+void irda_task_suspend(void)
+{
+	struct irda_task *task;
+
+	task = (struct irda_task *) hashbin_get_first( tasks );
+	while (task != NULL) {
+		ASSERT(task->magic == IRDA_TASK_MAGIC, break;);
+
+		del_timer(&task->timer);
+		task = (struct irda_task *) hashbin_get_next(tasks);
+		IRDA_DEBUG(2, __FUNCTION__"() delete task timers\n");
+	}
+
+	return;
+}
+#endif

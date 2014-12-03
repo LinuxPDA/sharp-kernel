@@ -22,6 +22,7 @@
  *	12-Nov-2001 Lineo Japan, Inc.
  *	21-Aug-2002 Lineo Japan, Inc.  for 2.4.18
  *	12-Dec-2002 Sharp Corporation for Poodle and Corgi
+ *	16-Jan-2003 SHARP sleep_on -> interruptible_sleep_on
  *
  */
 
@@ -395,13 +396,7 @@ static int sharpsl_check_time = SHARPSL_BATCHK_TIME;
 static int sharpsl_main_status_bk = SHARPSL_BATTERY_STATUS_HIGH;
 static int sharpsl_main_percent_bk = 100;
 static int sharpsl_check_ac_err = 0;
-#if defined(CONFIG_ARCH_PXA_POODLE) && !defined(CONFIG_ARCH_SHARP_SL_J)
-int sharpsl_main_bk_flag = 1;
-#elif defined(CONFIG_ARCH_PXA_POODLE) && defined(CONFIG_ARCH_SHARP_SL_J)
 int sharpsl_main_bk_flag = 0;
-#elif defined(CONFIG_ARCH_PXA_CORGI)
-int sharpsl_main_bk_flag = 0;
-#endif
 
 static struct timer_list ac_kick_timer;
 
@@ -480,7 +475,9 @@ int sharpsl_apm_get_power_status(u_char *ac_line_status,
 	if ( charge_status ) {
 		*battery_status = APM_BATTERY_STATUS_CHARGING;
 		*battery_flag = (1 << 3);
-		*battery_percentage = sharpsl_main_charge_battery;
+		// charging now, so can not get battery percentage.
+		//*battery_percentage = sharpsl_main_charge_battery;
+		*battery_percentage = -1;
 	}
 
 	// set battery life
@@ -556,7 +553,6 @@ static int sharpsl_battery_thread_main(void)
   // get main battery
   sharpsl_get_main_battery();
 
-#if !defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_SHARP_SL_J)
   // if battery is low , backlight driver become to save power.
   if ( ( ( sharpsl_main_battery == SHARPSL_BATTERY_STATUS_VERYLOW  ) ||
        ( sharpsl_main_battery == SHARPSL_BATTERY_STATUS_CRITICAL ) ) &&
@@ -567,7 +563,6 @@ static int sharpsl_battery_thread_main(void)
     SHARPSL_LIMIT_CONTRAST(SHARPSL_RESET_CONTRAST);
   }
   back_battery_status = sharpsl_main_battery;
-#endif
 
   // good or ac in   --> GOOD_COUNT
   // low or very low --> NOGOOD_COUNT
@@ -647,19 +642,19 @@ static int sharpsl_battery_thread(void* unused)
 /*** battery charge thread  ***********************************************************/
 void sharpsl_charge_start(void)
 {
-
 #if !defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_SHARP_SL_J)
 		sharpsl_charge_on_time = jiffies;
 #endif
 
-#if !defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_SHARP_SL_J)
 		if ( sharpsl_check_battery(1) ) {
 		  /* error led on */
 		  CHARGE_LED_ERR();
 		  CHARGE_OFF();
 		  /* charge status flag reset */
 		  charge_status = 0;
+#if !defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_SHARP_SL_J)
 		  sharpsl_charge_on_time = 0;
+#endif
 		} else {
 		  /* led on */
 		  CHARGE_LED_OFF();
@@ -671,25 +666,6 @@ void sharpsl_charge_start(void)
 		  /* charge status flag set */
 		  charge_status = 1;
 		}
-#else
-		if ( sharpsl_check_battery(1) ) {
-			/* error led on */
-			CHARGE_LED_ERR();
-			CHARGE_OFF();
-			/* charge status flag reset */
-			charge_status = 0;
-		} else {
-			/* led on */
-			CHARGE_LED_OFF();
-			CHARGE_LED_ON();
-			/* Charge ON */
-			CHARGE_OFF();
-			mdelay(SHARPSL_CHARGE_WAIT_TIME);
-			CHARGE_ON();
-			/* charge status flag set */
-			charge_status = 1;
-		}
-#endif
 
 		sharpsl_change_battery_status = 1;
 		wake_up_interruptible(&battery_waitqueue);
@@ -699,12 +675,13 @@ void sharpsl_charge_start(void)
 static int sharpsl_charge_on(void* unused)
 {
 
+	// daemonize();
 	strcpy(current->comm, "battchrgon");
-
+	sigfillset(&current->blocked);
 
 	while(1) {
 
-		sleep_on(&wq_on);
+		interruptible_sleep_on(&wq_on);
 
                 // if ac is not insert, so stop charge start proc.
                 if ( ( GPLR(GPIO_AC_IN) & GPIO_bit(GPIO_AC_IN) ) == 0 ) continue;
@@ -735,11 +712,13 @@ static int sharpsl_charge_on(void* unused)
 static int sharpsl_charge_off(void* unused)
 {
 
+	// daemonize();
 	strcpy(current->comm, "battchrgoff");
+	sigfillset(&current->blocked);
 
 	while(1) {
 
-		sleep_on(&wq_off);
+		interruptible_sleep_on(&wq_off);
 
 		DPRINTK("charge off\n");
 		DPRINTK("charge off mode = %d\n",charge_off_mode);
@@ -932,7 +911,7 @@ int sharpsl_get_main_battery(void)
 		voltage = sharpsl_cnv_value(voltage);
 
 		thresh = GetMainLevel(voltage);
-#if !defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_SHARP_SL_J)
+
 		// if battery is low , backlight driver become to save power.
 		if ( ( ( thresh->status == SHARPSL_BATTERY_STATUS_VERYLOW  ) ||
 		       ( thresh->status == SHARPSL_BATTERY_STATUS_CRITICAL ) ||
@@ -940,7 +919,7 @@ int sharpsl_get_main_battery(void)
 		       ( !sharpsl_main_bk_flag ) ) {
 		  SHARPSL_LIMIT_CONTRAST(SHARPSL_CAUTION_CONTRAST);
 		}
-#endif
+
 		if ( sharpsl_main_bk_flag == 0 ) {
 		  return sharpsl_main_battery;
 		}
@@ -1213,10 +1192,9 @@ int sharpsl_check_battery(int mode)
 	// disable charge
 	CHARGE_OFF();
 
-#if defined(CONFIG_ARCH_PXA_CORGI)
 	// enable discharge
 	DISCHARGE_ON();
-#endif
+
 	mdelay(SHARPSL_WAIT_DISCHARGE_ON*10);
 
 	// Check Voltage : check full charging
@@ -1225,10 +1203,8 @@ int sharpsl_check_battery(int mode)
 		mdelay(SHARPSL_CHECK_BATTERY_WAIT_TIME_VOLT*10);
 	}
 
-#if defined(CONFIG_ARCH_PXA_CORGI)
 	// disable discharge
 	DISCHARGE_OFF();
-#endif
 
 	DPRINTK("volt\n");
 	temp = get_select_val(buff);
@@ -1352,7 +1328,6 @@ static int Sharpsl_battery_pm_callback(struct pm_dev *pm_dev, pm_request_t req, 
 
 	  break;
 	case PM_RESUME:
-	  //printk("set fatal_off\n");
 	  sharpsl_fatal_off = 1;
 	  FattCnt = 0;
 	  sharpsl_charge_state = CHARGE_STEP1;
@@ -1371,6 +1346,13 @@ static int Sharpsl_battery_pm_callback(struct pm_dev *pm_dev, pm_request_t req, 
 	    is_ac_adaptor = 0;
 	    charge_off_mode = 1;
 	    wake_up(&wq_off);
+	  }
+#else
+	  if ( charge_status ) {
+	    /* Charge ON */
+	    CHARGE_OFF();
+	    mdelay(SHARPSL_CHARGE_WAIT_TIME);
+	    CHARGE_ON();
 	  }
 #endif
 	  sharpsl_kick_battery_check_queue();
@@ -1789,7 +1771,9 @@ void battery_init(void)
 
 	/* Set transition detect */
 	set_GPIO_IRQ_edge( GPIO_AC_IN  , GPIO_BOTH_EDGES ); /* AC IN */
+#if defined(CONFIG_ARCH_PXA_POODLE) && !defined(CONFIG_ARCH_SHARP_SL_J)
 	set_GPIO_IRQ_edge( GPIO_CO     , GPIO_RISING_EDGE ); /* CHRG FULL */
+#endif
 
 	/* Register interrupt handler. */
 	if ((err = request_irq(IRQ_GPIO_AC_IN, Sharpsl_ac_interrupt,

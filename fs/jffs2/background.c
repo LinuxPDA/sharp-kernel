@@ -10,6 +10,18 @@
  * $Id: background.c,v 1.31 2002/08/20 15:41:28 gleixner Exp $
  *
  * ChangeLog:
+ *     27-Nov-2002 Lineo Japan, Inc.  add effective-gc mode
+ *     25-Nov-2002 Lineo Japan, Inc.  end GC when jffs2_garbage_collect_pass
+ *       returns -ENOSPC
+ *     23-Nov-2002 Lineo Japan, Inc.  reverse precedence between
+ *       c->nodemerge_list and c->very_dirty_list
+ *     15-Nov-2002 Lineo Japan, Inc.  add nodemerge facility and c->nodemerge_list
+ *				      correct indentation
+ *     29-Oct-2002 Lineo Japan, Inc.  add reserved blocks for badblock
+ *				      add c->cont_gc_count
+ *     24-Oct-2002 Lineo Japan, Inc.  add min. available blocks
+ *
+ * ChangeLog:
  *     05-Dec-2002 SHARP  adjust gc-end conditions
  *     27-Nov-2002 Lineo Japan, Inc.  add effective-gc mode
  *     25-Nov-2002 Lineo Japan, Inc.  end GC when jffs2_garbage_collect_pass

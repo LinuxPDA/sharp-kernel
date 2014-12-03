@@ -19,6 +19,7 @@
  *
  * Change Log
  *	12-Nov-2001 Lineo Japan, Inc.
+ *	16-Jan-2003 SHARP add VM switch
  */
 
 #include <linux/config.h>
@@ -283,6 +284,10 @@ static ctl_table vm_table[] = {
 #ifdef CONFIG_FREEPG_SIGNAL
 	{VM_FREEPG_SIGNAL_PROC, "freepg_signal_proc", freepg_signal_proc,
 	 sizeof freepg_signal_proc, 0644, NULL, &proc_dostring},
+#endif
+#ifdef CONFIG_ARCH_SHARP_SL
+	{VM_WITHOUT_SWAP, "vm-without-swap",
+	&vm_without_swap, sizeof(int), 0644, NULL, &proc_dointvec},
 #endif
 	{0}
 };

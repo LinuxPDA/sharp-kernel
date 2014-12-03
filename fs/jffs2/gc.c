@@ -10,6 +10,22 @@
  * $Id: gc.c,v 1.84 2002/09/06 16:46:29 dwmw2 Exp $
  *
  * ChangeLog:
+ *     03-Dec-2002 Lineo Japan, Inc.  add LockPage
+ *     30-Nov-2002 Lineo Japan, Inc.  fix deadlock between lock_page and f->sem
+ *     27-Nov-2002 Lineo Japan, Inc.  add effective-gc mode
+ *     25-Nov-2002 Lineo Japan, Inc.  remove warning message when there is
+ *       no gcblock
+ *     23-Nov-2002 Lineo Japan, Inc.  correct JFFS2_RESERVED_BLOCKS_GCMERGE
+ *       condition expression in connection with NR_AVAIL_BLOCKS()
+ *				      take max dirty size from c->dirty_list
+ *				      return -ENOSPC when find_gc_block
+ *       returns NULL
+ *				      don't take gcblock from clean_list
+ *       when NR_AVAIL_BLOCKS < JFFS2_RESERVED_BLOCKS_CLEAN
+ *     18-Nov-2002 Lineo Japan, Inc.  add dynamic construction of fragtree
+ *     15-Nov-2002 Lineo Japan, Inc.  add nodemerge facility
+ *
+ * ChangeLog:
  *     05-Dec-2002 SHARP  adjust gcblock selection
  *     03-Dec-2002 Lineo Japan, Inc.  add LockPage
  *     30-Nov-2002 Lineo Japan, Inc.  fix deadlock between lock_page and f->sem

@@ -8,6 +8,9 @@
  * published by the Free Software Foundation.
  *
  *  Interrupt safe locking assembler. 
+ *
+ * Change log
+ *	16-Jan-2003 SHARP semaphore down bug fix
  */
 #ifndef __ASM_PROC_LOCKS_H
 #define __ASM_PROC_LOCKS_H
@@ -27,7 +30,7 @@
 "	blmi	" SYMBOL_NAME_STR(fail)		\
 	:					\
 	: "r" (ptr), "I" (1)			\
-	: "ip", "lr", "cc");			\
+	: "ip", "lr", "cc", "memory");		\
 	})
 
 #define __down_op_ret(ptr,fail)			\
@@ -48,7 +51,7 @@
 "	mov	%0, ip"				\
 	: "=&r" (ret)				\
 	: "r" (ptr), "I" (1)			\
-	: "ip", "lr", "cc");			\
+	: "ip", "lr", "cc", "memory");		\
 	ret;					\
 	})
 
@@ -94,7 +97,7 @@
 "	blne	" SYMBOL_NAME_STR(fail)		\
 	:					\
 	: "r" (ptr), "I" (RW_LOCK_BIAS)		\
-	: "ip", "lr", "cc");			\
+	: "ip", "lr", "cc", "memory");		\
 	})
 
 #define __up_op_write(ptr,wake)			\

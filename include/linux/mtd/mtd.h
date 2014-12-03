@@ -4,6 +4,12 @@
 /*
  * ChangeLog:
  *     19-Sep-2002 Lineo Japan, Inc.  add erase-by-force mode
+ *
+ */
+
+/*
+ * ChangeLog:
+ *     19-Sep-2002 Lineo Japan, Inc.  add erase-by-force mode
  *     23-Oct-2002 SHARP  add definitions for CONFIG_MTD_NAND_LOGICAL_ADDRESS_ACCESS
  *
  */

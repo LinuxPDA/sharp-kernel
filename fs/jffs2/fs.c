@@ -11,6 +11,11 @@
  *
  * ChangeLog:
  *     19-Nov-2002 Lineo Japan, Inc.  add function jffs2_get_nr_inodes()
+ *     09-Nov-2002 Lineo Japan, Inc.  add code to do avail = 0 when cannot reserve space
+ *     01-Nov-2002 Lineo Japan, Inc.  involve nr_bad_blocks in USED calc.
+ *
+ * ChangeLog:
+ *     19-Nov-2002 Lineo Japan, Inc.  add function jffs2_get_nr_inodes()
  *     24-Nov-2002 SHARP  modify storage-avail calculation, and add erasing_dirty_size
  *     09-Nov-2002 Lineo Japan, Inc.  add code to do avail = 0 when cannot reserve space
  *     01-Nov-2002 Lineo Japan, Inc.  involve nr_bad_blocks in USED calc.

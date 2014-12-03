@@ -13,6 +13,7 @@
  * ChangLog:
  *     09-Nov-2002 SHARP  reduce active pages
  *     19-Nov-2002 Lineo Japan, Inc.  shrink JFFS2 inode cache
+ *     16-Jan-2003 SHARP add VM switch
  */
 
 #include <linux/slab.h>
@@ -28,6 +29,11 @@
 #include <linux/freepg_signal.h>
 
 #include <asm/pgalloc.h>
+
+#ifdef CONFIG_ARCH_SHARP_SL
+/* switvch to enable vm for no swap system */
+int vm_without_swap=1;
+#endif
 
 /*
  * The "priority" of VM scanning is how much of the queues we
@@ -581,6 +587,9 @@ static int shrink_caches(zone_t * classzone, int priority, unsigned int gfp_mask
 	/* try to keep the active list 2/3 of the size of the cache */
 #if defined(CONFIG_ARCH_SHARP_SL)
 	ratio = (unsigned long) nr_pages * nr_active_pages;
+	if (!vm_without_swap) {
+		ratio /= ((nr_inactive_pages + 1) * 2);
+	}
 #else
 	ratio = (unsigned long) nr_pages * nr_active_pages / ((nr_inactive_pages + 1) * 2);
 #endif
@@ -613,7 +622,11 @@ int try_to_free_pages(zone_t *classzone, unsigned int gfp_mask, unsigned int ord
 #else
 		if (nr_pages <= 0) {
 #if defined(CONFIG_ARCH_SHARP_SL)
-			check_out_of_memory();
+			if (vm_without_swap) {
+				check_out_of_memory();
+			} else {
+				reset_out_of_memory_condition();
+			}
 #else
 			reset_out_of_memory_condition();
 #endif
@@ -627,7 +640,11 @@ int try_to_free_pages(zone_t *classzone, unsigned int gfp_mask, unsigned int ord
 	 * Mhwahahhaha! This is the part I really like. Giggle.
 	 */
 #if defined(CONFIG_ARCH_SHARP_SL)
-	check_out_of_memory();
+	if (vm_without_swap) {
+		check_out_of_memory();
+	} else {
+		out_of_memory();
+	}
 #else
 	out_of_memory();
 #endif

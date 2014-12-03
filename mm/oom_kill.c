@@ -17,6 +17,8 @@
  * Change Log
  *     12-Nov-2001 Lineo Japan, Inc.
  *     13-Nov-2002 SHARP
+ *     16-Jan-2003 SHARP add VM switch
+ *     24-Feb-2003 SHARP modify check out of memory function
  */
 
 #include <linux/mm.h>
@@ -291,6 +293,10 @@ retry_shrink_cache:
 #endif
 
 #if defined(CONFIG_ARCH_SHARP_SL)
+#if defined(CONFIG_ARCH_PXA_CORGI)
+//03.02.24  for signal control (see video/w100fb.c)
+extern int disable_signal_to_mm;
+#endif
 void check_out_of_memory(void)
 {
 	int pgsize = atomic_read(&page_cache_size);
@@ -321,6 +327,13 @@ void check_out_of_memory(void)
 	}
 	if ((prev_level < 2) && (pgsize < MIN_SIGNAL_PG_CACHE_SIZE)) {
 //		printk("oom_min()! %d\n", pgsize);
+
+#if defined(CONFIG_ARCH_PXA_CORGI) // 03.02.24 disable the signal
+	  if (disable_signal_to_mm){
+	    //printk("W100FB: oom_min()! %d\n", pgsize);
+	    return;
+	  }
+#endif 
 		prev_level = 2;
 		prev_action = now;
 		freepg_signal_min();
@@ -328,13 +341,21 @@ void check_out_of_memory(void)
 	}
 	else if ((prev_level < 1) && (pgsize < LOW_SIGNAL_PG_CACHE_SIZE)) {
 //		printk("oom_low()! %d\n", pgsize);
+
+#if defined(CONFIG_ARCH_PXA_CORGI) // 03.02.24 disable the signal
+	  if (disable_signal_to_mm){
+	    //printk("W100FB: oom_low()! %d\n", pgsize);
+	    return;
+	  }
+#endif 
 		prev_level = 1;
 		prev_action = now;
 		freepg_signal_low();
 		return;
 	}
 }
-#else
+#endif
+
 /**
  * out_of_memory - is the system out of memory?
  */
@@ -420,7 +441,6 @@ reset:
 	retry_count = 0;
 #endif
 }
-#endif
 
 
 #ifdef FREEPG_DEBUG

@@ -34,7 +34,8 @@
 	06-13-2002  Richard Rau
 	30-Jul-2002 Lineo Japan, Inc.  for 2.4.18
 	12-Dec-2002 Sharp Corporation for Poodle and Corgi
-
+	07-Feb-2003 Sharp Corporation
+    
 ======================================================================*/
 
 #include <linux/module.h>
@@ -2393,6 +2394,18 @@ int pcmcia_report_error(client_handle_t handle, error_info_t *err)
 	printk("%s: %s\n", serv, error_table[i].msg);
     else
 	printk("%s: Unknown error code %#x\n", serv, err->retcode);
+#ifdef CONFIG_ARCH_SHARP_SL
+	/* for P-in m@ster */
+	if(( err->func == ParseTuple )&&( err->retcode != CS_SUCCESS )){
+		/* clear cis cache here... */
+		if (!CHECK_HANDLE(handle)){
+			socket_info_t *s;
+
+			s = SOCKET(handle);
+			s->cis_used = 0;
+		}
+	}
+#endif
 
     return CS_SUCCESS;
 } /* report_error */

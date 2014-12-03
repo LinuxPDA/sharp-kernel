@@ -20,6 +20,7 @@
  * GNU General Public License for more details.
  *
  * Change Log
+ *	16-Jan-2003 SHARP sleep_on -> interruptible_sleep_on
  *
  */
 #include <linux/init.h>
@@ -1963,11 +1964,13 @@ static void poodle_hp_thread(void)
   int state;
   audio_state_t  *audio_state = &pxa_audio_state;
 
+  // daemonize();
   strcpy(current->comm, "snd_hp");
+  sigfillset(&current->blocked);
 
 
   while(1) {
-    sleep_on(&hp_proc);
+    interruptible_sleep_on(&hp_proc);
 
     isChkHPstatus = 1;
 

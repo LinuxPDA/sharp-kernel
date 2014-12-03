@@ -1043,3 +1043,19 @@ int irias_proc_read(char *buf, char **start, off_t offset, int len)
 }
 
 #endif /* PROC_FS */
+
+#ifdef CONFIG_PM
+void iriap_suspend(void)
+{
+	struct iriap_cb *self;
+
+	self = (struct iriap_cb *) hashbin_get_first( iriap );
+	while (self != NULL) {
+		ASSERT(self->magic == IAS_MAGIC, break;);
+
+		del_timer(&self->watchdog_timer);
+		self = (struct iriap_cb *) hashbin_get_next(iriap);
+		IRDA_DEBUG(2, __FUNCTION__"() delete iap timers\n");
+	}	return;
+}
+#endif

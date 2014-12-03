@@ -22,6 +22,7 @@
  *
  * Change Log
  *	12-Nov-2001 Lineo Japan, Inc.
+ *	16-Jan-2003 SHARP add VM switch
  */
 
 #ifndef _LINUX_SYSCTL_H
@@ -149,6 +150,10 @@ enum
 #ifdef CONFIG_FREEPG_SIGNAL
 	,
 	VM_FREEPG_SIGNAL_PROC=14
+#endif
+#ifdef CONFIG_ARCH_SHARP_SL
+	,
+	VM_WITHOUT_SWAP=15	/* switch to enable vm for no swap */
 #endif
 };
 

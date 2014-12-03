@@ -10,6 +10,15 @@
  * $Id: wbuf.c,v 1.17 2002/08/29 21:45:54 gleixner Exp $
  *
  * ChangeLog:
+ *     25-Oct-2002 Lineo Japan, Inc.  deal with 1bit corruption of oob area
+ *     08-Oct-2002 Lineo Japan, Inc.  move failure counter pos in oob
+ *     04-Oct-2002 Lineo Japan, Inc.  correct jeb->bad_count value when
+ *       failure count is 0xff
+ *     25-Sep-2002 Lineo Japan, Inc.  take hamming distance for oob value
+ *       into consideration
+ *     17-Sep-2002 Lineo Japan, Inc.  add code for post-badblock 
+ *
+ * ChangeLog:
  *     24-Nov-2002 SHARP  add erasing_dirty_size
  *     25-Oct-2002 Lineo Japan, Inc.  deal with 1bit corruption of oob area
  *     08-Oct-2002 Lineo Japan, Inc.  move failure counter pos in oob

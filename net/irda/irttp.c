@@ -18,7 +18,7 @@
  *     published by the Free Software Foundation; either version 2 of 
  *     the License, or (at your option) any later version.
  *
- *     Neither Dag Brattli nor University of Troms,Ax(B admit liability nor
+ *     Neither Dag Brattli nor University of Troms.ANx admit liability nor
  *     provide warranty for any of this software. This material is 
  *     provided "AS-IS" and at no charge.
  *
@@ -1672,3 +1672,23 @@ int irttp_proc_read(char *buf, char **start, off_t offset, int len)
 }
 
 #endif /* PROC_FS */
+
+#ifdef CONFIG_PM
+void irttp_suspend(void)
+{
+	struct tsap_cb *self;
+
+	/* Check for main structure */
+	ASSERT(irttp != NULL, return;);
+	ASSERT(irttp->magic == TTP_MAGIC, return;);
+
+	self = (struct tsap_cb *) hashbin_get_first( irttp->tsaps );
+	while (self != NULL) {
+		ASSERT(self->magic == TTP_TSAP_MAGIC, break;);
+
+		del_timer(&self->todo_timer);
+		self = (struct tsap_cb *) hashbin_get_next(irttp->tsaps);
+		IRDA_DEBUG(2, __FUNCTION__"() delete tsap timers\n");
+	}	return;
+}
+#endif
