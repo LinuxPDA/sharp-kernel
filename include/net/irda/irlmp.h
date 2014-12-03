@@ -22,6 +22,8 @@
  *     provide warranty for any of this software. This material is 
  *     provided "AS-IS" and at no charge.
  *
+ * ChangeLog:
+ *	12-17-2002 SHARP	retry discovery at passive mode
  ********************************************************************/
 
 #ifndef IRLMP_H
@@ -181,6 +183,7 @@ struct irlmp_cb {
 	int running;
 
 	__u16_host_order hints; /* Hint bits */
+	int	discovery_retry;	/* Discovery retry flag at media busy */
 };
 
 /* Prototype declarations */

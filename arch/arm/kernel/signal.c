@@ -4,6 +4,10 @@
  *  Copyright (C) 1995-2001 Russell King
  *  Dump registers when abnormal signal is received, 2002 SHARP
  *
+ *  ChangeLog:
+ *    01-24-2003 SHARP 
+ *        FIX: sigaltstack handling (back port form 2.4.16-rmk2)
+ *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
@@ -345,7 +349,7 @@ get_sigframe(struct k_sigaction *ka, struct pt_regs *regs, int framesize)
 	/*
 	 * This is the X/Open sanctioned signal stack switching.
 	 */
-	if ((ka->sa.sa_flags & SA_ONSTACK) && sas_ss_flags(sp))
+	if ((ka->sa.sa_flags & SA_ONSTACK) && !sas_ss_flags(sp))
 		sp = current->sas_ss_sp + current->sas_ss_size;
 
 	/*

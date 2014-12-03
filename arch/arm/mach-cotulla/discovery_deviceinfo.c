@@ -1,5 +1,7 @@
 /* collie_deviceinfo.c:	device specific informations
  * Copryright(R) SHARP 2001, 2002 All rights reserved.
+ * ChangeLog  
+ *      01-31-2003 SHARP FIX: revision/checksum error
  */
 #include	"deviceinfo.h"
 #include <asm/hardware.h>
@@ -175,7 +177,7 @@ char *di_revision(void)		/* ROM version */
 
   buf[4]=0;
   memcpy(buf,sumstr,4);
-  sscanf(buf,"%x",&cksum);
+  cksum = (unsigned short)simple_strtoul(buf,0,16);
 #endif
 
   memset(temp,0x00,20);
@@ -222,7 +224,7 @@ char *di_checksum(void)		/* ROM checksum */
 
   buf[4]=0;
   memcpy(buf,sumstr,4);
-  sscanf(buf,"%x",&cksum);
+  cksum = (unsigned short)simple_strtoul(buf,0,16);
 #endif
 
   memset(temp,0x00,20);

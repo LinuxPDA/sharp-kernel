@@ -21,6 +21,10 @@
  *
  * May be copied or modified under the terms of the GNU General Public
  * License.  See linux/COPYING for more information.
+ *
+ *
+ * ChangeLog
+ *  1-23-2003 SHARP update sound driver for voip
  */
 
 
@@ -39,8 +43,8 @@
 extern struct semaphore i2c_sem;
 
 #define PRT_I2C_MSG		0	// if 0:no print message , 1:print it
-
-#define printk
+#define	PRT_TIMEOUT_MSG		0	// 0) don't print message, 1) print it
+// #define printk
 
 unsigned short READ_I2C_WORD(unsigned char byDeviceAddress,unsigned char byRegisterAddress)
 {
@@ -68,7 +72,9 @@ unsigned short READ_I2C_WORD(unsigned char byDeviceAddress,unsigned char byRegis
 	{
 		if (TimeOut(dwTickCount))		// check if timeout
 		{
+#if PRT_TIMEOUT_MSG
 			printk("Time out 1\n");
+#endif
 			break;
 		}
 
@@ -91,7 +97,9 @@ unsigned short READ_I2C_WORD(unsigned char byDeviceAddress,unsigned char byRegis
 	{
 		if (TimeOut(dwTickCount))		// check if timeout
 		{
+#if PRT_TIMEOUT_MSG
 			printk("Time out 2\n");
+#endif
 			break;
 		}
 
@@ -115,7 +123,9 @@ unsigned short READ_I2C_WORD(unsigned char byDeviceAddress,unsigned char byRegis
 	{
 		if (TimeOut(dwTickCount))		// check if timeout
 		{
+#if PRT_TIMEOUT_MSG
 			printk("Time out 3\n");
+#endif
 			break;
 		}
 
@@ -136,7 +146,9 @@ unsigned short READ_I2C_WORD(unsigned char byDeviceAddress,unsigned char byRegis
 	{
 		if (TimeOut(dwTickCount))		// check if timeout
 		{
+#if PRT_TIMEOUT_MSG
 			printk("Time out 4\n");
+#endif
 			break;
 		}
 
@@ -163,7 +175,9 @@ unsigned short READ_I2C_WORD(unsigned char byDeviceAddress,unsigned char byRegis
 	{
 		if (TimeOut(dwTickCount))		// check if timeout
 		{
+#if PRT_TIMEOUT_MSG
 			printk("Time out 5\n");
+#endif
 			break;
 		}
 
@@ -215,7 +229,9 @@ void Write_I2C_WORD(unsigned char byDeviceAddress,unsigned char byRegisterAddres
 		
 		if (TimeOut(dwTickCount))		// check if timeout
 		{
+#if PRT_TIMEOUT_MSG
 			printk("Time out 1\n");
+#endif
 			break;
 		}
 		if( ((I2C_ISR & I2C_ISR_RWM ) ==0 ) && ( (I2C_ISR & I2C_ISR_UB) == I2C_ISR_UB)&& ( (I2C_ISR & I2C_ISR_ITE)== I2C_ISR_ITE) )
@@ -237,7 +253,9 @@ void Write_I2C_WORD(unsigned char byDeviceAddress,unsigned char byRegisterAddres
 	{
 		if (TimeOut(dwTickCount))		// check if timeout
 		{
+#if PRT_TIMEOUT_MSG
 			printk("Time out 2\n");
+#endif
 			break;
 		}
 		if( ((I2C_ISR & I2C_ISR_RWM) ==0 ) && ( (I2C_ISR & I2C_ISR_UB) == I2C_ISR_UB)&& ( (I2C_ISR & I2C_ISR_ITE)==I2C_ISR_ITE) )
@@ -258,7 +276,9 @@ void Write_I2C_WORD(unsigned char byDeviceAddress,unsigned char byRegisterAddres
 	{
 		if (TimeOut(dwTickCount))		// check if timeout
 		{
+#if PRT_TIMEOUT_MSG
 			printk("Time out 3\n");
+#endif
 			break;
 		}
 		if( ((I2C_ISR & I2C_ISR_RWM) ==0 ) && ( (I2C_ISR & I2C_ISR_UB) == I2C_ISR_UB)&& ( (I2C_ISR & I2C_ISR_ITE)==I2C_ISR_ITE) )
@@ -279,7 +299,9 @@ void Write_I2C_WORD(unsigned char byDeviceAddress,unsigned char byRegisterAddres
 	{
 		if (TimeOut(dwTickCount))		// check if timeout
 		{
+#if PRT_TIMEOUT_MSG
 			printk("Time out 4\n");
+#endif
 			break;
 		}
 		if( ((I2C_ISR & I2C_ISR_RWM) == 0 ) && ( (I2C_ISR & I2C_ISR_ITE) == I2C_ISR_ITE ) )
@@ -303,6 +325,6 @@ void Write_I2C_WORD(unsigned char byDeviceAddress,unsigned char byRegisterAddres
 }
 
 
-EXPORT_SYMBOL(READ_I2C_BYTE);
-EXPORT_SYMBOL(WRITE_I2C_BYTE);
+EXPORT_SYMBOL(READ_I2C_WORD);
+EXPORT_SYMBOL(WRITE_I2C_WORD);
 

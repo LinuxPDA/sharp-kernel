@@ -23,11 +23,25 @@
  *      tune hardware control method
  *  12-Nov-2001 Lineo Japan, Inc.
  *  2002 Steve Lin modify for Discovery.
+ *  13-Sep-2002 Alamy Liu, Eric Lai
+ *      Full Duplex mode support
+ *      Continue to work after Suspend/Resume
+ *      Stereo/Mono bug fix
+ *  23-Sep-2002 : Stereo (Left/Right) Volumn - Alamy Liu
+ *  30-Sep-2002 : 1/2 read() return value bug fix - Eric Lai
+ *  01-Oct-2002 : Mic Gain parameter - Alamy Liu
+ *  xx-Oct-2002 Alamy Liu
+ *	Mic Gain value error after suspend/resume
+ *      Return value of ioctl(SNDCTL_DSP_CHANNELS)
+ *  17-Oct-2002 : add ioctl(SNDCTL_DSP_GETOSPACE) - Alamy Liu
+ *  12-Feb-2001 SHARP
+ *      Use all fragment buffer size
+ *      Fix: dead-lock in sq_fsync
  */
 #include <linux/module.h>
 #include <linux/sched.h>
 #include <linux/timer.h>
-#include <linux/poll.h>										
+#include <linux/poll.h>
 #include <linux/major.h>
 #include <linux/config.h>
 #include <linux/fcntl.h>
@@ -39,6 +53,7 @@
 #include <linux/delay.h>
 
 #include <linux/pm.h>
+#include <linux/proc_fs.h>
 
 #include <asm/system.h>
 #include <asm/irq.h>
@@ -75,17 +90,29 @@ extern unsigned short READ_I2C_WORD(unsigned char byDeviceAddress,unsigned char 
 
 void Cotulla_Play_Codec_Init(void);
 void Cotulla_Record_Codec_Init(void);
+void Cotulla_FullDuplex_Codec_Init(void);	// Added by Alamy for O_RDWR
 void Codec_1380_DAC_on(void);
 void Codec_1380_ADC_on(void);
 void Codec_1380_DAC_off(void);
 void Codec_1380_ADC_off(void);
 
-void CODEC_SetVolume(unsigned long uVolume);
-void CODEC_SetMic(int iMicSen, char chInputGain, char bAGCEnabled);
-void Cotulla_audio_play_power_on(void);
-void Cotulla_audio_record_power_on(void);
+void CODEC_SetVolume(int uVolumeR, int uVolumeL);
+
+typedef enum {
+	RECORDING,
+	PLAYBACK,
+	FULLDUPLEX
+} access_type_t;
+void Cotulla_audio_power_on( access_type_t type );
 static void Cotulla_OP_PLV_on(void);
 static void Cotulla_OP_RDV_on(void);
+void detect_edge_and_set(void);
+
+#ifdef CONFIG_PROC_FS
+static void discovery_audio_proc_register(void);
+static void discovery_audio_proc_unregister(void);
+static int audio_stat_proc_read(char *buf, char **start, off_t offset, int len);
+#endif
 
 #define SADR    0xF0400080
 #define W1380_CODEC_ADDRESS 0x30
@@ -93,17 +120,17 @@ static void Cotulla_OP_RDV_on(void);
 /* */
 #define VOLUME_VALUE    0xCCCCCCCC              // use maximum sound
 
-static struct inode *inode_pm;
-static struct file *file_pm;
 
-static int cotulla_op_plv_on = 0;
-static int cotulla_volume = 0;
+static unsigned short cotulla_volume = 0;
 static int cotulla_igain = 0;
 static int cotulla_under_playing = 0;
-static int cotulla_under_recording= 0 ;      
+static int cotulla_under_recording= 0 ;
 static int cotulla_battery_critical_low = 0;
+static int cotulla_do_writing = 0;
+static int cotulla_do_reading= 0;
+static int cotulla_do_sync= 0;
 
-static int process_time = 0;	// just for test
+
 #define COTULLA_RECORDING   (cotulla_under_recording)
 
 #define DEBUG_MSG	0
@@ -111,7 +138,6 @@ static int process_time = 0;	// just for test
 extern unsigned short driver_waste;
 
 static int Audio_Clock;
-int cotulla_main_volume;
 int cotulla_dmasound_irq = -1;
 int cotulla_dmarecording_irq = -1;
 #define COTULLA_SOUND_DMA_CHANNEL   (cotulla_dmasound_irq)
@@ -160,6 +186,8 @@ static struct pm_dev* cotulla_sound_pm_dev;
 #define DMASND_IRIS 5
 #define DMASND_COTULLA  6
 
+#define DMASND_MAX_TRANS_SIZE	4096
+
 /*********for recording*******************************/
 #define AUDIO_FMT_MASK      (AFMT_S16_LE|AFMT_U8)
 #define AUDIO_FMT_DEFAULT   (AFMT_S16_LE)
@@ -176,26 +204,19 @@ static int catchRadius = 0;
 #endif
 
 /*Deborah*/
-static int cotulla_hp_token = 0;
-static int cotulla_codec_init = 0;
 static int cotulla_resume = 0;
-static int cotulla_suspend = 0;
-static int i_rd = 0;
+//static int cotulla_suspend = 0;
 /* */
 
 /* Current specs for incoming audio data */
-static u_int audio_rate;
 static u_int audio_igain = 0;
-static u_int audio_iamp;
-static int audio_channels;
 static int audio_fmt;
 static u_int audio_fragsize;
 static u_int audio_nbfrags;
 
-static int audio_dev_dsp;   /* registered ID for DSP device */
-static int audio_dev_mixer; /* registered ID for mixer device */
-static int audio_mix_modcnt;    /* mixer mods count */
 
+// curr_access_flag added by Alamy
+//static volatile int curr_access_flag;	// Current access mode flag : 0, O_RDONLY, O_WRONLY, O_RDWR
 static volatile int audio_wr_refcount;  /* nbr of concurrent open() for playback */
 static volatile int audio_rd_refcount;   /* nbr of concurrent open() for recording */
 #define audio_active        (audio_rd_refcount)
@@ -212,20 +233,21 @@ static DECLARE_WAIT_QUEUE_HEAD(open_queue);
 
 #define TRACE 0
 #if TRACE
-#define TRACE_ON    1
+#define TRACE_ON    0
 #define TRACE_SEM   0
 #define TRACE_SENDDATA  0
-#define TRACE_PM    1
-#define TRACE_AMP   1
-#define TRACE_DAC   1
-#define TRACE_OP_SHDN   1
+#define TRACE_PM    0
+#define TRACE_AMP   0
+#define TRACE_DAC   0
+#define TRACE_OP_SHDN   0
+#define TRACE_READ	0	// Debug flag added by Alamy
 #define TRACE_WRITE 1
-#define TRACE_MUTE  1
-#define TRACE_CLOCK 1
-#define TRACE_PAIF  1
-#define TRACE_SSP   1
+#define TRACE_MUTE  0
+#define TRACE_CLOCK 0
+#define TRACE_PAIF  0
+#define TRACE_SSP   0
 #define TRACE_VOLUME    1
-#define TRACE_MIC   1
+#define TRACE_MIC   0
 #define TRACE_INTERRUPT 0
 int cLevel = 0;
 char    *pLevel[16] = {
@@ -254,16 +276,13 @@ indent(int level)
 
 #define P_ID    (current->tgid)
 
-#define ENTER(f,fn) {if(f)printk("%d:%s+[%d]%s\n",jiffies,indent(cLevel),P_ID,(fn));cLevel++;}
+#define ENTER(f,fn) {if(f)printk("%ld:%s+[%d]%s\n",jiffies,indent(cLevel),P_ID,(fn));cLevel++;}
 
-#define LEAVE(f,fn) {cLevel--;if(f>1)printk("%d:%s-[%d]%s\n",jiffies,indent(cLevel),P_ID,(fn));}
+#define LEAVE(f,fn) {cLevel--;if(f)printk("%ld:%s-[%d]%s\n",jiffies,indent(cLevel),P_ID,(fn));}
 #else   /* ! TRACE */
 #define ENTER(f,fn)
 #define LEAVE(f,fn)
 #endif  /* end TRACE */
-
-#define ENTER(f,fn)
-#define LEAVE(f,fn)
 
 /*
  * DAC power management
@@ -293,42 +312,6 @@ static unsigned int DelayedFlag = 0;
 #define VOLUME_SCALES   32
 #define GAIN_SCALES	49
 
-static test_counter = 0;
-unsigned char Scale_Map[101] = 
-{
-	31,31,31,31 ,
-	30,30,30,30,
-	29,29,29,
-	28,28,28,
-	27,27,27,
-	26,26,26,
-	25,25,25,
-	24,24,24,
-	23,23,23,
-	22,22,22,
-	21,21,21,
-	20,20,20,
-	19,19,19,
-	18,18,18,
-	17,17,17,
-	16,16,16,
-	15,15,15,
-	14,14,14,
-	13,13,13,
-	12,12,12,
-	11,11,11,
-	10,10,10,
-	9,9,9,
-	8,8,8,
-	7,7,7,
-	6,6,6,
-	5,5,5,
-	4,4,4,
-	3,3,3,
-	2,2,2,
-	1,1,1,1,
-	0,0,0,0,
-};
 
 unsigned char Gain_Scale_Map[101] = 
 {
@@ -436,6 +419,42 @@ unsigned char GAIN_TABLE[GAIN_SCALES] =
 	0x30,
 };
 
+unsigned char Scale_Map[101] = 
+{
+	31,31,31,31 ,
+	30,30,30,30,
+	29,29,29,
+	28,28,28,
+	27,27,27,
+	26,26,26,
+	25,25,25,
+	24,24,24,
+	23,23,23,
+	22,22,22,
+	21,21,21,
+	20,20,20,
+	19,19,19,
+	18,18,18,
+	17,17,17,
+	16,16,16,
+	15,15,15,
+	14,14,14,
+	13,13,13,
+	12,12,12,
+	11,11,11,
+	10,10,10,
+	9,9,9,
+	8,8,8,
+	7,7,7,
+	6,6,6,
+	5,5,5,
+	4,4,4,
+	3,3,3,
+	2,2,2,
+	1,1,1,1,
+	0,0,0,0,
+};
+
 unsigned char VOLUME_TABLE[VOLUME_SCALES] =
 {
 	0x00,			// 0dB				//0x01			//  0dB			0xFFFFFFFF
@@ -469,9 +488,11 @@ unsigned char VOLUME_TABLE[VOLUME_SCALES] =
 	0x94,			// -37dB			//0x26,			// -37dB
 	0xB4,			// -45dB			//0x2E,			// -45dB
 	0xD4,			// -53dB			//0x36,			// -53dB
-	0xFF,			// -maxdB			//0x3F,			// -maxdB		0x00000000
+//	0xFF,			// -maxdB			//0x3F,			// -maxdB		0x00000000
+	0xFC			// -maxdB
 };
     
+
 static inline void ResetDelayAll(void)
 {   
     DelayedFlag = 0;
@@ -498,6 +519,7 @@ static inline unsigned int isDelayed(unsigned int flag)
 }
 #endif
 
+
 /*
  * Buffer Management
  */
@@ -507,7 +529,8 @@ typedef struct {
     char *start;            /* points to actual buffer */
     dma_addr_t dma_addr;    /* physical buffer address */
     struct semaphore sem;   /* down before touching the buffer */
-    int master;             /* master owner for buffer allocation */
+    int dma_size;           /* allocated dma buffer size */
+    int dma_count;          /* dma buffer divided count */
 } audio_buf_t;
 
 typedef struct {
@@ -527,12 +550,9 @@ static audio_stream_t input_stream;
     (_s_)->_b_##_idx %= (_s_)->nbfrags; \
     (_s_)->_b_ = (_s_)->buffers + (_s_)->_b_##_idx; }
                     
-/* Current specs for incoming audio data */
-//static u_int audio_fragsize;
-//static u_int audio_nbfrags;
-
 
 static ssize_t (*ct_func)(const u_char *, size_t, u_char *, ssize_t *, ssize_t) = NULL;
+static ssize_t (*ct_read_func)(const u_char *, size_t, u_char *, ssize_t *, ssize_t) = NULL;
 
 #ifdef MODULE
 MODULE_PARM(catchRadius, "i");
@@ -540,7 +560,6 @@ MODULE_PARM(catchRadius, "i");
 MODULE_PARM(numBufs, "i");
 MODULE_PARM(bufSize, "i");
 
-//#define min(x, y) ((x) < (y) ? (x) : (y)) //D
 
 #define IOCTL_IN(arg, ret) \
     do { int error = get_user(ret, (int *)(arg)); \
@@ -698,6 +717,7 @@ struct sound_settings {
     SETTINGS soft;      /* software settings */
     SETTINGS dsp;       /* /dev/dsp default settings */
     TRANS *trans;       /* supported translations */
+    TRANS *trans_read;  /* supported translations for record */
     int volume_left;    /* volume (range is machine dependent) */
     int volume_right;
     int bass;       /* tone (range is machine dependent) */
@@ -787,6 +807,26 @@ static inline int ioctl_return(int *addr, int value)
 }
 
 
+static inline void set_dma_divided_buffer(audio_stream_t *s, audio_buf_t *b, dmach_t channel, int fsize)
+{
+	int	dmasize;
+	dma_addr_t	daddr;
+
+	b->dma_count = fsize >> 12;	// fsize/DMASND_MAX_TRANS_SIZE;
+	if( fsize & (DMASND_MAX_TRANS_SIZE-1) )
+	  b->dma_count++;
+
+	daddr = b->dma_addr;
+	while( fsize > 0 ){
+		dmasize = min( fsize, DMASND_MAX_TRANS_SIZE );
+		cotulla_dma_queue_buffer(channel,
+								 (void *) b, daddr, dmasize);
+		fsize -= dmasize;
+		daddr += dmasize;
+	}
+}
+
+
 /*** Config & Setup **********************************************************/
 
 
@@ -821,102 +861,38 @@ void dmasound_setup(char *str, int *ints);
  * ++geert: split in even more functions (one per format)
  */
 
-
-static ssize_t discovery_ct_law(const u_char *userPtr, size_t userCount,
-			     u_char frame[], ssize_t *frameUsed,
-			     ssize_t frameLeft)
+static ssize_t collie_ct_law(const u_char *userPtr, size_t userCount,
+                 u_char frame[], ssize_t *frameUsed,
+                 ssize_t frameLeft)
 {
-	short *table = (sound.soft.format == AFMT_MU_LAW) ? ulaw2dma16: alaw2dma16;
+	short *table = sound.soft.format == AFMT_MU_LAW ? ulaw2dma16: alaw2dma16;
 	ssize_t count, used;
 	short *p = (short *) &frame[*frameUsed];
-	short val;
-	u_char data;
+	int val, stereo = sound.soft.stereo;
 
-	used = count = userCount;
+	frameLeft >>= 2;
+	if (stereo)
+		userCount >>= 1;
+	used = count = min(userCount, frameLeft);
 	while (count > 0) {
+	  u_char data;
 	  if (get_user(data, userPtr++)) {
 	    return -EFAULT;
 	  }
 	  val = table[data];
 	  *p++ = val;		/* Left Ch. */
+	  if (stereo) {
+	    if (get_user(data, userPtr++)) {
+	      return -EFAULT;
+	    }
+	    val = table[data];
+	  }
 	  *p++ = val;		/* Right Ch. */
 	  count--;
 	}
 	*frameUsed += used * 4;
-	return used;
+	return stereo? used * 2: used;
 }
-
-static ssize_t collie_ct_law(const u_char *userPtr, size_t userCount,
-                 u_char frame[], ssize_t *frameUsed,
-                 ssize_t frameLeft)
-{
-    short *table = sound.soft.format == AFMT_MU_LAW ? ulaw2dma16: alaw2dma16;
-    ssize_t count, used;
-    short *p = (short *) &frame[*frameUsed];
-    int val, stereo = sound.soft.stereo;
-
-    ENTER(TRACE_ON,"collie_ct_law");
-    frameLeft >>= 2;
-    if (stereo)
-        userCount >>= 1;
-    used = count = min(userCount, frameLeft);
-    if (!COTULLA_RECORDING) {
-#if DEBUG_MSG
-    	printk("play\n");
-#endif
-        while (count > 0) {
-            u_char data;
-            //signed char data;
-            if (get_user(data, userPtr++)) {
-                //LEAVE(TRACE_ON,"collie_ct_law");
-                return -EFAULT;
-            }
-            val = table[data];
-            *p++ = val;     /* Left Ch. */
-            if (stereo) {
-                if (get_user(data, userPtr++)) {
-                //LEAVE(TRACE_ON,"collie_ct_law");
-                return -EFAULT;
-                }
-                val = table[data];
-            }
-            *p++ = val;     /* Right Ch. */
-            count--;
-        }
-    } else {
-#if DEBUG_MSG
-    	printk("record\n");
-#endif
-	while (count > 0) {
-            u_char data;
-            //signed char data;
-            int ave;
-            if (get_user(data, userPtr++)) {
-                //LEAVE(TRACE_ON,"collie_ct_law");
-                return -EFAULT;
-            }
-            val = table[data];
-            ave = val;      /* Left Ch. */
-            if (stereo) {
-            	printk(". ");
-                if (get_user(data, userPtr++)) {
-                    //LEAVE(TRACE_ON,"collie_ct_law");
-                    return -EFAULT;
-                }
-                val = table[data];
-            }
-            ave += val;     /* Right Ch. */
-            ave >>= 1;
-            *p++ = 0;       /* Left Ch. */
-            *p++ = ave;     /* Right Ch. */
-            count--;
-        }
-    }
-    *frameUsed += used * 4;
-    LEAVE(TRACE_ON,"collie_ct_law");
-    return stereo? used * 2: used;
-}
-
 
 static ssize_t collie_ct_s8(const u_char *userPtr, size_t userCount,
               u_char frame[], ssize_t *frameUsed,
@@ -986,63 +962,34 @@ static ssize_t collie_ct_u8(const u_char *userPtr, size_t userCount,
               u_char frame[], ssize_t *frameUsed,
               ssize_t frameLeft)
 {
-    ssize_t count, used;
-    short *p = (short *) &frame[*frameUsed];
-    int val, stereo = sound.soft.stereo;
+	int ch = (sound.soft.stereo)?2:1;
+	unsigned char *src = (unsigned char *)userPtr;
+	short *dstct = (short *)frame;
+	short tmpval;
+	int frameMax = frameLeft >> 2;
+    int userMax = userCount >> (ch-1);
+    int idx,samplingCount = min(frameMax,userMax);
 
-    ENTER(TRACE_ON,"collie_ct_u8");
-    frameLeft >>= 2;
-    if (stereo)
-        userCount >>= 1;
-    used = count = min(userCount, frameLeft);
-    if (!COTULLA_RECORDING) {
-        while (count > 0) {
-            u_char data;
+    for (idx=0; idx<samplingCount; idx++) {
+		if (get_user(tmpval,src++)) {
+			return -EFAULT;
+		}
+		if (ch>1){
+			*dstct++ = (tmpval-128)<<8;
+			if (get_user(tmpval,src++)) {
+				return -EFAULT;
+			}
+		}else if( COTULLA_RECORDING ){
+			*dstct++ = 0;
+			*dstct++ = (tmpval-128)<<8;
+		}else{
+			*dstct++ = (tmpval-128)<<8;
+			*dstct++ = (tmpval-128)<<8;
+		}
+	}
 
-            if (get_user(data, userPtr++)) {
-                LEAVE(TRACE_ON,"collie_ct_u8");
-                return -EFAULT;
-            }
-            val = data;
-            *p++ = (val ^ 0x80);        /* Left Ch. */
-            if ( stereo ) {
-                if ( get_user(data, userPtr++)) {
-                    LEAVE(TRACE_ON,"collie_ct_u8");
-                    return -EFAULT;
-                }
-                val = data;
-            }
-            *p++ = (val ^ 0x80);        /* Right Ch. */
-            count--;
-        }
-    } else {
-        while (count > 0) {
-            u_char data;
-            int ave;
-
-            if (get_user(data, userPtr++)) {
-                LEAVE(TRACE_ON,"collie_ct_u8");
-                return -EFAULT;
-            }
-            val = data;
-            ave = (val ^ 0x80);     /* Left Ch. */
-            if ( stereo ) {
-                if ( get_user(data, userPtr++)) {
-                    LEAVE(TRACE_ON,"collie_ct_u8");
-                    return -EFAULT;
-                }
-                val = data;
-            }
-            ave += (val ^ 0x80);        /* Right Ch. */
-            ave >>= 1;
-            *p++ = 0;           /* Left Ch. */
-            *p++ = ave;         /* Right Ch. */
-            count--;
-        }
-    }
-    *frameUsed += used * 4;
-    LEAVE(TRACE_ON,"collie_ct_u8");
-    return stereo? used * 2: used;
+	*frameUsed = samplingCount * 2 * 2; // dma is always stereo 16bit
+	return samplingCount * ch;
 }
 
 
@@ -1050,57 +997,36 @@ static ssize_t collie_ct_s16(const u_char *userPtr, size_t userCount,
                u_char frame[], ssize_t *frameUsed,
                ssize_t frameLeft)
 {
-    ssize_t count, used;
-    int mask = (sound.soft.format == AFMT_S16_LE? 0x0080: 0x8000);
-    int stereo = sound.soft.stereo;
-    short *fp = (short *) &frame[*frameUsed];
+	int ch = (sound.soft.stereo)?2:1;
+	short *src = (short *)userPtr;
+	short *dstct = (short *)frame;
+    int frameMax = frameLeft >> 2;
+    int userMax = userCount >> ch;
+    int samplingCount = min(frameMax,userMax);
+	short tmpval;
 
-    ENTER(TRACE_ON,"collie_ct_s16");
-    frameLeft >>= 2;
-    userCount >>= (stereo? 2: 1);
-    used = count = min(userCount, frameLeft);
-    if (!stereo) {
-        short *up = (short *) userPtr;
-        while (count > 0) {
-            short data;
-            if (get_user(data, up++)) {
-                LEAVE(TRACE_ON,"collie_ct_s16");
-                return -EFAULT;
-            }
-            *fp++ = (!COTULLA_RECORDING) ? data : 0;    /* Left Ch. */
-            *fp++ = data;
-            
-            //test_counter++;
-            count--;
-        }
-    } else {
-        short *up = (short *) userPtr;
-        while (count > 0) {
-            short data;
-            short temp;
-            if (get_user(data, up++)) {
-                LEAVE(TRACE_ON,"collie_ct_s16");
-                return -EFAULT;
-            }
-            if (get_user(temp, up++)) {
-                LEAVE(TRACE_ON,"collie_ct_s16");
-                return -EFAULT;
-            }
-            if (!COTULLA_RECORDING) {
-                *fp++ = data;       /* Left Ch. */
-                *fp++ = temp;       /* Right Ch. */
-            } else {
-                data >>= 1;
-                data += (temp >> 1);
-                *fp++ = 0;      /* Left Ch. */
-                *fp++ = data;       /* Right Ch. */
-            }
-            count--;
-        }
-    }
-    *frameUsed += used * 4;
-    LEAVE(TRACE_ON,"collie_ct_s16");
-    return stereo? used * 4: used * 2;
+    if (ch>1) { // stereo
+		if (copy_from_user(dstct,src,samplingCount * 4)) {
+			return -EFAULT;
+		}
+	} else { // mono
+		int idx;
+		for (idx=0; idx<samplingCount; idx++) {
+			if (get_user(tmpval,src++)) {
+				return -EFAULT;
+			}
+			if( COTULLA_RECORDING ){
+				*dstct++ = 0;
+				*dstct++ = tmpval;
+			}else{
+				*dstct++ = tmpval;
+				*dstct++ = tmpval;
+			}
+		}
+	}
+
+    *frameUsed = samplingCount * 2 * 2; // dma is always stereo 16bit
+    return samplingCount * ch * 2;
 }
 
 static ssize_t collie_ct_u16(const u_char *userPtr, size_t userCount,
@@ -1177,6 +1103,81 @@ static TRANS transCotulla = {
 };
 
 
+static ssize_t collie_ct_read_u8(const u_char *userPtr, size_t userCount,
+              u_char frame[], ssize_t *frameUsed,
+              ssize_t frameLeft)
+{
+	char *usrbuf = (char *)userPtr;
+    short *dmabuf = (short *)frame;
+	int val, ch = (sound.soft.stereo)?2:1;
+    int dmaMax = frameLeft >> 2; // dma is always stereo
+    int userMax = userCount >> (ch-1);
+    int ct,samplingCount = min(dmaMax,userMax);
+
+    ENTER(TRACE_ON,"collie_ct_read_u8");
+
+    for (ct=0; ct<samplingCount; ct++) {
+		val = (*dmabuf >> 8);
+		if( val > 127 ) val = 127;
+		else if( val < -128 ) val = -128;
+		
+		if (put_user((char)(val+128),usrbuf++)) { // left channel
+			return -EFAULT;
+		}
+		dmabuf++;
+		if (ch>1) { // right channel
+			val = (*dmabuf >> 8);
+			if( val > 127 ) val = 127;
+			else if( val < -128 ) val = -128;
+
+			if (put_user((char)(val+128),usrbuf++)) {
+				return -EFAULT;
+			}
+		}
+		dmabuf++;
+    }
+    LEAVE(TRACE_ON,"collie_ct_read_u8");
+    *frameUsed = samplingCount * 2 * 2; // dma is always stereo
+    return samplingCount * ch;
+}
+
+static ssize_t collie_ct_read_s16(const u_char *userPtr, size_t userCount,
+              u_char frame[], ssize_t *frameUsed,
+              ssize_t frameLeft)
+{
+	short *usrbuf = (short *)userPtr;
+    short *dmabuf = (short *)frame;
+	int ch = (sound.soft.stereo)?2:1;
+    int dmaMax = frameLeft >> 2; // dma is always stereo
+    int userMax = userCount >> ch;
+    int ct,samplingCount = min(dmaMax,userMax);
+
+    ENTER(TRACE_ON,"collie_ct_read_s16");
+
+	if (ch>1) { // stereo
+		if (copy_to_user(dmabuf,usrbuf,samplingCount<<2)) {
+			return -EFAULT;
+		}
+	}else{
+		for (ct=0; ct<samplingCount; ct++) {
+			if (put_user(*dmabuf,usrbuf++)) { // left channel
+				return -EFAULT;
+			}
+			dmabuf += 2;
+		}
+	}
+    LEAVE(TRACE_ON,"collie_ct_read_s16");
+    *frameUsed = samplingCount * 2 * 2; // dma is always stereo
+    return samplingCount * ch * 2;
+}
+
+
+
+static TRANS transReadCotulla = {
+    0, 0, 0, collie_ct_read_u8,
+    0, 0, collie_ct_read_s16, 0
+};
+
 /*** Low level stuff *********************************************************/
 static void Cotulla_i2sc_clock_enable(void)
 {
@@ -1189,11 +1190,17 @@ static void Cotulla_i2sc_clock_disable(void)
 }
 
 static void Cotulla_Set_Igain(unsigned long gain)
-{    
+{
+	unsigned int	gainR, gainL;
 
 	ENTER(TRACE_ON,"Cotulla_Set_Igain");
-	audio_igain = gain;
-	printk("<audio_igain> : %x\n",audio_igain);
+
+	gainR = (gain & 0xff00) >> 8;
+	gainL = gain & 0xff;
+	if (gainR > 100)	gainR = 100;
+	if (gainL > 100)	gainL = 100;
+
+	audio_igain = (gainR << 8) | gainL;
 
 	LEAVE(TRACE_ON,"Cotulla_Set_Igain");
 }
@@ -1201,53 +1208,40 @@ static void Cotulla_Set_Igain(unsigned long gain)
 static int Cotulla_Get_Igain(void)
 {    
 	ENTER(TRACE_ON,"Cotulla_Get_Igain");
-    	LEAVE(TRACE_ON,"Cotulla_Get_Igain");
+	LEAVE(TRACE_ON,"Cotulla_Get_Igain");
 	return audio_igain;
 }
 
 static void Cotulla_Set_Volume(unsigned long volume)
 {
-    	ENTER(TRACE_ON,"Cotulla_Set_Volume");
+	ENTER(TRACE_ON, "Enter : Cotulla_Set_Volume()");
 
 
-    	sound.volume_left = volume & 0xff;
-    	if ( sound.volume_left > 100 ) sound.volume_left = 100;
+	sound.volume_left = volume & 0xff;
+	if ( sound.volume_left > 100 ) sound.volume_left = 100;
 
-    	cotulla_main_volume = sound.volume_left;
+	sound.volume_right = ((volume & 0xff00) >> 8);
+	if ( sound.volume_right > 100 ) sound.volume_right = 100;
 
-    	sound.volume_right = ( volume & 0xff00 >> 8);
-    	if ( sound.volume_right > 100 ) sound.volume_right = 100;
-    	LEAVE(TRACE_ON,"Cotulla_Set_Volume");
-
+	LEAVE(TRACE_ON, "Leave : Cotulla_Set_Volume()");
 }
 
 
 static int Cotulla_Get_Volume(void)
 {
-    	ENTER(TRACE_ON,"Cotulla_Get_Volume");
-    	LEAVE(TRACE_ON,"Cotulla_Get_Volume");
-    	return ( sound.volume_right << 8 | sound.volume_left );
+	ENTER(TRACE_ON,"Cotulla_Get_Volume");
+	LEAVE(TRACE_ON,"Cotulla_Get_Volume");
+	return ( sound.volume_right << 8 | sound.volume_left );
 }
 
 
 static void wait_ms(int ten_ms)
 {
-    	ENTER(TRACE_ON,"wait_ms");
-    	LEAVE(TRACE_ON,"wait_ms");
-    	schedule_timeout(ten_ms);
+	ENTER(TRACE_ON,"wait_ms");
+	LEAVE(TRACE_ON,"wait_ms");
+	schedule_timeout(ten_ms);
 }
 
-
-static void InitCodecSysClock(void)
-{
-}
-
-static inline void Cotulla_audio_clock_init(void)
-{
-    	ENTER(TRACE_CLOCK, "Cotulla_audio_clock_init");
-    	InitCodecSysClock(); /* Deborah */
-    	LEAVE(TRACE_CLOCK, "Cotulla_audio_clock_init");
-}
 
 static inline void Cotulla_audio_clock_on(void)
 {
@@ -1261,133 +1255,127 @@ static inline void Cotulla_audio_clock_off(void)
 
 static inline void Cotulla_set_audio_clock(void)
 {
-    	ENTER(TRACE_CLOCK, "Cotulla_set_audio_clock_");
-    	Audio_Clock  = CotullaGetSamp();
-    	I2S_SADIV = Audio_Clock;
-    	LEAVE(TRACE_CLOCK, "Cotulla_set_audio_clock");
+	ENTER(TRACE_CLOCK, "Cotulla_set_audio_clock_");
+	Audio_Clock  = CotullaGetSamp();
+	I2S_SADIV = Audio_Clock;
+	LEAVE(TRACE_CLOCK, "Cotulla_set_audio_clock");
 }
 
 static void Cotulla_OP_RDV_on(void)
 {
 	ENTER(TRACE_OP_SHDN,"Cotulla_OP_RDV_on");
-	
-		Cotulla_input_gain_on();
-		
+	Cotulla_input_gain_on();
 	LEAVE(TRACE_OP_SHDN,"Cotulla_OP_RDV_on");
 }
-
 
 static void Cotulla_OP_PLV_on(void)
 {
 	ENTER(TRACE_OP_SHDN,"Cotulla_OP_PLV_on");
-	/* set volume */
 	Cotulla_volume_on();
 	LEAVE(TRACE_OP_SHDN,"Cotulla_OP_PLV_on");
-
 }
 
-static void Cotulla_OP_SHDN_off(void)
-{
-	ENTER(TRACE_OP_SHDN,"Cotulla_OP_SHDN_off");
-	cotulla_op_plv_on = 0;
-	LEAVE(TRACE_OP_SHDN,"Cotulla_OP_SHDN_off");
-}
-
-void CODEC_SetMic(int iMicSen, char chInputGain, char bAGCEnabled)
-{
-    	UDA1380REGS CodecReg;
-    	
-	Cotulla_CODEC_REGS_Init(&CodecReg);
-    	CodecReg.agc.agc_u.agc_s.enable = bAGCEnabled;
-    	CodecReg.decimator_vol.decimator_vol_u.decimator_vol_s.left = chInputGain;
-    	CodecReg.decimator_vol.decimator_vol_u.decimator_vol_s.right = chInputGain;
-    	CodecReg.adc.adc_u.adc_s.vga_ctrl = iMicSen;
-
-        Write_I2C_WORD(W1380_CODEC_ADDRESS,CodecReg.agc.reg_num,CodecReg.agc.agc_u.reg_val);
-        Write_I2C_WORD(W1380_CODEC_ADDRESS,CodecReg.decimator_vol.reg_num,CodecReg.decimator_vol.decimator_vol_u.reg_val);
-        Write_I2C_WORD(W1380_CODEC_ADDRESS,CodecReg.adc.reg_num,CodecReg.adc.adc_u.reg_val);
-
-}
 
 void CODEC_SetIgain(unsigned long gain)
 {
 	UDA1380REGS CodecReg;
-	char igain=0;
-	unsigned short temp;
-	
+	unsigned char	gainR, gainL;
+	unsigned char	gainReg;
+
+	// According to SL-A300's Hardware spec. MIC uses only Left channel
+
+	gainR = (gain & 0xff00) >> 8;
+	gainL = gain & 0x00ff;
+
 	Cotulla_CODEC_REGS_Init(&CodecReg);
-	igain = GAIN_TABLE[Gain_Scale_Map[gain]];
-	CodecReg.decimator_vol.decimator_vol_u.decimator_vol_s.right = igain ;
-	CodecReg.decimator_vol.decimator_vol_u.decimator_vol_s.left = igain;
-	Write_I2C_WORD(W1380_CODEC_ADDRESS, CodecReg.decimator_vol.reg_num,CodecReg.decimator_vol.decimator_vol_u.reg_val);
+	gainReg = GAIN_TABLE[Gain_Scale_Map[gainR]];
+	CodecReg.decimator_vol.decimator_vol_u.decimator_vol_s.right = gainReg;
+	gainReg = GAIN_TABLE[Gain_Scale_Map[gainL]];
+	CodecReg.decimator_vol.decimator_vol_u.decimator_vol_s.left = gainReg;
+	Write_I2C_WORD(W1380_CODEC_ADDRESS,
+				   CodecReg.decimator_vol.reg_num,
+				   CodecReg.decimator_vol.decimator_vol_u.reg_val);
 }
 
-
-void CODEC_SetVolume(unsigned long uVolume)
+/*
+  CODEC_SetVolume() rewirte by Alamy
+  Support Stereo volume setting
+*/
+void CODEC_SetVolume(int uVolumeR, int uVolumeL)
 {
-    	char ucVol=0;
-    	UDA1380REGS CodecReg;
+	unsigned char	ucVol=0;
+	UDA1380REGS	CodecReg;
     
-   	ENTER(TRACE_VOLUME, "CODEC_SetVolume");
-    	if (0)
-    	{
-    		Cotulla_CODEC_reset();  // codec 1380 reset
-    		wait_ms(10);            //  wait 10 ms
-    
-                
-   		Cotulla_sound_hard_init();
-    	}
+	ENTER(TRACE_VOLUME, "Enter : CODEC_SetVolume()");
 
-    	Cotulla_CODEC_REGS_Init(&CodecReg);
-    	ucVol   = VOLUME_TABLE[Scale_Map[uVolume]];
-    	CodecReg.master_vol.master_vol_u.master_vol_s.left = ucVol;
-    	CodecReg.master_vol.master_vol_u.master_vol_s.right = ucVol;
+	Cotulla_CODEC_REGS_Init( &CodecReg );
 
-        Write_I2C_WORD(W1380_CODEC_ADDRESS, CodecReg.master_vol.reg_num,CodecReg.master_vol.master_vol_u.reg_val);
+	// Reg 10H : Master volume control
+	ucVol   = VOLUME_TABLE[Scale_Map[uVolumeR]];
+	CodecReg.master_vol.master_vol_u.master_vol_s.right = ucVol;
+	ucVol	= VOLUME_TABLE[Scale_Map[uVolumeL]];
+	CodecReg.master_vol.master_vol_u.master_vol_s.left = ucVol;
 
-    	LEAVE(TRACE_VOLUME, "CODEC_SetVolume");
+	Write_I2C_WORD(W1380_CODEC_ADDRESS,
+				   CodecReg.master_vol.reg_num,
+				   CodecReg.master_vol.master_vol_u.reg_val);
+
+	LEAVE(TRACE_VOLUME, "Leave : CODEC_SetVolume()");
 }
 
 
 static inline void Cotulla_volume_init(void)
 {
    	ENTER(TRACE_VOLUME, "Cotulla_volume_init");
-    	cotulla_volume = 0;
-    	LEAVE(TRACE_VOLUME, "Cotulla_volume_init");
+	cotulla_volume = 0;
+	LEAVE(TRACE_VOLUME, "Cotulla_volume_init");
 }
 
 static inline void Cotulla_input_gain_on(void)
 {
 	ENTER(TRACE_VOLUME, "Cotulla_input_gain_on");
-	
+
 	if( cotulla_igain != audio_igain) {
 		CODEC_SetIgain(audio_igain);
 		cotulla_igain = audio_igain;
 	}
-	
-    	LEAVE(TRACE_VOLUME, "Cotulla_input_gain_on");
 
+	LEAVE(TRACE_VOLUME, "Cotulla_input_gain_on");
 }
 
-
-static inline void Cotulla_volume_on(void)
+/*
+  Cotulla_volume_on() rewrite by Alamy
+  Fix Stereo Left/Right channel issue (Right channel has no effect)
+*/
+static inline void Cotulla_volume_on( void )
 {
-	unsigned char vol_temp;
+unsigned char vol_temp;
+unsigned short	setting_volume;
+
 	ENTER(TRACE_VOLUME, "Cotulla_volume_on");
 
-    	driver_waste &= ~VOLUME_MASK;
-    	vol_temp = (unsigned char)(sound.volume_left/20);
+	driver_waste &= ~VOLUME_MASK;
+	vol_temp = (unsigned char)(sound.volume_left/20);
 	driver_waste |= vol_temp;
 
-	if (cotulla_volume != sound.volume_left) {
-		if ( cotulla_battery_critical_low & sound.volume_left > 40 )
+	// If Battery is Critical low, Limit max volume to 40
+	if (cotulla_battery_critical_low) {
+		if (sound.volume_right > 40)
+			sound.volume_right = 40;
+		if (sound.volume_left > 40)
 			sound.volume_left = 40;
-			
-		CODEC_SetVolume(sound.volume_left);
-		cotulla_volume = sound.volume_left;
 	}
+
+	// Set CODEC only when volume value is different
+	setting_volume = (sound.volume_right << 8) | sound.volume_left;
+	if (cotulla_volume != setting_volume) {
+		CODEC_SetVolume(sound.volume_right, sound.volume_left);
+		cotulla_volume = setting_volume;
+	}
+
     	LEAVE(TRACE_VOLUME, "Cotulla_volume_on");
 }
+
 
 static inline void Cotulla_volume_off(void)
 {
@@ -1398,76 +1386,6 @@ static inline void Cotulla_volume_off(void)
 	LEAVE(TRACE_VOLUME, "Cotulla_volume_off");
 }
 
-#define	VOL_THRES	40
-static void Cotulla_volume_half_adjust(void)
-{
-	int	volume = cotulla_volume;
-	ENTER(TRACE_VOLUME, "Cotulla_volume_half_adjust");
-	if (cotulla_volume > sound.volume_left) {
-		/* volume down */
-		if (cotulla_volume > VOL_THRES) {
-			if (sound.volume_left > VOL_THRES) {
-				volume = (cotulla_volume + sound.volume_left)/2;
-				if (volume == cotulla_volume) {
-					volume = sound.volume_left;
-				}
-			} else {
-				volume = (cotulla_volume + VOL_THRES)/2;
-				if (volume == cotulla_volume) {
-					volume = VOL_THRES;
-				}
-			}
-		} else {
-			/* we can pull down without noise */
-			volume = sound.volume_left;
-		}
-	} else if (cotulla_volume < sound.volume_left) {
-		/* volume up */
-		if (sound.volume_left > VOL_THRES) {
-			if (cotulla_volume < VOL_THRES) {
-				/* we can pull up to VOL_THRES without noise */
-				volume = VOL_THRES;;
-			} else {
-				volume = (cotulla_volume + sound.volume_left)/2;
-				if (volume == cotulla_volume) {
-					volume = sound.volume_left;
-				}
-			}
-		} else {
-			/* we can pull up without noise */
-			volume = sound.volume_left;
-		}
-	}
-	if (cotulla_volume != volume) {
-		cotulla_volume = volume;
-	}
-	LEAVE(TRACE_VOLUME, "Cotulla_volume_half_adjust");
-}
-
-static void Cotulla_volume_half_off(void)
-{
-	int volume;
-	int delta = 1;
-	ENTER(TRACE_VOLUME, "Cotulla_volume_half_off");
-	while (0 < cotulla_volume) {
-		if (cotulla_volume <= VOL_THRES) {
-			volume = 0;
-		} else {
-			if (cotulla_volume > delta) {
-				volume = cotulla_volume - delta;
-			} else {
-				volume = 0;
-			}
-			if (volume && volume < VOL_THRES) {
-				volume = VOL_THRES;
-			}
-			delta <<= 1;
-		}
-		cotulla_volume = volume;
-		udelay(100);
-	}
-	LEAVE(TRACE_VOLUME, "Cotulla_volume_half_off");
-}
 
 static inline void Cotulla_sound_hard_init(void)
 {
@@ -1481,106 +1399,124 @@ static inline void Cotulla_sound_hard_init(void)
     	LEAVE(TRACE_ON, "Cotulla_sound_hard_init(I2S, I2C init)");
 }
 
-static Cotulla_i2sc_play_power_saving(void)
+static void Cotulla_i2sc_play_power_saving(void)
 {
-    	UDA1380REGS CodecReg;
-    	Cotulla_CODEC_REGS_Init(&CodecReg);
+	UDA1380REGS CodecReg;
+	Cotulla_CODEC_REGS_Init(&CodecReg);
 	
-    	CodecReg.iis.iis_u.reg_val = 0x0000;	// 0x01H, set codec to slave mode
-    	Write_I2C_WORD(W1380_CODEC_ADDRESS,CodecReg.iis.reg_num, CodecReg.iis.iis_u.reg_val);
+	CodecReg.iis.iis_u.reg_val = 0x0000;	// 0x01H, set codec to slave mode
+	Write_I2C_WORD(W1380_CODEC_ADDRESS,
+				   CodecReg.iis.reg_num, CodecReg.iis.iis_u.reg_val);
 	CodecReg.mute.mute_u.reg_val = 0x4800;	//0x13h
-    	Write_I2C_WORD(W1380_CODEC_ADDRESS,CodecReg.mute.reg_num, CodecReg.mute.mute_u.reg_val);
-    	CodecReg.power.power_u.reg_val = 0x0100;	// 0x02H, turn on only bias power
-    	Write_I2C_WORD(W1380_CODEC_ADDRESS,CodecReg.power.reg_num, CodecReg.power.power_u.reg_val);
-    	CodecReg.mode.mode_u.reg_val = 0x0000;	// 0x00H 
-    	Write_I2C_WORD(W1380_CODEC_ADDRESS,CodecReg.mode.reg_num, CodecReg.mode.mode_u.reg_val);
+	Write_I2C_WORD(W1380_CODEC_ADDRESS,
+				   CodecReg.mute.reg_num, CodecReg.mute.mute_u.reg_val);
+	CodecReg.power.power_u.reg_val = 0x0100;	// 0x02H, turn on only bias power
+	Write_I2C_WORD(W1380_CODEC_ADDRESS,
+				   CodecReg.power.reg_num, CodecReg.power.power_u.reg_val);
+	CodecReg.mode.mode_u.reg_val = 0x0000;	// 0x00H 
+	Write_I2C_WORD(W1380_CODEC_ADDRESS,
+				   CodecReg.mode.reg_num, CodecReg.mode.mode_u.reg_val);
 
 	I2C_ICR &= ~I2C_ICR_SCLE;
 	I2C_ICR &= ~I2C_ICR_IUE;	// i2c and clock disable 
-    	I2S_SACR0 &= ~0x0001;    // i2s clk disable
+	I2S_SACR0 &= ~0x0001;    	// i2s clk disable
 
 
 	GPDR(0) |= 0xD0000000;
-	GPDR(1) |= 0x00000001; // set 28-32 gpio output
+	GPDR(1) |= 0x00000001; 		// set 28-32 gpio output
 
 	GPCR(0) = 0xD0000000;
-	GPCR(1) = 0x00000001; // set gpio 28-32 to low
+	GPCR(1) = 0x00000001; 		// set gpio 28-32 to low
 	
 	
-	GPAFR0_U &= ~0xff000000;	 // set alternate function to 0
+	GPAFR0_U &= ~0xff000000;	// set alternate function to 0
 	GPAFR1_L &= ~0x01;
 }
 
-static Cotulla_i2sc_record_power_saving(void)
+static void Cotulla_i2sc_record_power_saving(void)
 {
-    	UDA1380REGS CodecReg;
-    	Cotulla_CODEC_REGS_Init(&CodecReg);
+	UDA1380REGS CodecReg;
+
+	DPRINTK("+Cotulla_i2sc_unit_power_saving\n");
+	Cotulla_CODEC_REGS_Init(&CodecReg);
 	
-    	CodecReg.iis.iis_u.reg_val = 0x0000;	// 0x01H, set codec to slave mode
-    	Write_I2C_WORD(W1380_CODEC_ADDRESS,CodecReg.iis.reg_num, CodecReg.iis.iis_u.reg_val);
+	CodecReg.iis.iis_u.reg_val = 0x0000;		// 0x01H, set codec to slave mode
+	Write_I2C_WORD(W1380_CODEC_ADDRESS,
+				   CodecReg.iis.reg_num, CodecReg.iis.iis_u.reg_val);
 
-    	CodecReg.pga.pga_u.reg_val = 0x8000;
-    	Write_I2C_WORD(W1380_CODEC_ADDRESS,CodecReg.pga.reg_num,CodecReg.pga.pga_u.reg_val);
+	CodecReg.pga.pga_u.reg_val = 0x8000;
+	Write_I2C_WORD(W1380_CODEC_ADDRESS,
+				   CodecReg.pga.reg_num,CodecReg.pga.pga_u.reg_val);
 
-    	CodecReg.power.power_u.reg_val = 0x0100;	// 0x02H, turn on only bias power
-    	Write_I2C_WORD(W1380_CODEC_ADDRESS,CodecReg.power.reg_num, CodecReg.power.power_u.reg_val);
-    	CodecReg.mode.mode_u.reg_val = 0x0000;	// 0x00H 
-    	Write_I2C_WORD(W1380_CODEC_ADDRESS,CodecReg.mode.reg_num, CodecReg.mode.mode_u.reg_val);
+	CodecReg.power.power_u.reg_val = 0x0100;	// 0x02H, turn on only bias power
+	Write_I2C_WORD(W1380_CODEC_ADDRESS,
+				   CodecReg.power.reg_num, CodecReg.power.power_u.reg_val);
+	CodecReg.mode.mode_u.reg_val = 0x0000;		// 0x00H 
+	Write_I2C_WORD(W1380_CODEC_ADDRESS,
+				   CodecReg.mode.reg_num, CodecReg.mode.mode_u.reg_val);
 
 	udelay(5000);
 	I2C_ICR &= ~I2C_ICR_SCLE;
 	I2C_ICR &= ~I2C_ICR_IUE;	// i2c and clock disable 
-    	I2S_SACR0 &= ~0x0001;    // i2s clk disable
+	I2S_SACR0 &= ~0x0001;    	// i2s clk disable
 
 	GPDR(0) |= 0xD0000000;
-	GPDR(1) |= 0x00000001; // set 28-32 gpio output
+	GPDR(1) |= 0x00000001; 		// set 28-32 gpio output
 
 	GPCR(0) = 0xD0000000;
-	GPCR(1) = 0x00000001; // set gpio 28-32 to low
-
+	GPCR(1) = 0x00000001; 		// set gpio 28-32 to low
 	
-	GPAFR0_U &= ~0xff000000;	 // set alternate function to 0
+	GPAFR0_U &= ~0xff000000;	// set alternate function to 0
 	GPAFR1_L &= ~0x01;
+	DPRINTK("-Cotulla_i2sc_unit_power_saving\n");
 }
 
-static Cotulla_i2sc_unit_power_saving(void)
+static void Cotulla_i2sc_unit_power_saving(void)
 {
-    	UDA1380REGS CodecReg;
-    	Cotulla_CODEC_REGS_Init(&CodecReg);
+	UDA1380REGS CodecReg;
+
+	DPRINTK("+Cotulla_i2sc_unit_power_saving\n");
+	Cotulla_CODEC_REGS_Init(&CodecReg);
 	
-    	CodecReg.iis.iis_u.reg_val = 0x0000;	// 0x01H, set codec to slave mode
-    	Write_I2C_WORD(W1380_CODEC_ADDRESS,CodecReg.iis.reg_num, CodecReg.iis.iis_u.reg_val);
-    	CodecReg.power.power_u.reg_val = 0x0100;	// 0x02H, turn on only bias power
-    	Write_I2C_WORD(W1380_CODEC_ADDRESS,CodecReg.power.reg_num, CodecReg.power.power_u.reg_val);
+	CodecReg.iis.iis_u.reg_val = 0x0000;	// 0x01H, set codec to slave mode
+	Write_I2C_WORD(W1380_CODEC_ADDRESS,
+				   CodecReg.iis.reg_num, CodecReg.iis.iis_u.reg_val);
+	CodecReg.power.power_u.reg_val = 0x0100;	// 0x02H, turn on only bias power
+	Write_I2C_WORD(W1380_CODEC_ADDRESS,
+				   CodecReg.power.reg_num, CodecReg.power.power_u.reg_val);
 
 	CodecReg.mute.mute_u.reg_val = 0x4800;	//0x13h
-    	Write_I2C_WORD(W1380_CODEC_ADDRESS,CodecReg.mute.reg_num, CodecReg.mute.mute_u.reg_val);
+	Write_I2C_WORD(W1380_CODEC_ADDRESS,
+				   CodecReg.mute.reg_num, CodecReg.mute.mute_u.reg_val);
 	
-    	CodecReg.mode.mode_u.reg_val = 0x0000;	// 0x00H 
-    	Write_I2C_WORD(W1380_CODEC_ADDRESS,CodecReg.mode.reg_num, CodecReg.mode.mode_u.reg_val);
+	CodecReg.mode.mode_u.reg_val = 0x0000;	// 0x00H 
+	Write_I2C_WORD(W1380_CODEC_ADDRESS,
+				   CodecReg.mode.reg_num, CodecReg.mode.mode_u.reg_val);
 
 	I2C_ICR &= ~I2C_ICR_SCLE;
 	I2C_ICR &= ~I2C_ICR_IUE;	// i2c and clock disable 
-    	I2S_SACR0 &= ~0x0001;    // i2s clk disable
+	I2S_SACR0 &= ~0x0001;    	// i2s clk disable
 
 	GPDR(0) |= 0xD0000000;
-	GPDR(1) |= 0x00000001; // set 28-32 gpio output
+	GPDR(1) |= 0x00000001; 		// set 28-32 gpio output
 
 	GPCR(0) = 0xD0000000;
-	GPCR(1) = 0x00000001; // set gpio 28-32 to low
+	GPCR(1) = 0x00000001; 		// set gpio 28-32 to low
 
-	
-	GPAFR0_U &= ~0xff000000;	 // set alternate function to 0
+	GPAFR0_U &= ~0xff000000;	// set alternate function to 0
 	GPAFR1_L &= ~0x01;
+	DPRINTK("-Cotulla_i2sc_unit_power_saving\n");
 }
 
 static void Cotulla_disable_sound(void)
 {
-    	ENTER(TRACE_ON,"Cotulla_disable_sound");
-    	cotulla_dma_stop(COTULLA_SOUND_DMA_CHANNEL);
+	ENTER(TRACE_ON,"Cotulla_disable_sound");
+	// Comment by Alamy. It seems that cotulla_dma_stop() is useless
+	// because we have cotulla_dma_flush_all()
+	cotulla_dma_stop(COTULLA_SOUND_DMA_CHANNEL);
 	cotulla_dma_stop(COTULLA_RECORDING_DMA_CHANNEL);
-    	cotulla_dma_flush_all(COTULLA_SOUND_DMA_CHANNEL);
-    	cotulla_dma_flush_all(COTULLA_RECORDING_DMA_CHANNEL);
+	cotulla_dma_flush_all(COTULLA_SOUND_DMA_CHANNEL);
+	cotulla_dma_flush_all(COTULLA_RECORDING_DMA_CHANNEL);
 #ifndef TRY_DELAY_OFF
 	Collie_volume_half_off();
 	Collie_hard_mute_on();
@@ -1594,33 +1530,34 @@ static void Cotulla_disable_sound(void)
 
 static void Cotulla_HP_on(void)
 {
-    	UDA1380REGS CodecReg;
-    	ENTER(TRACE_ON,"Cotulla_HP_on");
-    	Cotulla_CODEC_REGS_Init(&CodecReg);
-    	CodecReg.power.power_u.reg_val = 0x2500;
-    	Write_I2C_WORD(W1380_CODEC_ADDRESS,CodecReg.power.reg_num, CodecReg.power.power_u.reg_val);
-    	LEAVE(TRACE_ON,"Cotulla_HP_on");
+	UDA1380REGS CodecReg;
+
+	ENTER(TRACE_ON,"Cotulla_HP_on");
+	Cotulla_CODEC_REGS_Init(&CodecReg);
+	CodecReg.power.power_u.reg_val = 0x2500;
+	Write_I2C_WORD(W1380_CODEC_ADDRESS,
+		       CodecReg.power.reg_num, CodecReg.power.power_u.reg_val);
+	LEAVE(TRACE_ON,"Cotulla_HP_on");
 }
 
 
 static void Cotulla_HP_off(void)
 {
-    	UDA1380REGS CodecReg;
-    	ENTER(TRACE_ON,"Cotulla_HP_off");
-    	Cotulla_CODEC_REGS_Init(&CodecReg);
-	
-    	CodecReg.power.power_u.reg_val = 0x0500;
-    	Write_I2C_WORD(W1380_CODEC_ADDRESS,CodecReg.power.reg_num, CodecReg.power.power_u.reg_val);
-    	LEAVE(TRACE_ON,"Cotulla_HP_off");
-	
+	UDA1380REGS CodecReg;
+
+	ENTER(TRACE_ON,"Cotulla_HP_off");
+	Cotulla_CODEC_REGS_Init(&CodecReg);
+	CodecReg.power.power_u.reg_val = 0x0500;
+	Write_I2C_WORD(W1380_CODEC_ADDRESS,
+		       CodecReg.power.reg_num, CodecReg.power.power_u.reg_val);
+	LEAVE(TRACE_ON,"Cotulla_HP_off");
 }
 
 
 static void CotullaSilence(void)
 {
-    	ENTER(TRACE_ON,"CotullaSilence");
-    	/* Disable sound & DMA */
-    	Cotulla_disable_sound();
+	ENTER(TRACE_ON,"CotullaSilence");
+	Cotulla_disable_sound();
 	Cotulla_MIC_off();
 	Cotulla_SPEAKER_off();
 	LEAVE(TRACE_ON,"CotullaSilence");
@@ -1649,15 +1586,6 @@ static int CotullaGetSamp(void)
     case 16000:
         LEAVE(TRACE_ON,"CollieGetSamp");
         return clock_set_data[3];
-    /*case 32000:
-        LEAVE(TRACE_ON,"CollieGetSamp");
-        return clock_set_data[4];
-    case 24000:
-        LEAVE(TRACE_ON,"CollieGetSamp");
-        return clock_set_data[5];
-    case 16000:
-        LEAVE(TRACE_ON,"CollieGetSamp");
-        return clock_set_data[6];*/
     default:
         printk("Cotulla sound: Illegal sound rate %d\n", sound.soft.speed);
         LEAVE(TRACE_ON,"CotullaGetSamp");
@@ -1667,7 +1595,7 @@ static int CotullaGetSamp(void)
 
 static inline void Cotulla_AUD_on(void)
 {
-    	ENTER(TRACE_ON,"Cotulla_AUD_on");
+	ENTER(TRACE_ON,"Cotulla_AUD_on");
 #ifdef ASIC1
 	set_discovery_egpio1(EGPIO1_DISCOVERY_AUD_PWR_ON);
 #endif
@@ -1678,7 +1606,7 @@ static inline void Cotulla_AUD_on(void)
 
 static inline void Cotulla_AUD_off(void)
 {
-    	ENTER(TRACE_ON,"Cotulla_AUD_off");
+	ENTER(TRACE_ON,"Cotulla_AUD_off");
 #ifdef ASIC1
 	clr_discovery_egpio1(EGPIO1_DISCOVERY_AUD_PWR_ON);
 #endif
@@ -1689,13 +1617,13 @@ static inline void Cotulla_AUD_off(void)
 
 static inline void Cotulla_SPEAKER_on(void)
 {
-    	ENTER(TRACE_ON,"Cotulla_SPEAKER_on");
+	ENTER(TRACE_ON,"Cotulla_SPEAKER_on");
 #ifdef ASIC1
 	clr_discovery_egpio1(EGPIO1_DISCOVERY_SPK_ON);  //active low 
 #endif
 	ASIC3_GPIO_DIR_B |= SPK_ON;	// set pin output
 	ASIC3_GPIO_PIOD_B |= SPK_ON;	// active high in Asic3
-    	LEAVE(TRACE_ON,"Cotulla_SPEAKER_on");
+	LEAVE(TRACE_ON,"Cotulla_SPEAKER_on");
 }
 
 static inline void Cotulla_SPEAKER_off(void)
@@ -1706,7 +1634,7 @@ static inline void Cotulla_SPEAKER_off(void)
 #endif
 	ASIC3_GPIO_DIR_B |= SPK_ON;	// set pin output
 	ASIC3_GPIO_PIOD_B &= ~SPK_ON;	// active high in Asic3
-    	LEAVE(TRACE_ON,"Cotulla_SPEAKER_off");
+	LEAVE(TRACE_ON,"Cotulla_SPEAKER_off");
 }
 
 int Cotulla_HP_Detect(void)
@@ -1791,8 +1719,7 @@ static void Cotulla_I2C_Init(u8 byDeviceAddress)
     I2C_ICR &= ~I2C_ICR_ITEIE;
     
     I2C_ISAR = (char)byDeviceAddress;
-            
-    
+
     while(I2C_ISR & I2C_ISR_IBB)    // wait bus busy
             ;
 
@@ -1802,13 +1729,13 @@ static void Cotulla_I2C_Init(u8 byDeviceAddress)
 void Cotulla_Record_Codec_Init(void)
 {
     UDA1380REGS CodecReg;
-    unsigned short temp;
     ENTER(TRACE_ON,"Cotulla_Record_Codec_Init");
     CKEN |= 0x4100; 
     Cotulla_CODEC_REGS_Init(&CodecReg);
     CodecReg.iis.iis_u.iis_s.in_format = UC_IN_FORMAT_IIS;
     CodecReg.iis.iis_u.iis_s.out_format = UC_OUT_FORMAT_IIS;
-    Write_I2C_WORD(W1380_CODEC_ADDRESS,CodecReg.iis.reg_num, CodecReg.iis.iis_u.reg_val);
+    Write_I2C_WORD(W1380_CODEC_ADDRESS,
+		   CodecReg.iis.reg_num, CodecReg.iis.iis_u.reg_val);
     
     CodecReg.mode.mode_u.mode_s.adc_clk = 1;//0;//1;
     CodecReg.mode.mode_u.mode_s.en_adc = 1;//0;//1;
@@ -1819,7 +1746,8 @@ void Cotulla_Record_Codec_Init(void)
     CodecReg.mode.mode_u.mode_s.en_int = 1;//0;//1;
     CodecReg.mode.mode_u.mode_s.en_dec = 1;
     CodecReg.mode.mode_u.reg_val = 0x0C02;
-    Write_I2C_WORD(W1380_CODEC_ADDRESS,CodecReg.mode.reg_num, CodecReg.mode.mode_u.reg_val);
+    Write_I2C_WORD(W1380_CODEC_ADDRESS,
+		   CodecReg.mode.reg_num, CodecReg.mode.mode_u.reg_val);
 
     CodecReg.power.power_u.power_s.adc_r_on = 1;//0;//1;    
     CodecReg.power.power_u.power_s.adc_l_on = 1;
@@ -1830,32 +1758,36 @@ void Cotulla_Record_Codec_Init(void)
     CodecReg.power.power_u.power_s.pll_on = 1;//0;//1;
     CodecReg.power.power_u.reg_val = 0x0114;
     Write_I2C_WORD(W1380_CODEC_ADDRESS,CodecReg.power.reg_num, CodecReg.power.power_u.reg_val);
-    
+
     wait_ms(500);
 
-
     CodecReg.decimator_vol.decimator_vol_u.reg_val = 0x00; // 0x20h
-    Write_I2C_WORD(W1380_CODEC_ADDRESS,CodecReg.decimator_vol.reg_num,CodecReg.decimator_vol.decimator_vol_u.reg_val);
-    
-    
+    Write_I2C_WORD(W1380_CODEC_ADDRESS,
+		   CodecReg.decimator_vol.reg_num,
+		   CodecReg.decimator_vol.decimator_vol_u.reg_val);
+
     CodecReg.adc.adc_u.adc_s.sel_lna = 1;                   // select line in
     CodecReg.adc.adc_u.adc_s.sel_mic = 1;                   // select to microphone
     CodecReg.adc.adc_u.reg_val = 0x050C;//0x050C;	// 0x22h
-    Write_I2C_WORD(W1380_CODEC_ADDRESS,CodecReg.adc.reg_num, CodecReg.adc.adc_u.reg_val);
-    
+    Write_I2C_WORD(W1380_CODEC_ADDRESS,
+		   CodecReg.adc.reg_num, CodecReg.adc.adc_u.reg_val);
+
     CodecReg.agc.agc_u.agc_s.enable = 0;//1;//0;//1;        // 0x0x23h            // enable automatic gain control
-    Write_I2C_WORD(W1380_CODEC_ADDRESS,CodecReg.agc.reg_num, CodecReg.agc.agc_u.reg_val);
-        
+    Write_I2C_WORD(W1380_CODEC_ADDRESS,
+		   CodecReg.agc.reg_num, CodecReg.agc.agc_u.reg_val);
+
     CodecReg.pga.pga_u.reg_val = 0x00;
-    Write_I2C_WORD(W1380_CODEC_ADDRESS,CodecReg.pga.reg_num,CodecReg.pga.pga_u.reg_val);
-    
+    Write_I2C_WORD(W1380_CODEC_ADDRESS,
+		   CodecReg.pga.reg_num,CodecReg.pga.pga_u.reg_val);
+
     LEAVE(TRACE_ON,"Cotulla_Record_Codec_Init");
 }
 
+
 void Cotulla_Play_Codec_Init(void)
 {
-    
     UDA1380REGS CodecReg;
+
     ENTER(TRACE_ON,"Cotulla_Play_Codec_Init");
     CKEN |= 0x4100; 
     Cotulla_CODEC_REGS_Init(&CodecReg);
@@ -1870,43 +1802,162 @@ void Cotulla_Play_Codec_Init(void)
     CodecReg.mode.mode_u.mode_s.en_int = 1;
     CodecReg.mode.mode_u.mode_s.en_dec = 1;
     CodecReg.mode.mode_u.reg_val = 0x0302;
-    Write_I2C_WORD(W1380_CODEC_ADDRESS,CodecReg.mode.reg_num, CodecReg.mode.mode_u.reg_val);
+    Write_I2C_WORD(W1380_CODEC_ADDRESS,
+		   CodecReg.mode.reg_num, CodecReg.mode.mode_u.reg_val);
 
-    	if (! (ASIC3_GPIO_PSTS_D & HEADPHONE_IN) ){
-    		//printk("hp not in!\n");
-    		Cotulla_SPEAKER_on();
-    		CodecReg.power.power_u.reg_val = 0x0500;
-    		Write_I2C_WORD(W1380_CODEC_ADDRESS,CodecReg.power.reg_num, CodecReg.power.power_u.reg_val);
-	}
-	else{
-    		Cotulla_SPEAKER_off();
-		Cotulla_HP_on();
-    	}
- 
+    if (! (ASIC3_GPIO_PSTS_D & HEADPHONE_IN) ){
+      Cotulla_SPEAKER_on();
+      CodecReg.power.power_u.reg_val = 0x0500;
+      Write_I2C_WORD(W1380_CODEC_ADDRESS,
+		     CodecReg.power.reg_num, CodecReg.power.power_u.reg_val);
+    }
+    else{
+      Cotulla_SPEAKER_off();
+      Cotulla_HP_on();
+    }
+
     wait_ms(100);
-    
+
     CodecReg.mute.mute_u.mute_s.all = 0;                        // no mute
     CodecReg.mute.mute_u.mute_s.channel1 = 0;                   // channel 1 no mute
     CodecReg.mute.mute_u.reg_val = 0x0800;
-    Write_I2C_WORD(W1380_CODEC_ADDRESS,CodecReg.mute.reg_num, CodecReg.mute.mute_u.reg_val);
+    Write_I2C_WORD(W1380_CODEC_ADDRESS,
+		   CodecReg.mute.reg_num, CodecReg.mute.mute_u.reg_val);
  
     LEAVE(TRACE_ON,"Cotulla_Play_Codec_Init");
 }
 
+/*
+  Cotulla_FullDuplex_Codec_Init() created by Alamy
+  Set Codec to support Recording/Playback at the same time.
+  Reference to UDA1830TT/UDA1380HN/N2 SSA-Audio Codec Data Sheet.
+
+  *** Make sure I2S System Clock is working ***
+*/
+void Cotulla_FullDuplex_Codec_Init(void)
+{
+UDA1380REGS	CodecReg;
+
+	ENTER(TRACE_ON, "Enter : Cotulla_FullDuplex_Codec_Init()");
+
+	CKEN |= 0x4100;		// Just copied from Cotulla_Play_Codec_Init()
+	Cotulla_CODEC_REGS_Init( &CodecReg );	// Refresh all value to Zero
+
+	/*
+	  REG 01H : IIS I/O settings
+
+	  Slave mode (master_slave = 0, useless to set)
+	  Input format : I2S (default)
+	  Output format : I2S (default)
+	*/
+	CodecReg.iis.iis_u.iis_s.in_format = UC_IN_FORMAT_IIS;
+	CodecReg.iis.iis_u.iis_s.out_format = UC_OUT_FORMAT_IIS;
+	Write_I2C_WORD(W1380_CODEC_ADDRESS,
+		CodecReg.iis.reg_num, CodecReg.iis.iis_u.reg_val);
+
+	/*
+	  REG 00H : WS PLL settings; clock divider; clock selectors
+
+	  WSPLL input freq. range : 25-50 KHz
+	  Dividers for system clock input : 256fs
+	  DAC Clock : Enable
+	  ADC Clock : Enable
+	  1x command : Enable (write to 1x registers)
+	  2x command : Enable (write to 2x registers)
+	*/
+	CodecReg.mode.mode_u.mode_s.pll = UC_PLL_25K_50K;
+	CodecReg.mode.mode_u.mode_s.sys_div = UC_SYS_DIV_256FS;
+	CodecReg.mode.mode_u.mode_s.en_int = 1;		// Enable 1x cmds
+	CodecReg.mode.mode_u.mode_s.en_dac = 1;		// Enable DAC Clock
+	CodecReg.mode.mode_u.mode_s.en_dec = 1;		// Enable 2x cmds
+	CodecReg.mode.mode_u.mode_s.en_adc = 1;		// Enable ADC Clock
+	Write_I2C_WORD(W1380_CODEC_ADDRESS,
+		CodecReg.mode.reg_num, CodecReg.mode.mode_u.reg_val);
+
+	/*
+	  REG 02H : PON settings
+
+	  Power On for each component
+	  Left ADC, LNA, BIAS(RefPWR), DAC, HeadPhone
+	*/
+	CodecReg.power.power_u.power_s.adc_l_on = 1;
+	CodecReg.power.power_u.power_s.lna_on = 1;
+	CodecReg.power.power_u.power_s.bias_on = 1;
+	CodecReg.power.power_u.power_s.dac_on = 1;
+	CodecReg.power.power_u.power_s.hp_on = 1;
+	Write_I2C_WORD(W1380_CODEC_ADDRESS,
+		CodecReg.power.reg_num, CodecReg.power.power_u.reg_val);
+
+	/*
+	  REG 13H : Master Mute and ( (Ch1 & Ch2) de-emphasis & mute )
+
+	  Master Mute : Disable (all = 0, useless to set)
+	  Channel 1 Mute : Disable (channel1 = 0, useless to set)
+	  Channel 1 De-Emphasis : OFF
+	  Channel 2 Mute : Enable
+	  Channel 2 De-Emphasis : OFF
+	*/
+	CodecReg.mute.mute_u.mute_s.de_ch1 = UC_DEEMPHASIS_OFF;
+	CodecReg.mute.mute_u.mute_s.de_ch2 = UC_DEEMPHASIS_OFF;
+	CodecReg.mute.mute_u.mute_s.channel2 = 1;
+	Write_I2C_WORD(W1380_CODEC_ADDRESS,
+		CodecReg.mute.reg_num, CodecReg.mute.mute_u.reg_val);
+
+	/*
+	  REG 20H : ADC Volume Control Settings
+
+	  Codec default
+	  Right Channel : 0 DB (right = 0, useless to set)
+	  Left Channel : 0 DB (left = 0, useless to set)
+	*/
+
+	/*
+	  REG 21H : PGA settings and mute
+
+	  Linear mute for decimator : No muting (0, useless to set)
+	  PGA Right channel Gain : 0 DB (gain_r = 0, useless to set)
+	  PGA Left channel Gain : 0 DB (gain_l = 0, useless to set)
+	*/
+	// Have to set Codec, No muting is not Codec default value
+	Write_I2C_WORD(W1380_CODEC_ADDRESS,
+		CodecReg.pga.reg_num, CodecReg.pga.pga_u.reg_val);
+
+	/*
+	  REG 22H : ADC settings
+
+	  Polarity control : non-inverting (adcpol_inv = 0, useless to set)
+	  LNA Gain (VGA_CTRL) : +18 DB
+	  Input Select (SEL_LNA) : LNA for left ADC
+	  Channel Select (SEL_MIC) : Left channel ADC
+	  DC filter before dec. filter : Enable (hp_skip_gain = 0)
+	    (MUST be 0 if AGC is enabled - REG 23H)
+	  DC filter at output of dec. filter : Disable (hp_en_dec = 0)
+	*/
+	CodecReg.adc.adc_u.adc_s.vga_ctrl = 0x05;
+	CodecReg.adc.adc_u.adc_s.sel_lna = 1;
+	CodecReg.adc.adc_u.adc_s.sel_mic = 1;
+	Write_I2C_WORD(W1380_CODEC_ADDRESS,
+		CodecReg.adc.reg_num, CodecReg.adc.adc_u.reg_val);
+
+	/*
+	  REG 23H : AGC settings
+
+	  Codec default (AGC disable)
+	*/
+
+	LEAVE(TRACE_ON, "Leave : Cotulla_FullDuplex_Codec_Init()");
+}
 
 static inline void Cotulla_I2S_Init(void)
 {
-    int i;
     
     ENTER(TRACE_ON,"Cotulla_I2S_Init");
     
-	GPDR(0) &= ~0xF0000000;
-	GPDR(1) &= ~0x00000001;
-	
-	GPDR(0) |= 0xD0000000;
-	GPDR(1) |= 0x00000001;
-
-    // set I2S GPIO alternate functions
+    GPDR(0) &= ~0xF0000000;
+    GPDR(1) &= ~0x00000001;
+    
+    GPDR(0) |= 0xD0000000;
+    GPDR(1) |= 0x00000001;
     GPAFR0_U &= ~0xff000000;
     GPAFR0_U |= 0x59000000;
     GPAFR1_L &= ~0x01;
@@ -1922,12 +1973,9 @@ static inline void Cotulla_I2S_Init(void)
     I2S_SACR0 &= ~0x0010;//efwr off
     I2S_SACR0 &= ~0x0020;//strf off
     
-        
-    // prime transmit FIFO with one sample
     I2S_SADR = 0x0000;
     I2S_SADIV = 0x00000000D;
-
-    // initial SACR0 register
+    
     I2S_SACR0 |= 0x7700;
     I2S_SACR0 |= 0x0001;    // i2s clk enable
     
@@ -1941,14 +1989,14 @@ static inline void Cotulla_I2S_Init(void)
 }
 
 static inline void Cotulla_CODEC_reset(void)
-{   
-    	ENTER(TRACE_ON,"Cotulla_CODEC_reset");
-    	
+{
+	ENTER(TRACE_ON,"Cotulla_CODEC_reset");
+
    	ASIC3_GPIO_DIR_B |= CODEC_RST;	// set pin output
 	ASIC3_GPIO_PIOD_B &= ~CODEC_RST;
 	ASIC3_GPIO_PIOD_B |= CODEC_RST;
-    	udelay(1000);
-    	ASIC3_GPIO_PIOD_B &= ~CODEC_RST;
+	udelay(1000);
+	ASIC3_GPIO_PIOD_B &= ~CODEC_RST;
 #ifdef ASIC1    	
 	clr_discovery_egpio2(EGPIO2_DISCOVERY_CODEC_RST);
 	udelay(10000);
@@ -1957,55 +2005,61 @@ static inline void Cotulla_CODEC_reset(void)
 	udelay(10000);
 #endif    
     
-    	LEAVE(TRACE_ON,"Cotulla_CODEC_reset");
+	LEAVE(TRACE_ON,"Cotulla_CODEC_reset");
 }   
-   
-void Cotulla_audio_record_power_on(void)
+
+/*
+  Cotulla_audio_power_on() created by Alamy (suggested by Eric)
+  Take replace of
+    Cotulla_audio_play_power_on()
+    Cotulla_audio_record_power_on()
+    Cotulla_audio_fullduplex_power_on()
+*/
+void Cotulla_audio_power_on( access_type_t type )
 {
-	ENTER(TRACE_ON,"Cotulla_audio_record_power_on");
-	
-	if (1)
-   	{
-   		Cotulla_I2C_Init(W1380_CODEC_ADDRESS);
-    		Cotulla_I2S_Init();
-    	}
-    
-	
-	Cotulla_Record_Codec_Init();
-	Cotulla_MIC_on();
-	udelay(1000);
-	sound.hard = sound.soft;
-	
-	LEAVE(TRACE_ON,"Cotulla_audio_record_power_on");
-}
- 
-void Cotulla_audio_play_power_on(void)
-{   
-	int send_data;
-    
-	ENTER(TRACE_ON,"Cotulla_audio_play_power_on");
+	ENTER(TRACE_ON, "Enter : Cotulla_audio_power_on()");
 
-	/* OP_SHDN off */
-	if (1)
+	switch (type)
 	{
-        	CKEN |= 0x4100;        
-                
-   		Cotulla_I2C_Init(W1380_CODEC_ADDRESS);
-    		Cotulla_I2S_Init();
-    	}
+	case RECORDING:
+		Cotulla_I2C_Init(W1380_CODEC_ADDRESS);
+		Cotulla_I2S_Init();
+		Cotulla_Record_Codec_Init();
+		Cotulla_MIC_on();
+		udelay(1000);
+		sound.hard = sound.soft;
+		break;
 
-	/* DAC ON */
-	Cotulla_MIC_off();
-    
-	/* Mic off */
-	Cotulla_Play_Codec_Init();	// 2002.5.18.13:17
-   
-	udelay(1000);
+	case PLAYBACK:
+		CKEN |= 0x4100;
 
-	sound.hard = sound.soft;
+		Cotulla_I2C_Init(W1380_CODEC_ADDRESS);
+		Cotulla_I2S_Init();
+		Cotulla_MIC_off();
+		Cotulla_Play_Codec_Init();	// 2002.5.18.13:17
+		udelay(1000);
+		sound.hard = sound.soft;
+		break;
 
-	LEAVE(TRACE_ON,"Cotulla_audio_play_power_on");
+	case FULLDUPLEX:
+
+		Cotulla_I2C_Init( W1380_CODEC_ADDRESS );
+		Cotulla_I2S_Init();
+
+		// HP_MIC is out side circuit of Audio Codec
+		Cotulla_MIC_on();
+
+		Cotulla_FullDuplex_Codec_Init();
+		udelay(1000);
+
+		// What does this for ?  Just copy from other xxx_power_on()
+		sound.hard = sound.soft;
+		break;
+	}
+
+	LEAVE(TRACE_ON, "Leave : Cotulla_audio_power_on()");
 }
+
 
 static void CotullaInit(void)
 {
@@ -2018,41 +2072,23 @@ static void Cotulla_sq_interrupt(void* id, int size)
 {
     audio_buf_t *b = (audio_buf_t *) id;
     ENTER(TRACE_INTERRUPT,"Cotulla_sq_interrupt");
-/***** DEBUG *****
-printk("Collie_sq_interrupt: Start\n");
-*****************/
+
+	if( -- b->dma_count > 0 ) return;
+
     /*
      * Current buffer is sent: wake up any process waiting for it.
      */
     ENTER(TRACE_SEM,"up sem");
     up(&b->sem);
     LEAVE(TRACE_SEM,"up sem");
-/***** DEBUG *****
-printk("Collie_sq_interrupt: up End\n");
-*****************/
+
     /* And any process polling on write. */
     ENTER(TRACE_SEM,"up wait");
     wake_up(&b->sem.wait);
     LEAVE(TRACE_SEM,"up wait");
-/***** DEBUG *****
-printk("Collie_sq_interrupt: wake_up End\n");
-*****************/
 
     DPRINTK("Cotulla_sq_interrupt \n");
     LEAVE(TRACE_INTERRUPT,"Cotulla_sq_interrupt");
-}
-
-static void audio_dmain_done_callback(void *buf_id, int size)
-{
-	audio_buf_t *b = (audio_buf_t *) buf_id;
-	/* 
-	 * Current buffer is full: set its size and wake up any 
-	 * process waiting for it.
-	 */
-	b->size = size;
-	up(&b->sem);
-	/* And any process polling on read. */
-	wake_up(&b->sem.wait);
 }
 
 void CotullaDmaInit(void)
@@ -2062,37 +2098,36 @@ void CotullaDmaInit(void)
     err = cotulla_request_dma(&cotulla_dmasound_irq,"dmasound");
     if (err) {
         LEAVE(TRACE_ON,"CotullaIrqInit_request");
-        return 0;
+        return;
     }
     
     err = cotulla_request_dma(&cotulla_dmarecording_irq,"dmarecording");
     if (err) {
         LEAVE(TRACE_ON,"CotullaIrqInit_request2");
-        return 0;
+        return;
     }
+    
     
     err = cotulla_dma_set_device(cotulla_dmasound_irq,3,_I2S_SADR,32,4,0,0);
                  // SADR = 0x40400080, DCMD. width = 4, burst size = 32, recv = 0
     if (err) {
         LEAVE(TRACE_ON,"CotullaIrqInit_setdevice");
-        return 0;
+        return;
     }
 
     err = cotulla_dma_set_device(cotulla_dmarecording_irq,2,_I2S_SADR,32,4,0,1);
                  // SADR = 0x40400080, DCMD. width = 4, burst size = 32, recv = 1
     if (err) {
         LEAVE(TRACE_ON,"CotullaIrqInit_setdevice2");
-        return 0;
+        return;
     }
-
-    /* printk("collie_dmasound_irq=%d\n", collie_dmasound_irq); */
 
     err = cotulla_dma_set_callback(cotulla_dmasound_irq,
                    (dma_callback_t)Cotulla_sq_interrupt);
 
     if (err) {
         LEAVE(TRACE_ON,"CotullaIrqInit_callback");
-        return 0;
+        return;
     }
     
     err = cotulla_dma_set_callback(cotulla_dmarecording_irq,
@@ -2100,7 +2135,7 @@ void CotullaDmaInit(void)
 
     if (err) {
         LEAVE(TRACE_ON,"CotullaIrqInit_callback2");
-        return 0;
+        return;
     }
 
 }
@@ -2134,38 +2169,48 @@ static int CotullaSetFormat(int format)
     case AFMT_MU_LAW:
         size = 8;
         ct_func = sound.trans->ct_ulaw;
+        ct_read_func = sound.trans_read->ct_ulaw;
         break;
     case AFMT_A_LAW:
         size = 8;
         ct_func = sound.trans->ct_alaw;
+        ct_read_func = sound.trans_read->ct_alaw;
         break;
     case AFMT_S8:
         size = 8;
         ct_func = sound.trans->ct_s8;
+        ct_read_func = sound.trans_read->ct_s8;
         break;
     case AFMT_U8:
         size = 8;
         ct_func = sound.trans->ct_u8;
+        ct_read_func = sound.trans_read->ct_u8;
         break;
     case AFMT_S16_BE:
         size = 16;
         ct_func = sound.trans->ct_s16be;
+        ct_read_func = sound.trans_read->ct_s16be;
         break;
     case AFMT_U16_BE:
         size = 16;
         ct_func = sound.trans->ct_u16be;
+        ct_read_func = sound.trans_read->ct_u16be;
         break;
     case AFMT_S16_LE:
         size = 16;
         ct_func = sound.trans->ct_s16le;
+        ct_read_func = sound.trans_read->ct_s16le;
         break;
     case AFMT_U16_LE:
         size = 16;
         ct_func = sound.trans->ct_u16le;
+        ct_read_func = sound.trans_read->ct_u16le;
         break;
     default: /* :-) */
         size = 8;
         format = AFMT_S8;
+        ct_func = sound.trans->ct_s8;
+        ct_read_func = sound.trans_read->ct_s8;
     }
 
     sound.soft.format = format;
@@ -2207,6 +2252,7 @@ static void sound_silence(void)
 {
     ENTER(TRACE_ON,"sound_silence");
     /* update hardware settings one more */
+    //(*sound.mach.init)();
     (*sound.mach.silence)();
     LEAVE(TRACE_ON,"sound_silence");
 
@@ -2243,30 +2289,37 @@ static int sound_set_speed(int speed)
         sound.dsp.speed = sound.soft.speed;
 
     /* LoCoMo Audio clock */
+    //Collie_audio_clock_off();
     Cotulla_set_audio_clock();
     
     LEAVE(TRACE_ON,"sound_set_speed");
     return(sound.soft.speed);
 }
 
+/*
+	stereo : 0) mono, 1) stereo
 
+	for SNDCTL_DSP_STEREO, should return mono/stereo (0 or 1),
+	or Media Player won't work.
+*/
 static int sound_set_stereo(int stereo)
 {
-    ENTER(TRACE_ON,"sound_set_stereo");
-    if (stereo < 0) {
-        LEAVE(TRACE_ON,"sound_set_stereo");
-        return(sound.soft.stereo);
-    }
+	ENTER(TRACE_ON, "Enter : sound_set_stereo()");
 
-    stereo = !!stereo;    /* should be 0 or 1 now */
+	/* stereo should be 0 or 1 */
+	if ((stereo < 0) || (stereo > 1)) {
+		LEAVE(TRACE_ON, "Leave : sound_set_stereo() - Out of range");
+		return sound.soft.stereo;
+	}
 
-    sound.soft.stereo = stereo;
-    if (sound.minDev == SND_DEV_DSP)
-        sound.dsp.stereo = stereo;
+	sound.soft.stereo = stereo;
+	if (sound.minDev == SND_DEV_DSP)
+		sound.dsp.stereo = stereo;
 
-    LEAVE(TRACE_ON,"sound_set_stereo");
-    return(stereo);
+	LEAVE(TRACE_ON, "Leave : sound_set_stereo()");
+	return stereo;
 }
+
 
 /*
  * /dev/mixer abstraction
@@ -2297,17 +2350,17 @@ static int mixer_ioctl(struct inode *inode, struct file *file, u_int cmd,
 {
     int data;
 
-    ENTER(TRACE_ON,"mixer_ioctl");
+    ENTER(TRACE_ON, "Enter : mixer_ioctl()");
     
     switch (sound.mach.type) {
     case DMASND_COTULLA:
     {
         switch (cmd) {
             case SOUND_MIXER_READ_DEVMASK:
-                LEAVE(TRACE_ON,"mixer_ioctl");
-                return IOCTL_OUT(arg, SOUND_MASK_VOLUME );
+                LEAVE(TRACE_ON, "Leave : mixer_ioctl(SOUND_MIXER_READ_DEVMASK)");
+                return IOCTL_OUT(arg, SOUND_MASK_VOLUME | SOUND_MASK_MIC );
             case SOUND_MIXER_READ_RECMASK:
-                LEAVE(TRACE_ON,"mixer_ioctl");
+                LEAVE(TRACE_ON, "Leave : mixer_ioctl(SOUND_MIXER_READ_RECMASK)");
                 return IOCTL_OUT(arg, 0);
             case SOUND_MIXER_READ_STEREODEVS:
                 LEAVE(TRACE_ON,"mixer_ioctl");
@@ -2317,11 +2370,14 @@ static int mixer_ioctl(struct inode *inode, struct file *file, u_int cmd,
                 return IOCTL_OUT(arg, 0);
 
             case SOUND_MIXER_WRITE_VOLUME:
+                ENTER(TRACE_VOLUME, "Enter : mixer_ioctl(SOUND_MIXER_WRITE_VOLUME)");
                 IOCTL_IN(arg, data);
+                DPRINTK("<volume data>:%x\n", data);
                 Cotulla_Set_Volume(data);
+                LEAVE(TRACE_VOLUME, "Leave : mixer_ioctl(SOUND_MIXER_WRITE_VOLUME)");
 
             case SOUND_MIXER_READ_VOLUME:
-                LEAVE(TRACE_ON,"mixer_ioctl");
+                LEAVE(TRACE_VOLUME, "Leave : mixer_ioctl(SOUND_MIXER_READ_VOLUME)");
                 return IOCTL_OUT(arg, Cotulla_Get_Volume());
 
             case SOUND_MIXER_READ_TREBLE:
@@ -2332,12 +2388,23 @@ static int mixer_ioctl(struct inode *inode, struct file *file, u_int cmd,
                 return IOCTL_OUT(arg, 0);
 
             case SOUND_MIXER_WRITE_MIC:
+			ENTER(TRACE_VOLUME, "Enter : mixer_ioctl(SOUND_MIXER_WRITE_MIC)");
                 IOCTL_IN(arg, data);
-		Cotulla_Set_Igain(data);
+                DPRINTK("<mic data>:%x\n",data);
+			Cotulla_Set_Igain(data);
+			ENTER(TRACE_VOLUME, "Leave : mixer_ioctl(SOUND_MIXER_WRITE_MIC)");
             case SOUND_MIXER_READ_MIC:
                 LEAVE(TRACE_ON,"mixer_ioctl");
                 return IOCTL_OUT(arg, Cotulla_Get_Igain());
 
+#if 0                
+	    case SOUND_MIXER_WRITE_IGAIN:
+			IOCTL_IN(arg, data);
+			Cotulla_Set_Igain(data);
+	    case SOUND_MIXER_READ_IGAIN:
+                LEAVE(TRACE_ON,"mixer_ioctl");
+                return IOCTL_OUT(arg, Cotulla_Get_Igain());
+#endif
             case SOUND_MIXER_READ_SPEAKER:
                 LEAVE(TRACE_ON,"mixer_ioctl");
                 return IOCTL_OUT(arg, 0);
@@ -2382,14 +2449,15 @@ static void __init mixer_init(void)
         case DMASND_COTULLA:
             sound.volume_left  = 80;
             sound.volume_right = 80;
-            cotulla_main_volume = sound.volume_left;
             break;
     }
 
     LEAVE(TRACE_ON,"mixer_init");
 }
 
-/* This function allocates the buffer structure array and buffer data space
+/*
+ * sq_allocate_buffers()
+ * This function allocates the buffer structure array and buffer data space
  * according to the current number of fragments and fragment size.
  */
 
@@ -2400,10 +2468,10 @@ static int sq_allocate_buffers(audio_stream_t * s)
     char *dmabuf = 0;
     dma_addr_t dmaphys = 0;
 
-    ENTER(TRACE_ON,"sq_allocate_buffers");
+    ENTER(TRACE_ON, "Enter : sq_allocate_buffers()");
     DPRINTK("sq_allocate_buffers\n");
     if (s->buffers) {
-        LEAVE(TRACE_ON,"sq_allocate_buffers");
+        LEAVE(TRACE_ON, "Leave : sq_allocate_buffers() - EBUSY");
         return -EBUSY;
     }
 
@@ -2436,7 +2504,7 @@ static int sq_allocate_buffers(audio_stream_t * s)
             } while (!dmabuf && dmasize);
             if (!dmabuf)
                 goto err;
-            b->master = dmasize;
+			b->dma_size = dmasize;
         }
 
         b->start = dmabuf;
@@ -2453,13 +2521,13 @@ static int sq_allocate_buffers(audio_stream_t * s)
     s->buf_idx = 0;
     s->buf = &s->buffers[0];
 
-    LEAVE(TRACE_ON,"sq_allocate_buffers");
+    LEAVE(TRACE_ON, "Leave : sq_allocate_buffers()");
     return 0;
 
 err:
     printk("sound driver : unable to allocate audio memory\n ");
     sq_release_buffers(s);   
-    LEAVE(TRACE_ON,"sq_allocate_buffers");
+    LEAVE(TRACE_ON, "Leave : sq_allocate_buffers() - Error!");
     return -ENOMEM;
 }
 
@@ -2473,18 +2541,21 @@ static void sq_release_buffers(audio_stream_t * s)
     DPRINTK("sq_release_buffers\n");
 	
     /* ensure DMA won't run anymore */
-    if (audio_wr_refcount)
-    	cotulla_dma_flush_all(COTULLA_SOUND_DMA_CHANNEL);
-    if (audio_rd_refcount)
-	cotulla_dma_flush_all(COTULLA_RECORDING_DMA_CHANNEL);
-	
+	if( s == &input_stream ){
+		if (audio_rd_refcount)
+		  cotulla_dma_flush_all(COTULLA_RECORDING_DMA_CHANNEL);
+	}else{
+		if (audio_wr_refcount)
+		  cotulla_dma_flush_all(COTULLA_SOUND_DMA_CHANNEL);
+	}
+
     if (s->buffers) {
         int frag;
         for (frag = 0; frag < s->nbfrags; frag++) {
-            if (!s->buffers[frag].master)
-                continue;
+		if (!s->buffers[frag].dma_size)
+			continue;
             consistent_free(s->buffers[frag].start,
-                    s->buffers[frag].master,
+                    s->buffers[frag].dma_size,
                     s->buffers[frag].dma_addr);
         }
         kfree(s->buffers);
@@ -2493,28 +2564,43 @@ static void sq_release_buffers(audio_stream_t * s)
 
     s->buf_idx = 0;
     s->buf = NULL;
-        
+
     LEAVE(TRACE_ON,"sq_release_buffers");
 }
 
 static int audio_recording(audio_stream_t * s)
 {
-	int i, chunksize;
-	char *temp = 0;
-	dma_addr_t tempphys = 0;
+	int i, is_start, idx;
+	audio_buf_t *b;
+
 	if (!s->buffers) {
 		if (sq_allocate_buffers(s))
 		{
-			LEAVE(TRACE_WRITE,"sq_read2");
+			LEAVE(TRACE_READ,"sq_read2");
 			return -ENOMEM;
 		}
-		temp = consistent_alloc(GFP_KERNEL|GFP_DMA, 2048, &tempphys);
+		is_start = 1;
+	}else{
+		is_start = 0;
+	}
 
-		cotulla_dma_set_spin(COTULLA_RECORDING_DMA_CHANNEL,tempphys ,2048);
+	if(( !is_start )&&( !cotulla_dma_is_busy(COTULLA_RECORDING_DMA_CHANNEL) )){
+		is_start = 1;
+		idx = s->buf_idx;
 		for (i = 0; i < s->nbfrags; i++) {
-			audio_buf_t *b = s->buf;
+			if (atomic_read(&(s->buffers[idx].sem.count)) > 0){
+				is_start = 0;
+				break;
+			}
+			idx = (idx+1)%(s->nbfrags);
+		}
+	}
+	if( is_start ){
+		for (i = 0; i < s->nbfrags; i++) {
+			b = s->buf;
 			down(&b->sem);
-			cotulla_dma_queue_buffer(COTULLA_SOUND_DMA_CHANNEL,(void *) b, b->dma_addr, s->fragsize);
+			set_dma_divided_buffer(s, b,
+								   COTULLA_RECORDING_DMA_CHANNEL, s->fragsize);
 			NEXT_BUF(s, buf);
 		}
 		
@@ -2522,17 +2608,17 @@ static int audio_recording(audio_stream_t * s)
 	return 0;
 }
 
+
 static ssize_t sq_read(struct file *file, const char *src, size_t uLeft,
             loff_t *ppos)
 {
 	char *buffer0 = src;
 	audio_stream_t *s = &input_stream;
-    	u_char *dest;
-    	ssize_t uUsed, bUsed, bLeft, ret = 0, i, TLeft, Left;
-    	int stereo = sound.soft.stereo;
-	char *temp = 0;
-	dma_addr_t tempphys = 0;
-	
+	u_char *dest;
+	ssize_t uUsed, bUsed, bLeft, ret = 0;
+
+	ENTER(TRACE_READ, "Enter : sq_read()");
+
 	Cotulla_OP_RDV_on();
 	switch (file->f_flags & O_ACCMODE) {
 	case O_RDONLY:
@@ -2543,30 +2629,17 @@ static ssize_t sq_read(struct file *file, const char *src, size_t uLeft,
 	default:
 		return -EPERM;
 	}
-	
-	if (!s->buffers ) {
-		
-		if ( sq_allocate_buffers(s) )
-		{		
-			LEAVE(TRACE_WRITE,"sq_read2");
-			return -ENOMEM;
-		}
-		
-		for (i = 0; i < s->nbfrags ; i++) {
-			TLeft = s->fragsize;
-			Left = s->fragsize >> 1;	
-			while( TLeft>0 ){
-			audio_buf_t *b = s->buf;
-			down(&b->sem);
-			cotulla_dma_queue_buffer(COTULLA_RECORDING_DMA_CHANNEL, (void *) b,
-						b->dma_addr, /*s->fragsize*/Left);
-			TLeft -= Left;
-			NEXT_BUF(s, buf);
-			}
-		}
+
+	ret = audio_recording(s);
+	if( ret != 0 ){
+		return ret;
 	}
 
-
+	cotulla_do_reading = 1;
+	if( cotulla_do_sync ){
+		cotulla_do_reading = 0;
+		return 0;
+	}
 	while (uLeft > 0) {
 		audio_buf_t *b = s->buf;
 
@@ -2574,90 +2647,60 @@ static ssize_t sq_read(struct file *file, const char *src, size_t uLeft,
 		if (file->f_flags & O_NONBLOCK) {
 			DPRINTK("audio_read : down_trylock\n");
 			ret = -EAGAIN;
-			if (down_trylock(&b->sem))
+			ENTER(TRACE_SEM, "Enter : down_trylock sem");
+			if (down_trylock(&b->sem)) {
+				LEAVE(TRACE_SEM, "Leave : down_trylock sem - Error");
 				break;
+			}
+			LEAVE(TRACE_SEM, "Leave : down_trylock sem");
 		} else {
 			DPRINTK("audio_read : down_interruptible\n");
 			ret = -ERESTARTSYS;
-			if (down_interruptible(&b->sem))
+			ENTER(TRACE_SEM, "Enter : down_interruptible sem");
+			if (down_interruptible(&b->sem)) {
+				LEAVE(TRACE_SEM, "Leave : down_interruptible sem - Error");
 				break;
+			}
+			LEAVE(TRACE_SEM, "Leave : down_interruptible sem");
 		}
-		
+
 		dest = b->start + b->size;
-		bLeft = s->fragsize >> 1;
+		bUsed = 0;
+		bLeft = s->fragsize - b->size;
 
-		if (audio_fmt&AFMT_U8) { // 8bit
-		
-		  short *srcdata = (short*)(b->start + b->size);
-		  char *dstdata = src;
-		  if(stereo){
-			for(i=0; i< bLeft/2; i++)
-			{
-				put_user((char)(((*srcdata)>>8)+128),dstdata);
-		    		srcdata++; dstdata++;
-			}
-			src += bLeft/2;
-			uLeft -= bLeft/2;
-		  }
-		  else{
-			for(i=0; i< bLeft/2; i++)
-			{
-				if( (i%2) == 0){
-					put_user((char)(((*srcdata)>>8)+128),dstdata);
-					srcdata++;	
-		    			dstdata++;
-					}
-				else{
-					put_user((char)(((*srcdata)>>8)+128),temp);
-				
-		    			srcdata++;
-		    		}
-			}
-			src += bLeft/4;
-			uLeft -= bLeft/2;
-		  }
-		
+		if (ct_read_func) {
+		  uUsed = ct_read_func(src, uLeft, dest, &bUsed, bLeft);
+		} else {
+			cotulla_do_reading = 0;
+			return -EFAULT;
 		}
 
-		else{
-		if (stereo){
-			if (copy_to_user(src, dest, bLeft)) {
-				up(&b->sem);
-				return -EFAULT;
-			}
-		
-			src +=  bLeft;
-			uLeft -= bLeft;
-		
+		if (uUsed < 0) {
+			up(&b->sem);
+			cotulla_do_reading = 0;
+			return -EFAULT;
 		}
-		else{
-		  short *srcdata = (short*)(b->start + b->size);
-		  short *dstdata = src;
+		b->size += bUsed;
+		src += uUsed;
+		uLeft -= uUsed;
 
-			for(i=0; i<bLeft; i++)
-			{
-				if( (i%2) == 0){
-				put_user(*srcdata,dstdata);
-					srcdata++;	
-		    			dstdata++;
-					}
-				else{
-		    			srcdata++;
-		    		}
-			}
-			src += bLeft/2;
-			uLeft -= bLeft;
+		if (b->size < s->fragsize) {
+			up(&b->sem);
+			break;
 		}
-		}
-		
-		cotulla_dma_queue_buffer(COTULLA_RECORDING_DMA_CHANNEL,(void *) b, b->dma_addr, bLeft);
-        	
+		b->size = 0;
+
+		set_dma_divided_buffer(s, b,
+							   COTULLA_RECORDING_DMA_CHANNEL, s->fragsize);
 		NEXT_BUF(s, buf);
 	}
+	cotulla_do_reading = 0;
 
 	if ((src - buffer0))
 		ret = src - buffer0;
 	DPRINTK("audio_read: return=%d\n", ret);
+	LEAVE(TRACE_READ, "Leave : sq_read()");
+
 	return ret;
 }
 
@@ -2668,9 +2711,8 @@ static ssize_t sq_write(struct file *file, const char *src, size_t uLeft,
     audio_stream_t *s = &output_stream;
     u_char *dest;
     ssize_t uUsed, bUsed, bLeft, ret = 0;
-    	int stereo = sound.soft.stereo;
-    
-    ENTER(TRACE_WRITE,"sq_write");
+
+    ENTER(TRACE_WRITE,"Enter : sq_write()");
     DPRINTK("sq_write: uLeft=%d\n", uLeft);
 
     Cotulla_OP_PLV_on();
@@ -2690,7 +2732,6 @@ static ssize_t sq_write(struct file *file, const char *src, size_t uLeft,
 		return -ENOMEM;
 	}
 
-
 	if (cotulla_resume == 1) {
 		int	i;
 		cotulla_resume = 0;
@@ -2698,11 +2739,16 @@ static ssize_t sq_write(struct file *file, const char *src, size_t uLeft,
 			udelay(1);
 		}
 	}
+
 #ifdef CONFIG_PM
 	/* Auto Power off cancel */
 	autoPowerCancel = 0;
 #endif
 
+	cotulla_do_writing = 1;
+	if( cotulla_do_sync ){
+		return 0;
+	}
 	while (uLeft > 0) {
 		audio_buf_t *b = s->buf;
 
@@ -2725,42 +2771,48 @@ static ssize_t sq_write(struct file *file, const char *src, size_t uLeft,
 			LEAVE(TRACE_SEM,"down_int2 sem");
 		}
 
-      	  	//printk("s->fragsize: %x\n",s->fragsize);
-        	//printk("b->size: %x\n",b->size);
+		/* Feed the current buffer */
 		dest = b->start + b->size;
-		bLeft =  s->fragsize >>2;
-		//printk("bLeft: %x\n",bLeft);
-		
-		if (sound.soft.format==AFMT_MU_LAW || 
-		    sound.soft.format==AFMT_A_LAW) {
-		    if ( uLeft*4 < bLeft ) bLeft = uLeft*4;
-		    uUsed = bLeft >>2;
-		    bUsed=0;
-		    if (discovery_ct_law(src, uUsed, dest,&bUsed,uUsed)<0) {
-			up(&b->sem);
-			return -EFAULT;
-		    }
+		bUsed = 0;
+		bLeft = s->fragsize - b->size;
+
+		if (ct_func) {
+		  uUsed = ct_func(src, uLeft, dest, &bUsed, bLeft);
 		} else {
-		    if ( uLeft < bLeft ) bLeft = uLeft;
-		    uUsed = bLeft;
-		    if (copy_from_user(dest, src, bLeft)) {
 			up(&b->sem);
+			cotulla_do_writing = 0;
 			return -EFAULT;
-		    }
 		}
 
-		src +=  uUsed;
+		if (uUsed < 0) {
+			up(&b->sem);
+			cotulla_do_writing = 0;
+			return -EFAULT;
+		}
+
+		b->size += bUsed;
+		src += uUsed;
 		uLeft -= uUsed;
-        cotulla_dma_queue_buffer(COTULLA_SOUND_DMA_CHANNEL,(void *) b, b->dma_addr, bLeft);
 
-        NEXT_BUF(s, buf);
-    }
+		if (b->size < s->fragsize) {
+			up(&b->sem);
+			break;
+		}
+		b->size = 0;
+		set_dma_divided_buffer(s, b,
+							   COTULLA_SOUND_DMA_CHANNEL, s->fragsize);
+		NEXT_BUF(s, buf);
+	}
+	cotulla_do_writing = 0;
 
-    if ((src - buffer0))
-        ret = src - buffer0;
+	if ((src - buffer0))
+		ret = src - buffer0;
 
-    return ret;
+	LEAVE(TRACE_WRITE, "Leave : sq_write()");
+
+	return ret;
 }
+
 
 static unsigned int sq_poll(struct file *file, 
                    struct poll_table_struct *wait)
@@ -2784,11 +2836,12 @@ static unsigned int sq_poll(struct file *file,
         poll_wait(file, &output_stream.buf->sem.wait, wait);
         LEAVE(TRACE_SEM,"poll_wait wait");
     }
-
     if (file->f_mode & FMODE_WRITE) {
         for (i = 0; i < output_stream.nbfrags; i++) {
-            if (atomic_read(&output_stream.buffers[i].sem.count) > 0)
+			if (atomic_read(&output_stream.buffers[i].sem.count) > 0){
                 mask |= POLLOUT | POLLWRNORM;
+				break;
+			}
         }
     }
 
@@ -2802,12 +2855,12 @@ static unsigned int sq_poll(struct file *file,
 	}
 	if (file->f_mode & FMODE_READ) {
 		for (i = 0; i < input_stream.nbfrags; i++) {
-			if (atomic_read(&input_stream.buffers[i].sem.count) > 0)
+			if (atomic_read(&input_stream.buffers[i].sem.count) > 0){
 				mask |= POLLIN | POLLRDNORM;
+				break;
+			}
 		}
 	}
-
-
 
     DPRINTK("sq_poll() returned mask of %s%s\n",
         (mask & POLLIN) ? "r" : "",
@@ -2819,237 +2872,261 @@ static unsigned int sq_poll(struct file *file,
 
 static int sq_open(struct inode *inode, struct file *file)
 {
-    ENTER(TRACE_ON,"sq_open");
+    ENTER(TRACE_ON, "Enter : sq_open()");
     DPRINTK("sq_open\n");
 
-    if ( ((file->f_flags & O_ACCMODE) == O_WRONLY)
-      /*|| ((file->f_flags & O_ACCMODE) == O_RDWR)*/) {
-        if (audio_wr_refcount || audio_rd_refcount) {
-            DPRINTK(" sq_open EBUSY\n");
-            LEAVE(TRACE_ON,"sq_open");
-            return -EBUSY;
-        }
-        MOD_INC_USE_COUNT;
-        audio_wr_refcount++;
-    }
-    else if ((file->f_flags & O_ACCMODE) == O_RDONLY) {
-		if (audio_rd_refcount || audio_wr_refcount)
-			return -EBUSY;
+	//eRic24! for R/W support
+	if (audio_wr_refcount || audio_rd_refcount) {
+		DPRINTK(" sq_open EBUSY\n");
+		LEAVE(TRACE_ON,"sq_open");
+		return -EBUSY;
+	}
+	if ((file->f_flags & O_ACCMODE) == O_WRONLY) {
+		audio_wr_refcount++;
+	}
+	else if ((file->f_flags & O_ACCMODE) == O_RDONLY) {
 		audio_rd_refcount++;
-    }
-    else if (((file->f_flags & O_ACCMODE) == O_RDWR)){
-	return -EBUSY;
+	}
+	else if (((file->f_flags & O_ACCMODE) == O_RDWR)){
+		audio_wr_refcount++;
+		audio_rd_refcount++;
+	}
 
-    }
-#if 0
-    else {
-        DPRINTK(" sq_open        EINVAL\n");
-        LEAVE(TRACE_ON,"sq_open");
-        return -EINVAL;
-    }
-#endif
+	MOD_INC_USE_COUNT;
 
-    while(cotulla_under_playing) {
+	while(cotulla_under_playing) {
 		schedule();
-    }
+	}
 
-    if (audio_wr_refcount == 1) {
-        DPRINTK("cold\n");
+	if ((audio_rd_refcount == 1) && (audio_wr_refcount == 1)) {
+	// Playback & Recording simultaneously
+		audio_fragsize = AUDIO_FRAGSIZE_DEFAULT;
+		audio_nbfrags = AUDIO_NBFRAGS_DEFAULT;
+		audio_fmt = AUDIO_FMT_DEFAULT;
+		sq_release_buffers( &input_stream );
+		sq_release_buffers( &output_stream );
+		sound.minDev = MINOR( inode->i_rdev ) & 0x0F;
+		sound.soft = sound.dsp;
+		sound.hard = sound.dsp;
 
-        audio_fragsize = AUDIO_FRAGSIZE_DEFAULT;
-        audio_nbfrags = AUDIO_NBFRAGS_DEFAULT;
-        sq_release_buffers(&output_stream);
-        sound.minDev = MINOR(inode->i_rdev) & 0x0f;
-        sound.soft = sound.dsp;
-        sound.hard = sound.dsp;
-        
-	cotulla_op_plv_on = 0;
+		if ( (MINOR(inode->i_rdev) & 0x0F) == SND_DEV_AUDIO ) {
+			sound_set_speed( AUDIO_RATE_DEFAULT );
+			sound_set_stereo( 0 );
+			sound_set_format( AUDIO_FMT_DEFAULT );
+		}
+		Cotulla_audio_power_on( FULLDUPLEX );
+		CODEC_SetVolume( sound.volume_right, 0 );
+		cotulla_under_recording = 1;
+		cotulla_under_playing = 1;
 
-        Cotulla_audio_play_power_on();
-	CODEC_SetVolume(sound.volume_left);
-
-        if ((MINOR(inode->i_rdev) & 0x0f) == SND_DEV_AUDIO ) {
-            sound_set_speed(8000);
-            sound_set_stereo(0);
-            sound_set_format(AFMT_MU_LAW);
-        }
-
- 	cotulla_under_playing = 1;
-    }
-
-    if (audio_rd_refcount == 1) {
-		//audio_channels = AUDIO_CHANNELS_DEFAULT;
+	} else if (audio_rd_refcount == 1) {
+	// Recording Only
 		audio_fragsize = AUDIO_FRAGSIZE_DEFAULT;
 		audio_nbfrags = AUDIO_NBFRAGS_DEFAULT;
 		audio_fmt = AUDIO_FMT_DEFAULT; // 16bit
 		sq_release_buffers(&input_stream);
 		sound.minDev = MINOR(inode->i_rdev) & 0x0f;
-        	sound.soft = sound.dsp;
-        	sound.hard = sound.dsp;
+		sound.soft = sound.dsp;
+		sound.hard = sound.dsp;
         
 		if ((MINOR(inode->i_rdev) & 0x0f) == SND_DEV_DSP) {
-           	 sound_set_speed(8000);
-           	 sound_set_stereo(0);
-            	 //sound_set_format(AFMT_MU_LAW);
-           	 sound_set_format(AFMT_S16_LE);
-        }
-        Cotulla_audio_record_power_on();
-        cotulla_under_recording = 1;
-    }
-#if 0
-    MOD_INC_USE_COUNT;
-#endif
-    LEAVE(TRACE_ON,"sq_open");
+			sound_set_speed(8000);
+			sound_set_stereo(0);
+			sound_set_format(AFMT_S16_LE);
+		}
+		Cotulla_audio_power_on( RECORDING );
+		cotulla_under_recording = 1;
+
+	} else if (audio_wr_refcount == 1) {
+	// Playback Only
+		DPRINTK("cold\n");
+
+		audio_fragsize = AUDIO_FRAGSIZE_DEFAULT;
+		audio_nbfrags = AUDIO_NBFRAGS_DEFAULT;
+		sq_release_buffers(&output_stream);
+		sound.minDev = MINOR(inode->i_rdev) & 0x0f;
+		sound.soft = sound.dsp;
+		sound.hard = sound.dsp;
+        
+		if ((MINOR(inode->i_rdev) & 0x0f) == SND_DEV_AUDIO
+		/*|| (MINOR(inode->i_rdev) & 0x0f) == SND_DEV_DSP*/ ) {
+			sound_set_speed(8000);
+			sound_set_stereo(0);
+			sound_set_format(AFMT_S16_LE);
+		}
+		Cotulla_audio_power_on( PLAYBACK );
+		CODEC_SetVolume(sound.volume_right, sound.volume_left);
+		cotulla_under_playing = 1;
+	} else {
+	// Will this happened ?
+		MOD_DEC_USE_COUNT;
+		LEAVE(TRACE_ON, "Leave : sq_open() : EINVAL");
+		return -EINVAL;
+	}
+
+	cotulla_do_writing = 0;
+	cotulla_do_reading = 0;
+	cotulla_do_sync = 0;
+
+    LEAVE(TRACE_ON,"Leave : sq_open()");
     return 0;
 }
 
+/*
+ * sq_fsync()
+ */
 static int sq_fsync(struct file *filp, struct dentry *dentry)
 {
-    audio_stream_t *s = &output_stream; 
-	audio_stream_t *s1 = &input_stream; 
-    audio_buf_t *b = s->buf;
-	audio_buf_t *b1 = s1->buf;
+	audio_stream_t	*s, *outS = NULL;	// Output Stream
+	audio_buf_t	*b, *outBuf = NULL;		// Output Buffer
+	int		outRc = 0;					// Output Return Code
+	int		i, tout, frg;
 
-    ENTER(TRACE_ON,"sq_fsync");
-    DPRINTK("sq_fsync\n");
+	ENTER(TRACE_ON, "Enter : sq_fsync()");
 
-    if (!s->buffers) {
-        LEAVE(TRACE_ON,"sq_fsync");
-        return 0;
-    }
-    if (!s1->buffers) {
-        LEAVE(TRACE_ON,"sq_fsync1");
-        return 0;
-    }
+	cotulla_do_sync = 1;
+	if (audio_rd_refcount == 1) {
+		while( cotulla_do_reading ){
+			schedule();
+		}
+		// Force-stop recording DMA
+		cotulla_dma_flush_all(COTULLA_RECORDING_DMA_CHANNEL);
+		s = &input_stream;
+		if( s->buffers ){
+			for (i = 0; i < s->nbfrags ; i++) {
+				b = s->buf;
+				sema_init(&b->sem, 1);
+				NEXT_BUF(s, buf);
+			}
+		}
+	}
 
-    /* Send half-full buffers */
-    if (b->size != 0) {
-        DPRINTK("half-full_buf\n");
+	if (audio_wr_refcount == 1) {
+		while( cotulla_do_writing ){
+			schedule();
+		}
+		outS = &output_stream;
+		outBuf = outS->buf;
+	}
 
+	// Flush half-full buffers
+	if ((audio_wr_refcount == 1) && (outBuf != NULL) && (outBuf->size != 0)) {
 #ifdef CONFIG_PM
-        /* Auto Power off cancel */
-        autoPowerCancel = 0;
+		/* Auto Power off cancel */
+		autoPowerCancel = 0;
 #endif
 
-        ENTER(TRACE_SEM,"down sem");
-        down(&b->sem);
-        LEAVE(TRACE_SEM,"down sem");
-        cotulla_dma_queue_buffer(COTULLA_SOUND_DMA_CHANNEL,(void *) b, b->dma_addr, b->size);
-        b->size = 0;
-        NEXT_BUF(s, buf);
-    }
-    if (b1->size != 0) {
-        DPRINTK("half-full_buf1\n");
-#ifdef CONFIG_PM
-        /* Auto Power off cancel */
-        autoPowerCancel = 0;
+		ENTER(TRACE_SEM, "Enter : Playback down sem");
+		down(&outBuf->sem);
+		LEAVE(TRACE_SEM, "Leave : Playback down sem");
+		set_dma_divided_buffer(outS, outBuf,
+							   COTULLA_SOUND_DMA_CHANNEL, outBuf->size);
+		outBuf->size = 0;
+		NEXT_BUF(outS, buf);
+	}
+
+	/*
+	 * Let's wait for the last buffer we sent i.e. the one before the
+	 * current buf_idx.  When we acquire the semaphore, this means either:
+	 * - DMA on the buffer completed or
+	 * - the buffer was already free thus nothing else to sync.
+	*/
+	if ((audio_wr_refcount == 1) && (outBuf != NULL)) {
+		outBuf = outS->buffers +
+		  ((outS->nbfrags + outS->buf_idx - 1) % outS->nbfrags);
+
+		ENTER(TRACE_SEM, "Enter : Playback down-int sem");
+#if 1	/* DMA bug(?) : Sometimes IRQ does not occur.
+		 * Escape by timeout.
+		 */
+		printk( "sq_fsync\n" );
+		frg = 1;
+		for (i = 0; i < outS->nbfrags; i++) {
+			if (atomic_read(&outS->buffers[i].sem.count) <= 0) {
+				frg++;
+			}
+		}
+		if( sound.soft.speed > 0 ){
+			tout = (((frg * audio_fragsize)>>2)*100)/sound.soft.speed + 1;
+		}else{
+			tout = 0;
+		}
+		DPRINTK( "wait for %d msec (%d frags)\n", tout*10, frg );
+		tout += jiffies;
+		while( jiffies < tout ){
+			if (!down_trylock(&(outBuf->sem))) {
+				DPRINTK( "write sync success\n" );
+				break;
+			}
+			schedule();
+		}
+#else
+		if (down_interruptible(&outBuf->sem)) {
+			outRc = -EINTR;
+		}
 #endif
-        ENTER(TRACE_SEM,"down sem");
-        down(&b1->sem);
-        LEAVE(TRACE_SEM,"down sem");
-        cotulla_dma_queue_buffer(COTULLA_RECORDING_DMA_CHANNEL,(void *) b1, b1->dma_addr, b1->size);
-        b1->size = 0;
-        NEXT_BUF(s1, buf);
-    }
+		LEAVE(TRACE_SEM, "Leave : Playback down-int sem");
 
-    /*
-     * Let's wait for the last buffer we sent i.e. the one before the
-     * current buf_idx.  When we acquire the semaphore, this means either:
-     * - DMA on the buffer completed or
-     * - the buffer was already free thus nothing else to sync.
-     */
-    b = s->buffers + ((s->nbfrags + s->buf_idx - 1) % s->nbfrags);
-	b1 = s1->buffers + ((s->nbfrags + s->buf_idx - 1) % s->nbfrags);
-    ENTER(TRACE_SEM,"down-int sem");
-    if (down_interruptible(&b->sem)) {
-        LEAVE(TRACE_SEM,"down-int sem");
-        LEAVE(TRACE_ON,"sq_fsync");
-        return -EINTR;
-    }
-    LEAVE(TRACE_SEM,"down-int sem");
-    
-    ENTER(TRACE_SEM,"down-int sem");
-    if (down_interruptible(&b1->sem)) {
-        LEAVE(TRACE_SEM,"down-int sem");
-        LEAVE(TRACE_ON,"sq_fsync");
-        return -EINTR;
-    }
-    LEAVE(TRACE_SEM,"down-int sem");
+		ENTER(TRACE_SEM, "Enter : Playback up sem");
+		up(&outBuf->sem);
+		LEAVE(TRACE_SEM, "Leave : Playback up sem");
+	}
+	cotulla_do_sync = 0;
 
-    ENTER(TRACE_SEM,"up sem");
-    up(&b->sem);
-    LEAVE(TRACE_SEM,"up sem");
-    
-    ENTER(TRACE_SEM,"up sem");
-    up(&b1->sem);
-    LEAVE(TRACE_SEM,"up sem");
-
-    LEAVE(TRACE_ON,"sq_fsync");
-    return 0;
+	LEAVE(TRACE_ON, "Leave : sq_fsync()");
+	return outRc;
 }
 
+
+/*
+  sq_release() rewrite by Alamy
+  Reconstruct function
+*/
 static int sq_release(struct inode *inode, struct file *file)
 {
-	short temp1=0, temp2=0;
-	ENTER(TRACE_ON,"sq_release");
-	DPRINTK("sq_release\n");
+	ENTER(TRACE_ON, "Enter : sq_release()");
 
-    switch (file->f_flags & O_ACCMODE) {
-    case O_WRONLY:
-    case O_RDWR:
-        if (audio_wr_refcount == 1) {
-            sq_fsync(file, file->f_dentry);
-            sq_release_buffers(&output_stream);
-            audio_wr_refcount = 0;
-            temp1 = 1;
-        	cotulla_under_playing = 0;
-        }
-    	if (audio_rd_refcount == 1) {
-    	sq_fsync(file, file->f_dentry);
-	sq_release_buffers(&input_stream);
-            audio_rd_refcount = 0;
-            temp2 = 1;
-        	cotulla_under_recording = 0;
-        }
-        break;
-    case O_RDONLY:
-    	if (audio_rd_refcount == 1) {
-    	sq_fsync(file, file->f_dentry);
-	sq_release_buffers(&input_stream);
-            audio_rd_refcount = 0;
-            temp2 = 1;
-        	cotulla_under_recording = 0;
-        }
-        break;
-    }       
-
-        sound.soft = sound.dsp;
-        sound.hard = sound.dsp;
-    	if (temp1){
-		Cotulla_i2sc_play_power_saving();
-		temp1 = 0;
-	}
-	
-	if (temp2){
+	if (audio_rd_refcount == 1) {
+		sq_fsync(file, file->f_dentry);
+		sq_release_buffers(&input_stream);
+		audio_rd_refcount = 0;
+		cotulla_under_recording = 0;
 		Cotulla_i2sc_record_power_saving();
-		temp2 = 0;
 	}
+	if (audio_wr_refcount == 1) {
+		sq_fsync(file, file->f_dentry);
+		sq_release_buffers(&output_stream);
+		audio_wr_refcount = 0;
+		cotulla_under_playing = 0;
+		Cotulla_i2sc_play_power_saving();
+	}
+	sound.soft = sound.dsp;
+	sound.hard = sound.dsp;
 	
-    	driver_waste &= ~VOLUME_MASK;
+	driver_waste &= ~VOLUME_MASK;
 
-        sound_silence();
+	sound_silence();
 	MOD_DEC_USE_COUNT;
-	LEAVE(TRACE_ON,"sq_release");
+
+	LEAVE(TRACE_ON, "Leave : sq_release()");
 	return 0;
 }
 
 
+/*
+  Reference to ~include/linux/soundcard.h for ioctl request list
+*/
 static int sq_ioctl(struct inode *inode, struct file *file, u_int cmd,
             u_long arg)
 {
     u_long fmt;
     int data;
     long val;
+
+	/* for SNDCTL_DSP_GETISPACE & SNDCTL_DSP_GETOSPACE */
+	int		i, ret;
+	audio_buf_info	buf_info = { 0, };	
+	audio_stream_t	*stream = NULL;
 
     ENTER(TRACE_ON,"sq_ioctl");
     switch (cmd) {
@@ -3086,11 +3163,15 @@ static int sq_ioctl(struct inode *inode, struct file *file, u_int cmd,
         IOCTL_IN(arg, data);
         LEAVE(TRACE_ON,"sq_ioctl");
         return IOCTL_OUT(arg, sound_set_stereo(data));
-    case SOUND_PCM_WRITE_CHANNELS:
-        sq_fsync(file, file->f_dentry);
+    case SNDCTL_DSP_CHANNELS:
+    /* same case value as SOUND_PCM_WRITE_CHANNELS */
+		sq_fsync(file, file->f_dentry);
         IOCTL_IN(arg, data);
-        LEAVE(TRACE_ON,"sq_ioctl");
-        return IOCTL_OUT(arg, sound_set_stereo(data-1)+1);
+		data--;		// Convert from channels to stereo parameter
+		LEAVE(TRACE_ON, "Leave : sq_ioctl(SNDCTL_DSP_CHANNELS)");
+		if ((data < 0) || (data > 1))
+		  return -EINVAL;
+		return IOCTL_OUT(arg, sound_set_stereo(data)+1);
     case SNDCTL_DSP_SETFMT:
         sq_fsync(file, file->f_dentry);
         IOCTL_IN(arg, data);
@@ -3143,32 +3224,48 @@ static int sq_ioctl(struct inode *inode, struct file *file, u_int cmd,
             LEAVE(TRACE_ON,"sq_ioctl");
             return -ENOMEM;
         }
-#if 0
-    case SNDCTL_DSP_GETISPACE:
-	    {
-		audio_stream_t *s = &input_stream;
-		audio_buf_info *inf = (audio_buf_info *) arg;
-		int err = verify_area(VERIFY_WRITE, inf, sizeof(*inf));
-		int i;
-		int frags = 0, bytes = 0;
-
-		if (err)
-			return err;
-		for (i = 0; i < s->nbfrags; i++) {
-			if (atomic_read(&s->buffers[i].sem.count) > 0) {
-				if (s->buffers[i].size == s->fragsize) frags++;
-				bytes += s->buffers[i].size;
-			}
-		}
-		put_user(frags, &inf->fragments);
-		put_user(s->nbfrags, &inf->fragstotal);
-		put_user(s->fragsize, &inf->fragsize);
-		put_user(bytes, &inf->bytes);
-		break;
-	    }
-#endif        
         LEAVE(TRACE_ON,"sq_ioctl");
         return 0;
+
+	case SNDCTL_DSP_GETISPACE:
+		stream = &input_stream;
+		if (!(file->f_mode & FMODE_READ))
+			return -EINVAL;
+		ret = audio_recording(stream);
+		if( ret != 0 ){
+			return ret;
+		}
+		Cotulla_OP_RDV_on();
+		for (i = 0; i < stream->nbfrags; i++) {
+			if (atomic_read(&stream->buffers[i].sem.count) > 0) {
+				if (stream->buffers[i].size == 0){
+					buf_info.fragments++;
+					buf_info.bytes += stream->fragsize;
+				}else{
+					buf_info.bytes += stream->fragsize-stream->buffers[i].size;
+				}
+			}
+		}
+		buf_info.fragstotal = stream->nbfrags;
+		buf_info.fragsize = stream->fragsize;
+		return (copy_to_user((void *)arg, &buf_info, sizeof(buf_info)) ? -EFAULT : 0);
+
+	case SNDCTL_DSP_GETOSPACE:
+		stream = &output_stream;
+		if (!(file->f_mode & FMODE_WRITE))
+			return -EINVAL;
+		if (!stream->buffers && sq_allocate_buffers(stream))
+			return -ENOMEM;
+		for (i = 0; i < stream->nbfrags; i++) {
+			if (atomic_read(&stream->buffers[i].sem.count) > 0) {
+				if (stream->buffers[i].size == 0)
+					buf_info.fragments++;
+				buf_info.bytes += stream->fragsize - stream->buffers[i].size;
+			}
+		}
+		buf_info.fragstotal = stream->nbfrags;
+		buf_info.fragsize = stream->fragsize;
+		return (copy_to_user((void *)arg, &buf_info, sizeof(buf_info)) ? -EFAULT : 0);
 
     default:
         LEAVE(TRACE_ON,"sq_ioctl");
@@ -3224,6 +3321,7 @@ static void __init sq_init(void)
     sound.soft = sound.dsp;
     sound.hard = sound.dsp;
     sound.trans = &transCotulla;
+    sound.trans_read = &transReadCotulla;
 
     CotullaSetFormat(sound.dsp.format);
     sound_silence();
@@ -3344,7 +3442,6 @@ static void __init state_init(void)
     }
     state.busy = 0;
 
-    //  printk("state_init : ret \n");
     LEAVE(TRACE_ON,"state_init");
 
 }
@@ -3373,6 +3470,10 @@ static long long sound_lseek(struct file *file, long long offset, int orig)
 static int cotulla_sound_pm_callback(struct pm_dev *pm_dev,
                     pm_request_t req, void *data)
 {
+// sample rate variable added by Alamy
+/* Save sample rate dsp value at suspend, restore it at resume */
+static unsigned int	sample_rate_div_value;
+
 	UDA1380REGS CodecReg;
 	//int original_aduio_clock;
 	ENTER(TRACE_PM,"cotulla_sound_pm_callback");
@@ -3380,21 +3481,23 @@ static int cotulla_sound_pm_callback(struct pm_dev *pm_dev,
 	case PM_SUSPEND:
  		Cotulla_CODEC_REGS_Init(&CodecReg);
 		CodecReg.power.power_u.reg_val = 0x0000;	// 0x02H, turn on only bias power
-		Write_I2C_WORD(W1380_CODEC_ADDRESS,CodecReg.power.reg_num, CodecReg.power.power_u.reg_val);
+		Write_I2C_WORD(W1380_CODEC_ADDRESS,
+			       CodecReg.power.reg_num, CodecReg.power.power_u.reg_val);
 		Cotulla_AUD_off();
 		///CKEN &= ~ 0x4100;
-		cotulla_dma_channel_deinit();
+		//eRic24!
+		//cotulla_dma_channel_deinit();
 		disable_irq(IRQ_ASIC3_HEADPHONE_IN);
 		clr_driver_waste_bits(AUDIO_WASTE);
-       		if (audio_wr_refcount == 1) {
-       		//original_aduio_clock = Audio_Clock;
-       		//printk("original_aduio_clock:%x\n",original_aduio_clock);
-		//printk("jump into dma-test1 dma stop! ( suspend )\n");
-		Cotulla_SPEAKER_off();
-		//printk("DDADR(0): %x\n",DDADR(0));
-		//ddadr0 = DDADR(0);
-		//cotulla_dma_stop((dmach_t)COTULLA_SOUND_DMA_CHANNEL);   
-        	}
+		if (audio_wr_refcount == 1) {
+			Cotulla_SPEAKER_off();
+		}
+
+		if (audio_rd_refcount == 1) {
+			sample_rate_div_value = I2S_SADIV;
+			Cotulla_MIC_off();
+		}
+
         	break;
         	
 	case PM_RESUME:
@@ -3407,33 +3510,76 @@ static int cotulla_sound_pm_callback(struct pm_dev *pm_dev,
 		udelay(1000);
 		Cotulla_CODEC_reset();  // codec 1380 reset
 		udelay(1000);
-   
+
 		cotulla_dma_channel_init();
 		CotullaDmaInit();
+
 		Cotulla_disable_sound();
 
-		//Cotulla_sound_hard_init();	// init I2s, I2c
 		Cotulla_i2sc_unit_power_saving();
 		set_driver_waste_bits(AUDIO_WASTE);
 
+		///////////////////////////////////////////////////
+		// EricLai: for full-duplex 09/13/02
+		if( audio_wr_refcount == 1 && audio_rd_refcount == 1 ) {
+		    sq_release_buffers(&output_stream);
+		    sq_release_buffers( &input_stream );
+
+		    Cotulla_audio_power_on( FULLDUPLEX );
+
+		    CODEC_SetVolume( sound.volume_right, 0 );
+		    I2S_SADIV = Audio_Clock;
+
+		    sound_set_stereo( sound.soft.stereo );
+		    sound_set_format( sound.soft.format );
+		    cotulla_under_recording = 1;
+
+		    /* I2S_SADIV is changed in above code, reset again.
+		       sound_set_speed() will work, but has to convert
+		       value from BITS mode to USER mode
+		    */
+		    //I2S_SADIV = sample_rate_div_value;
+		}
+		else
 	        if (audio_wr_refcount == 1) {
-			//printk("cotulla_dmasound_irq:%x\n",cotulla_dmasound_irq);
-        		cotulla_suspend = 1;
-        		//printk("jump into dma-test2 dma resume ! ( resume ) \n");
-			//printk("Audio_Clock:%x\n",Audio_Clock);
 			sq_release_buffers(&output_stream);
-			Cotulla_audio_play_power_on();
-			CODEC_SetVolume(sound.volume_left);
+			Cotulla_audio_power_on( PLAYBACK );
+			CODEC_SetVolume( sound.volume_right, sound.volume_left);
 			I2S_SADIV = Audio_Clock;
-			//printk("ddadr0 :%x\n",ddadr0);
-			//DDADR(0) = ddadr0;
-			//cotulla_dma_resume((dmach_t)COTULLA_SOUND_DMA_CHANNEL);
 	        }
-	        break;
+		else
+		  // Resume Recording block added by Alamy
+		  if (audio_rd_refcount == 1) {
+			  sq_release_buffers( &input_stream );
+			  Cotulla_audio_power_on( RECORDING );
+
+			  sound_set_stereo( sound.soft.stereo );
+			  sound_set_format( sound.soft.format );
+			  cotulla_under_recording = 1;
+
+			  /* I2S_SADIV is changed in above code, reset again.
+			   sound_set_speed() will work, but has to convert
+			   value from BITS mode to USER mode
+			   */
+			  I2S_SADIV = sample_rate_div_value;
+		  }
+
+		// Cotulla_audio_power_on() will initial codec, restore them
+		if (audio_rd_refcount == 1) {
+			// audio_igain & cotulla_igain should have same value
+			CODEC_SetIgain( audio_igain  );	// MIC Gain
+		}
+		if (audio_wr_refcount == 1) {
+			CODEC_SetVolume( sound.volume_right, sound.volume_left);
+		}
+		break;
+
 	case PM_BATTERY_CRITICAL_LOW:
-			cotulla_battery_critical_low = 1;
-			if(cotulla_volume > 40)		
-				sound.volume_left = 40;
+		cotulla_battery_critical_low = 1;
+		if (sound.volume_left > 40)
+			sound.volume_left = 40;
+		if (sound.volume_right > 40)
+			sound.volume_right = 40;
 		break;
 	}
 	
@@ -3441,8 +3587,6 @@ static int cotulla_sound_pm_callback(struct pm_dev *pm_dev,
 	return 0;
 }
 #endif
-
-
 
 void detect_edge_and_set(void)
 {
@@ -3460,29 +3604,28 @@ void detect_edge_and_set(void)
 static void Cotulla_hp_interrupt(int irq, void *dummy, struct pt_regs *fp)
 
 {
-        ENTER(TRACE_ON,"Cotulla_hp_interrupt");
+	ENTER(TRACE_ON,"Cotulla_hp_interrupt");
 
 	detect_edge_and_set();
 	
 	if ( ASIC3_GPIO_PSTS_D & HEADPHONE_IN)
 	{
 		if( audio_wr_refcount ){
-		Cotulla_SPEAKER_off();
-		Cotulla_HP_on();
+			Cotulla_SPEAKER_off();
+			if( !audio_rd_refcount )
+			  Cotulla_HP_on();
 		}
-		//printk("Headphone in!\n");
-		//cotulla_hp_token = 1;
 	}
 	else
 	{
 		if( audio_wr_refcount ){
-		Cotulla_SPEAKER_on();
-		Cotulla_HP_off();
+			Cotulla_SPEAKER_on();
+			if( !audio_rd_refcount )
+			  Cotulla_HP_off();
 		}
-		//cotulla_hp_token = 0;
 	}
 
-        LEAVE(TRACE_ON,"Cotulla_hp_interrupt");
+	LEAVE(TRACE_ON,"Cotulla_hp_interrupt");
 
 }
 
@@ -3513,8 +3656,6 @@ int __init Cotulla_sound_init(void)
     //GPAFR1_L |= 0x01;     // turn on the I2S system clock
     //wait_ms(10);            //  wait 10 ms
     udelay(1000); 
-                    
-    //Cotulla_sound_hard_init();
 
     Cotulla_i2sc_unit_power_saving();
     
@@ -3538,13 +3679,15 @@ int __init Cotulla_sound_init(void)
 
     /* head-phone interrupt init. */
     hp_irq_init();
-    /////CKEN &= ~0x4100;	//make sure to tuen off i2s, i2c clock
 	set_driver_waste_bits(AUDIO_WASTE);
+
+#if (defined DEBUG) && (defined CONFIG_PROC_FS)
+	discovery_audio_proc_register();
+#endif
 
 #ifdef MODULE
     irq_installed = 1;
 #endif
-    //audio_igain = AUDIO_IGAIN_DEFAULT;
 
     printk("Cotulla Sound Driver Installed\n");
 
@@ -3559,7 +3702,6 @@ int __init Cotulla_sound_init(void)
             __FUNCTION__, IRQ_ASIC3_HEADPHONE_IN);
     }
 
-    
     LEAVE(TRACE_ON,"Cotulla_sound_init");
     return 0;
 }
@@ -3585,8 +3727,12 @@ void cleanup_module(void)
         sound.mach.irqcleanup();
     }
 
-    sq_release_buffers();
+	sq_release_buffers( &input_stream );
+	sq_release_buffers( &output_stream );
 	clr_driver_waste_bits(AUDIO_WASTE);
+#if (defined DEBUG) && (defined CONFIG_PROC_FS)
+	discovery_audio_proc_unregister();
+#endif
 
     if (mixer_unit >= 0)
         unregister_sound_mixer(mixer_unit);
@@ -3598,3 +3744,99 @@ void cleanup_module(void)
 }
 
 #endif /* MODULE */
+
+#if (defined DEBUG) && (defined CONFIG_PROC_FS)
+struct audio_entry {
+	char *name;
+	int (*fn)(char*, char**, off_t, int);
+};
+
+struct proc_dir_entry *proc_audio;
+ 
+static struct audio_entry dir[] = {
+	{"status",	audio_stat_proc_read},
+};
+
+#define AUDIO_ENTRIES_NUM (sizeof(dir)/sizeof(dir[0]))
+
+static void discovery_audio_proc_register(void)
+{
+	int i;
+
+	proc_audio = proc_mkdir("driver/audio", NULL);
+	if (proc_audio == NULL)
+		return;
+	proc_audio->owner = THIS_MODULE;
+
+	for (i=0;i<AUDIO_ENTRIES_NUM;i++)
+		create_proc_info_entry(dir[i].name,0,proc_audio,dir[i].fn);
+}
+
+static void discovery_audio_proc_unregister(void)
+{
+	int i;
+
+	if (proc_audio) {
+		for (i=0;i<AUDIO_ENTRIES_NUM;i++)
+		  remove_proc_entry(dir[i].name, proc_audio);
+
+		remove_proc_entry("driver/audio", NULL);
+		proc_audio = NULL;
+	}
+}
+
+static int audio_stat_proc_read(char *buf, char **start, off_t offset, int len)
+{
+	audio_stream_t	*stream;
+	audio_buf_t *b;
+	unsigned long flags;
+	int	i, frg, bsize;
+
+	save_flags(flags);
+	cli();
+
+	len = 0;
+
+	len += sprintf(buf+len, "STATUS: " );
+	if( !audio_rd_refcount && !audio_wr_refcount ){
+		len += sprintf(buf+len, "not opened\n" );
+	}else{
+		len += sprintf(buf+len, "open mode:%s%s\n",
+					   (audio_rd_refcount)? "R":"",
+					   (audio_wr_refcount)? "W":"");
+		len += sprintf(buf+len, "buffer size: %d bytes x %d\n",
+					   audio_fragsize, audio_nbfrags);
+		len += sprintf(buf+len, "access: R:%d W:%d S:%d\n",
+					   cotulla_do_reading,
+					   cotulla_do_writing,
+					   cotulla_do_sync);
+
+		stream = &output_stream;
+		if ( stream->buffers ){
+			frg = 0;
+			bsize = 0;
+			for (i = 0; i < stream->nbfrags; i++) {
+				if (atomic_read(&stream->buffers[i].sem.count) > 0) {
+					if (stream->buffers[i].size == 0)
+					  frg++;
+					bsize += stream->fragsize - stream->buffers[i].size;
+				}
+			}
+			len += sprintf(buf+len, "buffer : remains %d frags(%d bytes)\n",
+						   frg, bsize);
+
+			len += sprintf(buf+len, "current buffer: %d\n", stream->buf_idx );
+			len += sprintf(buf+len, "buf  dma size\n" );
+			b = stream->buffers;
+			for (i = 0; i < stream->nbfrags; i++) {
+				len += sprintf(buf+len, " %3d: %3d: %d\n",
+							   i, b->dma_count, b->size);
+				b++;
+			}
+		}
+	}
+	restore_flags(flags);
+
+	return len;
+}
+#endif	/* (defined DEBUG) && (defined CONFIG_PROC_FS) */

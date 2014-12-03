@@ -22,6 +22,8 @@
  *     provide warranty for any of this software. This material is 
  *     provided "AS-IS" and at no charge.
  *
+ * ChangeLog:
+ *	12-17-2002 SHARP	retry discovery at passive mode
  ********************************************************************/
 
 #include <linux/config.h>
@@ -766,6 +768,14 @@ void irlmp_do_discovery(int nslots)
 		       "(), invalid value for number of slots!\n");
 		nslots = sysctl_discovery_slots = 8;
 	}
+
+#if 1
+	/*
+	 * Clear the passive discovery retry flag.
+	 * modified by SHARP
+	 */
+	irlmp->discovery_retry = FALSE;
+#endif
 
 	/* Construct new discovery info to be used by IrLAP, */
 	irlmp->discovery_cmd.hints.word = irlmp->hints.word;
