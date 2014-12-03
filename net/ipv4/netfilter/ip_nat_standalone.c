@@ -5,7 +5,12 @@
 */
 
 /* (c) 1999 Paul `Rusty' Russell.  Licenced under the GNU General
-   Public Licence. */
+ * Public Licence.
+ *
+ * 23 Apr 2001: Harald Welte <laforge@gnumonks.org>
+ * 	- new API and handling of conntrack/nat helpers
+ * 	- now capable of multiple expectations for one master
+ * */
 
 #include <linux/config.h>
 #include <linux/types.h>
@@ -41,7 +46,17 @@
 #define HOOKNAME(hooknum) ((hooknum) == NF_IP_POST_ROUTING ? "POST_ROUTING"  \
 			   : ((hooknum) == NF_IP_PRE_ROUTING ? "PRE_ROUTING" \
 			      : ((hooknum) == NF_IP_LOCAL_OUT ? "LOCAL_OUT"  \
-				 : "*ERROR*")))
+			         : ((hooknum) == NF_IP_LOCAL_IN ? "LOCAL_IN"  \
+				    : "*ERROR*")))
+
+static inline int call_expect(struct ip_conntrack *master,
+			      struct sk_buff **pskb,
+			      unsigned int hooknum,
+			      struct ip_conntrack *ct,
+			      struct ip_nat_info *info)
+{
+	return master->nat.info.helper->expect(pskb, hooknum, ct, info);
+}
 
 static unsigned int
 ip_nat_fn(unsigned int hooknum,
@@ -59,7 +74,7 @@ ip_nat_fn(unsigned int hooknum,
 	/* We never see fragments: conntrack defrags on pre-routing
 	   and local-out, and ip_nat_out protects post-routing. */
 	IP_NF_ASSERT(!((*pskb)->nh.iph->frag_off
-		       & __constant_htons(IP_MF|IP_OFFSET)));
+		       & htons(IP_MF|IP_OFFSET)));
 
 	(*pskb)->nfcache |= NFC_UNKNOWN;
 
@@ -94,6 +109,12 @@ ip_nat_fn(unsigned int hooknum,
 		}
 		/* Fall thru... (Only ICMPs can be IP_CT_IS_REPLY) */
 	case IP_CT_NEW:
+#ifdef CONFIG_IP_NF_NAT_LOCAL
+		/* LOCAL_IN hook doesn't have a chain and thus doesn't care
+		 * about new packets -HW */
+		if (hooknum == NF_IP_LOCAL_IN)
+			return NF_ACCEPT;
+#endif
 		info = &ct->nat.info;
 
 		WRITE_LOCK(&ip_nat_lock);
@@ -103,8 +124,16 @@ ip_nat_fn(unsigned int hooknum,
 			int in_hashes = info->initialized;
 			unsigned int ret;
 
-			ret = ip_nat_rule_find(pskb, hooknum, in, out,
-					       ct, info);
+			if (ct->master
+			    && master_ct(ct)->nat.info.helper
+			    && master_ct(ct)->nat.info.helper->expect) {
+				ret = call_expect(master_ct(ct), pskb, 
+						  hooknum, ct, info);
+			} else {
+				ret = ip_nat_rule_find(pskb, hooknum, in, out,
+						       ct, info);
+			}
+
 			if (ret != NF_ACCEPT) {
 				WRITE_UNLOCK(&ip_nat_lock);
 				return ret;
@@ -156,7 +185,7 @@ ip_nat_out(unsigned int hooknum,
 
 	   I'm starting to have nightmares about fragments.  */
 
-	if ((*pskb)->nh.iph->frag_off & __constant_htons(IP_MF|IP_OFFSET)) {
+	if ((*pskb)->nh.iph->frag_off & htons(IP_MF|IP_OFFSET)) {
 		*pskb = ip_ct_gather_frags(*pskb);
 
 		if (!*pskb)
@@ -203,6 +232,11 @@ static struct nf_hook_ops ip_nat_out_ops
 /* Before packet filtering, change destination */
 static struct nf_hook_ops ip_nat_local_out_ops
 = { { NULL, NULL }, ip_nat_local_fn, PF_INET, NF_IP_LOCAL_OUT, NF_IP_PRI_NAT_DST };
+
+#ifdef CONFIG_IP_NF_NAT_LOCAL
+static struct nf_hook_ops ip_nat_local_in_ops
+= { { NULL, NULL }, ip_nat_fn, PF_INET, NF_IP_LOCAL_IN, NF_IP_PRI_NAT_SRC };
+#endif
 
 /* Protocol registration. */
 int ip_nat_protocol_register(struct ip_nat_protocol *proto)
@@ -272,6 +306,13 @@ static int init_or_cleanup(int init)
 		printk("ip_nat_init: can't register local out hook.\n");
 		goto cleanup_outops;
 	}
+#ifdef CONFIG_IP_NF_NAT_LOCAL
+	ret = nf_register_hook(&ip_nat_local_in_ops);
+	if (ret < 0) {
+		printk("ip_nat_init: can't register local in hook.\n");
+		goto cleanup_localoutops;
+	}
+#endif
 	if (ip_conntrack_module)
 		__MOD_INC_USE_COUNT(ip_conntrack_module);
 	return ret;
@@ -279,6 +320,10 @@ static int init_or_cleanup(int init)
  cleanup:
 	if (ip_conntrack_module)
 		__MOD_DEC_USE_COUNT(ip_conntrack_module);
+#ifdef CONFIG_IP_NF_NAT_LOCAL
+	nf_unregister_hook(&ip_nat_local_in_ops);
+ cleanup_localoutops:
+#endif
 	nf_unregister_hook(&ip_nat_local_out_ops);
  cleanup_outops:
 	nf_unregister_hook(&ip_nat_out_ops);
@@ -307,12 +352,11 @@ module_init(init);
 module_exit(fini);
 
 EXPORT_SYMBOL(ip_nat_setup_info);
+EXPORT_SYMBOL(ip_nat_protocol_register);
+EXPORT_SYMBOL(ip_nat_protocol_unregister);
 EXPORT_SYMBOL(ip_nat_helper_register);
 EXPORT_SYMBOL(ip_nat_helper_unregister);
-EXPORT_SYMBOL(ip_nat_expect_register);
-EXPORT_SYMBOL(ip_nat_expect_unregister);
 EXPORT_SYMBOL(ip_nat_cheat_check);
 EXPORT_SYMBOL(ip_nat_mangle_tcp_packet);
-EXPORT_SYMBOL(ip_nat_seq_adjust);
-EXPORT_SYMBOL(ip_nat_delete_sack);
+EXPORT_SYMBOL(ip_nat_used_tuple);
 MODULE_LICENSE("GPL");

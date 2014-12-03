@@ -9,7 +9,7 @@
 
 O_TARGET := partitions.o
 
-export-objs := check.o ibm.o
+export-objs := check.o msdos.o
 
 obj-y := check.o
 
@@ -24,6 +24,6 @@ obj-$(CONFIG_SGI_PARTITION) += sgi.o
 obj-$(CONFIG_SUN_PARTITION) += sun.o
 obj-$(CONFIG_ULTRIX_PARTITION) += ultrix.o
 obj-$(CONFIG_IBM_PARTITION) += ibm.o
+obj-$(CONFIG_EFI_PARTITION) += efi.o
 
 include $(TOPDIR)/Rules.make
-

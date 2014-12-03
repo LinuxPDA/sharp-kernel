@@ -50,6 +50,12 @@
  *                         improve quality. Got rid of green line around 
  *                         frame. Fix brightness reset when changing size 
  *                         bug. Adjusted gamma filters slightly.
+ *
+ * ver 0.25 Jan, 2002 (kjs)
+ *			   Fixed a bug in which the driver sometimes attempted
+ *			   to set to a non-supported size. This allowed
+ *			   gnomemeeting to work.
+ *			   Fixed proc entry removal bug.
  */
 
 #include <linux/config.h>
@@ -80,14 +86,14 @@ static unsigned int debug = 0;
 #define PDEBUG(level, fmt, args...) \
 	do { \
 	if (debug >= level)	\
-		info("[" __PRETTY_FUNCTION__ ":%d] " fmt, __LINE__ , ## args);	\
+		info("[%s:%d] " fmt, __PRETTY_FUNCTION__, __LINE__ , ## args);	\
 	} while (0)
 
 
 /*
  * Version Information
  */
-#define DRIVER_VERSION "v0.24"
+#define DRIVER_VERSION "v0.25"
 #define DRIVER_AUTHOR "Kevin Sisson <kjsisson@bellsouth.net>"
 #define DRIVER_DESC "STV0680 USB Camera Driver"
 
@@ -105,67 +111,27 @@ EXPORT_NO_SYMBOLS;
  *
  * Memory management
  *
- * This is a shameless copy from the USB-cpia driver (linux kernel
- * version 2.3.29 or so, I have no idea what this code actually does ;).
- * Actually it seems to be a copy of a shameless copy of the bttv-driver.
- * Or that is a copy of a shameless copy of ... (To the powers: is there
- * no generic kernel-function to do this sort of stuff?)
- *
- * Yes, it was a shameless copy from the bttv-driver. IIRC, Alan says
- * there will be one, but apparentely not yet -jerdfelt
- *
- * So I copied it again for the ov511 driver -claudio
- *
- * Same for the se401 driver -Jeroen
- *
- * And the STV0680 driver - Kevin
  ********************************************************************/
 
-/* Given PGD from the address space's page table, return the kernel
- * virtual mapping of the physical memory mapped at ADR.
- */
-static inline unsigned long uvirt_to_kva (pgd_t * pgd, unsigned long adr)
-{
-	unsigned long ret = 0UL;
-	pmd_t *pmd;
-	pte_t *ptep, pte;
-
-	if (!pgd_none (*pgd)) {
-		pmd = pmd_offset (pgd, adr);
-		if (!pmd_none (*pmd)) {
-			ptep = pte_offset (pmd, adr);
-			pte = *ptep;
-			if (pte_present (pte)) {
-				ret = (unsigned long) page_address (pte_page (pte));
-				ret |= (adr & (PAGE_SIZE - 1));
-			}
-		}
-	}
-	return ret;
-}
-
-/* Here we want the physical address of the memory. This is used when 
- * initializing the contents of the area and marking the pages as reserved.
+/* Here we want the physical address of the memory.
+ * This is used when initializing the contents of the area.
  */
 static inline unsigned long kvirt_to_pa (unsigned long adr)
 {
-	unsigned long va, kva, ret;
+	unsigned long kva, ret;
 
-	va = VMALLOC_VMADDR (adr);
-	kva = uvirt_to_kva (pgd_offset_k (va), va);
-	ret = __pa (kva);
+	kva = (unsigned long) page_address(vmalloc_to_page((void *)adr));
+	kva |= adr & (PAGE_SIZE-1); /* restore the offset */
+	ret = __pa(kva);
 	return ret;
 }
 
 static void *rvmalloc (unsigned long size)
 {
 	void *mem;
-	unsigned long adr, page;
+	unsigned long adr;
 
-	/* Round it off to PAGE_SIZE */
-	size += (PAGE_SIZE - 1);
-	size &= ~(PAGE_SIZE - 1);
-
+	size = PAGE_ALIGN(size);
 	mem = vmalloc_32 (size);
 	if (!mem)
 		return NULL;
@@ -173,36 +139,25 @@ static void *rvmalloc (unsigned long size)
 	memset (mem, 0, size);	/* Clear the ram out, no junk to the user */
 	adr = (unsigned long) mem;
 	while (size > 0) {
-		page = kvirt_to_pa (adr);
-		mem_map_reserve (virt_to_page (__va (page)));
+		mem_map_reserve(vmalloc_to_page((void *)adr));
 		adr += PAGE_SIZE;
-		if (size > PAGE_SIZE)
-			size -= PAGE_SIZE;
-		else
-			size = 0;
+		size -= PAGE_SIZE;
 	}
 	return mem;
 }
 
 static void rvfree (void *mem, unsigned long size)
 {
-	unsigned long adr, page;
+	unsigned long adr;
 
 	if (!mem)
 		return;
 
-	size += (PAGE_SIZE - 1);
-	size &= ~(PAGE_SIZE - 1);
-
 	adr = (unsigned long) mem;
-	while (size > 0) {
-		page = kvirt_to_pa (adr);
-		mem_map_unreserve (virt_to_page (__va (page)));
+	while ((long) size > 0) {
+		mem_map_unreserve(vmalloc_to_page((void *)adr));
 		adr += PAGE_SIZE;
-		if (size > PAGE_SIZE)
-			size -= PAGE_SIZE;
-		else
-			size = 0;
+		size -= PAGE_SIZE;
 	}
 	vfree (mem);
 }
@@ -659,7 +614,7 @@ static void proc_stv680_destroy (void)
 	if (stv680_proc_entry == NULL)
 		return;
 
-	remove_proc_entry ("stv", video_proc_entry);
+	remove_proc_entry ("stv680", video_proc_entry);
 }
 #endif				/* CONFIG_PROC_FS && CONFIG_VIDEO_PROC_FS */
 
@@ -766,7 +721,7 @@ static void stv680_video_irq (struct urb *urb)
 
 static int stv680_start_stream (struct usb_stv *stv680)
 {
-	urb_t *urb;
+	struct urb *urb;
 	int err = 0, i;
 
 	stv680->streaming = 1;
@@ -800,7 +755,7 @@ static int stv680_start_stream (struct usb_stv *stv680)
 	for (i = 0; i < STV680_NUMSBUF; i++) {
 		urb = usb_alloc_urb (0);
 		if (!urb)
-			return ENOMEM;
+			return -ENOMEM;
 
 		/* sbuf is urb->transfer_buffer, later gets memcpyed to scratch */
 		usb_fill_bulk_urb (urb, stv680->udev,
@@ -862,20 +817,23 @@ static int stv680_set_size (struct usb_stv *stv680, int width, int height)
 	if ((width < (stv680->maxwidth / 2)) || (height < (stv680->maxheight / 2))) {
 		width = stv680->maxwidth / 2;
 		height = stv680->maxheight / 2;
-	} else if ((width >= 158) && (width <= 166)) {
+	} else if ((width >= 158) && (width <= 166) && (stv680->QVGA == 1)) {
 		width = 160;
 		height = 120;
-	} else if ((width >= 172) && (width <= 180)) {
+	} else if ((width >= 172) && (width <= 180) && (stv680->CIF == 1)) {
 		width = 176;
 		height = 144;
-	} else if ((width >= 318) && (width <= 350)) {
+	} else if ((width >= 318) && (width <= 350) && (stv680->QVGA == 1)) {
 		width = 320;
 		height = 240;
-	} else if ((width >= 350) && (width <= 358)) {
+	} else if ((width >= 350) && (width <= 358) && (stv680->CIF == 1)) {
 		width = 352;
 		height = 288;
+	} else {
+		PDEBUG (1, "STV(e): request for non-supported size: request: v.width = %i, v.height = %i  actual: stv.width = %i, stv.height = %i", width, height, stv680->vwidth, stv680->vheight);
+		return 1;
 	}
-
+	
 	/* Stop a current stream and start it again at the new size */
 	if (wasstreaming)
 		stv680_stop_stream (stv680);
@@ -1114,6 +1072,9 @@ static int stv680_newframe (struct usb_stv *stv680, int framenr)
 			errors++;
 		}
 		wait_event_interruptible (stv680->wq, (stv680->scratch[stv680->scratch_use].state == BUFFER_READY));
+		
+		if (stv680->removed)
+			return -ENODEV;
 
 		if (stv680->nullpackets > STV680_MAX_NULLPACKETS) {
 			stv680->nullpackets = 0;
@@ -1182,10 +1143,10 @@ static void stv_close (struct video_device *dev)
 
 	for (i = 0; i < STV680_NUMFRAMES; i++)
 		stv680->frame[i].grabstate = FRAME_UNUSED;
-	if (stv680->streaming)
+	if (stv680->streaming && !stv680->removed)
 		stv680_stop_stream (stv680);
 
-	if ((i = stv_stop_video (stv680)) < 0)
+	if ((!stv680->removed) && (i = stv_stop_video (stv680)) < 0)
 		PDEBUG (1, "STV(e): stop_video failed in stv_close");
 
 	rvfree (stv680->fbuf, stv680->maxframesize * STV680_NUMFRAMES);
@@ -1211,6 +1172,9 @@ static int stv680_ioctl (struct video_device *vdev, unsigned int cmd, void *arg)
 
 	if (!stv680->udev)
 		return -EIO;
+		
+	if (stv680->removed)
+		return -ENODEV;
 
 	switch (cmd) {
 	case VIDIOCGCAP:{
@@ -1536,7 +1500,7 @@ static struct video_device stv680_template = {
 	initialize:	stv_init_done,
 };
 
-static void *__devinit stv680_probe (struct usb_device *dev, unsigned int ifnum, const struct usb_device_id *id)
+static void *stv680_probe (struct usb_device *dev, unsigned int ifnum, const struct usb_device_id *id)
 {
 	struct usb_interface_descriptor *interface;
 	struct usb_stv *stv680;
@@ -1620,6 +1584,7 @@ static inline void usb_stv680_remove_disconnected (struct usb_stv *stv680)
 static void stv680_disconnect (struct usb_device *dev, void *ptr)
 {
 	struct usb_stv *stv680 = (struct usb_stv *) ptr;
+	int i;
 
 	lock_kernel ();
 	/* We don't want people trying to open up the device */
@@ -1628,6 +1593,9 @@ static void stv680_disconnect (struct usb_device *dev, void *ptr)
 		usb_stv680_remove_disconnected (stv680);
 	} else {
 		stv680->removed = 1;
+		for( i = 0; i < STV680_NUMSBUF; i++)
+			usb_unlink_urb(stv680->urb[i]);
+		wake_up_interruptible (&stv680->wq);
 	}
 	unlock_kernel ();
 }

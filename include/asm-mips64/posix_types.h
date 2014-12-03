@@ -26,7 +26,7 @@ typedef int		__kernel_uid_t;
 typedef int		__kernel_gid_t;
 typedef unsigned long	__kernel_size_t;
 typedef long		__kernel_ssize_t;
-typedef long		 __kernel_ptrdiff_t;
+typedef long		__kernel_ptrdiff_t;
 typedef long		__kernel_time_t;
 typedef long		__kernel_suseconds_t;
 typedef long		__kernel_clock_t;
@@ -88,7 +88,7 @@ static __inline__ void __FD_CLR(unsigned long __fd, __kernel_fd_set *__fdsetp)
 
 #undef __FD_ISSET
 static __inline__ int __FD_ISSET(unsigned long __fd, const __kernel_fd_set *__p)
-{ 
+{
 	unsigned long __tmp = __fd / __NFDBITS;
 	unsigned long __rem = __fd % __NFDBITS;
 	return (__p->fds_bits[__tmp] & (1UL<<__rem)) != 0;

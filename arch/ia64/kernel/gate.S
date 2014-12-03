@@ -29,7 +29,7 @@
 #	define UNAT_OFF		IA64_SIGCONTEXT_AR_UNAT_OFFSET
 #	define FPSR_OFF		IA64_SIGCONTEXT_AR_FPSR_OFFSET
 #	define PR_OFF		IA64_SIGCONTEXT_PR_OFFSET
-#	define RP_OFF		IA64_SIGCONTEXT_B0_OFFSET
+#	define RP_OFF		IA64_SIGCONTEXT_IP_OFFSET
 #	define SP_OFF		IA64_SIGCONTEXT_R12_OFFSET
 #	define RBS_BASE_OFF	IA64_SIGCONTEXT_RBS_BASE_OFFSET
 #	define LOADRS_OFF	IA64_SIGCONTEXT_LOADRS_OFFSET
@@ -90,7 +90,7 @@ GLOBAL_ENTRY(ia64_sigtramp)
 (p8)	br.cond.spnt setup_rbs		// yup -> (clobbers r14, r15, and r16)
 back_from_setup_rbs:
 
-	.save ar.pfs, r8
+	.spillreg ar.pfs, r8
 	alloc r8=ar.pfs,0,0,3,0		// get CFM0, EC0, and CPL0 into r8
 	ld8 out0=[base0],16		// load arg0 (signum)
 	adds base1=(ARG1_OFF-(RBS_BASE_OFF+SIGCONTEXT_OFF)),base1
@@ -108,7 +108,7 @@ back_from_setup_rbs:
 	dep r8=0,r8,38,26			// clear EC0, CPL0 and reserved bits
 	adds base1=(FR6_OFF+16+SIGCONTEXT_OFF),sp
 	;;
-	.spillsp ar.pfs, CFM_OFF
+	.spillsp ar.pfs, CFM_OFF+SIGCONTEXT_OFF
 	st8 [base0]=r8				// save CFM0
 	adds base0=(FR6_OFF+SIGCONTEXT_OFF),sp
 	;;

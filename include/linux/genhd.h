@@ -62,7 +62,26 @@ struct hd_struct {
 	unsigned long start_sect;
 	unsigned long nr_sects;
 	devfs_handle_t de;              /* primary (master) devfs entry  */
-	int number;                     /* stupid old code wastes space  */
+#ifdef CONFIG_DEVFS_FS
+	int number;
+#endif /* CONFIG_DEVFS_FS */
+#ifdef CONFIG_BLK_STATS
+	/* Performance stats: */
+	unsigned int ios_in_flight;
+	unsigned int io_ticks;
+	unsigned int last_idle_time;
+	unsigned int last_queue_change;
+	unsigned int aveq;
+	
+	unsigned int rd_ios;
+	unsigned int rd_merges;
+	unsigned int rd_ticks;
+	unsigned int rd_sectors;
+	unsigned int wr_ios;
+	unsigned int wr_merges;
+	unsigned int wr_ticks;
+	unsigned int wr_sectors;	
+#endif /* CONFIG_BLK_STATS */
 };
 
 #define GENHD_FL_REMOVABLE  1
@@ -92,6 +111,7 @@ extern struct gendisk *gendisk_head;
 extern void add_gendisk(struct gendisk *gp);
 extern void del_gendisk(struct gendisk *gp);
 extern struct gendisk *get_gendisk(kdev_t dev);
+extern int walk_gendisk(int (*walk)(struct gendisk *, void *), void *);
 
 #endif  /*  __KERNEL__  */
 
@@ -241,6 +261,23 @@ struct unixware_disklabel {
 #ifdef __KERNEL__
 
 char *disk_name (struct gendisk *hd, int minor, char *buf);
+
+/* 
+ * Account for the completion of an IO request (used by drivers which 
+ * bypass the normal end_request processing) 
+ */
+struct request;
+
+#ifdef CONFIG_BLK_STATS
+extern void disk_round_stats(struct hd_struct *hd);
+extern void req_new_io(struct request *req, int merge, int sectors);
+extern void req_merged_io(struct request *req);
+extern void req_finished_io(struct request *req);
+#else
+static inline void req_new_io(struct request *req, int merge, int sectors) { }
+static inline void req_merged_io(struct request *req) { }
+static inline void req_finished_io(struct request *req) { }
+#endif /* CONFIG_BLK_STATS */
 
 extern void devfs_register_partitions (struct gendisk *dev, int minor,
 				       int unregister);

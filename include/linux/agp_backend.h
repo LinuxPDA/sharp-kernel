@@ -48,6 +48,7 @@ enum chipset_type {
 	INTEL_I815,
 	INTEL_I820,
 	INTEL_I830_M,
+	INTEL_I845_G,
 	INTEL_I840,
 	INTEL_I845,
 	INTEL_I850,
@@ -64,17 +65,21 @@ enum chipset_type {
 	AMD_IRONGATE,
 	AMD_761,
 	AMD_762,
+	AMD_8151,
 	ALI_M1541,
 	ALI_M1621,
 	ALI_M1631,
 	ALI_M1632,
 	ALI_M1641,
+	ALI_M1644,
 	ALI_M1647,
 	ALI_M1651,
+	ALI_M1671,
 	ALI_GENERIC,
 	SVWRKS_HE,
 	SVWRKS_LE,
-	SVWRKS_GENERIC
+	SVWRKS_GENERIC,
+	HP_ZX1,
 };
 
 typedef struct _agp_version {
@@ -157,7 +162,7 @@ extern agp_memory *agp_allocate_memory(size_t, u32);
  * 
  */
 
-extern void agp_copy_info(agp_kern_info *);
+extern int agp_copy_info(agp_kern_info *);
 
 /*
  * agp_copy_info :
@@ -253,7 +258,7 @@ typedef struct {
 	void       (*enable)(u32);
 	int        (*acquire)(void);
 	void       (*release)(void);
-	void       (*copy_info)(agp_kern_info *);
+	int        (*copy_info)(agp_kern_info *);
 } drm_agp_t;
 
 extern const drm_agp_t *drm_agp_p;

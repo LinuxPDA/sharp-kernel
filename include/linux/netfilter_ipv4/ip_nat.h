@@ -11,8 +11,13 @@ enum ip_nat_manip_type
 	IP_NAT_MANIP_DST
 };
 
+#ifndef CONFIG_IP_NF_NAT_LOCAL
 /* SRC manip occurs only on POST_ROUTING */
 #define HOOK2MANIP(hooknum) ((hooknum) != NF_IP_POST_ROUTING)
+#else
+/* SRC manip occurs POST_ROUTING or LOCAL_IN */
+#define HOOK2MANIP(hooknum) ((hooknum) != NF_IP_POST_ROUTING && (hooknum) != NF_IP_LOCAL_IN)
+#endif
 
 /* 2.3.19 (I hope) will define this in linux/netfilter_ipv4.h. */
 #ifndef SO_ORIGINAL_DST
@@ -55,22 +60,6 @@ struct ip_nat_multi_range
 	struct ip_nat_range range[1];
 };
 
-#ifdef __KERNEL__
-#include <linux/list.h>
-#include <linux/netfilter_ipv4/lockhelp.h>
-
-/* Protects NAT hash tables, and NAT-private part of conntracks. */
-DECLARE_RWLOCK_EXTERN(ip_nat_lock);
-
-/* Hashes for by-source and IP/protocol. */
-struct ip_nat_hash
-{
-	struct list_head list;
-
-	/* conntrack we're embedded in: NULL if not in hash. */
-	struct ip_conntrack *conntrack;
-};
-
 /* Worst case: local-out manip + 1 post-routing, and reverse dirn. */
 #define IP_NAT_MAX_MANIPS (2*3)
 
@@ -88,7 +77,23 @@ struct ip_nat_info_manip
 	/* Manipulations to occur at each conntrack in this dirn. */
 	struct ip_conntrack_manip manip;
 };
-	
+
+#ifdef __KERNEL__
+#include <linux/list.h>
+#include <linux/netfilter_ipv4/lockhelp.h>
+
+/* Protects NAT hash tables, and NAT-private part of conntracks. */
+DECLARE_RWLOCK_EXTERN(ip_nat_lock);
+
+/* Hashes for by-source and IP/protocol. */
+struct ip_nat_hash
+{
+	struct list_head list;
+
+	/* conntrack we're embedded in: NULL if not in hash. */
+	struct ip_conntrack *conntrack;
+};
+
 /* The structure embedded in the conntrack structure. */
 struct ip_nat_info
 {

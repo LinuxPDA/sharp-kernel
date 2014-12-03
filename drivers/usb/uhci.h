@@ -100,7 +100,6 @@ struct uhci_qh {
 #define TD_CTRL_C_ERR_SHIFT	27
 #define TD_CTRL_LS		(1 << 26)	/* Low Speed Device */
 #define TD_CTRL_IOS		(1 << 25)	/* Isochronous Select */
-#define TD_CTRL_IOC_BIT		24
 #define TD_CTRL_IOC		(1 << 24)	/* Interrupt on Complete */
 #define TD_CTRL_ACTIVE		(1 << 23)	/* TD Active */
 #define TD_CTRL_STALLED		(1 << 22)	/* TD Stalled */
@@ -120,16 +119,18 @@ struct uhci_qh {
 /*
  * for TD <info>: (a.k.a. Token)
  */
-#define TD_TOKEN_TOGGLE		19
-#define TD_PID			0xFF
+#define TD_TOKEN_TOGGLE_SHIFT	19
+#define TD_TOKEN_TOGGLE		(1 << 19)
+#define TD_TOKEN_PID_MASK	0xFF
+#define TD_TOKEN_EXPLEN_MASK	0x7FF		/* expected length, encoded as n - 1 */
 
 #define uhci_maxlen(token)	((token) >> 21)
-#define uhci_expected_length(info) (((info >> 21) + 1) & TD_CTRL_ACTLEN_MASK) /* 1-based */
-#define uhci_toggle(token)	(((token) >> TD_TOKEN_TOGGLE) & 1)
+#define uhci_expected_length(info) (((info >> 21) + 1) & TD_TOKEN_EXPLEN_MASK) /* 1-based */
+#define uhci_toggle(token)	(((token) >> TD_TOKEN_TOGGLE_SHIFT) & 1)
 #define uhci_endpoint(token)	(((token) >> 15) & 0xf)
 #define uhci_devaddr(token)	(((token) >> 8) & 0x7f)
 #define uhci_devep(token)	(((token) >> 8) & 0x7ff)
-#define uhci_packetid(token)	((token) & 0xff)
+#define uhci_packetid(token)	((token) & TD_TOKEN_PID_MASK)
 #define uhci_packetout(token)	(uhci_packetid(token) != USB_PID_IN)
 #define uhci_packetin(token)	(uhci_packetid(token) == USB_PID_IN)
 
@@ -163,7 +164,7 @@ struct uhci_td {
 	struct list_head list;		/* P: urb->lock */
 
 	int frame;
-	struct list_head fl_list;	/* P: frame_list_lock */
+	struct list_head fl_list;	/* P: uhci->frame_list_lock */
 } __attribute__((aligned(16)));
 
 /*
@@ -286,16 +287,16 @@ struct virt_root_hub {
 struct uhci {
 	struct pci_dev *dev;
 
+#ifdef CONFIG_PROC_FS
 	/* procfs */
 	int num;
 	struct proc_dir_entry *proc_entry;
+#endif
 
 	/* Grabbed from PCI */
 	int irq;
 	unsigned int io_addr;
 	unsigned int io_size;
-
-	struct list_head uhci_list;
 
 	struct pci_pool *qh_pool;
 	struct pci_pool *td_pool;
@@ -306,21 +307,26 @@ struct uhci {
 	struct uhci_qh *skelqh[UHCI_NUM_SKELQH];	/* Skeleton QH's */
 
 	spinlock_t frame_list_lock;
-	struct uhci_frame_list *fl;		/* Frame list */
+	struct uhci_frame_list *fl;		/* P: uhci->frame_list_lock */
 	int fsbr;				/* Full speed bandwidth reclamation */
+	unsigned long fsbrtimeout;		/* FSBR delay */
 	int is_suspended;
 
-	spinlock_t qh_remove_list_lock;
-	struct list_head qh_remove_list;
-
-	spinlock_t urb_remove_list_lock;
-	struct list_head urb_remove_list;
-
+	/* Main list of URB's currently controlled by this HC */
 	spinlock_t urb_list_lock;
-	struct list_head urb_list;
+	struct list_head urb_list;		/* P: uhci->urb_list_lock */
 
+	/* List of QH's that are done, but waiting to be unlinked (race) */
+	spinlock_t qh_remove_list_lock;
+	struct list_head qh_remove_list;	/* P: uhci->qh_remove_list_lock */
+
+	/* List of asynchronously unlinked URB's */
+	spinlock_t urb_remove_list_lock;
+	struct list_head urb_remove_list;	/* P: uhci->urb_remove_list_lock */
+
+	/* List of URB's awaiting completion callback */
 	spinlock_t complete_list_lock;
-	struct list_head complete_list;
+	struct list_head complete_list;		/* P: uhci->complete_list_lock */
 
 	struct virt_root_hub rh;	/* private data of the virtual root hub */
 };
@@ -333,7 +339,7 @@ struct urb_priv {
 	dma_addr_t transfer_buffer_dma_handle;
 
 	struct uhci_qh *qh;		/* QH for this URB */
-	struct list_head td_list;
+	struct list_head td_list;	/* P: urb->lock */
 
 	int fsbr : 1;			/* URB turned on FSBR */
 	int fsbr_timeout : 1;		/* URB timed out on FSBR */
@@ -345,11 +351,36 @@ struct urb_priv {
 	int status;			/* Final status */
 
 	unsigned long inserttime;	/* In jiffies */
-	unsigned long fsbrtime;	/* In jiffies */
+	unsigned long fsbrtime;		/* In jiffies */
 
-	struct list_head queue_list;
-	struct list_head complete_list;
+	struct list_head queue_list;	/* P: uhci->frame_list_lock */
+	struct list_head complete_list;	/* P: uhci->complete_list_lock */
 };
+
+/*
+ * Locking in uhci.c
+ *
+ * spinlocks are used extensively to protect the many lists and data
+ * structures we have. It's not that pretty, but it's necessary. We
+ * need to be done with all of the locks (except complete_list_lock) when
+ * we call urb->complete. I've tried to make it simple enough so I don't
+ * have to spend hours racking my brain trying to figure out if the
+ * locking is safe.
+ *
+ * Here's the safe locking order to prevent deadlocks:
+ *
+ * #1 uhci->urb_list_lock
+ * #2 urb->lock
+ * #3 uhci->urb_remove_list_lock, uhci->frame_list_lock, 
+ *   uhci->qh_remove_list_lock
+ * #4 uhci->complete_list_lock
+ *
+ * If you're going to grab 2 or more locks at once, ALWAYS grab the lock
+ * at the lowest level FIRST and NEVER grab locks at the same level at the
+ * same time.
+ * 
+ * So, if you need uhci->urb_list_lock, grab it before you grab urb->lock
+ */
 
 /* -------------------------------------------------------------------------
    Virtual Root HUB

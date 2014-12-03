@@ -1421,7 +1421,10 @@ static void reset_terminal(int currcons, int do_clear)
 	kbd_table[currcons].slockstate = 0;
 	kbd_table[currcons].ledmode = LED_SHOW_FLAGS;
 	kbd_table[currcons].ledflagstate = kbd_table[currcons].default_ledflagstate;
-	set_leds();
+	
+	/* Only schedule the keyboard_tasklet if it is enabled. */
+	if(!atomic_read(&keyboard_tasklet.count))
+		set_leds();
 
 	cursor_type = CUR_DEFAULT;
 	complement_mask = s_complement_mask;
@@ -2179,7 +2182,6 @@ struct console vt_console_driver = {
 	name:		"tty",
 	write:		vt_console_print,
 	device:		vt_console_device,
-	wait_key:	keyboard_wait_for_keypress,
 	unblank:	unblank_screen,
 	flags:		CON_PRINTBUFFER,
 	index:		-1,

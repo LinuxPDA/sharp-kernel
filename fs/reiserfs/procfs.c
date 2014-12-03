@@ -1,9 +1,7 @@
 /* -*- linux-c -*- */
-
 /* fs/reiserfs/procfs.c */
-
 /*
- * Copyright 2000 by Hans Reiser, licensing governed by reiserfs/README
+ * Copyright 2000-2002 by Hans Reiser, licensing governed by reiserfs/README
  */
 
 /* proc info support a la one created by Sizif@Botik.RU for PGC */
@@ -120,7 +118,7 @@ int reiserfs_global_version_in_proc( char *buffer, char **start, off_t offset,
 #define SF( x ) ( r -> x )
 #define SFP( x ) SF( s_proc_info_data.x )
 #define SFPL( x ) SFP( x[ level ] )
-#define SFPF( x ) SFP( find_forward.x )
+#define SFPF( x ) SFP( scan_bitmap.x )
 #define SFPJ( x ) SFP( journal.x )
 
 #define D2C( x ) le16_to_cpu( x )
@@ -172,6 +170,12 @@ int reiserfs_super_in_proc( char *buffer, char **start, off_t offset,
 			"search_by_key_fs_changed: \t%lu\n"
 			"search_by_key_restarted: \t%lu\n"
 			
+			"insert_item_restarted: \t%lu\n"
+			"paste_into_item_restarted: \t%lu\n"
+			"cut_from_item_restarted: \t%lu\n"
+			"delete_solid_item_restarted: \t%lu\n"
+			"delete_item_restarted: \t%lu\n"
+
 			"leaked_oid: \t%lu\n"
 			"leaves_removable: \t%lu\n",
 
@@ -185,7 +189,7 @@ int reiserfs_super_in_proc( char *buffer, char **start, off_t offset,
 			reiserfs_no_unhashed_relocation( sb ) ? "NO_UNHASHED_RELOCATION " : "",
 			reiserfs_hashed_relocation( sb ) ? "UNHASHED_RELOCATION " : "",
 			reiserfs_test4( sb ) ? "TEST4 " : "",
-			dont_have_tails( sb ) ? "NO_TAILS " : "TAILS ",
+			have_large_tails( sb ) ? "TAILS " : have_small_tails(sb)?"SMALL_TAILS ":"NO_TAILS ",
 			replay_only( sb ) ? "REPLAY_ONLY " : "",
 			reiserfs_dont_log( sb ) ? "DONT_LOG " : "LOG ",
 			convert_reiserfs( sb ) ? "CONV " : "",
@@ -208,6 +212,13 @@ int reiserfs_super_in_proc( char *buffer, char **start, off_t offset,
 			SFP( search_by_key ),
 			SFP( search_by_key_fs_changed ),
 			SFP( search_by_key_restarted ),
+
+			SFP( insert_item_restarted ),
+			SFP( paste_into_item_restarted ),
+			SFP( cut_from_item_restarted ),
+			SFP( delete_solid_item_restarted ),
+			SFP( delete_item_restarted ),
+
 			SFP( leaked_oid ),
 			SFP( leaves_removable ) );
 
@@ -308,27 +319,30 @@ int reiserfs_bitmap_in_proc( char *buffer, char **start, off_t offset,
 	r = &sb->u.reiserfs_sb;
 
 	len += sprintf( &buffer[ len ], "free_block: %lu\n"
-			"find_forward:"
-			"         wait"
-			"         bmap"
-			"        retry"
-			" journal_hint"
-			"  journal_out"
+			"  scan_bitmap:"
+			"          wait"
+			"          bmap"
+			"         retry"
+			"        stolen"
+			"  journal_hint"
+			"journal_nohint"
 			"\n"
-			" %12lu"
-			" %12lu"
-			" %12lu"
-			" %12lu"
-			" %12lu"
-			" %12lu"
+			" %14lu"
+			" %14lu"
+			" %14lu"
+			" %14lu"
+			" %14lu"
+			" %14lu"
+			" %14lu"
 			"\n",
 			SFP( free_block ),
 			SFPF( call ), 
 			SFPF( wait ), 
 			SFPF( bmap ),
 			SFPF( retry ),
+			SFPF( stolen ),
 			SFPF( in_journal_hint ),
-			SFPF( in_journal_out ) );
+			SFPF( in_journal_nohint ) );
 
 	procinfo_epilogue( sb );
 	return reiserfs_proc_tail( len, buffer, start, offset, count, eof );
@@ -341,6 +355,7 @@ int reiserfs_on_disk_super_in_proc( char *buffer, char **start, off_t offset,
 	struct reiserfs_sb_info *sb_info;
 	struct reiserfs_super_block *rs;
 	int hash_code;
+	__u32 flags;
 	int len = 0;
     
 	sb = procinfo_prologue( ( kdev_t ) ( long ) data );
@@ -349,6 +364,7 @@ int reiserfs_on_disk_super_in_proc( char *buffer, char **start, off_t offset,
 	sb_info = &sb->u.reiserfs_sb;
 	rs = sb_info -> s_rs;
 	hash_code = DFL( s_hash_function_code );
+	flags = DFL( s_flags );
 
 	len += sprintf( &buffer[ len ], 
 			"block_count: \t%i\n"
@@ -362,7 +378,8 @@ int reiserfs_on_disk_super_in_proc( char *buffer, char **start, off_t offset,
 			"hash: \t%s\n"
 			"tree_height: \t%i\n"
 			"bmap_nr: \t%i\n"
-			"version: \t%i\n",
+			"version: \t%i\n"
+			"flags: \t%x[%s]\n",
 
 			DFL( s_block_count ),
 			DFL( s_free_blocks ),
@@ -378,7 +395,10 @@ int reiserfs_on_disk_super_in_proc( char *buffer, char **start, off_t offset,
 			( hash_code == UNSET_HASH ) ? "unset" : "unknown",
 			DF( s_tree_height ),
 			DF( s_bmap_nr ),
-			DF( s_version ) );
+			DF( s_version ),
+			flags, 
+			( flags & reiserfs_attrs_cleared ) 
+			? "attrs_cleared" : "" );
 
 	procinfo_epilogue( sb );
 	return reiserfs_proc_tail( len, buffer, start, offset, count, eof );

@@ -164,6 +164,7 @@ static struct aty128_chip_info aty128_pci_probe_list[] __initdata =
     {"Rage128 Pro PF (AGP)", PCI_DEVICE_ID_ATI_RAGE128_PF, rage_128_pro},
     {"Rage128 Pro PR (PCI)", PCI_DEVICE_ID_ATI_RAGE128_PR, rage_128_pro},
     {"Rage128 Pro TR (AGP)", PCI_DEVICE_ID_ATI_RAGE128_U3, rage_128_pro},
+    {"Rage128 Pro TF (AGP)", PCI_DEVICE_ID_ATI_RAGE128_U1, rage_128_pro},
     {"Rage Mobility M3 (PCI)", PCI_DEVICE_ID_ATI_RAGE128_LE, rage_M3},
     {"Rage Mobility M3 (AGP)", PCI_DEVICE_ID_ATI_RAGE128_LF, rage_M3},
     {NULL, 0, rage_128}
@@ -2079,7 +2080,7 @@ aty128_pci_register(struct pci_dev *pdev,
 					"Guessing...\n");
 	else {
 		printk(KERN_INFO "aty128fb: Rage128 BIOS located at "
-				"segment %4.4X\n", (unsigned int)bios_seg);
+				"segment %4.4lX\n", (unsigned long)bios_seg);
 		aty128_get_pllinfo(info, bios_seg);
 	}
 #endif

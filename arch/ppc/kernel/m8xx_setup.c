@@ -1,5 +1,5 @@
 /*
- * BK Id: SCCS/s.m8xx_setup.c 1.40 11/13/01 21:26:07 paulus
+ * BK Id: %F% %I% %G% %U% %#%
  *
  *  linux/arch/ppc/kernel/setup.c
  *
@@ -43,8 +43,9 @@
 #include <asm/mpc8xx.h>
 #include <asm/8xx_immap.h>
 #include <asm/machdep.h>
-
+#include <asm/bootinfo.h>
 #include <asm/time.h>
+
 #include "ppc8xx_pic.h"
 
 static int m8xx_set_rtc_time(unsigned long time);
@@ -54,12 +55,6 @@ void m8xx_calibrate_decr(void);
 unsigned char __res[sizeof(bd_t)];
 
 extern void m8xx_ide_init(void);
-
-#ifdef CONFIG_BLK_DEV_RAM
-extern int rd_doload;		/* 1 = load ramdisk, 0 = don't load */
-extern int rd_prompt;		/* 1 = prompt for ramdisk, 0 = don't prompt */
-extern int rd_image_start;	/* starting block # of image */
-#endif
 
 extern unsigned long find_available_memory(void);
 extern void m8xx_cpm_reset(uint);
@@ -349,6 +344,8 @@ void __init
 platform_init(unsigned long r3, unsigned long r4, unsigned long r5,
 		unsigned long r6, unsigned long r7)
 {
+	parse_bootinfo(find_bootinfo());
+
 	if ( r3 )
 		memcpy( (void *)__res,(void *)(r3+KERNELBASE), sizeof(bd_t) );
 	

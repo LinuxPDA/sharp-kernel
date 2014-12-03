@@ -97,6 +97,19 @@ again:
 	goto again; /* PROM is out to get me -DaveM */
 }
 
+void
+prom_halt_power_off(void)
+{
+#ifdef CONFIG_SMP
+	smp_promstop_others();
+	udelay(8000);
+#endif
+	p1275_cmd ("SUNW,power-off", P1275_INOUT(0,0));
+
+	/* if nothing else helps, we just halt */
+	prom_halt ();
+}
+
 /* Set prom sync handler to call function 'funcp'. */
 void
 prom_setcallback(callback_func_t funcp)
@@ -171,7 +184,7 @@ int prom_get_mmu_ihandle(void)
 
 static int prom_get_memory_ihandle(void)
 {
-	static int memory_ihandle_cache = 0;
+	static int memory_ihandle_cache;
 	int node, ret;
 
 	if (memory_ihandle_cache != 0)

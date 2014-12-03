@@ -128,7 +128,6 @@ extern char __init_begin, __init_end;
 static inline void set_pte_phys (unsigned long vaddr,
 			unsigned long phys, pgprot_t flags)
 {
-	pgprot_t prot;
 	pgd_t *pgd;
 	pmd_t *pmd;
 	pte_t *pte;
@@ -144,10 +143,8 @@ static inline void set_pte_phys (unsigned long vaddr,
 		return;
 	}
 	pte = pte_offset(pmd, vaddr);
-	if (pte_val(*pte))
-		pte_ERROR(*pte);
-	pgprot_val(prot) = pgprot_val(PAGE_KERNEL) | pgprot_val(flags);
-	set_pte(pte, mk_pte_phys(phys, prot));
+	/* <phys,flags> stored as-is, to permit clearing entries */
+	set_pte(pte, mk_pte_phys(phys, flags));
 
 	/*
 	 * It's enough to flush this one mapping.
@@ -323,6 +320,27 @@ void __init zap_low_mappings (void)
 	flush_tlb_all();
 }
 
+static void __init zone_sizes_init(void)
+{
+	unsigned long zones_size[MAX_NR_ZONES] = {0, 0, 0};
+	unsigned int max_dma, high, low;
+
+	max_dma = virt_to_phys((char *)MAX_DMA_ADDRESS) >> PAGE_SHIFT;
+	low = max_low_pfn;
+	high = highend_pfn;
+
+	if (low < max_dma)
+		zones_size[ZONE_DMA] = low;
+	else {
+		zones_size[ZONE_DMA] = max_dma;
+		zones_size[ZONE_NORMAL] = low - max_dma;
+#ifdef CONFIG_HIGHMEM
+		zones_size[ZONE_HIGHMEM] = high - low;
+#endif
+	}
+	free_area_init(zones_size);
+}
+
 /*
  * paging_init() sets up the page tables - note that the first 8MB are
  * already mapped by head.S.
@@ -334,7 +352,7 @@ void __init paging_init(void)
 {
 	pagetable_init();
 
-	__asm__( "movl %%ecx,%%cr3\n" ::"c"(__pa(swapper_pg_dir)));
+	load_cr3(swapper_pg_dir);	
 
 #if CONFIG_X86_PAE
 	/*
@@ -350,26 +368,7 @@ void __init paging_init(void)
 #ifdef CONFIG_HIGHMEM
 	kmap_init();
 #endif
-	{
-		unsigned long zones_size[MAX_NR_ZONES] = {0, 0, 0};
-		unsigned int max_dma, high, low;
-
-		max_dma = virt_to_phys((char *)MAX_DMA_ADDRESS) >> PAGE_SHIFT;
-		low = max_low_pfn;
-		high = highend_pfn;
-
-		if (low < max_dma)
-			zones_size[ZONE_DMA] = low;
-		else {
-			zones_size[ZONE_DMA] = max_dma;
-			zones_size[ZONE_NORMAL] = low - max_dma;
-#ifdef CONFIG_HIGHMEM
-			zones_size[ZONE_HIGHMEM] = high - low;
-#endif
-		}
-		free_area_init(zones_size);
-	}
-	return;
+	zone_sizes_init();
 }
 
 /*
@@ -446,66 +445,86 @@ static inline int page_kills_ppro(unsigned long pagenr)
 		return 1;
 	return 0;
 }
-	
-void __init mem_init(void)
-{
-	extern int ppro_with_ram_bug(void);
-	int codesize, reservedpages, datasize, initsize;
-	int tmp;
-	int bad_ppro;
-
-	if (!mem_map)
-		BUG();
-	
-	bad_ppro = ppro_with_ram_bug();
 
 #ifdef CONFIG_HIGHMEM
-	highmem_start_page = mem_map + highstart_pfn;
-	max_mapnr = num_physpages = highend_pfn;
-#else
-	max_mapnr = num_physpages = max_low_pfn;
-#endif
-	high_memory = (void *) __va(max_low_pfn * PAGE_SIZE);
+void __init one_highpage_init(struct page *page, int pfn, int bad_ppro)
+{
+	if (!page_is_ram(pfn)) {
+		SetPageReserved(page);
+		return;
+	}
+	
+	if (bad_ppro && page_kills_ppro(pfn)) {
+		SetPageReserved(page);
+		return;
+	}
+	
+	ClearPageReserved(page);
+	set_bit(PG_highmem, &page->flags);
+	atomic_set(&page->count, 1);
+	__free_page(page);
+	totalhigh_pages++;
+}
+#endif /* CONFIG_HIGHMEM */
 
-	/* clear the zero-page */
-	memset(empty_zero_page, 0, PAGE_SIZE);
+static void __init set_max_mapnr_init(void)
+{
+#ifdef CONFIG_HIGHMEM
+        highmem_start_page = mem_map + highstart_pfn;
+        max_mapnr = num_physpages = highend_pfn;
+        num_mappedpages = max_low_pfn;
+#else
+        max_mapnr = num_mappedpages = num_physpages = max_low_pfn;
+#endif
+}
+
+static int __init free_pages_init(void)
+{
+	extern int ppro_with_ram_bug(void);
+	int bad_ppro, reservedpages, pfn;
+
+	bad_ppro = ppro_with_ram_bug();
 
 	/* this will put all low memory onto the freelists */
 	totalram_pages += free_all_bootmem();
 
 	reservedpages = 0;
-	for (tmp = 0; tmp < max_low_pfn; tmp++)
+	for (pfn = 0; pfn < max_low_pfn; pfn++) {
 		/*
 		 * Only count reserved RAM pages
 		 */
-		if (page_is_ram(tmp) && PageReserved(mem_map+tmp))
+		if (page_is_ram(pfn) && PageReserved(mem_map+pfn))
 			reservedpages++;
-#ifdef CONFIG_HIGHMEM
-	for (tmp = highstart_pfn; tmp < highend_pfn; tmp++) {
-		struct page *page = mem_map + tmp;
-
-		if (!page_is_ram(tmp)) {
-			SetPageReserved(page);
-			continue;
-		}
-		if (bad_ppro && page_kills_ppro(tmp))
-		{
-			SetPageReserved(page);
-			continue;
-		}
-		ClearPageReserved(page);
-		set_bit(PG_highmem, &page->flags);
-		atomic_set(&page->count, 1);
-		__free_page(page);
-		totalhigh_pages++;
 	}
+#ifdef CONFIG_HIGHMEM
+	for (pfn = highend_pfn-1; pfn >= highstart_pfn; pfn--)
+		one_highpage_init((struct page *) (mem_map + pfn), pfn, bad_ppro);
 	totalram_pages += totalhigh_pages;
 #endif
+	return reservedpages;
+}
+
+void __init mem_init(void)
+{
+	int codesize, reservedpages, datasize, initsize;
+
+	if (!mem_map)
+		BUG();
+	
+	set_max_mapnr_init();
+
+	high_memory = (void *) __va(max_low_pfn * PAGE_SIZE);
+
+	/* clear the zero-page */
+	memset(empty_zero_page, 0, PAGE_SIZE);
+
+	reservedpages = free_pages_init();
+
 	codesize =  (unsigned long) &_etext - (unsigned long) &_text;
 	datasize =  (unsigned long) &_edata - (unsigned long) &_etext;
 	initsize =  (unsigned long) &__init_end - (unsigned long) &__init_begin;
 
-	printk("Memory: %luk/%luk available (%dk kernel code, %dk reserved, %dk data, %dk init, %ldk highmem)\n",
+	printk(KERN_INFO "Memory: %luk/%luk available (%dk kernel code, %dk reserved, %dk data, %dk init, %ldk highmem)\n",
 		(unsigned long) nr_free_pages() << (PAGE_SHIFT-10),
 		max_mapnr << (PAGE_SHIFT-10),
 		codesize >> 10,
@@ -569,14 +588,14 @@ void free_initmem(void)
 		free_page(addr);
 		totalram_pages++;
 	}
-	printk ("Freeing unused kernel memory: %dk freed\n", (&__init_end - &__init_begin) >> 10);
+	printk (KERN_INFO "Freeing unused kernel memory: %dk freed\n", (&__init_end - &__init_begin) >> 10);
 }
 
 #ifdef CONFIG_BLK_DEV_INITRD
 void free_initrd_mem(unsigned long start, unsigned long end)
 {
 	if (start < end)
-		printk ("Freeing initrd memory: %ldk freed\n", (end - start) >> 10);
+		printk (KERN_INFO "Freeing initrd memory: %ldk freed\n", (end - start) >> 10);
 	for (; start < end; start += PAGE_SIZE) {
 		ClearPageReserved(virt_to_page(start));
 		set_page_count(virt_to_page(start), 1);

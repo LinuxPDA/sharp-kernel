@@ -1,6 +1,6 @@
 /* sis900.c: A SiS 900/7016 PCI Fast Ethernet driver for Linux.
    Copyright 1999 Silicon Integrated System Corporation 
-   Revision:	1.08.02	Nov. 30 2001
+   Revision:	1.08.06 Sep. 24 2002
    
    Modified from the driver which is originally written by Donald Becker.
    
@@ -18,6 +18,10 @@
    preliminary Rev. 1.0 Jan. 18, 1998
    http://www.sis.com.tw/support/databook.htm
 
+   Rev 1.08.06 Sep. 24 2002 Mufasa Yang bug fix for Tx timeout & add SiS963 support
+   Rev 1.08.05 Jun. 6 2002 Mufasa Yang bug fix for read_eeprom & Tx descriptor over-boundary 
+   Rev 1.08.04 Apr. 25 2002 Mufasa Yang <mufasa@sis.com.tw> added SiS962 support
+   Rev 1.08.03 Feb. 1 2002 Matt Domsch <Matt_Domsch@dell.com> update to use library crc32 function
    Rev 1.08.02 Nov. 30 2001 Hui-Fen Hsu workaround for EDB & bug fix for dhcp problem
    Rev 1.08.01 Aug. 25 2001 Hui-Fen Hsu update for 630ET & workaround for ICS1893 PHY
    Rev 1.08.00 Jun. 11 2001 Hui-Fen Hsu workaround for RTL8201 PHY and some bug fix
@@ -60,6 +64,7 @@
 #include <linux/skbuff.h>
 #include <linux/delay.h>
 #include <linux/ethtool.h>
+#include <linux/crc32.h>
 
 #include <asm/processor.h>      /* Processor type for cache alignment. */
 #include <asm/bitops.h>
@@ -69,7 +74,7 @@
 #include "sis900.h"
 
 #define SIS900_MODULE_NAME "sis900"
-#define SIS900_DRV_VERSION "v1.08.02 11/30/2001"
+#define SIS900_DRV_VERSION "v1.08.06 9/24/2002"
 
 static char version[] __devinitdata =
 KERN_INFO "sis900.c: " SIS900_DRV_VERSION "\n";
@@ -305,6 +310,47 @@ static int __devinit sis635_get_mac_addr(struct pci_dev * pci_dev, struct net_de
 	return 1;
 }
 
+/**
+ *	sis96x_get_mac_addr: - Get MAC address for SiS962 or SiS963 model
+ *	@pci_dev: the sis900 pci device
+ *	@net_dev: the net device to get address for 
+ *
+ *	SiS962 or SiS963 model, use EEPROM to store MAC address. And EEPROM 
+ *	is shared by
+ *	LAN and 1394. When access EEPROM, send EEREQ signal to hardware first 
+ *	and wait for EEGNT. If EEGNT is ON, EEPROM is permitted to be access 
+ *	by LAN, otherwise is not. After MAC address is read from EEPROM, send
+ *	EEDONE signal to refuse EEPROM access by LAN. 
+ *	The EEPROM map of SiS962 or SiS963 is different to SiS900. 
+ *	The signature field in SiS962 or SiS963 spec is meaningless. 
+ *	MAC address is read into @net_dev->dev_addr.
+ */
+
+static int __devinit sis96x_get_mac_addr(struct pci_dev * pci_dev, struct net_device *net_dev)
+{
+	long ioaddr = net_dev->base_addr;
+	long ee_addr = ioaddr + mear;
+	u32 waittime = 0;
+	int i;
+	
+	outl(EEREQ, ee_addr);
+	while(waittime < 2000) {
+		if(inl(ee_addr) & EEGNT) {
+
+			/* get MAC address from EEPROM */
+			for (i = 0; i < 3; i++)
+			        ((u16 *)(net_dev->dev_addr))[i] = read_eeprom(ioaddr, i+EEPROMMACAddr);
+
+			outl(EEDONE, ee_addr);
+			return 1;
+		} else {
+			udelay(1);	
+			waittime ++;
+		}
+	}
+	outl(EEDONE, ee_addr);
+	return 0;
+}
 
 /**
  *	sis900_probe: - Probe for sis900 device
@@ -406,6 +452,8 @@ static int __devinit sis900_probe (struct pci_dev *pci_dev, const struct pci_dev
 		ret = sis630e_get_mac_addr(pci_dev, net_dev);
 	else if ((revision > 0x81) && (revision <= 0x90) )
 		ret = sis635_get_mac_addr(pci_dev, net_dev);
+	else if (revision == SIS96x_900_REV)
+		ret = sis96x_get_mac_addr(pci_dev, net_dev);
 	else
 		ret = sis900_get_mac_addr(pci_dev, net_dev);
 
@@ -654,7 +702,7 @@ static void sis900_set_capability( struct net_device *net_dev , struct mii_phy *
  *	Note that location is in word (16 bits) unit
  */
 
-static u16 read_eeprom(long ioaddr, int location)
+static u16 __devinit read_eeprom(long ioaddr, int location)
 {
 	int i;
 	u16 retval = 0;
@@ -663,7 +711,7 @@ static u16 read_eeprom(long ioaddr, int location)
 
 	outl(0, ee_addr);
 	eeprom_delay();
-	outl(EECLK, ee_addr);
+	outl(EECS, ee_addr);
 	eeprom_delay();
 
 	/* Shift the read command (9) bits out. */
@@ -674,7 +722,7 @@ static u16 read_eeprom(long ioaddr, int location)
 		outl(dataval | EECLK, ee_addr);
 		eeprom_delay();
 	}
-	outb(EECS, ee_addr);
+	outl(EECS, ee_addr);
 	eeprom_delay();
 
 	/* read the 16-bits data in */
@@ -690,7 +738,6 @@ static u16 read_eeprom(long ioaddr, int location)
 	/* Terminate the EEPROM access. */
 	outl(0, ee_addr);
 	eeprom_delay();
-	outl(EECLK, ee_addr);
 
 	return (retval);
 }
@@ -1393,8 +1440,8 @@ static void sis900_tx_timeout(struct net_device *net_dev)
 
 	net_dev->trans_start = jiffies;
 
-	/* FIXME: Should we restart the transmission thread here  ?? */
-	outl(TxENA | inl(ioaddr + cr), ioaddr + cr);
+	/* load Transmit Descriptor Register */
+	outl(sis_priv->tx_ring_dma, ioaddr + txdp);
 
 	/* Enable all known interrupts by setting the interrupt mask. */
 	outl((RxSOVR|RxORN|RxERR|RxOK|TxURN|TxERR|TxIDLE), ioaddr + imr);
@@ -1418,6 +1465,8 @@ sis900_start_xmit(struct sk_buff *skb, struct net_device *net_dev)
 	long ioaddr = net_dev->base_addr;
 	unsigned int  entry;
 	unsigned long flags;
+	unsigned int  index_cur_tx, index_dirty_tx;
+	unsigned int  count_dirty_tx;
 
 	/* Don't transmit data before the complete of auto-negotiation */
 	if(!sis_priv->autong_complete){
@@ -1437,7 +1486,18 @@ sis900_start_xmit(struct sk_buff *skb, struct net_device *net_dev)
 	sis_priv->tx_ring[entry].cmdsts = (OWN | skb->len);
 	outl(TxENA | inl(ioaddr + cr), ioaddr + cr);
 
-	if (++sis_priv->cur_tx - sis_priv->dirty_tx < NUM_TX_DESC) {
+	sis_priv->cur_tx ++;
+	index_cur_tx = sis_priv->cur_tx;
+	index_dirty_tx = sis_priv->dirty_tx;
+
+	for (count_dirty_tx = 0; index_cur_tx != index_dirty_tx; index_dirty_tx++)
+		count_dirty_tx ++;
+
+	if (index_cur_tx == index_dirty_tx) {
+		/* dirty_tx is met in the cycle of cur_tx, buffer full */
+		sis_priv->tx_full = 1;
+		netif_stop_queue(net_dev);
+	} else if (count_dirty_tx < NUM_TX_DESC) { 
 		/* Typical path, tell upper layer that more transmission is possible */
 		netif_start_queue(net_dev);
 	} else {
@@ -1670,7 +1730,7 @@ static void sis900_finish_xmit (struct net_device *net_dev)
 {
 	struct sis900_private *sis_priv = net_dev->priv;
 
-	for (; sis_priv->dirty_tx < sis_priv->cur_tx; sis_priv->dirty_tx++) {
+	for (; sis_priv->dirty_tx != sis_priv->cur_tx; sis_priv->dirty_tx++) {
 		struct sk_buff *skb;
 		unsigned int entry;
 		u32 tx_status;
@@ -1981,29 +2041,10 @@ static int sis900_set_config(struct net_device *dev, struct ifmap *map)
 static u16 sis900_compute_hashtable_index(u8 *addr, u8 revision)
 {
 
-/* what is the correct value of the POLYNOMIAL ??
-   Donald Becker use 0x04C11DB7U
-   Joseph Zbiciak im14u2c@primenet.com gives me the
-   correct answer, thank you Joe !! */
-#define POLYNOMIAL 0x04C11DB7L
-	u32 crc = 0xffffffff, msb;
-	int  i, j;
-	u32  byte;
-
-	for (i = 0; i < 6; i++) {
-		byte = *addr++;
-		for (j = 0; j < 8; j++) {
-			msb = crc >> 31;
-			crc <<= 1;
-			if (msb ^ (byte & 1)) {
-				crc ^= POLYNOMIAL;
-			}
-			byte >>= 1;
-		}
-	}
+	u32 crc = ether_crc(6, addr);
 
 	/* leave 8 or 7 most siginifant bits */
-	if ((revision == SIS635A_900_REV) || (revision == SIS900B_900_REV))
+	if ((revision >= SIS635A_900_REV) || (revision == SIS900B_900_REV))
 		return ((int)(crc >> 24));
 	else
 		return ((int)(crc >> 25));
@@ -2029,7 +2070,7 @@ static void set_rx_mode(struct net_device *net_dev)
 
 	/* 635 Hash Table entires = 256(2^16) */
 	pci_read_config_byte(sis_priv->pci_dev, PCI_CLASS_REVISION, &revision);
-	if((revision == SIS635A_900_REV) || (revision == SIS900B_900_REV))
+	if((revision >= SIS635A_900_REV) || (revision == SIS900B_900_REV))
 		table_entries = 16;
 	else
 		table_entries = 8;
@@ -2110,7 +2151,7 @@ static void sis900_reset(struct net_device *net_dev)
 	}
 
 	pci_read_config_byte(sis_priv->pci_dev, PCI_CLASS_REVISION, &revision);
-	if( (revision == SIS635A_900_REV) || (revision == SIS900B_900_REV) )
+	if( (revision >= SIS635A_900_REV) || (revision == SIS900B_900_REV) )
 		outl(PESEL | RND_CNT, ioaddr + cfg);
 	else
 		outl(PESEL, ioaddr + cfg);

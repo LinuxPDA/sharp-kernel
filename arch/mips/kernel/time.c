@@ -2,8 +2,8 @@
  * Copyright 2001 MontaVista Software Inc.
  * Author: Jun Sun, jsun@mvista.com or jsun@junsun.net
  *
- * Common time service routines for MIPS machines. See 
- * Documents/MIPS/README.txt. 
+ * Common time service routines for MIPS machines. See
+ * Documents/MIPS/README.txt.
  *
  * This program is free software; you can redistribute  it and/or modify it
  * under  the terms of  the GNU General  Public License as published by the
@@ -30,13 +30,18 @@
 
 /* This is for machines which generate the exact clock. */
 #define USECS_PER_JIFFY (1000000/HZ)
-#define USECS_PER_JIFFY_FRAC ((1000000ULL << 32) / HZ & 0xffffffff)
+#define USECS_PER_JIFFY_FRAC ((u32)((1000000ULL << 32) / HZ))
 
 /*
  * forward reference
  */
 extern rwlock_t xtime_lock;
 extern volatile unsigned long wall_jiffies;
+
+/*
+ * whether we emulate local_timer_interrupts for SMP machines.
+ */
+int emulate_local_timer_interrupt;
 
 /*
  * By default we provide the null RTC ops
@@ -255,8 +260,7 @@ unsigned long calibrate_div64_gettimeoffset(void)
 	        :"r" (timerhi),
 	         "m" (timerlo),
 	         "r" (tmp),
-	         "r" (USECS_PER_JIFFY)
-	        :"$1");
+	         "r" (USECS_PER_JIFFY));
 	        cached_quotient = quotient;
 	}
 
@@ -282,6 +286,42 @@ unsigned long calibrate_div64_gettimeoffset(void)
 	return res;
 }
 
+
+/*
+ * local_timer_interrupt() does profiling and process accounting
+ * on a per-CPU basis.
+ *
+ * In UP mode, it is invoked from the (global) timer_interrupt.
+ *
+ * In SMP mode, it might invoked by per-CPU timer interrupt, or
+ * a broadcasted inter-processor interrupt which itself is triggered
+ * by the global timer interrupt.
+ */
+void local_timer_interrupt(int irq, void *dev_id, struct pt_regs *regs)
+{
+	if (!user_mode(regs)) {
+		if (prof_buffer && current->pid) {
+			extern int _stext;
+			unsigned long pc = regs->cp0_epc;
+
+			pc -= (unsigned long) &_stext;
+			pc >>= prof_shift;
+			/*
+			 * Dont ignore out-of-bounds pc values silently,
+			 * put them into the last histogram slot, so if
+			 * present, they will show up as a sharp peak.
+			 */
+			if (pc > prof_len-1)
+			pc = prof_len-1;
+			atomic_inc((atomic_t *)&prof_buffer[pc]);
+		}
+	}
+
+#ifdef CONFIG_SMP
+	/* in UP mode, update_process_times() is invoked by do_timer() */
+	update_process_times(user_mode(regs));
+#endif
+}
 
 /*
  * high-level timer interrupt service routines.  This function
@@ -310,24 +350,6 @@ void timer_interrupt(int irq, void *dev_id, struct pt_regs *regs)
 
 	}
 
-	if(!user_mode(regs)) {
-		if (prof_buffer && current->pid) {
-			extern int _stext;
-			unsigned long pc = regs->cp0_epc;
-
-			pc -= (unsigned long) &_stext;
-			pc >>= prof_shift;
-			/*
-			 * Dont ignore out-of-bounds pc values silently,
-			 * put them into the last histogram slot, so if
-			 * present, they will show up as a sharp peak.
-			 */
-			if (pc > prof_len-1)
-			pc = prof_len-1;
-			atomic_inc((atomic_t *)&prof_buffer[pc]);
-		}
-	}
-
 	/*
 	 * call the generic timer interrupt handling
 	 */
@@ -346,7 +368,7 @@ void timer_interrupt(int irq, void *dev_id, struct pt_regs *regs)
 		if (rtc_set_time(xtime.tv_sec) == 0) {
 			last_rtc_update = xtime.tv_sec;
 		} else {
-			last_rtc_update = xtime.tv_sec - 600; 
+			last_rtc_update = xtime.tv_sec - 600;
 			/* do it again in 60 s */
 		}
 	}
@@ -360,6 +382,31 @@ void timer_interrupt(int irq, void *dev_id, struct pt_regs *regs)
 	if (!jiffies) {
 		timerhi = timerlo = 0;
 	}
+
+#if !defined(CONFIG_SMP)
+	/*
+	 * In UP mode, we call local_timer_interrupt() to do profiling
+	 * and process accouting.
+	 *
+	 * In SMP mode, local_timer_interrupt() is invoked by appropriate
+	 * low-level local timer interrupt handler.
+	 */
+	local_timer_interrupt(0, NULL, regs);
+
+#else	/* CONFIG_SMP */
+
+	if (emulate_local_timer_interrupt) {
+		/*
+		 * this is the place where we send out inter-process
+		 * interrupts and let each CPU do its own profiling
+		 * and process accouting.
+		 *
+		 * Obviously we need to call local_timer_interrupt() for
+		 * the current CPU too.
+		 */
+		panic("Not implemented yet!!!");
+	}
+#endif	/* CONFIG_SMP */
 }
 
 asmlinkage void ll_timer_interrupt(int irq, struct pt_regs *regs)
@@ -371,30 +418,45 @@ asmlinkage void ll_timer_interrupt(int irq, struct pt_regs *regs)
 
 	/* we keep interrupt disabled all the time */
 	timer_interrupt(irq, NULL, regs);
-	
+
 	irq_exit(cpu, irq);
 
 	if (softirq_pending(cpu))
 		do_softirq();
 }
 
+asmlinkage void ll_local_timer_interrupt(int irq, struct pt_regs *regs)
+{
+	int cpu = smp_processor_id();
+
+	irq_enter(cpu, irq);
+	kstat.irqs[cpu][irq]++;
+
+	/* we keep interrupt disabled all the time */
+	local_timer_interrupt(irq, NULL, regs);
+
+	irq_exit(cpu, irq);
+
+	if (softirq_pending(cpu))
+		do_softirq();
+}
 
 /*
  * time_init() - it does the following things.
  *
- * 1) board_time_init() - 
- * 	a) (optional) set up RTC routines, 
+ * 1) board_time_init() -
+ * 	a) (optional) set up RTC routines,
  *      b) (optional) calibrate and set the mips_counter_frequency
  *	    (only needed if you intended to use fixed_rate_gettimeoffset
  *	     or use cpu counter as timer interrupt source)
  * 2) setup xtime based on rtc_get_time().
  * 3) choose a appropriate gettimeoffset routine.
  * 4) calculate a couple of cached variables for later usage
- * 5) board_timer_setup() - 
+ * 5) board_timer_setup() -
  *	a) (optional) over-write any choices made above by time_init().
  *	b) machine specific code should setup the timer irqaction.
  *	c) enable the timer interrupt
- */ 
+ */
 
 void (*board_time_init)(void) = NULL;
 void (*board_timer_setup)(struct irqaction *irq) = NULL;
@@ -407,7 +469,8 @@ static struct irqaction timer_irqaction = {
 	0,
 	"timer",
 	NULL,
-	NULL};
+	NULL
+};
 
 void __init time_init(void)
 {
@@ -434,10 +497,12 @@ void __init time_init(void)
 		/* we need to calibrate the counter but we *do* have
 		 * 64-bit division. */
 		do_gettimeoffset = calibrate_div64_gettimeoffset;
-	}	
+	}
 
 	/* caclulate cache parameters */
 	if (mips_counter_frequency) {
+		u32 count;
+
 		cycles_per_jiffy = mips_counter_frequency / HZ;
 
 		/* sll32_usecs_per_cycle = 10^6 * 2^32 / mips_counter_freq */
@@ -445,16 +510,24 @@ void __init time_init(void)
 		sll32_usecs_per_cycle = mips_counter_frequency / 100000;
 		sll32_usecs_per_cycle = 0xffffffff / sll32_usecs_per_cycle;
 		sll32_usecs_per_cycle *= 10;
+
+		/*
+		 * For those using cpu counter as timer,  this sets up the
+		 * first interrupt
+		 */
+		count = read_32bit_cp0_register(CP0_COUNT);
+		write_32bit_cp0_register (CP0_COMPARE,
+					  count + cycles_per_jiffy);
 	}
 
-	/* 
+	/*
 	 * Call board specific timer interrupt setup.
 	 *
-	 * this pointer must be setup in machine setup routine. 
+	 * this pointer must be setup in machine setup routine.
 	 *
 	 * Even if the machine choose to use low-level timer interrupt,
 	 * it still needs to setup the timer_irqaction.
-	 * In that case, it might be better to set timer_irqaction.handler 
+	 * In that case, it might be better to set timer_irqaction.handler
 	 * to be NULL function so that we are sure the high-level code
 	 * is not invoked accidentally.
 	 */
@@ -475,10 +548,10 @@ static int month_days[12] = {
 
 void to_tm(unsigned long tim, struct rtc_time * tm)
 {
-	long hms, day;
+	long hms, day, gday;
 	int i;
 
-	day = tim / SECDAY;
+	gday = day = tim / SECDAY;
 	hms = tim % SECDAY;
 
 	/* Hours, minutes, seconds are easy */
@@ -497,7 +570,7 @@ void to_tm(unsigned long tim, struct rtc_time * tm)
 	for (i = 1; day >= days_in_month(i); i++)
 	day -= days_in_month(i);
 	days_in_month(FEBRUARY) = 28;
-	tm->tm_mon = i;
+	tm->tm_mon = i-1;	/* tm_mon starts from 0 to 11 */
 
 	/* Days are what is left over (+1) from all that. */
 	tm->tm_mday = day + 1;
@@ -505,5 +578,5 @@ void to_tm(unsigned long tim, struct rtc_time * tm)
 	/*
 	 * Determine the day of week
 	 */
-	tm->tm_wday = (day + 3) % 7;
+	tm->tm_wday = (gday + 4) % 7; /* 1970/1/1 was Thursday */
 }

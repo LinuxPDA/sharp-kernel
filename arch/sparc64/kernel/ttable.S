@@ -1,4 +1,4 @@
-/* $Id: ttable.S,v 1.36 2001/11/28 23:32:16 davem Exp $
+/* $Id: ttable.S,v 1.36.2.1 2002/03/03 10:31:56 davem Exp $
  * ttable.S: Sparc V9 Trap Table(s) with SpitFire/Cheetah extensions.
  *
  * Copyright (C) 1996, 2001 David S. Miller (davem@caip.rutgers.edu)
@@ -7,6 +7,8 @@
 #include <linux/config.h>
 
 	.globl	sparc64_ttable_tl0, sparc64_ttable_tl1
+	.globl	tl0_icpe, tl1_icpe
+	.globl	tl0_dcpe, tl1_dcpe
 	.globl	tl0_fecc, tl1_fecc
 	.globl	tl0_cee, tl1_cee
 	.globl	tl0_iae, tl1_iae
@@ -44,8 +46,16 @@ tl0_stdfmna:	TRAP_NOSAVE(do_stdfmna)
 tl0_privact:	TRAP_NOSAVE(__do_privact)
 tl0_resv038:	BTRAP(0x38) BTRAP(0x39) BTRAP(0x3a) BTRAP(0x3b) BTRAP(0x3c) BTRAP(0x3d)
 tl0_resv03e:	BTRAP(0x3e) BTRAP(0x3f) BTRAP(0x40)
-tl0_irq1:	TRAP_IRQ(handler_irq, 1)  TRAP_IRQ(handler_irq, 2)
-tl0_irq3:	TRAP_IRQ(handler_irq, 3)  TRAP_IRQ(handler_irq, 4)
+#ifdef CONFIG_SMP
+tl0_irq1:	TRAP_IRQ(smp_call_function_client, 1)
+tl0_irq2:	TRAP_IRQ(smp_receive_signal_client, 2)
+tl0_irq3:	TRAP_IRQ(smp_penguin_jailcell, 3)
+#else
+tl0_irq1:	BTRAP(0x41)
+tl0_irq2:	BTRAP(0x42)
+tl0_irq3:	BTRAP(0x43)
+#endif
+tl0_irq4:	TRAP_IRQ(handler_irq, 4)
 tl0_irq5:	TRAP_IRQ(handler_irq, 5)  TRAP_IRQ(handler_irq, 6)
 tl0_irq7:	TRAP_IRQ(handler_irq, 7)  TRAP_IRQ(handler_irq, 8)
 tl0_irq9:	TRAP_IRQ(handler_irq, 9)  TRAP_IRQ(handler_irq, 10)
@@ -71,7 +81,9 @@ tl0_damiss:
 tl0_daprot:
 #include	"dtlb_prot.S"
 tl0_fecc:	BTRAP(0x70)	/* Fast-ECC on Cheetah */
-tl0_resv071:	BTRAP(0x71) BTRAP(0x72) BTRAP(0x73) BTRAP(0x74) BTRAP(0x75)
+tl0_dcpe:	BTRAP(0x71)	/* D-cache Parity Error on Cheetah+ */
+tl0_icpe:	BTRAP(0x72)	/* I-cache Parity Error on Cheetah+ */
+tl0_resv073:	BTRAP(0x73) BTRAP(0x74) BTRAP(0x75)
 tl0_resv076:	BTRAP(0x76) BTRAP(0x77) BTRAP(0x78) BTRAP(0x79) BTRAP(0x7a) BTRAP(0x7b)
 tl0_resv07c:	BTRAP(0x7c) BTRAP(0x7d) BTRAP(0x7e) BTRAP(0x7f)
 tl0_s0n:	SPILL_0_NORMAL
@@ -227,8 +239,10 @@ tl1_damiss:
 #include	"dtlb_backend.S"
 tl1_daprot:
 #include	"dtlb_prot.S"
-tl1_fecc:	BTRAP(0x70)	/* Fast-ECC on Cheetah */
-tl1_resc071:	BTRAPTL1(0x71) BTRAPTL1(0x72) BTRAPTL1(0x73)
+tl1_fecc:	BTRAPTL1(0x70)	/* Fast-ECC on Cheetah */
+tl1_dcpe:	BTRAPTL1(0x71)	/* D-cache Parity Error on Cheetah+ */
+tl1_icpe:	BTRAPTL1(0x72)	/* I-cache Parity Error on Cheetah+ */
+tl1_resv073:	BTRAPTL1(0x73)
 tl1_resv074:	BTRAPTL1(0x74) BTRAPTL1(0x75) BTRAPTL1(0x76) BTRAPTL1(0x77)
 tl1_resv078:	BTRAPTL1(0x78) BTRAPTL1(0x79) BTRAPTL1(0x7a) BTRAPTL1(0x7b)
 tl1_resv07c:	BTRAPTL1(0x7c) BTRAPTL1(0x7d) BTRAPTL1(0x7e) BTRAPTL1(0x7f)

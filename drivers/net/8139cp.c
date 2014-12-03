@@ -1,7 +1,8 @@
 /* 8139cp.c: A Linux PCI Ethernet driver for the RealTek 8139C+ chips. */
 /*
-	Copyright 2001 Jeff Garzik <jgarzik@mandrakesoft.com>
+	Copyright 2001,2002 Jeff Garzik <jgarzik@mandrakesoft.com>
 
+	Copyright (C) 2001, 2002 David S. Miller (davem@redhat.com) [tg3.c]
 	Copyright (C) 2000, 2001 David S. Miller (davem@redhat.com) [sungem.c]
 	Copyright 2001 Manfred Spraul				    [natsemi.c]
 	Copyright 1999-2001 by Donald Becker.			    [natsemi.c]
@@ -17,38 +18,43 @@
 
 	See the file COPYING in this distribution for more information.
 
+	Contributors:
+	
+		Wake-on-LAN support - Felipe Damasio <felipewd@terra.com.br>
+		PCI suspend/resume  - Felipe Damasio <felipewd@terra.com.br>
+		LinkChg interrupt   - Felipe Damasio <felipewd@terra.com.br>
+			
 	TODO, in rough priority order:
+	* Test Tx checksumming thoroughly
 	* dev->tx_timeout
-	* LinkChg interrupt
-	* Support forcing media type with a module parameter,
-	  like dl2k.c/sundance.c
-	* Implement PCI suspend/resume
 	* Constants (module parms?) for Rx work limit
-	* support 64-bit PCI DMA
 	* Complete reset on PciErr
 	* Consider Rx interrupt mitigation using TimerIntr
 	* Implement 8139C+ statistics dump; maybe not...
 	  h/w stats can be reset only by software reset
-	* Rx checksumming
-	* Tx checksumming
-	* ETHTOOL_GREGS, ETHTOOL_[GS]WOL,
-	* Jumbo frames / dev->change_mtu
+	* Handle netif_rx return value
 	* Investigate using skb->priority with h/w VLAN priority
 	* Investigate using High Priority Tx Queue with skb->priority
 	* Adjust Rx FIFO threshold and Max Rx DMA burst on Rx FIFO error
 	* Adjust Tx FIFO threshold and Max Tx DMA burst on Tx FIFO error
-        * Implement Tx software interrupt mitigation via
-	          Tx descriptor bit
+	* Implement Tx software interrupt mitigation via
+	  Tx descriptor bit
+	* The real minimum of CP_MIN_MTU is 4 bytes.  However,
+	  for this to be supported, one must(?) turn on packet padding.
+	* Support 8169 GMII
+	* Support external MII transceivers
 
  */
 
 #define DRV_NAME		"8139cp"
-#define DRV_VERSION		"0.0.6"
-#define DRV_RELDATE		"Nov 19, 2001"
+#define DRV_VERSION		"0.3.0"
+#define DRV_RELDATE		"Sep 29, 2002"
 
 
+#include <linux/config.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
+#include <linux/compiler.h>
 #include <linux/netdevice.h>
 #include <linux/etherdevice.h>
 #include <linux/init.h>
@@ -56,12 +62,32 @@
 #include <linux/delay.h>
 #include <linux/ethtool.h>
 #include <linux/mii.h>
+#include <linux/if_vlan.h>
+#include <linux/crc32.h>
+#include <linux/in.h>
+#include <linux/ip.h>
+#include <linux/tcp.h>
+#include <linux/udp.h>
 #include <asm/io.h>
 #include <asm/uaccess.h>
 
+/* experimental TX checksumming feature enable/disable */
+#undef CP_TX_CHECKSUM
+
+/* VLAN tagging feature enable/disable */
+#if defined(CONFIG_VLAN_8021Q) || defined(CONFIG_VLAN_8021Q_MODULE)
+#define CP_VLAN_TAG_USED 1
+#define CP_VLAN_TX_TAG(tx_desc,vlan_tag_value) \
+	do { (tx_desc)->opts2 = (vlan_tag_value); } while (0)
+#else
+#define CP_VLAN_TAG_USED 0
+#define CP_VLAN_TX_TAG(tx_desc,vlan_tag_value) \
+	do { (tx_desc)->opts2 = 0; } while (0)
+#endif
+
 /* These identify the driver base version and may not be removed. */
 static char version[] __devinitdata =
-KERN_INFO DRV_NAME " 10/100 PCI Ethernet driver v" DRV_VERSION " (" DRV_RELDATE ")\n";
+KERN_INFO DRV_NAME ": 10/100 PCI Ethernet driver v" DRV_VERSION " (" DRV_RELDATE ")\n";
 
 MODULE_AUTHOR("Jeff Garzik <jgarzik@mandrakesoft.com>");
 MODULE_DESCRIPTION("RealTek RTL-8139C+ series 10/100 PCI Ethernet driver");
@@ -69,25 +95,34 @@ MODULE_LICENSE("GPL");
 
 static int debug = -1;
 MODULE_PARM (debug, "i");
-MODULE_PARM_DESC (debug, "8139cp bitmapped message enable number");
+MODULE_PARM_DESC (debug, "8139cp: bitmapped message enable number");
 
 /* Maximum number of multicast addresses to filter (vs. Rx-all-multicast).
    The RTL chips use a 64 element hash table based on the Ethernet CRC.  */
 static int multicast_filter_limit = 32;
 MODULE_PARM (multicast_filter_limit, "i");
-MODULE_PARM_DESC (multicast_filter_limit, "8139cp maximum number of filtered multicast addresses");
+MODULE_PARM_DESC (multicast_filter_limit, "8139cp: maximum number of filtered multicast addresses");
 
 #define PFX			DRV_NAME ": "
+
+#ifndef TRUE
+#define FALSE 0
+#define TRUE (!FALSE)
+#endif
 
 #define CP_DEF_MSG_ENABLE	(NETIF_MSG_DRV		| \
 				 NETIF_MSG_PROBE 	| \
 				 NETIF_MSG_LINK)
+#define CP_NUM_STATS		14	/* struct cp_dma_stats, plus one */
+#define CP_STATS_SIZE		64	/* size in bytes of DMA stats block */
 #define CP_REGS_SIZE		(0xff + 1)
+#define CP_REGS_VER		1		/* version 1 */
 #define CP_RX_RING_SIZE		64
 #define CP_TX_RING_SIZE		64
 #define CP_RING_BYTES		\
 		((sizeof(struct cp_desc) * CP_RX_RING_SIZE) +	\
-		(sizeof(struct cp_desc) * CP_TX_RING_SIZE))
+		 (sizeof(struct cp_desc) * CP_TX_RING_SIZE) +	\
+		 CP_STATS_SIZE)
 #define NEXT_TX(N)		(((N) + 1) & (CP_TX_RING_SIZE - 1))
 #define NEXT_RX(N)		(((N) + 1) & (CP_RX_RING_SIZE - 1))
 #define TX_BUFFS_AVAIL(CP)					\
@@ -106,13 +141,17 @@ MODULE_PARM_DESC (multicast_filter_limit, "8139cp maximum number of filtered mul
 #define TX_EARLY_THRESH		256	/* Early Tx threshold, in bytes */
 
 /* Time in jiffies before concluding the transmitter is hung. */
-#define TX_TIMEOUT  (6*HZ)
+#define TX_TIMEOUT		(6*HZ)
 
+/* hardware minimum and maximum for a single frame's data payload */
+#define CP_MIN_MTU		60	/* TODO: allow lower, but pad */
+#define CP_MAX_MTU		4096
 
 enum {
 	/* NIC register offsets */
 	MAC0		= 0x00,	/* Ethernet hardware address. */
 	MAR0		= 0x08,	/* Multicast filter. */
+	StatsAddr	= 0x10,	/* 64-bit start addr of 64-byte DMA stats blk */
 	TxRingAddr	= 0x20, /* 64-bit start addr of Tx ring */
 	HiTxRingAddr	= 0x28, /* 64-bit start addr of high priority Tx ring */
 	Cmd		= 0x37, /* Command register */
@@ -133,7 +172,9 @@ enum {
 	NWayExpansion	= 0x6A, /* MII Expansion */
 	Config5		= 0xD8,	/* Config5 */
 	TxPoll		= 0xD9,	/* Tell chip to check Tx descriptors for work */
+	RxMaxSize	= 0xDA, /* Max size of an Rx packet (8169 only) */
 	CpCmd		= 0xE0, /* C+ Command register (C+ mode only) */
+	IntrMitigate	= 0xE2,	/* rx/tx interrupt mitigation control */
 	RxRingAddr	= 0xE4, /* 64-bit start addr of Rx ring */
 	TxThresh	= 0xEC, /* Early Tx threshold */
 	OldRxBufAddr	= 0x30, /* DMA address of Rx ring buffer (C mode) */
@@ -149,12 +190,17 @@ enum {
 	IPCS		= (1 << 18), /* Calculate IP checksum */
 	UDPCS		= (1 << 17), /* Calculate UDP/IP checksum */
 	TCPCS		= (1 << 16), /* Calculate TCP/IP checksum */
+	TxVlanTag	= (1 << 17), /* Add VLAN tag */
+	RxVlanTagged	= (1 << 16), /* Rx VLAN tag available */
 	IPFail		= (1 << 15), /* IP checksum failed */
 	UDPFail		= (1 << 14), /* UDP/IP checksum failed */
 	TCPFail		= (1 << 13), /* TCP/IP checksum failed */
 	NormalTxPoll	= (1 << 6),  /* One or more normal Tx packets to send */
 	PID1		= (1 << 17), /* 2 protocol id bits:  0==non-IP, */
 	PID0		= (1 << 16), /* 1==UDP/IP, 2==TCP/IP, 3==IP */
+	RxProtoTCP	= 1,
+	RxProtoUDP	= 2,
+	RxProtoIP	= 3,
 	TxFIFOUnder	= (1 << 25), /* Tx FIFO underrun */
 	TxOWC		= (1 << 22), /* Tx Out-of-window collision */
 	TxLinkFail	= (1 << 21), /* Link failed during Tx of packet */
@@ -167,6 +213,9 @@ enum {
 	RxErrRunt	= (1 << 19), /* Rx error, packet < 64 bytes */
 	RxErrLong	= (1 << 21), /* Rx error, packet > 4096 bytes */
 	RxErrFIFO	= (1 << 22), /* Rx error, FIFO overflowed, pkt bad */
+
+	/* StatsAddr register */
+	DumpStats	= (1 << 3),  /* Begin stats dump */
 
 	/* RxConfig register */
 	RxCfgFIFOShift	= 13,	     /* Shift, to get Rx FIFO thresh value */
@@ -204,7 +253,9 @@ enum {
 	TxOn		= (1 << 2),  /* Tx mode enable */
 
 	/* C+ mode command register */
+	RxVlanOn	= (1 << 6),  /* Rx VLAN de-tagging enable */
 	RxChkSum	= (1 << 5),  /* Rx checksum offload enable */
+	PCIDAC		= (1 << 4),  /* PCI Dual Address Cycle (64-bit PCI) */
 	PCIMulRW	= (1 << 3),  /* Enable PCI read/write multiple */
 	CpRxOn		= (1 << 1),  /* Rx mode enable */
 	CpTxOn		= (1 << 0),  /* Tx mode enable */
@@ -223,12 +274,23 @@ enum {
 
 	/* Config1 register */
 	DriverLoaded	= (1 << 5),  /* Software marker, driver is loaded */
+	LWACT           = (1 << 4),  /* LWAKE active mode */
 	PMEnable	= (1 << 0),  /* Enable various PM features of chip */
 
 	/* Config3 register */
 	PARMEnable	= (1 << 6),  /* Enable auto-loading of PHY parms */
+	MagicPacket     = (1 << 5),  /* Wake up when receives a Magic Packet */
+	LinkUp          = (1 << 4),  /* Wake up when the cable connection is re-established */
+
+	/* Config4 register */
+	LWPTN           = (1 << 1),  /* LWAKE Pattern */
+	LWPME           = (1 << 4),  /* LANWAKE vs PMEB */
 
 	/* Config5 register */
+	BWF             = (1 << 6),  /* Accept Broadcast wakeup frame */
+	MWF             = (1 << 5),  /* Accept Multicast wakeup frame */
+	UWF             = (1 << 4),  /* Accept Unicast wakeup frame */
+	LANWake         = (1 << 1),  /* Enable LANWake signal */
 	PMEStatus	= (1 << 0),  /* PME status can be reset by PCI RST# */
 };
 
@@ -244,8 +306,7 @@ static const unsigned int cp_rx_config =
 struct cp_desc {
 	u32		opts1;
 	u32		opts2;
-	u32		addr_lo;
-	u32		addr_hi;
+	u64		addr;
 };
 
 struct ring_info {
@@ -253,6 +314,22 @@ struct ring_info {
 	dma_addr_t		mapping;
 	unsigned		frag;
 };
+
+struct cp_dma_stats {
+	u64			tx_ok;
+	u64			rx_ok;
+	u64			tx_err;
+	u32			rx_err;
+	u16			rx_fifo;
+	u16			frame_align;
+	u32			tx_ok_1col;
+	u32			tx_ok_mcol;
+	u64			rx_ok_phys;
+	u64			rx_ok_bcast;
+	u32			rx_ok_mcast;
+	u16			tx_abort;
+	u16			tx_underrun;
+} __attribute__((packed));
 
 struct cp_extra_stats {
 	unsigned long		rx_frags;
@@ -274,16 +351,27 @@ struct cp_private {
 	unsigned		rx_buf_sz;
 	dma_addr_t		ring_dma;
 
+#if CP_VLAN_TAG_USED
+	struct vlan_group	*vlgrp;
+#endif
+
 	u32			msg_enable;
 
 	struct net_device_stats net_stats;
 	struct cp_extra_stats	cp_stats;
+	struct cp_dma_stats	*nic_stats;
+	dma_addr_t		nic_stats_dma;
 
 	struct pci_dev		*pdev;
 	u32			rx_config;
 
 	struct sk_buff		*frag_skb;
 	unsigned		dropping_frag : 1;
+	unsigned		pci_using_dac : 1;
+	unsigned int		board_type;
+
+	unsigned int		wol_enabled : 1; /* Is Wake-on-LAN enabled? */
+	u32			power_state[16];
 
 	struct mii_if_info	mii_if;
 };
@@ -312,22 +400,78 @@ static void __cp_set_rx_mode (struct net_device *dev);
 static void cp_tx (struct cp_private *cp);
 static void cp_clean_rings (struct cp_private *cp);
 
+enum board_type {
+	RTL8139Cp,
+	RTL8169,
+};
+
+static struct cp_board_info {
+	const char *name;
+} cp_board_tbl[] __devinitdata = {
+	/* RTL8139Cp */
+	{ "RTL-8139C+" },
+
+	/* RTL8169 */
+	{ "RTL-8169" },
+};
 
 static struct pci_device_id cp_pci_tbl[] __devinitdata = {
 	{ PCI_VENDOR_ID_REALTEK, PCI_DEVICE_ID_REALTEK_8139,
-	  PCI_ANY_ID, PCI_ANY_ID, 0, 0, 0 },
+	  PCI_ANY_ID, PCI_ANY_ID, 0, 0, RTL8139Cp },
+#if 0
+	{ PCI_VENDOR_ID_REALTEK, PCI_DEVICE_ID_REALTEK_8169,
+	  PCI_ANY_ID, PCI_ANY_ID, 0, 0, RTL8169 },
+#endif
 	{ },
 };
 MODULE_DEVICE_TABLE(pci, cp_pci_tbl);
 
-static inline void cp_rx_skb (struct cp_private *cp, struct sk_buff *skb)
+static struct {
+	const char str[ETH_GSTRING_LEN];
+} ethtool_stats_keys[] = {
+	{ "tx_ok" },
+	{ "rx_ok" },
+	{ "tx_err" },
+	{ "rx_err" },
+	{ "rx_fifo" },
+	{ "frame_align" },
+	{ "tx_ok_1col" },
+	{ "tx_ok_mcol" },
+	{ "rx_ok_phys" },
+	{ "rx_ok_bcast" },
+	{ "rx_ok_mcast" },
+	{ "tx_abort" },
+	{ "tx_underrun" },
+	{ "rx_frags" },
+};
+
+
+static inline void cp_set_rxbufsize (struct cp_private *cp)
+{
+	unsigned int mtu = cp->dev->mtu;
+	
+	if (mtu > ETH_DATA_LEN)
+		/* MTU + ethernet header + FCS + optional VLAN tag */
+		cp->rx_buf_sz = mtu + ETH_HLEN + 8;
+	else
+		cp->rx_buf_sz = PKT_BUF_SZ;
+}
+
+static inline void cp_rx_skb (struct cp_private *cp, struct sk_buff *skb,
+			      struct cp_desc *desc)
 {
 	skb->protocol = eth_type_trans (skb, cp->dev);
 
 	cp->net_stats.rx_packets++;
 	cp->net_stats.rx_bytes += skb->len;
 	cp->dev->last_rx = jiffies;
-	netif_rx (skb);
+
+#if CP_VLAN_TAG_USED
+	if (cp->vlgrp && (desc->opts2 & RxVlanTagged)) {
+		vlan_hwaccel_rx(skb, cp->vlgrp, desc->opts2 & 0xffff);
+	} else
+#endif
+		netif_rx(skb);
 }
 
 static void cp_rx_err_acct (struct cp_private *cp, unsigned rx_tail,
@@ -410,11 +554,24 @@ drop_frag:
 			cp_rx_err_acct(cp, rx_tail, status, len);
 			dev_kfree_skb_irq(copy_skb);
 		} else
-			cp_rx_skb(cp, copy_skb);
+			cp_rx_skb(cp, copy_skb, &cp->rx_ring[rx_tail]);
 		cp->frag_skb = NULL;
 	} else {
 		cp->frag_skb = copy_skb;
 	}
+}
+
+static inline unsigned int cp_rx_csum_ok (u32 status)
+{
+	unsigned int protocol = (status >> 16) & 0x3;
+	
+	if (likely((protocol == RxProtoTCP) && (!(status & TCPFail))))
+		return 1;
+	else if ((protocol == RxProtoUDP) && (!(status & UDPFail)))
+		return 1;
+	else if ((protocol == RxProtoIP) && (!(status & IPFail)))
+		return 1;
+	return 0;
 }
 
 static void cp_rx (struct cp_private *cp)
@@ -426,13 +583,15 @@ static void cp_rx (struct cp_private *cp)
 		u32 status, len;
 		dma_addr_t mapping;
 		struct sk_buff *skb, *new_skb;
+		struct cp_desc *desc;
 		unsigned buflen;
 
 		skb = cp->rx_skb[rx_tail].skb;
 		if (!skb)
 			BUG();
-		rmb();
-		status = le32_to_cpu(cp->rx_ring[rx_tail].opts1);
+
+		desc = &cp->rx_ring[rx_tail];
+		status = le32_to_cpu(desc->opts1);
 		if (status & DescOwn)
 			break;
 
@@ -465,7 +624,13 @@ static void cp_rx (struct cp_private *cp)
 
 		pci_unmap_single(cp->pdev, mapping,
 				 buflen, PCI_DMA_FROMDEVICE);
-		skb->ip_summed = CHECKSUM_NONE;
+
+		/* Handle checksum offloading for incoming packets. */
+		if (cp_rx_csum_ok(status))
+			skb->ip_summed = CHECKSUM_UNNECESSARY;
+		else
+			skb->ip_summed = CHECKSUM_NONE;
+
 		skb_put(skb, len);
 
 		mapping =
@@ -474,17 +639,16 @@ static void cp_rx (struct cp_private *cp)
 				       buflen, PCI_DMA_FROMDEVICE);
 		cp->rx_skb[rx_tail].skb = new_skb;
 
-		cp_rx_skb(cp, skb);
+		cp_rx_skb(cp, skb, desc);
 
 rx_next:
-		if (rx_tail == (CP_RX_RING_SIZE - 1))
-			cp->rx_ring[rx_tail].opts1 =
-				cpu_to_le32(DescOwn | RingEnd | cp->rx_buf_sz);
-		else
-			cp->rx_ring[rx_tail].opts1 =
-				cpu_to_le32(DescOwn | cp->rx_buf_sz);
 		cp->rx_ring[rx_tail].opts2 = 0;
-		cp->rx_ring[rx_tail].addr_lo = cpu_to_le32(mapping);
+		cp->rx_ring[rx_tail].addr = cpu_to_le64(mapping);
+		if (rx_tail == (CP_RX_RING_SIZE - 1))
+			desc->opts1 = cpu_to_le32(DescOwn | RingEnd |
+						  cp->rx_buf_sz);
+		else
+			desc->opts1 = cpu_to_le32(DescOwn | cp->rx_buf_sz);
 		rx_tail = NEXT_RX(rx_tail);
 	}
 
@@ -508,14 +672,16 @@ static void cp_interrupt (int irq, void *dev_instance, struct pt_regs *regs)
 		printk(KERN_DEBUG "%s: intr, status %04x cmd %02x cpcmd %04x\n",
 		        dev->name, status, cpr8(Cmd), cpr16(CpCmd));
 
+	cpw16_f(IntrStatus, status);
+
 	spin_lock(&cp->lock);
 
 	if (status & (RxOK | RxErr | RxEmpty | RxFIFOOvr))
 		cp_rx(cp);
 	if (status & (TxOK | TxErr | TxEmpty | SWInt))
 		cp_tx(cp);
-
-	cpw16_f(IntrStatus, status);
+	if (status & LinkChg)
+		mii_check_media(&cp->mii_if, netif_msg_link(cp), FALSE);
 
 	if (status & PciErr) {
 		u16 pci_status;
@@ -582,7 +748,7 @@ static void cp_tx (struct cp_private *cp)
 
 	cp->tx_tail = tx_tail;
 
-	if (netif_queue_stopped(cp->dev) && (TX_BUFFS_AVAIL(cp) > 1))
+	if (netif_queue_stopped(cp->dev) && (TX_BUFFS_AVAIL(cp) > (MAX_SKB_FRAGS + 1)))
 		netif_wake_queue(cp->dev);
 }
 
@@ -591,35 +757,56 @@ static int cp_start_xmit (struct sk_buff *skb, struct net_device *dev)
 	struct cp_private *cp = dev->priv;
 	unsigned entry;
 	u32 eor;
+#if CP_VLAN_TAG_USED
+	u32 vlan_tag = 0;
+#endif
 
 	spin_lock_irq(&cp->lock);
 
+	/* This is a hard error, log it. */
 	if (TX_BUFFS_AVAIL(cp) <= (skb_shinfo(skb)->nr_frags + 1)) {
 		netif_stop_queue(dev);
 		spin_unlock_irq(&cp->lock);
+		printk(KERN_ERR PFX "%s: BUG! Tx Ring full when queue awake!\n",
+		       dev->name);
 		return 1;
 	}
+
+#if CP_VLAN_TAG_USED
+	if (cp->vlgrp && vlan_tx_tag_present(skb))
+		vlan_tag = TxVlanTag | vlan_tx_tag_get(skb);
+#endif
 
 	entry = cp->tx_head;
 	eor = (entry == (CP_TX_RING_SIZE - 1)) ? RingEnd : 0;
 	if (skb_shinfo(skb)->nr_frags == 0) {
 		struct cp_desc *txd = &cp->tx_ring[entry];
-		u32 mapping, len;
+		u32 len;
+		dma_addr_t mapping;
 
 		len = skb->len;
 		mapping = pci_map_single(cp->pdev, skb->data, len, PCI_DMA_TODEVICE);
-		eor = (entry == (CP_TX_RING_SIZE - 1)) ? RingEnd : 0;
-		txd->opts2 = 0;
-		txd->addr_lo = cpu_to_le32(mapping);
+		CP_VLAN_TX_TAG(txd, vlan_tag);
+		txd->addr = cpu_to_le64(mapping);
 		wmb();
 
 #ifdef CP_TX_CHECKSUM
-		txd->opts1 = cpu_to_le32(eor | len | DescOwn | FirstFrag |
-			LastFrag | IPCS | UDPCS | TCPCS);
-#else
-		txd->opts1 = cpu_to_le32(eor | len | DescOwn | FirstFrag |
-			LastFrag);
+		if (skb->ip_summed == CHECKSUM_HW) {
+			const struct iphdr *ip = skb->nh.iph;
+			if (ip->protocol == IPPROTO_TCP)
+				txd->opts1 = cpu_to_le32(eor | len | DescOwn |
+							 FirstFrag | LastFrag |
+							 IPCS | TCPCS);
+			else if (ip->protocol == IPPROTO_UDP)
+				txd->opts1 = cpu_to_le32(eor | len | DescOwn |
+							 FirstFrag | LastFrag |
+							 IPCS | UDPCS);
+			else
+				BUG();
+		} else
 #endif
+			txd->opts1 = cpu_to_le32(eor | len | DescOwn |
+						 FirstFrag | LastFrag);
 		wmb();
 
 		cp->tx_skb[entry].skb = skb;
@@ -628,12 +815,17 @@ static int cp_start_xmit (struct sk_buff *skb, struct net_device *dev)
 		entry = NEXT_TX(entry);
 	} else {
 		struct cp_desc *txd;
-		u32 first_len, first_mapping;
+		u32 first_len, first_eor;
+		dma_addr_t first_mapping;
 		int frag, first_entry = entry;
+#ifdef CP_TX_CHECKSUM
+		const struct iphdr *ip = skb->nh.iph;
+#endif
 
 		/* We must give this initial chunk to the device last.
 		 * Otherwise we could race with the device.
 		 */
+		first_eor = eor;
 		first_len = skb->len - skb->data_len;
 		first_mapping = pci_map_single(cp->pdev, skb->data,
 					       first_len, PCI_DMA_TODEVICE);
@@ -644,8 +836,9 @@ static int cp_start_xmit (struct sk_buff *skb, struct net_device *dev)
 
 		for (frag = 0; frag < skb_shinfo(skb)->nr_frags; frag++) {
 			skb_frag_t *this_frag = &skb_shinfo(skb)->frags[frag];
-			u32 len, mapping;
+			u32 len;
 			u32 ctrl;
+			dma_addr_t mapping;
 
 			len = this_frag->size;
 			mapping = pci_map_single(cp->pdev,
@@ -654,16 +847,24 @@ static int cp_start_xmit (struct sk_buff *skb, struct net_device *dev)
 						 len, PCI_DMA_TODEVICE);
 			eor = (entry == (CP_TX_RING_SIZE - 1)) ? RingEnd : 0;
 #ifdef CP_TX_CHECKSUM
-			ctrl = eor | len | DescOwn | IPCS | UDPCS | TCPCS;
-#else
-			ctrl = eor | len | DescOwn;
+			if (skb->ip_summed == CHECKSUM_HW) {
+				ctrl = eor | len | DescOwn | IPCS;
+				if (ip->protocol == IPPROTO_TCP)
+					ctrl |= TCPCS;
+				else if (ip->protocol == IPPROTO_UDP)
+					ctrl |= UDPCS;
+				else
+					BUG();
+			} else
 #endif
+				ctrl = eor | len | DescOwn;
+
 			if (frag == skb_shinfo(skb)->nr_frags - 1)
 				ctrl |= LastFrag;
 
 			txd = &cp->tx_ring[entry];
-			txd->opts2 = 0;
-			txd->addr_lo = cpu_to_le32(mapping);
+			CP_VLAN_TX_TAG(txd, vlan_tag);
+			txd->addr = cpu_to_le64(mapping);
 			wmb();
 
 			txd->opts1 = cpu_to_le32(ctrl);
@@ -676,24 +877,33 @@ static int cp_start_xmit (struct sk_buff *skb, struct net_device *dev)
 		}
 
 		txd = &cp->tx_ring[first_entry];
-		txd->opts2 = 0;
-		txd->addr_lo = cpu_to_le32(first_mapping);
+		CP_VLAN_TX_TAG(txd, vlan_tag);
+		txd->addr = cpu_to_le64(first_mapping);
 		wmb();
 
 #ifdef CP_TX_CHECKSUM
-		txd->opts1 = cpu_to_le32(first_len | FirstFrag | DescOwn | IPCS | UDPCS | TCPCS);
-#else
-		txd->opts1 = cpu_to_le32(first_len | FirstFrag | DescOwn);
+		if (skb->ip_summed == CHECKSUM_HW) {
+			if (ip->protocol == IPPROTO_TCP)
+				txd->opts1 = cpu_to_le32(first_eor | first_len |
+							 FirstFrag | DescOwn |
+							 IPCS | TCPCS);
+			else if (ip->protocol == IPPROTO_UDP)
+				txd->opts1 = cpu_to_le32(first_eor | first_len |
+							 FirstFrag | DescOwn |
+							 IPCS | UDPCS);
+			else
+				BUG();
+		} else
 #endif
+			txd->opts1 = cpu_to_le32(first_eor | first_len |
+						 FirstFrag | DescOwn);
 		wmb();
 	}
 	cp->tx_head = entry;
 	if (netif_msg_tx_queued(cp))
 		printk(KERN_DEBUG "%s: tx queued, slot %d, skblen %d\n",
 		       dev->name, entry, skb->len);
-	if (TX_BUFFS_AVAIL(cp) < 0)
-		BUG();
-	if (TX_BUFFS_AVAIL(cp) == 0)
+	if (TX_BUFFS_AVAIL(cp) <= (MAX_SKB_FRAGS + 1))
 		netif_stop_queue(dev);
 
 	spin_unlock_irq(&cp->lock);
@@ -706,22 +916,6 @@ static int cp_start_xmit (struct sk_buff *skb, struct net_device *dev)
 
 /* Set or clear the multicast filter for this adaptor.
    This routine is not state sensitive and need not be SMP locked. */
-
-static unsigned const ethernet_polynomial = 0x04c11db7U;
-static inline u32 ether_crc (int length, unsigned char *data)
-{
-	int crc = -1;
-
-	while (--length >= 0) {
-		unsigned char current_octet = *data++;
-		int bit;
-		for (bit = 0; bit < 8; bit++, current_octet >>= 1)
-			crc = (crc << 1) ^ ((crc < 0) ^ (current_octet & 1) ?
-			     ethernet_polynomial : 0);
-	}
-
-	return crc;
-}
 
 static void __cp_set_rx_mode (struct net_device *dev)
 {
@@ -752,7 +946,7 @@ static void __cp_set_rx_mode (struct net_device *dev)
 		     i++, mclist = mclist->next) {
 			int bit_nr = ether_crc(ETH_ALEN, mclist->dmi_addr) >> 26;
 
-			mc_filter[bit_nr >> 5] |= cpu_to_le32(1 << (bit_nr & 31));
+			mc_filter[bit_nr >> 5] |= 1 << (bit_nr & 31);
 			rx_mode |= AcceptMulticast;
 		}
 	}
@@ -827,6 +1021,16 @@ static void cp_reset_hw (struct cp_private *cp)
 	printk(KERN_ERR "%s: hardware reset timeout\n", cp->dev->name);
 }
 
+static inline void cp_start_hw (struct cp_private *cp)
+{
+	u16 pci_dac = cp->pci_using_dac ? PCIDAC : 0;
+	if (cp->board_type == RTL8169)
+		cpw16(CpCmd, pci_dac | PCIMulRW | RxChkSum);
+	else
+		cpw16(CpCmd, pci_dac | PCIMulRW | RxChkSum | CpRxOn | CpTxOn);
+	cpw8(Cmd, RxOn | TxOn);
+}
+
 static void cp_init_hw (struct cp_private *cp)
 {
 	struct net_device *dev = cp->dev;
@@ -839,35 +1043,35 @@ static void cp_init_hw (struct cp_private *cp)
 	cpw32_f (MAC0 + 0, cpu_to_le32 (*(u32 *) (dev->dev_addr + 0)));
 	cpw32_f (MAC0 + 4, cpu_to_le32 (*(u32 *) (dev->dev_addr + 4)));
 
-	cpw8(Cmd, RxOn | TxOn);
-	cpw16(CpCmd, PCIMulRW | CpRxOn | CpTxOn);
+	cp_start_hw(cp);
 	cpw8(TxThresh, 0x06); /* XXX convert magic num to a constant */
 
 	__cp_set_rx_mode(dev);
 	cpw32_f (TxConfig, IFG | (TX_DMA_BURST << TxDMAShift));
 
 	cpw8(Config1, cpr8(Config1) | DriverLoaded | PMEnable);
-	cpw8(Config3, PARMEnable); /* disables magic packet and WOL */
-	cpw8(Config5, cpr8(Config5) & PMEStatus); /* disables more WOL stuff */
+	/* Disable Wake-on-LAN. Can be turned on with ETHTOOL_SWOL */
+	if (cp->board_type == RTL8139Cp) {
+		cpw8(Config3, PARMEnable);
+		cp->wol_enabled = 0;
+	}
+	cpw8(Config5, cpr8(Config5) & PMEStatus); 
+	if (cp->board_type == RTL8169)
+		cpw16(RxMaxSize, cp->rx_buf_sz);
 
 	cpw32_f(HiTxRingAddr, 0);
 	cpw32_f(HiTxRingAddr + 4, 0);
-	cpw32_f(OldRxBufAddr, 0);
-	cpw32_f(OldTSD0, 0);
-	cpw32_f(OldTSD0 + 4, 0);
-	cpw32_f(OldTSD0 + 8, 0);
-	cpw32_f(OldTSD0 + 12, 0);
 
 	cpw32_f(RxRingAddr, cp->ring_dma);
-	cpw32_f(RxRingAddr + 4, 0);
+	cpw32_f(RxRingAddr + 4, 0);		/* FIXME: 64-bit PCI */
 	cpw32_f(TxRingAddr, cp->ring_dma + (sizeof(struct cp_desc) * CP_RX_RING_SIZE));
-	cpw32_f(TxRingAddr + 4, 0);
+	cpw32_f(TxRingAddr + 4, 0);		/* FIXME: 64-bit PCI */
 
 	cpw16(MultiIntr, 0);
 
-	cpw16(IntrMask, cp_intr_mask);
+	cpw16_f(IntrMask, cp_intr_mask);
 
-	cpw8_f (Cfg9346, Cfg9346_Lock);
+	cpw8_f(Cfg9346, Cfg9346_Lock);
 }
 
 static int cp_refill_rx (struct cp_private *cp)
@@ -889,15 +1093,14 @@ static int cp_refill_rx (struct cp_private *cp)
 		cp->rx_skb[i].skb = skb;
 		cp->rx_skb[i].frag = 0;
 
+		cp->rx_ring[i].opts2 = 0;
+		cp->rx_ring[i].addr = cpu_to_le64(cp->rx_skb[i].mapping);
 		if (i == (CP_RX_RING_SIZE - 1))
 			cp->rx_ring[i].opts1 =
 				cpu_to_le32(DescOwn | RingEnd | cp->rx_buf_sz);
 		else
 			cp->rx_ring[i].opts1 =
 				cpu_to_le32(DescOwn | cp->rx_buf_sz);
-		cp->rx_ring[i].opts2 = 0;
-		cp->rx_ring[i].addr_lo = cpu_to_le32(cp->rx_skb[i].mapping);
-		cp->rx_ring[i].addr_hi = 0;
 	}
 
 	return 0;
@@ -920,10 +1123,19 @@ static int cp_init_rings (struct cp_private *cp)
 
 static int cp_alloc_rings (struct cp_private *cp)
 {
-	cp->rx_ring = pci_alloc_consistent(cp->pdev, CP_RING_BYTES, &cp->ring_dma);
-	if (!cp->rx_ring)
+	void *mem;
+
+	mem = pci_alloc_consistent(cp->pdev, CP_RING_BYTES, &cp->ring_dma);
+	if (!mem)
 		return -ENOMEM;
+
+	cp->rx_ring = mem;
 	cp->tx_ring = &cp->rx_ring[CP_RX_RING_SIZE];
+
+	mem += (CP_RING_BYTES - CP_STATS_SIZE);
+	cp->nic_stats = mem;
+	cp->nic_stats_dma = cp->ring_dma + (CP_RING_BYTES - CP_STATS_SIZE);
+
 	return cp_init_rings(cp);
 }
 
@@ -962,6 +1174,7 @@ static void cp_free_rings (struct cp_private *cp)
 	pci_free_consistent(cp->pdev, CP_RING_BYTES, cp->rx_ring, cp->ring_dma);
 	cp->rx_ring = NULL;
 	cp->tx_ring = NULL;
+	cp->nic_stats = NULL;
 }
 
 static int cp_open (struct net_device *dev)
@@ -971,8 +1184,6 @@ static int cp_open (struct net_device *dev)
 
 	if (netif_msg_ifup(cp))
 		printk(KERN_DEBUG "%s: enabling interface\n", dev->name);
-
-	cp->rx_buf_sz = (dev->mtu <= 1500 ? PKT_BUF_SZ : dev->mtu + 32);
 
 	rc = cp_alloc_rings(cp);
 	if (rc)
@@ -984,6 +1195,8 @@ static int cp_open (struct net_device *dev)
 	if (rc)
 		goto err_out_hw;
 
+	netif_carrier_off(dev);
+	mii_check_media(&cp->mii_if, netif_msg_link(cp), TRUE);
 	netif_start_queue(dev);
 
 	return 0;
@@ -1002,11 +1215,52 @@ static int cp_close (struct net_device *dev)
 		printk(KERN_DEBUG "%s: disabling interface\n", dev->name);
 
 	netif_stop_queue(dev);
+	netif_carrier_off(dev);
+
+	spin_lock_irq(&cp->lock);
 	cp_stop_hw(cp);
+	spin_unlock_irq(&cp->lock);
+
 	free_irq(dev->irq, dev);
 	cp_free_rings(cp);
 	return 0;
 }
+
+#ifdef BROKEN
+static int cp_change_mtu(struct net_device *dev, int new_mtu)
+{
+	struct cp_private *cp = dev->priv;
+	int rc;
+
+	/* check for invalid MTU, according to hardware limits */
+	if (new_mtu < CP_MIN_MTU || new_mtu > CP_MAX_MTU)
+		return -EINVAL;
+
+	/* if network interface not up, no need for complexity */
+	if (!netif_running(dev)) {
+		dev->mtu = new_mtu;
+		cp_set_rxbufsize(cp);	/* set new rx buf size */
+		return 0;
+	}
+
+	spin_lock_irq(&cp->lock);
+
+	cp_stop_hw(cp);			/* stop h/w and free rings */
+	cp_clean_rings(cp);
+
+	dev->mtu = new_mtu;
+	cp_set_rxbufsize(cp);		/* set new rx buf size */
+	if (cp->board_type == RTL8169)
+		cpw16(RxMaxSize, cp->rx_buf_sz);
+
+	rc = cp_init_rings(cp);		/* realloc and restart h/w */
+	cp_start_hw(cp);
+
+	spin_unlock_irq(&cp->lock);
+
+	return rc;
+}
+#endif /* BROKEN */
 
 static char mii_2_8139_map[8] = {
 	BasicModeCtrl,
@@ -1041,6 +1295,60 @@ static void mdio_write(struct net_device *dev, int phy_id, int location,
 		cpw16(mii_2_8139_map[location], value);
 }
 
+/* Set the ethtool Wake-on-LAN settings */
+static void netdev_set_wol (struct cp_private *cp,
+                     const struct ethtool_wolinfo *wol)
+{
+	u8 options;
+
+	options = cpr8 (Config3) & ~(LinkUp | MagicPacket);
+	/* If WOL is being disabled, no need for complexity */
+	if (wol->wolopts) {
+		if (wol->wolopts & WAKE_PHY)	options |= LinkUp;
+		if (wol->wolopts & WAKE_MAGIC)	options |= MagicPacket;
+	}
+
+	cpw8 (Cfg9346, Cfg9346_Unlock);
+	cpw8 (Config3, options);
+	cpw8 (Cfg9346, Cfg9346_Lock);
+
+	options = 0; /* Paranoia setting */
+	options = cpr8 (Config5) & ~(UWF | MWF | BWF);
+	/* If WOL is being disabled, no need for complexity */
+	if (wol->wolopts) {
+		if (wol->wolopts & WAKE_UCAST)  options |= UWF;
+		if (wol->wolopts & WAKE_BCAST)	options |= BWF;
+		if (wol->wolopts & WAKE_MCAST)	options |= MWF;
+	}
+
+	cpw8 (Config5, options);
+
+	cp->wol_enabled = (wol->wolopts) ? 1 : 0;
+}
+
+/* Get the ethtool Wake-on-LAN settings */
+static void netdev_get_wol (struct cp_private *cp,
+	             struct ethtool_wolinfo *wol)
+{
+	u8 options;
+
+	wol->wolopts   = 0; /* Start from scratch */
+	wol->supported = WAKE_PHY   | WAKE_BCAST | WAKE_MAGIC |
+		         WAKE_MCAST | WAKE_UCAST;
+	/* We don't need to go on if WOL is disabled */
+	if (!cp->wol_enabled) return;
+	
+	options        = cpr8 (Config3);
+	if (options & LinkUp)        wol->wolopts |= WAKE_PHY;
+	if (options & MagicPacket)   wol->wolopts |= WAKE_MAGIC;
+
+	options        = 0; /* Paranoia setting */
+	options        = cpr8 (Config5);
+	if (options & UWF)           wol->wolopts |= WAKE_UCAST;
+	if (options & BWF)           wol->wolopts |= WAKE_BCAST;
+	if (options & MWF)           wol->wolopts |= WAKE_MCAST;
+}
+
 static int cp_ethtool_ioctl (struct cp_private *cp, void *useraddr)
 {
 	u32 ethcmd;
@@ -1058,6 +1366,8 @@ static int cp_ethtool_ioctl (struct cp_private *cp, void *useraddr)
 		strcpy (info.driver, DRV_NAME);
 		strcpy (info.version, DRV_VERSION);
 		strcpy (info.bus_info, cp->pdev->slot_name);
+		info.regdump_len = CP_REGS_SIZE;
+		info.n_stats = CP_NUM_STATS;
 		if (copy_to_user (useraddr, &info, sizeof (info)))
 			return -EFAULT;
 		return 0;
@@ -1114,6 +1424,226 @@ static int cp_ethtool_ioctl (struct cp_private *cp, void *useraddr)
 		return 0;
 	}
 
+	/* NIC register dump */
+	case ETHTOOL_GREGS: {
+                struct ethtool_regs regs;
+                u8 *regbuf = kmalloc(CP_REGS_SIZE, GFP_KERNEL);
+                int rc;
+
+		if (!regbuf)
+			return -ENOMEM;
+		memset(regbuf, 0, CP_REGS_SIZE);
+
+                rc = copy_from_user(&regs, useraddr, sizeof(regs));
+		if (rc) {
+			rc = -EFAULT;
+			goto err_out_gregs;
+		}
+                
+                if (regs.len > CP_REGS_SIZE)
+                        regs.len = CP_REGS_SIZE;
+                if (regs.len < CP_REGS_SIZE) {
+			rc = -EINVAL;
+			goto err_out_gregs;
+		}
+
+                regs.version = CP_REGS_VER;
+                rc = copy_to_user(useraddr, &regs, sizeof(regs));
+		if (rc) {
+			rc = -EFAULT;
+			goto err_out_gregs;
+		}
+
+                useraddr += offsetof(struct ethtool_regs, data);
+
+                spin_lock_irq(&cp->lock);
+                memcpy_fromio(regbuf, cp->regs, CP_REGS_SIZE);
+                spin_unlock_irq(&cp->lock);
+
+                if (copy_to_user(useraddr, regbuf, regs.len))
+                        rc = -EFAULT;
+
+err_out_gregs:
+		kfree(regbuf);
+		return rc;
+	}
+
+	/* get/set RX checksumming */
+	case ETHTOOL_GRXCSUM: {
+		struct ethtool_value edata = { ETHTOOL_GRXCSUM };
+		u16 cmd = cpr16(CpCmd) & RxChkSum;
+
+		edata.data = cmd ? 1 : 0;
+		if (copy_to_user(useraddr, &edata, sizeof(edata)))
+			return -EFAULT;
+		return 0;
+	}
+	case ETHTOOL_SRXCSUM: {
+		struct ethtool_value edata;
+		u16 cmd = cpr16(CpCmd), newcmd;
+
+		newcmd = cmd;
+
+		if (copy_from_user(&edata, useraddr, sizeof(edata)))
+			return -EFAULT;
+
+		if (edata.data)
+			newcmd |= RxChkSum;
+		else
+			newcmd &= ~RxChkSum;
+
+		if (newcmd == cmd)
+			return 0;
+
+		spin_lock_irq(&cp->lock);
+		cpw16_f(CpCmd, newcmd);
+		spin_unlock_irq(&cp->lock);
+	}
+
+	/* get/set TX checksumming */
+	case ETHTOOL_GTXCSUM: {
+		struct ethtool_value edata = { ETHTOOL_GTXCSUM };
+
+		edata.data = (cp->dev->features & NETIF_F_IP_CSUM) != 0;
+		if (copy_to_user(useraddr, &edata, sizeof(edata)))
+			return -EFAULT;
+		return 0;
+	}
+	case ETHTOOL_STXCSUM: {
+		struct ethtool_value edata;
+
+		if (copy_from_user(&edata, useraddr, sizeof(edata)))
+			return -EFAULT;
+
+		if (edata.data)
+			cp->dev->features |= NETIF_F_IP_CSUM;
+		else
+			cp->dev->features &= ~NETIF_F_IP_CSUM;
+
+		return 0;
+	}
+
+	/* get/set scatter-gather */
+	case ETHTOOL_GSG: {
+		struct ethtool_value edata = { ETHTOOL_GSG };
+
+		edata.data = (cp->dev->features & NETIF_F_SG) != 0;
+		if (copy_to_user(useraddr, &edata, sizeof(edata)))
+			return -EFAULT;
+		return 0;
+	}
+	case ETHTOOL_SSG: {
+		struct ethtool_value edata;
+
+		if (copy_from_user(&edata, useraddr, sizeof(edata)))
+			return -EFAULT;
+
+		if (edata.data)
+			cp->dev->features |= NETIF_F_SG;
+		else
+			cp->dev->features &= ~NETIF_F_SG;
+
+		return 0;
+	}
+
+	/* get string list(s) */
+	case ETHTOOL_GSTRINGS: {
+		struct ethtool_gstrings estr = { ETHTOOL_GSTRINGS };
+
+		if (copy_from_user(&estr, useraddr, sizeof(estr)))
+			return -EFAULT;
+		if (estr.string_set != ETH_SS_STATS)
+			return -EINVAL;
+
+		estr.len = CP_NUM_STATS;
+		if (copy_to_user(useraddr, &estr, sizeof(estr)))
+			return -EFAULT;
+		if (copy_to_user(useraddr + sizeof(estr),
+				 &ethtool_stats_keys,
+				 sizeof(ethtool_stats_keys)))
+			return -EFAULT;
+		return 0;
+	}
+
+	/* get NIC-specific statistics */
+	case ETHTOOL_GSTATS: {
+		struct ethtool_stats estats = { ETHTOOL_GSTATS };
+		u64 *tmp_stats;
+		unsigned int work = 100;
+		const unsigned int sz = sizeof(u64) * CP_NUM_STATS;
+		int i;
+
+		/* begin NIC statistics dump */
+		cpw32(StatsAddr + 4, 0); /* FIXME: 64-bit PCI */
+		cpw32(StatsAddr, cp->nic_stats_dma | DumpStats);
+		cpr32(StatsAddr);
+
+		estats.n_stats = CP_NUM_STATS;
+		if (copy_to_user(useraddr, &estats, sizeof(estats)))
+			return -EFAULT;
+
+		while (work-- > 0) {
+			if ((cpr32(StatsAddr) & DumpStats) == 0)
+				break;
+			cpu_relax();
+		}
+
+		if (cpr32(StatsAddr) & DumpStats)
+			return -EIO;
+
+		tmp_stats = kmalloc(sz, GFP_KERNEL);
+		if (!tmp_stats)
+			return -ENOMEM;
+		memset(tmp_stats, 0, sz);
+
+		i = 0;
+		tmp_stats[i++] = le64_to_cpu(cp->nic_stats->tx_ok);
+		tmp_stats[i++] = le64_to_cpu(cp->nic_stats->rx_ok);
+		tmp_stats[i++] = le64_to_cpu(cp->nic_stats->tx_err);
+		tmp_stats[i++] = le32_to_cpu(cp->nic_stats->rx_err);
+		tmp_stats[i++] = le16_to_cpu(cp->nic_stats->rx_fifo);
+		tmp_stats[i++] = le16_to_cpu(cp->nic_stats->frame_align);
+		tmp_stats[i++] = le32_to_cpu(cp->nic_stats->tx_ok_1col);
+		tmp_stats[i++] = le32_to_cpu(cp->nic_stats->tx_ok_mcol);
+		tmp_stats[i++] = le64_to_cpu(cp->nic_stats->rx_ok_phys);
+		tmp_stats[i++] = le64_to_cpu(cp->nic_stats->rx_ok_bcast);
+		tmp_stats[i++] = le32_to_cpu(cp->nic_stats->rx_ok_mcast);
+		tmp_stats[i++] = le16_to_cpu(cp->nic_stats->tx_abort);
+		tmp_stats[i++] = le16_to_cpu(cp->nic_stats->tx_underrun);
+		tmp_stats[i++] = cp->cp_stats.rx_frags;
+		if (i != CP_NUM_STATS)
+			BUG();
+
+		i = copy_to_user(useraddr + sizeof(estats),
+				 tmp_stats, sz);
+		kfree(tmp_stats);
+
+		if (i)
+			return -EFAULT;
+		return 0;
+	}
+
+	/* get/set Wake-on-LAN settings */
+	case ETHTOOL_GWOL: {
+		struct ethtool_wolinfo wol = { ETHTOOL_GWOL };
+		
+		spin_lock_irq (&cp->lock);
+		netdev_get_wol (cp, &wol);
+		spin_unlock_irq (&cp->lock);
+		return ((copy_to_user (useraddr, &wol, sizeof (wol)))? -EFAULT : 0);
+	}
+	
+	case ETHTOOL_SWOL: {
+		struct ethtool_wolinfo wol;
+
+		if (copy_from_user (&wol, useraddr, sizeof (wol)))
+			return -EFAULT;
+		spin_lock_irq (&cp->lock);
+		netdev_set_wol (cp, &wol);
+		spin_unlock_irq (&cp->lock);
+		return 0;
+	}
+
 	default:
 		break;
 	}
@@ -1125,24 +1655,43 @@ static int cp_ethtool_ioctl (struct cp_private *cp, void *useraddr)
 static int cp_ioctl (struct net_device *dev, struct ifreq *rq, int cmd)
 {
 	struct cp_private *cp = dev->priv;
-	int rc = 0;
+	struct mii_ioctl_data *mii = (struct mii_ioctl_data *) &rq->ifr_data;
+	int rc;
 
 	if (!netif_running(dev))
 		return -EINVAL;
 
-	switch (cmd) {
-	case SIOCETHTOOL:
+	if (cmd == SIOCETHTOOL)
 		return cp_ethtool_ioctl(cp, (void *) rq->ifr_data);
 
-	default:
-		rc = -EOPNOTSUPP;
-		break;
-	}
-
+	spin_lock_irq(&cp->lock);
+	rc = generic_mii_ioctl(&cp->mii_if, mii, cmd, NULL);
+	spin_unlock_irq(&cp->lock);
 	return rc;
 }
 
+#if CP_VLAN_TAG_USED
+static void cp_vlan_rx_register(struct net_device *dev, struct vlan_group *grp)
+{
+	struct cp_private *cp = dev->priv;
 
+	spin_lock_irq(&cp->lock);
+	cp->vlgrp = grp;
+	cpw16(CpCmd, cpr16(CpCmd) | RxVlanOn);
+	spin_unlock_irq(&cp->lock);
+}
+
+static void cp_vlan_rx_kill_vid(struct net_device *dev, unsigned short vid)
+{
+	struct cp_private *cp = dev->priv;
+
+	spin_lock_irq(&cp->lock);
+	cpw16(CpCmd, cpr16(CpCmd) & ~RxVlanOn);
+	if (cp->vlgrp)
+		cp->vlgrp->vlan_devices[vid] = NULL;
+	spin_unlock_irq(&cp->lock);
+}
+#endif
 
 /* Serial EEPROM section. */
 
@@ -1205,6 +1754,13 @@ static int __devinit read_eeprom (void *ioaddr, int location, int addr_len)
 	return retval;
 }
 
+/* Put the board into D3cold state and wait for WakeUp signal */
+static void cp_set_d3_state (struct cp_private *cp)
+{
+	pci_enable_wake (cp->pdev, 0, 1); /* Enable PME# generation */
+	pci_set_power_state (cp->pdev, 3);
+}
+
 static int __devinit cp_init_one (struct pci_dev *pdev,
 				  const struct pci_device_id *ent)
 {
@@ -1213,9 +1769,10 @@ static int __devinit cp_init_one (struct pci_dev *pdev,
 	int rc;
 	void *regs;
 	long pciaddr;
-	unsigned addr_len, i;
+	unsigned int addr_len, i;
 	u8 pci_rev, cache_size;
 	u16 pci_command;
+	unsigned int board_type = (unsigned int) ent->driver_data;
 
 #ifndef MODULE
 	static int version_printed;
@@ -1239,6 +1796,7 @@ static int __devinit cp_init_one (struct pci_dev *pdev,
 	SET_MODULE_OWNER(dev);
 	cp = dev->priv;
 	cp->pdev = pdev;
+	cp->board_type = board_type;
 	cp->dev = dev;
 	cp->msg_enable = (debug < 0 ? CP_DEF_MSG_ENABLE : debug);
 	spin_lock_init (&cp->lock);
@@ -1246,6 +1804,9 @@ static int __devinit cp_init_one (struct pci_dev *pdev,
 	cp->mii_if.mdio_read = mdio_read;
 	cp->mii_if.mdio_write = mdio_write;
 	cp->mii_if.phy_id = CP_INTERNAL_PHY;
+	cp->mii_if.phy_id_mask = 0x1f;
+	cp->mii_if.reg_num_mask = 0x1f;
+	cp_set_rxbufsize(cp);
 
 	rc = pci_enable_device(pdev);
 	if (rc)
@@ -1275,6 +1836,19 @@ static int __devinit cp_init_one (struct pci_dev *pdev,
 		goto err_out_res;
 	}
 
+	/* Configure DMA attributes. */
+	if (!pci_set_dma_mask(pdev, (u64) 0xffffffffffffffff)) {
+		cp->pci_using_dac = 1;
+	} else {
+		rc = pci_set_dma_mask(pdev, (u64) 0xffffffff);
+		if (rc) {
+			printk(KERN_ERR PFX "No usable DMA configuration, "
+			       "aborting.\n");
+			goto err_out_res;
+		}
+		cp->pci_using_dac = 0;
+	}
+
 	regs = ioremap_nocache(pciaddr, CP_REGS_SIZE);
 	if (!regs) {
 		rc = -EIO;
@@ -1299,12 +1873,20 @@ static int __devinit cp_init_one (struct pci_dev *pdev,
 	dev->hard_start_xmit = cp_start_xmit;
 	dev->get_stats = cp_get_stats;
 	dev->do_ioctl = cp_ioctl;
+#ifdef BROKEN
+	dev->change_mtu = cp_change_mtu;
+#endif
 #if 0
 	dev->tx_timeout = cp_tx_timeout;
 	dev->watchdog_timeo = TX_TIMEOUT;
 #endif
 #ifdef CP_TX_CHECKSUM
 	dev->features |= NETIF_F_SG | NETIF_F_IP_CSUM;
+#endif
+#if CP_VLAN_TAG_USED
+	dev->features |= NETIF_F_HW_VLAN_TX | NETIF_F_HW_VLAN_RX;
+	dev->vlan_rx_register = cp_vlan_rx_register;
+	dev->vlan_rx_kill_vid = cp_vlan_rx_kill_vid;
 #endif
 
 	dev->irq = pdev->irq;
@@ -1317,7 +1899,7 @@ static int __devinit cp_init_one (struct pci_dev *pdev,
 		"%02x:%02x:%02x:%02x:%02x:%02x, "
 		"IRQ %d\n",
 		dev->name,
-		"RTL-8139C+",
+		cp_board_tbl[board_type].name,
 		dev->base_addr,
 		dev->dev_addr[0], dev->dev_addr[1],
 		dev->dev_addr[2], dev->dev_addr[3],
@@ -1354,6 +1936,8 @@ static int __devinit cp_init_one (struct pci_dev *pdev,
 	}
 	pci_set_master(pdev);
 
+	if (cp->wol_enabled) cp_set_d3_state (cp);
+
 	return 0;
 
 err_out_iomap:
@@ -1376,17 +1960,75 @@ static void __devexit cp_remove_one (struct pci_dev *pdev)
 		BUG();
 	unregister_netdev(dev);
 	iounmap(cp->regs);
+	if (cp->wol_enabled) pci_set_power_state (pdev, 0);
 	pci_release_regions(pdev);
 	pci_disable_device(pdev);
 	pci_set_drvdata(pdev, NULL);
 	kfree(dev);
 }
 
+#ifdef CONFIG_PM
+static int cp_suspend (struct pci_dev *pdev, u32 state)
+{
+	struct net_device *dev;
+	struct cp_private *cp;
+	unsigned long flags;
+
+	dev = pci_get_drvdata (pdev);
+	cp  = dev->priv;
+
+	if (!dev || !netif_running (dev)) return 0;
+
+	netif_device_detach (dev);
+	netif_stop_queue (dev);
+
+	spin_lock_irqsave (&cp->lock, flags);
+
+	/* Disable Rx and Tx */
+	cpw16 (IntrMask, 0);
+	cpw8  (Cmd, cpr8 (Cmd) & (~RxOn | ~TxOn));
+
+	spin_unlock_irqrestore (&cp->lock, flags);
+
+	if (cp->pdev && cp->wol_enabled) {
+		pci_save_state (cp->pdev, cp->power_state);
+		cp_set_d3_state (cp);
+	}
+
+	return 0;
+}
+
+static int cp_resume (struct pci_dev *pdev)
+{
+	struct net_device *dev;
+	struct cp_private *cp;
+
+	dev = pci_get_drvdata (pdev);
+	cp  = dev->priv;
+
+	netif_device_attach (dev);
+	
+	if (cp->pdev && cp->wol_enabled) {
+		pci_set_power_state (cp->pdev, 0);
+		pci_restore_state (cp->pdev, cp->power_state);
+	}
+	
+	cp_init_hw (cp);
+	netif_start_queue (dev);
+	
+	return 0;
+}
+#endif /* CONFIG_PM */
+
 static struct pci_driver cp_driver = {
-	name:		DRV_NAME,
-	id_table:	cp_pci_tbl,
-	probe:		cp_init_one,
-	remove:		__devexit_p(cp_remove_one),
+	.name         = DRV_NAME,
+	.id_table     = cp_pci_tbl,
+	.probe        =	cp_init_one,
+	.remove       = __devexit_p(cp_remove_one),
+#ifdef CONFIG_PM
+	.resume       = cp_resume,
+	.suspend      = cp_suspend,
+#endif
 };
 
 static int __init cp_init (void)

@@ -106,6 +106,8 @@
 extern void con_init_devfs (void);
 #endif
 
+extern void disable_early_printk(void);
+
 #define CONSOLE_DEV MKDEV(TTY_MAJOR,0)
 #define TTY_DEV MKDEV(TTYAUX_MAJOR,0)
 #define SYSCONS_DEV MKDEV(TTYAUX_MAJOR,1)
@@ -160,6 +162,8 @@ extern void sgi_serial_console_init(void);
 extern void sci_console_init(void);
 extern void tx3912_console_init(void);
 extern void tx3912_rs_init(void);
+extern void txx927_console_init(void);
+extern void sb1250_serial_console_init(void);
 
 #ifndef MIN
 #define MIN(a,b)	((a) < (b) ? (a) : (b))
@@ -599,12 +603,6 @@ void disassociate_ctty(int on_exit)
 	  	if (p->session == current->session)
 			p->tty = NULL;
 	read_unlock(&tasklist_lock);
-}
-
-void wait_for_keypress(void)
-{
-        struct console *c = console_drivers;
-        if (c) c->wait_key(c);
 }
 
 void stop_tty(struct tty_struct *tty)
@@ -1663,6 +1661,21 @@ static int send_break(struct tty_struct *tty, int duration)
 	return 0;
 }
 
+static int tty_generic_brk(struct tty_struct *tty, struct file *file, unsigned int cmd, unsigned long arg)
+{
+	if (cmd == TCSBRK && arg) 
+	{
+		/* tcdrain case */
+		int retval = tty_check_change(tty);
+		if (retval)
+			return retval;
+		tty_wait_until_sent(tty, 0);
+		if (signal_pending(current))
+			return -EINTR;
+	}
+	return 0;
+}
+
 /*
  * Split this up, as gcc can choke on it otherwise..
  */
@@ -1696,11 +1709,12 @@ int tty_ioctl(struct inode * inode, struct file * file,
 		/* the driver doesn't support them. */
 		case TCSBRK:
 		case TCSBRKP:
-			if (!tty->driver.ioctl)
-				return 0;
-			retval = tty->driver.ioctl(tty, file, cmd, arg);
+			retval = -ENOIOCTLCMD;
+			if (tty->driver.ioctl)
+				retval = tty->driver.ioctl(tty, file, cmd, arg);
+			/* Not driver handled */
 			if (retval == -ENOIOCTLCMD)
-				retval = 0;
+				retval = tty_generic_brk(tty, file, cmd, arg);
 			return retval;
 		}
 	}
@@ -2188,6 +2202,9 @@ void __init console_init(void)
 	 * set up the console device so that later boot sequences can 
 	 * inform about problems etc..
 	 */
+#ifdef CONFIG_EARLY_PRINTK
+	disable_early_printk(); 
+#endif
 #ifdef CONFIG_VT
 	con_init();
 #endif
@@ -2248,6 +2265,12 @@ void __init console_init(void)
 #endif
 #ifdef CONFIG_SERIAL_TX3912_CONSOLE
 	tx3912_console_init();
+#endif
+#ifdef CONFIG_TXX927_SERIAL_CONSOLE
+	txx927_console_init();
+#endif
+#ifdef CONFIG_SIBYTE_SB1250_DUART_CONSOLE
+	sb1250_serial_console_init();
 #endif
 }
 

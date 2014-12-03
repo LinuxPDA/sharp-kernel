@@ -4,6 +4,8 @@
 #include <linux/mm.h>
 #include <linux/tty.h>
 #include <linux/console.h>
+#include <linux/rtc.h>
+#include <linux/vt_kern.h>
 
 #include <asm/setup.h>
 #include <asm/bootinfo.h>
@@ -34,14 +36,13 @@ extern void dn_disable_irq(unsigned int);
 extern int dn_get_irq_list(char *);
 extern unsigned long dn_gettimeoffset(void);
 extern void dn_gettod(int *, int *, int *, int *, int *, int *);
-extern int dn_dummy_hwclk(int, struct hwclk_time *);
+extern int dn_dummy_hwclk(int, struct rtc_time *);
 extern int dn_dummy_set_clock_mmss(unsigned long);
 extern void dn_mksound(unsigned int count, unsigned int ticks);
 extern void dn_dummy_reset(void);
 extern void dn_dummy_waitbut(void);
 extern struct fb_info *dn_fb_init(long *);
 extern void dn_dummy_debug_init(void);
-extern void (*kd_mksound)(unsigned int, unsigned int);
 extern void dn_dummy_video_setup(char *,int *);
 extern void dn_process_int(int irq, struct pt_regs *fp);
 #ifdef CONFIG_HEARTBEAT
@@ -165,8 +166,11 @@ void config_apollo(void) {
 	dn_setup_model();	
 
 	mach_sched_init=dn_sched_init; /* */
+#ifdef CONFIG_VT
 	mach_keyb_init=dn_keyb_init;
 	mach_kbdrate=dn_dummy_kbdrate;
+	kd_mksound	     = dn_mksound;
+#endif
 	mach_init_IRQ=dn_init_IRQ;
 	mach_default_handler=NULL;
 	mach_request_irq     = dn_request_irq;
@@ -188,7 +192,6 @@ void config_apollo(void) {
 #ifdef CONFIG_DUMMY_CONSOLE
         conswitchp           = &dummy_con;
 #endif
-	kd_mksound	     = dn_mksound;
 #ifdef CONFIG_HEARTBEAT
   	mach_heartbeat = dn_heartbeat;
 #endif
@@ -254,26 +257,26 @@ printk("gettod: %d %d %d %d %d %d\n",*yearp,*monp,*dayp,*hourp,*minp,*secp);
 
 }
 
-int dn_dummy_hwclk(int op, struct hwclk_time *t) {
+int dn_dummy_hwclk(int op, struct rtc_time *t) {
 
 
   if(!op) { /* read */
-    t->sec=rtc->second;
-    t->min=rtc->minute;
-    t->hour=rtc->hours;
-    t->day=rtc->day_of_month;
-    t->wday=rtc->day_of_week;
-    t->mon=rtc->month;
-    t->year=rtc->year;
+    t->tm_sec=rtc->second;
+    t->tm_min=rtc->minute;
+    t->tm_hour=rtc->hours;
+    t->tm_mday=rtc->day_of_month;
+    t->tm_wday=rtc->day_of_week;
+    t->tm_mon=rtc->month;
+    t->tm_year=rtc->year;
   } else {
-    rtc->second=t->sec;
-    rtc->minute=t->min;
-    rtc->hours=t->hour;
-    rtc->day_of_month=t->day;
-    if(t->wday!=-1)
-      rtc->day_of_week=t->wday;
-    rtc->month=t->mon;
-    rtc->year=t->year;
+    rtc->second=t->tm_sec;
+    rtc->minute=t->tm_min;
+    rtc->hours=t->tm_hour;
+    rtc->day_of_month=t->tm_mday;
+    if(t->tm_wday!=-1)
+      rtc->day_of_week=t->tm_wday;
+    rtc->month=t->tm_mon;
+    rtc->year=t->tm_year;
   }
 
   return 0;

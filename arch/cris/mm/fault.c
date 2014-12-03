@@ -6,6 +6,9 @@
  *  Authors:  Bjorn Wesen 
  * 
  *  $Log: fault.c,v $
+ *  Revision 1.21  2002/05/28 14:24:56  bjornw
+ *  Corrected typo
+ *
  *  Revision 1.20  2001/11/22 13:34:06  bjornw
  *  * Bug workaround (LX TR89): force a rerun of the whole of an interrupted
  *    unaligned write, because the second half of the write will be corrupted
@@ -437,7 +440,7 @@ do_page_fault(unsigned long address, struct pt_regs *regs,
 	 * Send a sigbus, regardless of whether we were in kernel
 	 * or user mode.
 	 */
-	info.si_code = SIGBUS;
+	info.si_signo = SIGBUS;
 	info.si_errno = 0;
 	info.si_code = BUS_ADRERR;
 	info.si_addr = (void *)address;

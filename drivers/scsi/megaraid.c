@@ -2271,7 +2271,7 @@ static int megaIssueCmd (mega_host_config * megaCfg, u_char * mboxData,
 
 	u_char byte;
 
-#ifdef __LP64__
+#if BITS_PER_LONG==64
 	u64 phys_mbox;
 #else
 	u32 phys_mbox;
@@ -2557,7 +2557,7 @@ mega_register_mailbox (mega_host_config * megaCfg, u32 paddr)
 	megaCfg->mbox = &megaCfg->mailbox64.mailbox;
 #endif
 
-#ifdef __LP64__
+#if BITS_PER_LONG==64
 	megaCfg->mbox = (mega_mailbox *) ((((u64) megaCfg->mbox) + 16) & ((u64) (-1) ^ 0x0F));
 	megaCfg->adjdmahandle64 = (megaCfg->dma_handle64 + 16) & ((u64) (-1) ^ 0x0F);
 	megaCfg->mbox64 = (mega_mailbox64 *) ((u_char *) megaCfg->mbox - sizeof (u64));
@@ -2835,7 +2835,7 @@ static int mega_findCard (Scsi_Host_Template * pHostTmpl,
 
 	int		i;
 
-#ifdef __LP64__
+#if BITS_PER_LONG==64
 	u64 megaBase;
 #else
 	u32 megaBase;
@@ -3005,11 +3005,10 @@ static int mega_findCard (Scsi_Host_Template * pHostTmpl,
 
 		if (!(flag & BOARD_QUARTZ)) {
 			/* Request our IO Range */
-			if (check_region (megaBase, 16)) {
+			if (!request_region(megaBase, 16, "megaraid")) {
 				printk(KERN_WARNING "megaraid: Couldn't register I/O range!\n");
 				goto err_unregister;
 			}
-			request_region(megaBase, 16, "megaraid");
 		}
 
 		/* Request our IRQ */
@@ -3077,10 +3076,12 @@ static int mega_findCard (Scsi_Host_Template * pHostTmpl,
 			/*
 			 * which firmware
 			 */
-			if( strcmp(megaCfg->fwVer, "H01.07") == 0 ||
-					strcmp(megaCfg->fwVer, "H01.08") == 0 ) {
+			if( strcmp(megaCfg->fwVer, "H01.07") == 0 || 
+			    strcmp(megaCfg->fwVer, "H01.08") == 0 ||
+			    strcmp(megaCfg->fwVer, "H01.09") == 0 )
+			{
 				printk(KERN_WARNING
-						"megaraid: Firmware H.01.07 or H.01.08 on 1M/2M "
+						"megaraid: Firmware H.01.07/8/9 on 1M/2M "
 						"controllers\nmegaraid: do not support 64 bit "
 						"addressing.\n"
 						"megaraid: DISABLING 64 bit support.\n");
@@ -3152,7 +3153,7 @@ static int mega_findCard (Scsi_Host_Template * pHostTmpl,
 		/* Set the Mode of addressing to 64 bit */
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,4,0)
 		if ((megaCfg->flag & BOARD_64BIT) && BITS_PER_LONG == 64)
-#ifdef __LP64__
+#if BITS_PER_LONG==64
 			pdev->dma_mask = 0xffffffffffffffff;
 #else
 			pdev->dma_mask = 0xffffffff;

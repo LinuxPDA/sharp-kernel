@@ -9,6 +9,7 @@
 #ifndef _ASM_BITOPS_H
 #define _ASM_BITOPS_H
 
+#include <linux/config.h>
 #include <linux/types.h>
 #include <asm/byteorder.h>		/* sigh ... */
 
@@ -16,13 +17,12 @@
 
 #include <asm/sgidefs.h>
 #include <asm/system.h>
-#include <linux/config.h>
 
 /*
  * clear_bit() doesn't provide any barrier for the compiler.
  */
-#define smp_mb__before_clear_bit()	barrier()
-#define smp_mb__after_clear_bit()	barrier()
+#define smp_mb__before_clear_bit()	smp_mb()
+#define smp_mb__after_clear_bit()	smp_mb()
 
 /*
  * Only disable interrupt for kernel mode stuff to keep usermode stuff
@@ -42,8 +42,6 @@
 #endif /* __KERNEL__ */
 
 #ifdef CONFIG_CPU_HAS_LLSC
-
-#include <asm/mipsregs.h>
 
 /*
  * These functions for MIPS ISA > 1 are interrupt and SMP proof and
@@ -161,7 +159,7 @@ extern __inline__ void __change_bit(int nr, volatile void * addr)
  * @nr: Bit to set
  * @addr: Address to count from
  *
- * This operation is atomic and cannot be reordered.  
+ * This operation is atomic and cannot be reordered.
  * It also implies a memory barrier.
  */
 extern __inline__ int
@@ -177,6 +175,9 @@ test_and_set_bit(int nr, volatile void *addr)
 		"sc\t%2, %1\n\t"
 		"beqz\t%2, 1b\n\t"
 		" and\t%2, %0, %3\n\t"
+#ifdef CONFIG_SMP
+		"sync\n\t"
+#endif
 		".set\treorder"
 		: "=&r" (temp), "=m" (*m), "=&r" (res)
 		: "r" (1UL << (nr & 0x1f)), "m" (*m)
@@ -190,7 +191,7 @@ test_and_set_bit(int nr, volatile void *addr)
  * @nr: Bit to set
  * @addr: Address to count from
  *
- * This operation is non-atomic and can be reordered.  
+ * This operation is non-atomic and can be reordered.
  * If two examples of this operation race, one can appear to succeed
  * but actually fail.  You must protect multiple accesses with a lock.
  */
@@ -212,7 +213,7 @@ extern __inline__ int __test_and_set_bit(int nr, volatile void * addr)
  * @nr: Bit to set
  * @addr: Address to count from
  *
- * This operation is atomic and cannot be reordered.  
+ * This operation is atomic and cannot be reordered.
  * It also implies a memory barrier.
  */
 extern __inline__ int
@@ -229,6 +230,9 @@ test_and_clear_bit(int nr, volatile void *addr)
 		"sc\t%2, %1\n\t"
 		"beqz\t%2, 1b\n\t"
 		" and\t%2, %0, %3\n\t"
+#ifdef CONFIG_SMP
+		"sync\n\t"
+#endif
 		".set\treorder"
 		: "=&r" (temp), "=m" (*m), "=&r" (res)
 		: "r" (1UL << (nr & 0x1f)), "m" (*m)
@@ -242,7 +246,7 @@ test_and_clear_bit(int nr, volatile void *addr)
  * @nr: Bit to set
  * @addr: Address to count from
  *
- * This operation is non-atomic and can be reordered.  
+ * This operation is non-atomic and can be reordered.
  * If two examples of this operation race, one can appear to succeed
  * but actually fail.  You must protect multiple accesses with a lock.
  */
@@ -264,7 +268,7 @@ extern __inline__ int __test_and_clear_bit(int nr, volatile void * addr)
  * @nr: Bit to set
  * @addr: Address to count from
  *
- * This operation is atomic and cannot be reordered.  
+ * This operation is atomic and cannot be reordered.
  * It also implies a memory barrier.
  */
 extern __inline__ int
@@ -280,6 +284,9 @@ test_and_change_bit(int nr, volatile void *addr)
 		"sc\t%2, %1\n\t"
 		"beqz\t%2, 1b\n\t"
 		" and\t%2, %0, %3\n\t"
+#ifdef CONFIG_SMP
+		"sync\n\t"
+#endif
 		".set\treorder"
 		: "=&r" (temp), "=m" (*m), "=&r" (res)
 		: "r" (1UL << (nr & 0x1f)), "m" (*m)
@@ -293,7 +300,7 @@ test_and_change_bit(int nr, volatile void *addr)
  * @nr: Bit to set
  * @addr: Address to count from
  *
- * This operation is non-atomic and can be reordered.  
+ * This operation is non-atomic and can be reordered.
  * If two examples of this operation race, one can appear to succeed
  * but actually fail.  You must protect multiple accesses with a lock.
  */
@@ -420,7 +427,7 @@ extern __inline__ void __change_bit(int nr, volatile void * addr)
  * @nr: Bit to set
  * @addr: Address to count from
  *
- * This operation is atomic and cannot be reordered.  
+ * This operation is atomic and cannot be reordered.
  * It also implies a memory barrier.
  */
 extern __inline__ int test_and_set_bit(int nr, volatile void * addr)
@@ -444,7 +451,7 @@ extern __inline__ int test_and_set_bit(int nr, volatile void * addr)
  * @nr: Bit to set
  * @addr: Address to count from
  *
- * This operation is non-atomic and can be reordered.  
+ * This operation is non-atomic and can be reordered.
  * If two examples of this operation race, one can appear to succeed
  * but actually fail.  You must protect multiple accesses with a lock.
  */
@@ -466,7 +473,7 @@ extern __inline__ int __test_and_set_bit(int nr, volatile void * addr)
  * @nr: Bit to set
  * @addr: Address to count from
  *
- * This operation is atomic and cannot be reordered.  
+ * This operation is atomic and cannot be reordered.
  * It also implies a memory barrier.
  */
 extern __inline__ int test_and_clear_bit(int nr, volatile void * addr)
@@ -490,7 +497,7 @@ extern __inline__ int test_and_clear_bit(int nr, volatile void * addr)
  * @nr: Bit to set
  * @addr: Address to count from
  *
- * This operation is non-atomic and can be reordered.  
+ * This operation is non-atomic and can be reordered.
  * If two examples of this operation race, one can appear to succeed
  * but actually fail.  You must protect multiple accesses with a lock.
  */
@@ -512,7 +519,7 @@ extern __inline__ int __test_and_clear_bit(int nr, volatile void * addr)
  * @nr: Bit to set
  * @addr: Address to count from
  *
- * This operation is atomic and cannot be reordered.  
+ * This operation is atomic and cannot be reordered.
  * It also implies a memory barrier.
  */
 extern __inline__ int test_and_change_bit(int nr, volatile void * addr)
@@ -536,7 +543,7 @@ extern __inline__ int test_and_change_bit(int nr, volatile void * addr)
  * @nr: Bit to set
  * @addr: Address to count from
  *
- * This operation is non-atomic and can be reordered.  
+ * This operation is non-atomic and can be reordered.
  * If two examples of this operation race, one can appear to succeed
  * but actually fail.  You must protect multiple accesses with a lock.
  */
@@ -621,8 +628,7 @@ extern __inline__ int find_first_zero_bit (void *addr, unsigned size)
 		"2:"
 		: "=r" (res), "=r" (dummy), "=r" (addr)
 		: "0" ((signed int) 0), "1" ((unsigned int) 0xffffffff),
-		  "2" (addr), "r" (size)
-		: "$1");
+		  "2" (addr), "r" (size));
 
 	return res;
 }
@@ -638,7 +644,7 @@ extern __inline__ int find_next_zero_bit (void * addr, int size, int offset)
 	unsigned int *p = ((unsigned int *) addr) + (offset >> 5);
 	int set = 0, bit = offset & 31, res;
 	unsigned long dummy;
-	
+
 	if (bit) {
 		/*
 		 * Look for zero in first byte
@@ -657,8 +663,7 @@ extern __inline__ int find_next_zero_bit (void * addr, int size, int offset)
 			".set\treorder\n"
 			"1:"
 			: "=r" (set), "=r" (dummy)
-			: "0" (0), "1" (1 << bit), "r" (*p)
-			: "$1");
+			: "0" (0), "1" (1 << bit), "r" (*p));
 		if (set < (32 - bit))
 			return set + offset;
 		set = 32 - bit;
@@ -679,29 +684,20 @@ extern __inline__ int find_next_zero_bit (void * addr, int size, int offset)
  *
  * Undefined if no zero exists, so code should check against ~0UL first.
  */
-extern __inline__ unsigned long ffz(unsigned long word)
+static __inline__ unsigned long ffz(unsigned long word)
 {
-	unsigned int	__res;
-	unsigned int	mask = 1;
+	int b = 0, s;
 
-	__asm__ (
-		".set\tnoreorder\n\t"
-		".set\tnoat\n\t"
-		"move\t%0,$0\n"
-		"1:\tand\t$1,%2,%1\n\t"
-		"beqz\t$1,2f\n\t"
-		"sll\t%1,1\n\t"
-		"bnez\t%1,1b\n\t"
-		"addiu\t%0,1\n\t"
-		".set\tat\n\t"
-		".set\treorder\n"
-		"2:\n\t"
-		: "=&r" (__res), "=r" (mask)
-		: "r" (word), "1" (mask)
-		: "$1");
+	word = ~word;
+	s = 16; if (word << 16 != 0) s = 0; b += s; word >>= s;
+	s =  8; if (word << 24 != 0) s = 0; b += s; word >>= s;
+	s =  4; if (word << 28 != 0) s = 0; b += s; word >>= s;
+	s =  2; if (word << 30 != 0) s = 0; b += s; word >>= s;
+	s =  1; if (word << 31 != 0) s = 0; b += s;
 
-	return __res;
+	return b;
 }
+
 
 #ifdef __KERNEL__
 
@@ -895,7 +891,7 @@ found_middle:
 #define ext2_find_first_zero_bit(addr, size) find_first_zero_bit((addr), (size))
 #define ext2_find_next_zero_bit(addr, size, offset) \
                 find_next_zero_bit((addr), (size), (offset))
- 
+
 #endif /* !(__MIPSEB__) */
 
 /*

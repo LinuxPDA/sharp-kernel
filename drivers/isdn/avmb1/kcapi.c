@@ -103,14 +103,14 @@ static char capi_manufakturer[64] = "AVM Berlin";
 #define APPL(a)		   (&applications[(a)-1])
 #define	VALID_APPLID(a)	   ((a) && (a) <= CAPI_MAXAPPL && APPL(a)->applid == a)
 #define APPL_IS_FREE(a)    (APPL(a)->applid == 0)
-#define APPL_MARK_FREE(a)  do{ APPL(a)->applid=0; MOD_DEC_USE_COUNT; }while(0);
-#define APPL_MARK_USED(a)  do{ APPL(a)->applid=(a); MOD_INC_USE_COUNT; }while(0);
+#define APPL_MARK_FREE(a)  do{ APPL(a)->applid=0; MOD_DEC_USE_COUNT; }while(0)
+#define APPL_MARK_USED(a)  do{ APPL(a)->applid=(a); MOD_INC_USE_COUNT; }while(0)
 
 #define NCCI2CTRL(ncci)    (((ncci) >> 24) & 0x7f)
 
 #define VALID_CARD(c)	   ((c) > 0 && (c) <= CAPI_MAXCONTR)
 #define CARD(c)		   (&cards[(c)-1])
-#define CARDNR(cp)	   (((cp)-cards)+1)
+#define CARDNR(cp)	   ((((cp)-cards)+1) & 0xff)
 
 static struct capi_appl applications[CAPI_MAXAPPL];
 static struct capi_ctr cards[CAPI_MAXCONTR];

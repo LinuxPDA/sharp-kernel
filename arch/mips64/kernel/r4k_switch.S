@@ -8,11 +8,8 @@
  * Copyright (C) 1994, 1995, 1996, by Andreas Busse
  * Copyright (C) 1999 Silicon Graphics, Inc.
  */
-#include <linux/config.h>
 #include <asm/asm.h>
-#include <asm/bootinfo.h>
 #include <asm/cachectl.h>
-#include <asm/current.h>
 #include <asm/fpregdef.h>
 #include <asm/mipsregs.h>
 #include <asm/offset.h>
@@ -43,14 +40,10 @@
 	 */
 	move	$28, a1
 	cpu_restore_nonscratch $28
-#ifndef CONFIG_SMP
-	daddiu	t0, $28, KERNEL_STACK_SIZE-32
-	sd	t0, kernelsp
-#else
-	mtc0	a1, CP0_WATCHLO
-	dsrl32	a1, a1, 0
-	mtc0	a1, CP0_WATCHHI
-#endif
+
+	daddiu	a1, $28, KERNEL_STACK_SIZE-32
+	set_saved_sp	a1 t0
+
 	mfc0	t1, CP0_STATUS		/* Do we really need this? */
 	li	a3, 0xff00
 	and	t1, a3
@@ -72,9 +65,10 @@
 
 LEAF(lazy_fpu_switch)
 	mfc0	t0, CP0_STATUS			# enable cp1
-	li	t3, 0x20000000
+	li	t3, ST0_CU1
 	or	t0, t3
 	mtc0	t0, CP0_STATUS
+	FPU_ENABLE_HAZARD
 
 	beqz	a0, 2f				# Save floating point state
 	 nor	t3, zero, t3
@@ -94,11 +88,11 @@ LEAF(lazy_fpu_switch)
 
 	sll	t0, t0, 5			# load new fp state
 	bgez	t0, 1f
-	 ldc1	$f0, (THREAD_FPU + 0x00)($28)
-	fpu_restore_16odd $28
+	 ldc1	$f0, (THREAD_FPU + 0x00)(a1)
+	fpu_restore_16odd a1
 1:
 	.set	reorder
-	fpu_restore_16even $28, t0		# clobbers t0
+	fpu_restore_16even a1, t0		# clobbers t0
 3:
 	jr	ra
 	END(lazy_fpu_switch)
@@ -120,6 +114,23 @@ LEAF(save_fp)
 	END(save_fp)
 
 /*
+ * Restore a thread's fp context.
+ */
+LEAF(restore_fp)
+	mfc0	t0, CP0_STATUS
+	sll	t1, t0, 5
+	bgez	t1, 1f				# 16 register mode?
+	 nop
+
+	fpu_restore_16odd a0
+1:
+	fpu_restore_16even a0, t0		# clobbers t0
+
+	jr	ra
+	 ldc1	$f0, (THREAD_FPU + 0x00)(a0)
+	END(restore_fp)
+
+/*
  * Load the FPU with signalling NANS.  This bit pattern we're using has
  * the property that no matter whether considered as single or as double
  * precision represents signaling NANS.
@@ -131,9 +142,10 @@ LEAF(save_fp)
 
 LEAF(init_fpu)
 	mfc0	t0, CP0_STATUS
-	li	t1, 0x20000000
+	li	t1, ST0_CU1
 	or	t0, t1
 	mtc0	t0, CP0_STATUS
+	FPU_ENABLE_HAZARD
 	sll	t0, t0, 5
 
 	li	t1, FPU_DEFAULT

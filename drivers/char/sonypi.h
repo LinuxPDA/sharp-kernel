@@ -35,7 +35,7 @@
 #ifdef __KERNEL__
 
 #define SONYPI_DRIVER_MAJORVERSION	 1
-#define SONYPI_DRIVER_MINORVERSION	10
+#define SONYPI_DRIVER_MINORVERSION	13
 
 #include <linux/types.h>
 #include <linux/pci.h>
@@ -141,6 +141,7 @@ static struct sonypi_irq_list sonypi_type2_irq_list[] = {
 #define SONYPI_TYPE1_BLUETOOTH_EV	0x30
 #define SONYPI_TYPE2_BLUETOOTH_EV	0x08
 #define SONYPI_TYPE1_PKEY_EV		0x40
+#define SONYPI_TYPE2_PKEY_EV		0x08
 #define SONYPI_BACK_EV			0x08
 #define SONYPI_LID_EV			0x38
 
@@ -213,6 +214,7 @@ static struct sonypi_event sonypi_blueev[] = {
 /* The set of possible back button events */
 static struct sonypi_event sonypi_backev[] = {
 	{ 0x20, SONYPI_EVENT_BACK_PRESSED },
+	{ 0x3b, SONYPI_EVENT_HELP_PRESSED },
 	{ 0x00, 0x00 }
 };
 
@@ -257,7 +259,7 @@ struct sonypi_device {
 	while (--n && (command)) \
 		udelay(1); \
 	if (!n && (verbose || !quiet)) \
-		printk(KERN_WARNING "sonypi command failed at " __FILE__ " : " __FUNCTION__ "(line %d)\n", __LINE__); \
+		printk(KERN_WARNING "sonypi command failed at " __FILE__ " : %s (line %d)\n", __FUNCTION__, __LINE__); \
 }
 
 #endif /* __KERNEL__ */

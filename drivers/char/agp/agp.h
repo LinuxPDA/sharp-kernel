@@ -84,8 +84,8 @@ struct agp_bridge_data {
 	void *dev_private_data;
 	struct pci_dev *dev;
 	gatt_mask *masks;
-	unsigned long *gatt_table;
-	unsigned long *gatt_table_real;
+	u32 *gatt_table;
+	u32 *gatt_table_real;
 	unsigned long scratch_page;
 	unsigned long gart_bus_addr;
 	unsigned long gatt_bus_addr;
@@ -125,10 +125,12 @@ struct agp_bridge_data {
 	
 };
 
+#define OUTREG64(mmap, addr, val)   __raw_writeq((val), (mmap)+(addr))
 #define OUTREG32(mmap, addr, val)   __raw_writel((val), (mmap)+(addr))
 #define OUTREG16(mmap, addr, val)   __raw_writew((val), (mmap)+(addr))
 #define OUTREG8(mmap, addr, val)   __raw_writeb((val), (mmap)+(addr))
 
+#define INREG64(mmap, addr)         __raw_readq((mmap)+(addr))
 #define INREG32(mmap, addr)         __raw_readl((mmap)+(addr))
 #define INREG16(mmap, addr)         __raw_readw((mmap)+(addr))
 #define INREG8(mmap, addr)         __raw_readb((mmap)+(addr))
@@ -169,6 +171,12 @@ struct agp_bridge_data {
 #endif
 #ifndef PCI_DEVICE_ID_INTEL_810_0
 #define PCI_DEVICE_ID_INTEL_810_0       0x7120
+#endif
+#ifndef PCI_DEVICE_ID_INTEL_845_G_0
+#define PCI_DEVICE_ID_INTEL_845_G_0	0x2560
+#endif
+#ifndef PCI_DEVICE_ID_INTEL_845_G_1
+#define PCI_DEVICE_ID_INTEL_845_G_1     0x2562
 #endif
 #ifndef PCI_DEVICE_ID_INTEL_830_M_0
 #define PCI_DEVICE_ID_INTEL_830_M_0	0x3575
@@ -230,6 +238,9 @@ struct agp_bridge_data {
 #ifndef PCI_DEVICE_ID_AMD_762_0
 #define PCI_DEVICE_ID_AMD_762_0		0x700C
 #endif
+#ifndef PCI_DEVICE_ID_AMD_8151_0
+#define PCI_DEVICE_ID_AMD_8151_0	0x7454
+#endif
 #ifndef PCI_VENDOR_ID_AL
 #define PCI_VENDOR_ID_AL		0x10b9
 #endif
@@ -248,11 +259,17 @@ struct agp_bridge_data {
 #ifndef PCI_DEVICE_ID_AL_M1641_0
 #define PCI_DEVICE_ID_AL_M1641_0	0x1641
 #endif
+#ifndef PCI_DEVICE_ID_AL_M1644_0
+#define PCI_DEVICE_ID_AL_M1644_0	0x1644
+#endif
 #ifndef PCI_DEVICE_ID_AL_M1647_0
 #define PCI_DEVICE_ID_AL_M1647_0	0x1647
 #endif
 #ifndef PCI_DEVICE_ID_AL_M1651_0
 #define PCI_DEVICE_ID_AL_M1651_0	0x1651
+#endif
+#ifndef PCI_DEVICE_ID_AL_M1671_0
+#define PCI_DEVICE_ID_AL_M1671_0	0x1671
 #endif
 
 /* intel register */
@@ -281,6 +298,10 @@ struct agp_bridge_data {
 
 /* This one is for I830MP w. an external graphic card */
 #define INTEL_I830_ERRSTS          0x92
+
+/* intel 815 register */
+#define INTEL_815_APCONT        0x51
+#define INTEL_815_ATTBASE_MASK  ~0x1FFFFFFF
 
 /* intel i820 registers */
 #define INTEL_I820_RDCR     0x51
@@ -346,6 +367,22 @@ struct agp_bridge_data {
 #define AMD_TLBFLUSH    0x0c	/* In mmio region (32-bit register) */
 #define AMD_CACHEENTRY  0x10	/* In mmio region (32-bit register) */
 
+#define AMD_8151_APSIZE	0xb4
+#define AMD_8151_GARTBLOCK	0xb8
+
+#define AMD_X86_64_GARTAPERTURECTL	0x90
+#define AMD_X86_64_GARTAPERTUREBASE	0x94
+#define AMD_X86_64_GARTTABLEBASE	0x98
+#define AMD_X86_64_GARTCACHECTL		0x9c
+#define AMD_X86_64_GARTEN	1<<0
+
+#define AMD_8151_VMAPERTURE		0x10
+#define AMD_8151_AGP_CTL		0xb0
+#define AMD_8151_APERTURESIZE	0xb4
+#define AMD_8151_GARTPTR		0xb8
+#define AMD_8151_GTLBEN	1<<7
+#define AMD_8151_APEREN	1<<8
+
 /* ALi registers */
 #define ALI_APBASE	0x10
 #define ALI_AGPCTRL	0xb8
@@ -374,5 +411,14 @@ struct agp_bridge_data {
 #define SVWRKS_TLBFLUSH   0x10
 #define SVWRKS_POSTFLUSH  0x14
 #define SVWRKS_DIRFLUSH   0x0c
+
+/* HP ZX1 SBA registers */
+#define HP_ZX1_CTRL		0x200
+#define HP_ZX1_IBASE		0x300
+#define HP_ZX1_IMASK		0x308
+#define HP_ZX1_PCOM		0x310
+#define HP_ZX1_TCNFG		0x318
+#define HP_ZX1_PDIR_BASE	0x320
+#define HP_ZX1_CACHE_FLUSH	0x428
 
 #endif				/* _AGP_BACKEND_PRIV_H */

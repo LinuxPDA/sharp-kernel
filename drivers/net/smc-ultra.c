@@ -383,9 +383,11 @@ ultra_get_8390_hdr(struct net_device *dev, struct e8390_pkt_hdr *hdr, int ring_p
 	unsigned long hdr_start = dev->mem_start + ((ring_page - START_PG)<<8);
 
 	outb(ULTRA_MEMENB, dev->base_addr - ULTRA_NIC_OFFSET);	/* shmem on */
-#ifdef notdef
+#ifdef __BIG_ENDIAN
 	/* Officially this is what we are doing, but the readl() is faster */
+	/* unfortunately it isn't endian aware of the struct               */
 	isa_memcpy_fromio(hdr, hdr_start, sizeof(struct e8390_pkt_hdr));
+	hdr->count = le16_to_cpu(hdr->count);
 #else
 	((unsigned int*)hdr)[0] = isa_readl(hdr_start);
 #endif
@@ -501,8 +503,10 @@ static int irq[MAX_ULTRA_CARDS];
 
 MODULE_PARM(io, "1-" __MODULE_STRING(MAX_ULTRA_CARDS) "i");
 MODULE_PARM(irq, "1-" __MODULE_STRING(MAX_ULTRA_CARDS) "i");
-MODULE_PARM_DESC(io, "SMC Ultra I/O base address(es)");
-MODULE_PARM_DESC(irq, "SMC Ultra IRQ number(s) (assigned)");
+MODULE_PARM_DESC(io, "I/O base address(es)");
+MODULE_PARM_DESC(irq, "IRQ number(s) (assigned)");
+MODULE_DESCRIPTION("SMC Ultra/EtherEZ ISA/PnP Ethernet driver");
+MODULE_LICENSE("GPL");
 
 EXPORT_NO_SYMBOLS;
 
@@ -557,7 +561,6 @@ cleanup_module(void)
 	}
 }
 #endif /* MODULE */
-MODULE_LICENSE("GPL");
 
 
 

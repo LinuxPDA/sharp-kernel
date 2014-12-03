@@ -97,7 +97,7 @@ int __init wd_probe(struct net_device *dev)
 			return -EBUSY;
 		i = wd_probe1(dev, base_addr);
 		if (i != 0)  
-			release_resource(r);
+			release_region(base_addr, WD_IO_EXTENT);
 		else
 			r->name = dev->name;
 		return i;
@@ -114,7 +114,7 @@ int __init wd_probe(struct net_device *dev)
 			r->name = dev->name;
 			return 0;
 		}
-		release_resource(r);
+		release_region(ioaddr, WD_IO_EXTENT);
 	}
 
 	return -ENODEV;
@@ -365,9 +365,11 @@ wd_get_8390_hdr(struct net_device *dev, struct e8390_pkt_hdr *hdr, int ring_page
 	if (ei_status.word16)
 		outb(ISA16 | ei_status.reg5, wd_cmdreg+WD_CMDREG5);
 
-#ifdef notdef
+#ifdef __BIG_ENDIAN
 	/* Officially this is what we are doing, but the readl() is faster */
+	/* unfortunately it isn't endian aware of the struct               */
 	isa_memcpy_fromio(hdr, hdr_start, sizeof(struct e8390_pkt_hdr));
+	hdr->count = le16_to_cpu(hdr->count);
 #else
 	((unsigned int*)hdr)[0] = isa_readl(hdr_start);
 #endif
@@ -450,10 +452,11 @@ MODULE_PARM(io, "1-" __MODULE_STRING(MAX_WD_CARDS) "i");
 MODULE_PARM(irq, "1-" __MODULE_STRING(MAX_WD_CARDS) "i");
 MODULE_PARM(mem, "1-" __MODULE_STRING(MAX_WD_CARDS) "i");
 MODULE_PARM(mem_end, "1-" __MODULE_STRING(MAX_WD_CARDS) "i");
-MODULE_PARM_DESC(io, "WD80x3 I/O base address(es)");
-MODULE_PARM_DESC(irq, "WD80x3 IRQ number(s) (ignored for PureData boards)");
-MODULE_PARM_DESC(mem, "WD80x3 memory base address(es)(ignored for PureData boards)");
-MODULE_PARM_DESC(mem_end, "WD80x3 memory end address(es)");
+MODULE_PARM_DESC(io, "I/O base address(es)");
+MODULE_PARM_DESC(irq, "IRQ number(s) (ignored for PureData boards)");
+MODULE_PARM_DESC(mem, "memory base address(es)(ignored for PureData boards)");
+MODULE_PARM_DESC(mem_end, "memory end address(es)");
+MODULE_DESCRIPTION("ISA Western Digital wd8003/wd8013 ; SMC Elite, Elite16 ethernet driver");
 MODULE_LICENSE("GPL");
 
 /* This is set up so that only a single autoprobe takes place per call.

@@ -86,7 +86,6 @@
 #include <linux/netfilter.h>
 
 static int sock_no_open(struct inode *irrelevant, struct file *dontcare);
-static loff_t sock_lseek(struct file *file, loff_t offset, int whence);
 static ssize_t sock_read(struct file *file, char *buf,
 			 size_t size, loff_t *ppos);
 static ssize_t sock_write(struct file *file, const char *buf,
@@ -113,7 +112,7 @@ static ssize_t sock_sendpage(struct file *file, struct page *page,
  */
 
 static struct file_operations socket_file_ops = {
-	llseek:		sock_lseek,
+	llseek:		no_llseek,
 	read:		sock_read,
 	write:		sock_write,
 	poll:		sock_poll,
@@ -148,8 +147,7 @@ static void net_family_write_lock(void)
 	while (atomic_read(&net_family_lockct) != 0) {
 		spin_unlock(&net_family_lock);
 
-		current->policy |= SCHED_YIELD;
-		schedule();
+		yield();
 
 		spin_lock(&net_family_lock);
 	}
@@ -527,15 +525,6 @@ int sock_recvmsg(struct socket *sock, struct msghdr *msg, int size, int flags)
 
 
 /*
- *	Sockets are not seekable.
- */
-
-static loff_t sock_lseek(struct file *file, loff_t offset, int whence)
-{
-	return -ESPIPE;
-}
-
-/*
  *	Read data from a socket. ubuf is a user mode pointer. We make sure the user
  *	area ubuf...ubuf+size-1 is writable before asking the protocol.
  */
@@ -753,11 +742,13 @@ static int sock_fasync(int fd, struct file *filp, int on)
 			return -ENOMEM;
 	}
 
-
 	sock = socki_lookup(filp->f_dentry->d_inode);
 	
-	if ((sk=sock->sk) == NULL)
+	if ((sk=sock->sk) == NULL) {
+		if (fna)
+			kfree(fna);
 		return -EINVAL;
+	}
 
 	lock_sock(sk);
 

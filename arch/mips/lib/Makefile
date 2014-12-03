@@ -2,10 +2,7 @@
 # Makefile for MIPS-specific library files..
 #
 
-.S.s:
-	$(CPP) $(CFLAGS) $< -o $*.s
-.S.o:
-	$(CC) $(CFLAGS) -c $< -o $*.o
+USE_STANDARD_AS_RULE := true
 
 L_TARGET = lib.a
 
@@ -14,10 +11,10 @@ obj-y				+= csum_partial.o csum_partial_copy.o \
 				   watch.o strlen_user.o strncpy_user.o \
 				   strnlen_user.o
 
-ifdef CONFIG_CPU_R3000
-  obj-y	+= r3k_dump_tlb.o 
+ifeq ($(CONFIG_CPU_R3000)$(CONFIG_CPU_TX39XX),y)
+  obj-y	+= r3k_dump_tlb.o
 else
-  obj-y	+= dump_tlb.o 
+  obj-y	+= dump_tlb.o
 endif
 
 obj-$(CONFIG_BLK_DEV_FD)	+= floppy-no.o floppy-std.o

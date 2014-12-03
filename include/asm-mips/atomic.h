@@ -57,10 +57,9 @@ typedef struct { volatile int counter; } atomic_t;
  */
 extern __inline__ void atomic_add(int i, atomic_t * v)
 {
-	int	flags;
+	unsigned long flags;
 
-	save_flags(flags);
-	cli();
+	save_and_cli(flags);
 	v->counter += i;
 	restore_flags(flags);
 }
@@ -75,20 +74,19 @@ extern __inline__ void atomic_add(int i, atomic_t * v)
  */
 extern __inline__ void atomic_sub(int i, atomic_t * v)
 {
-	int	flags;
+	unsigned long flags;
 
-	save_flags(flags);
-	cli();
+	save_and_cli(flags);
 	v->counter -= i;
 	restore_flags(flags);
 }
 
 extern __inline__ int atomic_add_return(int i, atomic_t * v)
 {
-	int	temp, flags;
+	unsigned long flags;
+	int temp;
 
-	save_flags(flags);
-	cli();
+	save_and_cli(flags);
 	temp = v->counter;
 	temp += i;
 	v->counter = temp;
@@ -99,10 +97,10 @@ extern __inline__ int atomic_add_return(int i, atomic_t * v)
 
 extern __inline__ int atomic_sub_return(int i, atomic_t * v)
 {
-	int	temp, flags;
+	unsigned long flags;
+	int temp;
 
-	save_flags(flags);
-	cli();
+	save_and_cli(flags);
 	temp = v->counter;
 	temp -= i;
 	v->counter = temp;
@@ -175,6 +173,7 @@ extern __inline__ int atomic_add_return(int i, atomic_t * v)
 		"     sc      %0, %2                        \n"
 		"     beqz    %0, 1b                        \n"
 		"     addu    %0, %1, %3                    \n"
+		"     sync                                  \n"
 		".set pop                                   \n"
 		: "=&r" (result), "=&r" (temp), "=m" (v->counter)
 		: "Ir" (i), "m" (v->counter)
@@ -195,6 +194,7 @@ extern __inline__ int atomic_sub_return(int i, atomic_t * v)
 		"     sc    %0, %2                           \n"
 		"     beqz  %0, 1b                           \n"
 		"     subu  %0, %1, %3                       \n"
+		"     sync                                   \n"
 		".set pop                                    \n"
 		: "=&r" (result), "=&r" (temp), "=m" (v->counter)
 		: "Ir" (i), "m" (v->counter)
@@ -273,10 +273,10 @@ extern __inline__ int atomic_sub_return(int i, atomic_t * v)
  */
 
 /* Atomic operations are already serializing */
-#define smp_mb__before_atomic_dec()	barrier()
-#define smp_mb__after_atomic_dec()	barrier()
-#define smp_mb__before_atomic_inc()	barrier()
-#define smp_mb__after_atomic_inc()	barrier()
+#define smp_mb__before_atomic_dec()	smp_mb()
+#define smp_mb__after_atomic_dec()	smp_mb()
+#define smp_mb__before_atomic_inc()	smp_mb()
+#define smp_mb__after_atomic_inc()	smp_mb()
 
 #endif /* defined(__KERNEL__) */
 

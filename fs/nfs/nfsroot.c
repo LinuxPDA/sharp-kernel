@@ -64,6 +64,8 @@
  *	Trond Myklebust :	Add in preliminary support for NFSv3 and TCP.
  *				Fix bug in root_nfs_addr(). nfs_data.namlen
  *				is NOT for the length of the hostname.
+ *	Hua Qin		:	Finish support for mounting root file system
+ *				via NFS over TCP.
  */
 
 #include <linux/config.h>
@@ -78,7 +80,6 @@
 #include <linux/nfs_fs.h>
 #include <linux/nfs_mount.h>
 #include <linux/in.h>
-#include <linux/inet.h>
 #include <linux/major.h>
 #include <linux/utsname.h>
 #include <net/ipconfig.h>
@@ -160,37 +161,6 @@ static struct nfs_bool_opts {
 	{ "broken_suid",~NFS_MOUNT_BROKEN_SUID,	NFS_MOUNT_BROKEN_SUID },
 	{ NULL,		0,			0 }
 };
-
-
-/*
- *  Extract IP address from the parameter string if needed. Note that we
- *  need to have root_server_addr set _before_ IPConfig gets called as it
- *  can override it.
- */
-static void __init root_nfs_parse_addr(char *name)
-{
-	int octets = 0;
-	char *cp, *cq;
-
-	cp = cq = name;
-	while (octets < 4) {
-		while (*cp >= '0' && *cp <= '9')
-			cp++;
-		if (cp == cq || cp - cq > 3)
-			break;
-		if (*cp == '.' || octets == 3)
-			octets++;
-		if (octets < 4)
-			cp++;
-		cq = cp;
-	}
-	if (octets == 4 && (*cp == ':' || *cp == '\0')) {
-		if (*cp == ':')
-			*cp++ = '\0';
-		root_server_addr = in_aton(name);
-		strcpy(name, cp);
-	}
-}
 
 
 /*
@@ -281,7 +251,8 @@ static int __init root_nfs_addr(void)
 		return -1;
 	}
 
-	strncpy(nfs_data.hostname, in_ntoa(servaddr), sizeof(nfs_data.hostname)-1);
+	snprintf(nfs_data.hostname, sizeof(nfs_data.hostname),
+		 "%u.%u.%u.%u", NIPQUAD(servaddr));
 	return 0;
 }
 
@@ -344,7 +315,7 @@ int __init nfs_root_setup(char *line)
 			line[sizeof(nfs_root_name) - strlen(NFS_ROOT) - 1] = '\0';
 		sprintf(nfs_root_name, NFS_ROOT, line);
 	}
-	root_nfs_parse_addr(nfs_root_name);
+	root_server_addr = root_nfs_parse_addr(nfs_root_name);
 	return 1;
 }
 
@@ -374,8 +345,8 @@ static int __init root_nfs_getport(int program, int version, int proto)
 {
 	struct sockaddr_in sin;
 
-	printk(KERN_NOTICE "Looking up port of RPC %d/%d on %s\n",
-		program, version, in_ntoa(servaddr));
+	printk(KERN_NOTICE "Looking up port of RPC %d/%d on %u.%u.%u.%u\n",
+		program, version, NIPQUAD(servaddr));
 	set_sockaddr(&sin, servaddr, 0);
 	return rpc_getport_external(&sin, program, version, proto);
 }
@@ -438,12 +409,14 @@ static int __init root_nfs_get_handle(void)
 {
 	struct sockaddr_in sin;
 	int status;
+	int protocol = (nfs_data.flags & NFS_MOUNT_TCP) ?
+					IPPROTO_TCP : IPPROTO_UDP;
+	int version = (nfs_data.flags & NFS_MOUNT_VER3) ?
+					NFS_MNT3_VERSION : NFS_MNT_VERSION;
 
 	set_sockaddr(&sin, servaddr, mount_port);
-	if (nfs_data.flags & NFS_MOUNT_VER3)
-		status = nfs3_mount(&sin, nfs_path, &nfs_data.root);
-	else
-		status = nfs_mount(&sin, nfs_path, &nfs_data.root);
+	status = nfsroot_mount(&sin, nfs_path, &nfs_data.root,
+							version, protocol);
 	if (status < 0)
 		printk(KERN_ERR "Root-NFS: Server returned error %d "
 				"while mounting %s\n", status, nfs_path);

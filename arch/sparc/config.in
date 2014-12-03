@@ -50,6 +50,7 @@ define_bool CONFIG_SUN_AUXIO y
 define_bool CONFIG_SUN_IO y
 define_bool CONFIG_RWSEM_GENERIC_SPINLOCK y
 define_bool CONFIG_RWSEM_XCHGADD_ALGORITHM n
+define_bool CONFIG_SUN_PM y
 
 bool 'Support for SUN4 machines (disables SUN4[CDM] support)' CONFIG_SUN4
 if [ "$CONFIG_SUN4" != "y" ]; then
@@ -95,11 +96,6 @@ bool 'Normal floppy disk support' CONFIG_BLK_DEV_FD
 
 tristate 'Loopback device support' CONFIG_BLK_DEV_LOOP
 dep_tristate 'Network block device support' CONFIG_BLK_DEV_NBD $CONFIG_NET
-
-#tristate 'Logical volume manager (LVM) support' CONFIG_BLK_DEV_LVM N
-#if [ "$CONFIG_BLK_DEV_LVM" != "n" ]; then
-#   bool '   LVM information in proc filesystem' CONFIG_LVM_PROC_FS Y
-#fi
 
 source drivers/md/Config.in
 
@@ -205,12 +201,18 @@ if [ "$CONFIG_NET" = "y" ]; then
           tristate '  Ethertap network tap (OBSOLETE)' CONFIG_ETHERTAP
         fi
       fi
-      tristate '  PPP (point-to-point) support' CONFIG_PPP
+      tristate '  PPP (point-to-point protocol) support' CONFIG_PPP
       if [ ! "$CONFIG_PPP" = "n" ]; then
         dep_tristate '  PPP support for async serial ports' CONFIG_PPP_ASYNC $CONFIG_PPP
         dep_tristate '  PPP support for sync tty ports' CONFIG_PPP_SYNC_TTY $CONFIG_PPP
         dep_tristate '  PPP Deflate compression' CONFIG_PPP_DEFLATE $CONFIG_PPP
         dep_tristate '  PPP BSD-Compress compression' CONFIG_PPP_BSDCOMP m
+	if [ "$CONFIG_EXPERIMENTAL" = "y" ]; then
+	  dep_tristate '  PPP over Ethernet (EXPERIMENTAL)' CONFIG_PPPOE $CONFIG_PPP
+	  if [ "$CONFIG_ATM" = "y" ]; then
+	    dep_tristate '  PPP over ATM (EXPERIMENTAL)' CONFIG_PPPOATM $CONFIG_PPP
+	  fi
+	fi
       fi
       tristate '  SLIP (serial line) support' CONFIG_SLIP
       if [ "$CONFIG_SLIP" != "n" ]; then
@@ -251,9 +253,7 @@ endmenu
 
 source fs/Config.in
 
-if [ "$CONFIG_EXPERIMENTAL" = "y" ]; then
-   source net/bluetooth/Config.in
-fi
+source net/bluetooth/Config.in
 
 mainmenu_option next_comment
 comment 'Watchdog'
@@ -266,3 +266,5 @@ comment 'Kernel hacking'
 
 bool 'Magic SysRq key' CONFIG_MAGIC_SYSRQ
 endmenu
+
+source lib/Config.in

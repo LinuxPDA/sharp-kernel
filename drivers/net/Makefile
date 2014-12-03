@@ -25,6 +25,10 @@ ifeq ($(CONFIG_TULIP),y)
   obj-y += tulip/tulip.o
 endif
 
+ifeq ($(CONFIG_E1000),y)
+  obj-y += e1000/e1000.o
+endif
+
 ifeq ($(CONFIG_ISDN_PPP),y)
   obj-$(CONFIG_ISDN) += slhc.o
 endif
@@ -37,9 +41,11 @@ subdir-$(CONFIG_TR) += tokenring
 subdir-$(CONFIG_WAN) += wan
 subdir-$(CONFIG_NET_FC) += fc
 subdir-$(CONFIG_ARCNET) += arcnet
-subdir-$(CONFIG_APPLETALK) += appletalk
+subdir-$(CONFIG_DEV_APPLETALK) += appletalk
 subdir-$(CONFIG_SK98LIN) += sk98lin
 subdir-$(CONFIG_SKFP) += skfp
+subdir-$(CONFIG_E100) += e100
+subdir-$(CONFIG_E1000) += e1000
 
 #
 # link order important here
@@ -78,6 +84,12 @@ obj-$(CONFIG_NATSEMI) += natsemi.o
 obj-$(CONFIG_NS83820) += ns83820.o
 obj-$(CONFIG_STNIC) += stnic.o 8390.o
 obj-$(CONFIG_FEALNX) += fealnx.o mii.o
+obj-$(CONFIG_TC35815) += tc35815.o
+obj-$(CONFIG_TIGON3) += tg3.o
+
+ifeq ($(CONFIG_E100),y)
+  obj-y += e100/e100.o
+endif
 
 ifeq ($(CONFIG_SK98LIN),y)
 obj-y += sk98lin/sk98lin.o
@@ -101,7 +113,7 @@ obj-$(CONFIG_AIRONET4500_PROC)	+= aironet4500_proc.o
 obj-$(CONFIG_AIRONET4500_CS)	+= aironet4500_proc.o
 
 obj-$(CONFIG_WINBOND_840) += winbond-840.o mii.o
-obj-$(CONFIG_SUNDANCE) += sundance.o
+obj-$(CONFIG_SUNDANCE) += sundance.o mii.o
 obj-$(CONFIG_HAMACHI) += hamachi.o
 obj-$(CONFIG_NET) += Space.o setup.o net_init.o loopback.o
 obj-$(CONFIG_SEEQ8005) += seeq8005.o
@@ -129,6 +141,7 @@ obj-$(CONFIG_E2100) += e2100.o 8390.o
 obj-$(CONFIG_ES3210) += es3210.o 8390.o
 obj-$(CONFIG_LNE390) += lne390.o 8390.o
 obj-$(CONFIG_NE3210) += ne3210.o 8390.o
+obj-$(CONFIG_NET_SB1250_MAC) += sb1250-mac.o
 
 obj-$(CONFIG_PPP) += ppp_generic.o slhc.o
 obj-$(CONFIG_PPP_ASYNC) += ppp_async.o
@@ -149,9 +162,11 @@ obj-$(CONFIG_DE600) += de600.o
 obj-$(CONFIG_DE620) += de620.o
 obj-$(CONFIG_AT1500) += lance.o
 obj-$(CONFIG_LANCE) += lance.o
+obj-$(CONFIG_SUN3_82586) += sun3_82586.o
 obj-$(CONFIG_SUN3LANCE) += sun3lance.o
 obj-$(CONFIG_DEFXX) += defxx.o
 obj-$(CONFIG_SGISEEQ) += sgiseeq.o
+obj-$(CONFIG_SGI_O2MACE_ETH) += meth.o
 obj-$(CONFIG_AT1700) += at1700.o
 obj-$(CONFIG_FMV18X) += fmv18x.o
 obj-$(CONFIG_EL1) += 3c501.o

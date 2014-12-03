@@ -1186,7 +1186,7 @@ static u32 board_replaced(struct pci_func * func, struct controller * ctrl)
 		//*********************************
 		rc = CARD_FUNCTIONING;
 	} else {
-		if (ctrl->speed == 1) {
+		if (ctrl->speed == PCI_SPEED_66MHz) {
 			// Wait for exclusive access to hardware
 			down(&ctrl->crit_sect);
 
@@ -1384,7 +1384,7 @@ static u32 board_added(struct pci_func * func, struct controller * ctrl)
 	dbg(__FUNCTION__": func->device, slot_offset, hp_slot = %d, %d ,%d\n",
 	    func->device, ctrl->slot_device_offset, hp_slot);
 
-	if (ctrl->speed == 1) {
+	if (ctrl->speed == PCI_SPEED_66MHz) {
 		// Wait for exclusive access to hardware
 		down(&ctrl->crit_sect);
 
@@ -1707,6 +1707,7 @@ static int event_thread(void* data)
 	struct controller *ctrl;
 	lock_kernel();
 	daemonize();
+	reparent_to_init();
 	
 	//  New name
 	strcpy(current->comm, "phpd_event");

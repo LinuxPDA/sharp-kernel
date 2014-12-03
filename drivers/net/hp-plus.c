@@ -351,7 +351,7 @@ hpp_mem_get_8390_hdr(struct net_device *dev, struct e8390_pkt_hdr *hdr, int ring
 	outw(option_reg & ~(MemDisable + BootROMEnb), ioaddr + HPP_OPTION);
 	isa_memcpy_fromio(hdr, dev->mem_start, sizeof(struct e8390_pkt_hdr));
 	outw(option_reg, ioaddr + HPP_OPTION);
-	hdr->count = (hdr->count + 3) & ~3;	/* Round up allocation. */
+	hdr->count = (le16_to_cpu(hdr->count) + 3) & ~3;	/* Round up allocation. */
 }
 
 static void
@@ -408,8 +408,10 @@ static int irq[MAX_HPP_CARDS];
 
 MODULE_PARM(io, "1-" __MODULE_STRING(MAX_HPP_CARDS) "i");
 MODULE_PARM(irq, "1-" __MODULE_STRING(MAX_HPP_CARDS) "i");
-MODULE_PARM_DESC(io, "HP PC-LAN+ I/O port address(es)");
-MODULE_PARM_DESC(irq, "HP PC-LAN+ IRQ number(s); ignored if properly detected");
+MODULE_PARM_DESC(io, "I/O port address(es)");
+MODULE_PARM_DESC(irq, "IRQ number(s); ignored if properly detected");
+MODULE_DESCRIPTION("HP PC-LAN+ ISA ethernet driver");
+MODULE_LICENSE("GPL");
 
 /* This is set up so that only a single autoprobe takes place per call.
 ISA device autoprobes on a running machine are not recommended. */
@@ -457,7 +459,6 @@ cleanup_module(void)
 	}
 }
 #endif /* MODULE */
-MODULE_LICENSE("GPL");
 
 
 /*

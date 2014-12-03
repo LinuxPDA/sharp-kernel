@@ -302,7 +302,7 @@ static const unsigned short crc_ccitt_table[] = {
 /*---------------------------------------------------------------------------*/
 
 #if 0
-extern inline void append_crc_ccitt(unsigned char *buffer, int len)
+static inline void append_crc_ccitt(unsigned char *buffer, int len)
 {
  	unsigned int crc = 0xffff;
 
@@ -316,7 +316,7 @@ extern inline void append_crc_ccitt(unsigned char *buffer, int len)
 
 /*---------------------------------------------------------------------------*/
 
-extern inline int check_crc_ccitt(const unsigned char *buf, int cnt)
+static inline int check_crc_ccitt(const unsigned char *buf, int cnt)
 {
 	unsigned int crc = 0xffff;
 
@@ -327,7 +327,7 @@ extern inline int check_crc_ccitt(const unsigned char *buf, int cnt)
 
 /*---------------------------------------------------------------------------*/
 
-extern inline int calc_crc_ccitt(const unsigned char *buf, int cnt)
+static inline int calc_crc_ccitt(const unsigned char *buf, int cnt)
 {
 	unsigned int crc = 0xffff;
 
@@ -481,7 +481,7 @@ static void inline do_kiss_params(struct baycom_state *bc,
 ({                                             \
         if (!(notbitstream & (0x1f0 << j)))    \
                 goto stuff##j;                 \
-  encodeend##j:                                \
+  encodeend##j: ;                              \
 })
 
 #define ENCODEITERB(j)                                          \
@@ -715,7 +715,7 @@ static void do_rxpacket(struct net_device *dev)
                 goto flgabrt##j;                                              \
         if ((bitstream & (0x1f8 << j)) == (0xf8 << j))   /* stuffed bit */    \
                 goto stuff##j;                                                \
-  enditer##j:                                                                 \
+  enditer##j: ;                                                               \
 })
 
 #define DECODEITERB(j)                                                                 \

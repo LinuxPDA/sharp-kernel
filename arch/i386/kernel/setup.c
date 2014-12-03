@@ -98,6 +98,8 @@
 #endif
 #include <linux/highmem.h>
 #include <linux/bootmem.h>
+#include <linux/pci.h>
+#include <linux/pci_ids.h>
 #include <linux/seq_file.h>
 #include <asm/processor.h>
 #include <linux/console.h>
@@ -139,6 +141,9 @@ unsigned int mca_pentium_flag;
 /* For PCI or other memory-mapped resources */
 unsigned long pci_mem_start = 0x10000000;
 
+/* user-defined highmem size */
+static unsigned int highmem_pages __initdata = -1;
+
 /*
  * Setup options
  */
@@ -155,11 +160,16 @@ struct e820map e820;
 unsigned char aux_device_present;
 
 extern void mcheck_init(struct cpuinfo_x86 *c);
+extern void dmi_scan_machine(void);
 extern int root_mountflags;
 extern char _text, _etext, _edata, _end;
 
+static int have_cpuid_p(void) __init;
+
 static int disable_x86_serial_nr __initdata = 1;
-static int disable_x86_fxsr __initdata = 0;
+static int disable_x86_ht __initdata = 0;
+static u32 disabled_x86_caps[NCAPINTS] __initdata = { 0 };
+extern int blk_nohighio;
 
 int enable_acpi_smp_table;
 
@@ -408,6 +418,22 @@ static void __init probe_roms(void)
 	}
 }
 
+static void __init limit_regions (unsigned long long size)
+{
+	unsigned long long current_addr = 0;
+	int i;
+
+	for (i = 0; i < e820.nr_map; i++) {
+		if (e820.map[i].type == E820_RAM) {
+			current_addr = e820.map[i].addr + e820.map[i].size;
+			if (current_addr >= size) {
+				e820.map[i].size -= current_addr-size;
+				e820.nr_map = i + 1;
+				return;
+			}
+		}
+	}
+}
 static void __init add_memory_region(unsigned long long start,
                                   unsigned long long size, int type)
 {
@@ -705,17 +731,19 @@ static void __init setup_memory_region(void)
 } /* setup_memory_region */
 
 
-static void __init parse_mem_cmdline (char ** cmdline_p)
+static void __init parse_cmdline_early (char ** cmdline_p)
 {
 	char c = ' ', *to = command_line, *from = COMMAND_LINE;
 	int len = 0;
-	int usermem = 0;
+	int userdef = 0;
 
 	/* Save unparsed command line copy for /proc/cmdline */
 	memcpy(saved_command_line, COMMAND_LINE, COMMAND_LINE_SIZE);
 	saved_command_line[COMMAND_LINE_SIZE-1] = '\0';
 
 	for (;;) {
+		if (c != ' ')
+			goto nextchar;
 		/*
 		 * "mem=nopentium" disables the 4MB page tables.
 		 * "mem=XXX[kKmM]" defines a memory region from HIGH_MEM
@@ -723,47 +751,55 @@ static void __init parse_mem_cmdline (char ** cmdline_p)
 		 * "mem=XXX[KkmM]@XXX[KkmM]" defines a memory region from
 		 * <start> to <start>+<mem>, overriding the bios size.
 		 */
-		if (c == ' ' && !memcmp(from, "mem=", 4)) {
+		if (!memcmp(from, "mem=", 4)) {
 			if (to != command_line)
 				to--;
 			if (!memcmp(from+4, "nopentium", 9)) {
 				from += 9+4;
 				clear_bit(X86_FEATURE_PSE, &boot_cpu_data.x86_capability);
+				set_bit(X86_FEATURE_PSE, &disabled_x86_caps);
 			} else if (!memcmp(from+4, "exactmap", 8)) {
 				from += 8+4;
 				e820.nr_map = 0;
-				usermem = 1;
+				userdef = 1;
 			} else {
 				/* If the user specifies memory size, we
-				 * blow away any automatically generated
-				 * size
+				 * limit the BIOS-provided memory map to
+				 * that size. exactmap can be used to specify
+				 * the exact map. mem=number can be used to
+				 * trim the existing memory map.
 				 */
 				unsigned long long start_at, mem_size;
  
-				if (usermem == 0) {
-					/* first time in: zap the whitelist
-					 * and reinitialize it with the
-					 * standard low-memory region.
-					 */
-					e820.nr_map = 0;
-					usermem = 1;
-					add_memory_region(0, LOWMEMSIZE(), E820_RAM);
-				}
 				mem_size = memparse(from+4, &from);
-				if (*from == '@')
+				if (*from == '@') {
 					start_at = memparse(from+1, &from);
-				else {
-					start_at = HIGH_MEMORY;
-					mem_size -= HIGH_MEMORY;
-					usermem=0;
+					add_memory_region(start_at, mem_size, E820_RAM);
+				} else {
+					limit_regions(mem_size);
+					userdef=1;
 				}
-				add_memory_region(start_at, mem_size, E820_RAM);
 			}
 		}
-		/* acpismp=force forces parsing and use of the ACPI SMP table */
-		if (c == ' ' && !memcmp(from, "acpismp=force", 13)) 	
-			 enable_acpi_smp_table = 1;
-	
+
+		/* "noht" disables HyperThreading (2 logical cpus per Xeon) */
+		else if (!memcmp(from, "noht", 4)) { 
+			disable_x86_ht = 1;
+			set_bit(X86_FEATURE_HT, disabled_x86_caps);
+		}
+
+		/* "acpismp=force" forces parsing and use of the ACPI SMP table */
+		else if (!memcmp(from, "acpismp=force", 13))
+			enable_acpi_smp_table = 1;
+
+		/*
+		 * highmem=size forces highmem to be exactly 'size' bytes.
+		 * This works even on boxes that have no highmem otherwise.
+		 * This also works to reduce highmem size on bigger boxes.
+		 */
+		else if (!memcmp(from, "highmem=", 8))
+			highmem_pages = memparse(from+8, &from) >> PAGE_SHIFT;
+nextchar:
 		c = *(from++);
 		if (!c)
 			break;
@@ -773,54 +809,11 @@ static void __init parse_mem_cmdline (char ** cmdline_p)
 	}
 	*to = '\0';
 	*cmdline_p = command_line;
-	if (usermem) {
+	if (userdef) {
 		printk(KERN_INFO "user-defined physical RAM map:\n");
 		print_memory_map("user");
 	}
 }
-
-void __init setup_arch(char **cmdline_p)
-{
-	unsigned long bootmap_size, low_mem_size;
-	unsigned long start_pfn, max_pfn, max_low_pfn;
-	int i;
-
-#ifdef CONFIG_VISWS
-	visws_get_board_type_and_rev();
-#endif
-
- 	ROOT_DEV = to_kdev_t(ORIG_ROOT_DEV);
- 	drive_info = DRIVE_INFO;
- 	screen_info = SCREEN_INFO;
-	apm_info.bios = APM_BIOS_INFO;
-	if( SYS_DESC_TABLE.length != 0 ) {
-		MCA_bus = SYS_DESC_TABLE.table[3] &0x2;
-		machine_id = SYS_DESC_TABLE.table[0];
-		machine_submodel_id = SYS_DESC_TABLE.table[1];
-		BIOS_revision = SYS_DESC_TABLE.table[2];
-	}
-	aux_device_present = AUX_DEVICE_INFO;
-
-#ifdef CONFIG_BLK_DEV_RAM
-	rd_image_start = RAMDISK_FLAGS & RAMDISK_IMAGE_START_MASK;
-	rd_prompt = ((RAMDISK_FLAGS & RAMDISK_PROMPT_FLAG) != 0);
-	rd_doload = ((RAMDISK_FLAGS & RAMDISK_LOAD_FLAG) != 0);
-#endif
-	setup_memory_region();
-
-	if (!MOUNT_ROOT_RDONLY)
-		root_mountflags &= ~MS_RDONLY;
-	init_mm.start_code = (unsigned long) &_text;
-	init_mm.end_code = (unsigned long) &_etext;
-	init_mm.end_data = (unsigned long) &_edata;
-	init_mm.brk = (unsigned long) &_end;
-
-	code_resource.start = virt_to_bus(&_text);
-	code_resource.end = virt_to_bus(&_etext)-1;
-	data_resource.start = virt_to_bus(&_etext);
-	data_resource.end = virt_to_bus(&_edata)-1;
-
-	parse_mem_cmdline(cmdline_p);
 
 #define PFN_UP(x)	(((x) + PAGE_SIZE-1) >> PAGE_SHIFT)
 #define PFN_DOWN(x)	((x) >> PAGE_SHIFT)
@@ -832,15 +825,13 @@ void __init setup_arch(char **cmdline_p)
 #define MAXMEM_PFN	PFN_DOWN(MAXMEM)
 #define MAX_NONPAE_PFN	(1 << 20)
 
-	/*
-	 * partially used pages are not usable - thus
-	 * we are rounding upwards:
-	 */
-	start_pfn = PFN_UP(__pa(&_end));
+/*
+ * Find the highest page frame number we have available
+ */
+static void __init find_max_pfn(void)
+{
+	int i;
 
-	/*
-	 * Find the highest page frame number we have available
-	 */
 	max_pfn = 0;
 	for (i = 0; i < e820.nr_map; i++) {
 		unsigned long start, end;
@@ -854,12 +845,25 @@ void __init setup_arch(char **cmdline_p)
 		if (end > max_pfn)
 			max_pfn = end;
 	}
+}
 
-	/*
-	 * Determine low and high memory ranges:
-	 */
+/*
+ * Determine low and high memory ranges:
+ */
+static unsigned long __init find_max_low_pfn(void)
+{
+	unsigned long max_low_pfn;
+
 	max_low_pfn = max_pfn;
 	if (max_low_pfn > MAXMEM_PFN) {
+		if (highmem_pages == -1)
+			highmem_pages = max_pfn - MAXMEM_PFN;
+		if (highmem_pages + MAXMEM_PFN < max_pfn)
+			max_pfn = MAXMEM_PFN + highmem_pages;
+		if (highmem_pages + MAXMEM_PFN > max_pfn) {
+			printk("only %luMB highmem pages available, ignoring highmem size of %uMB.\n", pages_to_mb(max_pfn - MAXMEM_PFN), pages_to_mb(highmem_pages));
+			highmem_pages = 0;
+		}
 		max_low_pfn = MAXMEM_PFN;
 #ifndef CONFIG_HIGHMEM
 		/* Maximum memory usable is what is directly addressable */
@@ -878,27 +882,40 @@ void __init setup_arch(char **cmdline_p)
 		}
 #endif /* !CONFIG_X86_PAE */
 #endif /* !CONFIG_HIGHMEM */
-	}
-
-#ifdef CONFIG_HIGHMEM
-	highstart_pfn = highend_pfn = max_pfn;
-	if (max_pfn > MAXMEM_PFN) {
-		highstart_pfn = MAXMEM_PFN;
-		printk(KERN_NOTICE "%ldMB HIGHMEM available.\n",
-			pages_to_mb(highend_pfn - highstart_pfn));
-	}
+	} else {
+		if (highmem_pages == -1)
+			highmem_pages = 0;
+#if CONFIG_HIGHMEM
+		if (highmem_pages >= max_pfn) {
+			printk(KERN_ERR "highmem size specified (%uMB) is bigger than pages available (%luMB)!.\n", pages_to_mb(highmem_pages), pages_to_mb(max_pfn));
+			highmem_pages = 0;
+		}
+		if (highmem_pages) {
+			if (max_low_pfn-highmem_pages < 64*1024*1024/PAGE_SIZE){
+				printk(KERN_ERR "highmem size %uMB results in smaller than 64MB lowmem, ignoring it.\n", pages_to_mb(highmem_pages));
+				highmem_pages = 0;
+			}
+			max_low_pfn -= highmem_pages;
+		}
+#else
+		if (highmem_pages)
+			printk(KERN_ERR "ignoring highmem size on non-highmem kernel!\n");
 #endif
-	/*
-	 * Initialize the boot-time allocator (with low memory only):
-	 */
-	bootmap_size = init_bootmem(start_pfn, max_low_pfn);
+	}
 
-	/*
-	 * Register fully available low RAM pages with the bootmem allocator.
-	 */
+	return max_low_pfn;
+}
+
+/*
+ * Register fully available low RAM pages with the bootmem allocator.
+ */
+static void __init register_bootmem_low_pages(unsigned long max_low_pfn)
+{
+	int i;
+
 	for (i = 0; i < e820.nr_map; i++) {
 		unsigned long curr_pfn, last_pfn, size;
- 		/*
+		/*
 		 * Reserve usable low memory
 		 */
 		if (e820.map[i].type != E820_RAM)
@@ -927,6 +944,39 @@ void __init setup_arch(char **cmdline_p)
 		size = last_pfn - curr_pfn;
 		free_bootmem(PFN_PHYS(curr_pfn), PFN_PHYS(size));
 	}
+}
+
+static unsigned long __init setup_memory(void)
+{
+	unsigned long bootmap_size, start_pfn, max_low_pfn;
+
+	/*
+	 * partially used pages are not usable - thus
+	 * we are rounding upwards:
+	 */
+	start_pfn = PFN_UP(__pa(&_end));
+
+	find_max_pfn();
+
+	max_low_pfn = find_max_low_pfn();
+
+#ifdef CONFIG_HIGHMEM
+	highstart_pfn = highend_pfn = max_pfn;
+	if (max_pfn > max_low_pfn) {
+		highstart_pfn = max_low_pfn;
+	}
+	printk(KERN_NOTICE "%ldMB HIGHMEM available.\n",
+		pages_to_mb(highend_pfn - highstart_pfn));
+#endif
+	printk(KERN_NOTICE "%ldMB LOWMEM available.\n",
+			pages_to_mb(max_low_pfn));
+	/*
+	 * Initialize the boot-time allocator (with low memory only):
+	 */
+	bootmap_size = init_bootmem(start_pfn, max_low_pfn);
+
+	register_bootmem_low_pages(max_low_pfn);
+
 	/*
 	 * Reserve the bootmem bitmap itself as well. We do this in two
 	 * steps (first step was init_bootmem()) because this catches
@@ -975,29 +1025,18 @@ void __init setup_arch(char **cmdline_p)
 	}
 #endif
 
-	/*
-	 * NOTE: before this point _nobody_ is allowed to allocate
-	 * any memory using the bootmem allocator.
-	 */
+	return max_low_pfn;
+}
+ 
+/*
+ * Request address space for all standard RAM and ROM resources
+ * and also for regions reported as reserved by the e820.
+ */
+static void __init register_memory(unsigned long max_low_pfn)
+{
+	unsigned long low_mem_size;
+	int i;
 
-#ifdef CONFIG_SMP
-	smp_alloc_memory(); /* AP processor realmode stacks in low memory*/
-#endif
-	paging_init();
-#ifdef CONFIG_X86_LOCAL_APIC
-	/*
-	 * get boot-time SMP configuration:
-	 */
-	if (smp_found_config)
-		get_smp_config();
-	init_apic_mappings();
-#endif
-
-
-	/*
-	 * Request address space for all standard RAM and ROM resources
-	 * and also for regions reported as reserved by the e820.
-	 */
 	probe_roms();
 	for (i = 0; i < e820.nr_map; i++) {
 		struct resource *res;
@@ -1034,6 +1073,89 @@ void __init setup_arch(char **cmdline_p)
 	low_mem_size = ((max_low_pfn << PAGE_SHIFT) + 0xfffff) & ~0xfffff;
 	if (low_mem_size > pci_mem_start)
 		pci_mem_start = low_mem_size;
+}
+
+void __init setup_arch(char **cmdline_p)
+{
+	unsigned long max_low_pfn;
+
+#ifdef CONFIG_VISWS
+	visws_get_board_type_and_rev();
+#endif
+
+#ifndef CONFIG_HIGHIO
+	blk_nohighio = 1;
+#endif
+
+ 	ROOT_DEV = to_kdev_t(ORIG_ROOT_DEV);
+ 	drive_info = DRIVE_INFO;
+ 	screen_info = SCREEN_INFO;
+	apm_info.bios = APM_BIOS_INFO;
+	if( SYS_DESC_TABLE.length != 0 ) {
+		MCA_bus = SYS_DESC_TABLE.table[3] &0x2;
+		machine_id = SYS_DESC_TABLE.table[0];
+		machine_submodel_id = SYS_DESC_TABLE.table[1];
+		BIOS_revision = SYS_DESC_TABLE.table[2];
+	}
+	aux_device_present = AUX_DEVICE_INFO;
+
+#ifdef CONFIG_BLK_DEV_RAM
+	rd_image_start = RAMDISK_FLAGS & RAMDISK_IMAGE_START_MASK;
+	rd_prompt = ((RAMDISK_FLAGS & RAMDISK_PROMPT_FLAG) != 0);
+	rd_doload = ((RAMDISK_FLAGS & RAMDISK_LOAD_FLAG) != 0);
+#endif
+	setup_memory_region();
+
+	if (!MOUNT_ROOT_RDONLY)
+		root_mountflags &= ~MS_RDONLY;
+	init_mm.start_code = (unsigned long) &_text;
+	init_mm.end_code = (unsigned long) &_etext;
+	init_mm.end_data = (unsigned long) &_edata;
+	init_mm.brk = (unsigned long) &_end;
+
+	code_resource.start = virt_to_bus(&_text);
+	code_resource.end = virt_to_bus(&_etext)-1;
+	data_resource.start = virt_to_bus(&_etext);
+	data_resource.end = virt_to_bus(&_edata)-1;
+
+	parse_cmdline_early(cmdline_p);
+
+	max_low_pfn = setup_memory();
+
+	/*
+	 * If enable_acpi_smp_table and HT feature present, acpitable.c
+	 * will find all logical cpus despite disable_x86_ht: so if both
+	 * "noht" and "acpismp=force" are specified, let "noht" override
+	 * "acpismp=force" cleanly.  Why retain "acpismp=force"? because
+	 * parsing ACPI SMP table might prove useful on some non-HT cpu.
+	 */
+	if (disable_x86_ht) {
+		clear_bit(X86_FEATURE_HT, &boot_cpu_data.x86_capability[0]);
+		set_bit(X86_FEATURE_HT, disabled_x86_caps);
+		enable_acpi_smp_table = 0;
+	}
+	if (test_bit(X86_FEATURE_HT, &boot_cpu_data.x86_capability[0]))
+		enable_acpi_smp_table = 1;
+	
+
+	/*
+	 * NOTE: before this point _nobody_ is allowed to allocate
+	 * any memory using the bootmem allocator.
+	 */
+
+#ifdef CONFIG_SMP
+	smp_alloc_memory(); /* AP processor realmode stacks in low memory*/
+#endif
+	paging_init();
+#ifdef CONFIG_X86_LOCAL_APIC
+	/*
+	 * get boot-time SMP configuration:
+	 */
+	if (smp_found_config)
+		get_smp_config();
+#endif
+
+	register_memory(max_low_pfn);
 
 #ifdef CONFIG_VT
 #if defined(CONFIG_VGA_CONSOLE)
@@ -1042,6 +1164,7 @@ void __init setup_arch(char **cmdline_p)
 	conswitchp = &dummy_con;
 #endif
 #endif
+	dmi_scan_machine();
 }
 
 static int cachesize_override __initdata = -1;
@@ -1056,14 +1179,27 @@ __setup("cachesize=", cachesize_setup);
 #ifndef CONFIG_X86_TSC
 static int tsc_disable __initdata = 0;
 
-static int __init tsc_setup(char *str)
+static int __init notsc_setup(char *str)
 {
 	tsc_disable = 1;
 	return 1;
 }
-
-__setup("notsc", tsc_setup);
+#else
+static int __init notsc_setup(char *str)
+{
+	printk("notsc: Kernel compiled with CONFIG_X86_TSC, cannot disable TSC.\n");
+	return 1;
+}
 #endif
+__setup("notsc", notsc_setup);
+
+static int __init highio_setup(char *str)
+{
+	printk("i386: disabling HIGHMEM block I/O\n");
+	blk_nohighio = 1;
+	return 1;
+}
+__setup("nohighio", highio_setup);
 
 static int __init get_model_name(struct cpuinfo_x86 *c)
 {
@@ -1306,7 +1442,7 @@ static int __init init_amd(struct cpuinfo_x86 *c)
 }
 
 /*
- * Read Cyrix DEVID registers (DIR) to get more detailed info. about the CPU
+ * Read NSC/Cyrix DEVID registers (DIR) to get more detailed info. about the CPU
  */
 static void __init do_cyrix_devid(unsigned char *dir0, unsigned char *dir1)
 {
@@ -1345,7 +1481,7 @@ static void __init do_cyrix_devid(unsigned char *dir0, unsigned char *dir1)
  * Cx86_dir0_msb is a HACK needed by check_cx686_cpuid/slop in bugs.h in
  * order to identify the Cyrix CPU model after we're out of setup.c
  *
- * Actually since bugs.h doesnt even reference this perhaps someone should
+ * Actually since bugs.h doesn't even reference this perhaps someone should
  * fix the documentation ???
  */
 static unsigned char Cx86_dir0_msb __initdata = 0;
@@ -1468,11 +1604,6 @@ static void __init init_cyrix(struct cpuinfo_x86 *c)
 		break;
 
 	case 4: /* MediaGX/GXm */
-		/*
-		 *	Life sometimes gets weiiiiiiiird if we use this
-		 *	on the MediaGX. So we turn it off for now. 
-		 */
-		
 #ifdef CONFIG_PCI
 		/* It isnt really a PCI quirk directly, but the cure is the
 		   same. The MediaGX has deep magic SMM stuff that handles the
@@ -1494,14 +1625,22 @@ static void __init init_cyrix(struct cpuinfo_x86 *c)
 		/* GXm supports extended cpuid levels 'ala' AMD */
 		if (c->cpuid_level == 2) {
 			get_model_name(c);  /* get CPU marketing name */
-			clear_bit(X86_FEATURE_TSC, c->x86_capability);
+			/*
+	 		 *	The 5510/5520 companion chips have a funky PIT
+			 *	that breaks the TSC synchronizing, so turn it off
+			 */
+			if(pci_find_device(PCI_VENDOR_ID_CYRIX, PCI_DEVICE_ID_CYRIX_5510, NULL) ||
+			   pci_find_device(PCI_VENDOR_ID_CYRIX, PCI_DEVICE_ID_CYRIX_5520, NULL))
+				clear_bit(X86_FEATURE_TSC, c->x86_capability);
 			return;
 		}
 		else {  /* MediaGX */
 			Cx86_cb[2] = (dir0_lsn & 1) ? '3' : '4';
 			p = Cx86_cb+2;
 			c->x86_model = (dir1 & 0x20) ? 1 : 2;
-			clear_bit(X86_FEATURE_TSC, &c->x86_capability);
+			if(pci_find_device(PCI_VENDOR_ID_CYRIX, PCI_DEVICE_ID_CYRIX_5510, NULL) ||
+			   pci_find_device(PCI_VENDOR_ID_CYRIX, PCI_DEVICE_ID_CYRIX_5520, NULL))
+				clear_bit(X86_FEATURE_TSC, &c->x86_capability);
 		}
 		break;
 
@@ -2006,6 +2145,11 @@ static void __init init_transmeta(struct cpuinfo_x86 *c)
 	wrmsr(0x80860004, ~0, uk);
 	c->x86_capability[0] = cpuid_edx(0x00000001);
 	wrmsr(0x80860004, cap_mask, uk);
+
+	/* If we can run i686 user-space code, call us an i686 */
+#define USER686 (X86_FEATURE_TSC|X86_FEATURE_CX8|X86_FEATURE_CMOV)
+	if ( c->x86 == 5 && (c->x86_capability[0] & USER686) == USER686 )
+	     c->x86 = 6;
 }
 
 
@@ -2035,31 +2179,69 @@ static void __init init_rise(struct cpuinfo_x86 *c)
 
 extern void trap_init_f00f_bug(void);
 
+#define LVL_1_INST      1
+#define LVL_1_DATA      2
+#define LVL_2           3
+#define LVL_3           4
+
+struct _cache_table
+{
+        unsigned char descriptor;
+        char cache_type;
+        short size;
+};
+
+/* all the cache descriptor types we care about (no TLB or trace cache entries) */
+static struct _cache_table cache_table[] __initdata =
+{
+	{ 0x06, LVL_1_INST, 8 },
+	{ 0x08, LVL_1_INST, 16 },
+	{ 0x0A, LVL_1_DATA, 8 },
+	{ 0x0C, LVL_1_DATA, 16 },
+	{ 0x22, LVL_3,      512 },
+	{ 0x23, LVL_3,      1024 },
+	{ 0x25, LVL_3,      2048 },
+	{ 0x29, LVL_3,      4096 },
+	{ 0x41, LVL_2,      128 },
+	{ 0x42, LVL_2,      256 },
+	{ 0x43, LVL_2,      512 },
+	{ 0x44, LVL_2,      1024 },
+	{ 0x45, LVL_2,      2048 },
+	{ 0x66, LVL_1_DATA, 8 },
+	{ 0x67, LVL_1_DATA, 16 },
+	{ 0x68, LVL_1_DATA, 32 },
+	{ 0x79, LVL_2,      128 },
+	{ 0x7A, LVL_2,      256 },
+	{ 0x7B, LVL_2,      512 },
+	{ 0x7C, LVL_2,      1024 },
+	{ 0x82, LVL_2,      256 },
+	{ 0x84, LVL_2,      1024 },
+	{ 0x85, LVL_2,      2048 },
+	{ 0x00, 0, 0}
+};
+
 static void __init init_intel(struct cpuinfo_x86 *c)
 {
-#ifndef CONFIG_M686
-	static int f00f_workaround_enabled = 0;
-#endif
-	char *p = NULL;
 	unsigned int l1i = 0, l1d = 0, l2 = 0, l3 = 0; /* Cache sizes */
+	char *p = NULL;
+#ifndef CONFIG_X86_F00F_WORKS_OK
+	static int f00f_workaround_enabled = 0;
 
-#ifndef CONFIG_M686
 	/*
 	 * All current models of Pentium and Pentium with MMX technology CPUs
 	 * have the F0 0F bug, which lets nonpriviledged users lock up the system.
 	 * Note that the workaround only should be initialized once...
 	 */
 	c->f00f_bug = 0;
-	if ( c->x86 == 5 ) {
+	if (c->x86 == 5) {
 		c->f00f_bug = 1;
-		if ( !f00f_workaround_enabled ) {
+		if (!f00f_workaround_enabled) {
 			trap_init_f00f_bug();
 			printk(KERN_NOTICE "Intel Pentium with F0 0F bug - workaround enabled.\n");
 			f00f_workaround_enabled = 1;
 		}
 	}
-#endif
-
+#endif /* CONFIG_X86_F00F_WORKS_OK */
 
 	if (c->cpuid_level > 1) {
 		/* supports eax=2  call */
@@ -2081,83 +2263,31 @@ static void __init init_intel(struct cpuinfo_x86 *c)
 			/* Byte 0 is level count, not a descriptor */
 			for ( j = 1 ; j < 16 ; j++ ) {
 				unsigned char des = dp[j];
-				unsigned char dl, dh;
-				unsigned int cs;
+				unsigned char k = 0;
 
-				dh = des >> 4;
-				dl = des & 0x0F;
-
-				/* Black magic... */
-
-				switch ( dh )
+				/* look up this descriptor in the table */
+				while (cache_table[k].descriptor != 0)
 				{
-				case 0:
-					switch ( dl ) {
-					case 6:
-						/* L1 I cache */
-						l1i += 8;
-						break;
-					case 8:
-						/* L1 I cache */
-						l1i += 16;
-						break;
-					case 10:
-						/* L1 D cache */
-						l1d += 8;
-						break;
-					case 12:
-						/* L1 D cache */
-						l1d += 16;
-						break;
-					default:;
-						/* TLB, or unknown */
-					}
-					break;
-				case 2:
-					if ( dl ) {
-						/* L3 cache */
-						cs = (dl-1) << 9;
-						l3 += cs;
-					}
-					break;
-				case 4:
-					if ( c->x86 > 6 && dl ) {
-						/* P4 family */
-						/* L3 cache */
-						cs = 128 << (dl-1);
-						l3 += cs;
+					if (cache_table[k].descriptor == des) {
+						switch (cache_table[k].cache_type) {
+						case LVL_1_INST:
+							l1i += cache_table[k].size;
+							break;
+						case LVL_1_DATA:
+							l1d += cache_table[k].size;
+							break;
+						case LVL_2:
+							l2 += cache_table[k].size;
+							break;
+						case LVL_3:
+							l3 += cache_table[k].size;
+							break;
+						}
+
 						break;
 					}
-					/* else same as 8 - fall through */
-				case 8:
-					if ( dl ) {
-						/* L2 cache */
-						cs = 128 << (dl-1);
-						l2 += cs;
-					}
-					break;
-				case 6:
-					if (dl > 5) {
-						/* L1 D cache */
-						cs = 8<<(dl-6);
-						l1d += cs;
-					}
-					break;
-				case 7:
-					if ( dl >= 8 ) 
-					{
-						/* L2 cache */
-						cs = 64<<(dl-8);
-						l2 += cs;
-					} else {
-						/* L0 I cache, count as L1 */
-						cs = dl ? (16 << (dl-1)) : 12;
-						l1i += cs;
-					}
-					break;
-				default:
-					/* TLB, or something else we don't know about */
-					break;
+
+					k++;
 				}
 			}
 		}
@@ -2210,7 +2340,7 @@ static void __init init_intel(struct cpuinfo_x86 *c)
 		strcpy(c->x86_model_id, p);
 	
 #ifdef CONFIG_SMP
-	if (test_bit(X86_FEATURE_HT, &c->x86_capability)) {
+	if (test_bit(X86_FEATURE_HT, &c->x86_capability) && !disable_x86_ht) {
 		extern	int phys_proc_id[NR_CPUS];
 		
 		u32 	eax, ebx, ecx, edx;
@@ -2234,7 +2364,7 @@ static void __init init_intel(struct cpuinfo_x86 *c)
 			if (smp_num_siblings != NR_SIBLINGS) {
 				printk(KERN_WARNING "CPU: Unsupported number of the siblings %d", smp_num_siblings);
 				smp_num_siblings = 1;
-				goto too_many_siblings;
+				return;
 			}
 			tmp = smp_num_siblings;
 			while ((tmp & 1) == 0) {
@@ -2256,7 +2386,6 @@ static void __init init_intel(struct cpuinfo_x86 *c)
 		}
 
 	}
-too_many_siblings:
 #endif
 }
 
@@ -2270,6 +2399,8 @@ void __init get_cpu_vendor(struct cpuinfo_x86 *c)
 		c->x86_vendor = X86_VENDOR_AMD;
 	else if (!strcmp(v, "CyrixInstead"))
 		c->x86_vendor = X86_VENDOR_CYRIX;
+	else if (!strcmp(v, "Geode by NSC"))
+		c->x86_vendor = X86_VENDOR_NSC;
 	else if (!strcmp(v, "UMC UMC UMC "))
 		c->x86_vendor = X86_VENDOR_UMC;
 	else if (!strcmp(v, "CentaurHauls"))
@@ -2402,7 +2533,8 @@ __setup("serialnumber", x86_serial_nr_setup);
 
 static int __init x86_fxsr_setup(char * s)
 {
-	disable_x86_fxsr = 1;
+	set_bit(X86_FEATURE_XMM, disabled_x86_caps); 
+	set_bit(X86_FEATURE_FXSR, disabled_x86_caps);
 	return 1;
 }
 __setup("nofxsr", x86_fxsr_setup);
@@ -2578,12 +2710,6 @@ void __init identify_cpu(struct cpuinfo_x86 *c)
 		}
 	}
 
-	printk(KERN_DEBUG "CPU: Before vendor init, caps: %08x %08x %08x, vendor = %d\n",
-	       c->x86_capability[0],
-	       c->x86_capability[1],
-	       c->x86_capability[2],
-	       c->x86_vendor);
-
 	/*
 	 * Vendor-specific initialization.  In this section we
 	 * canonicalize the feature flags, meaning if there are
@@ -2613,6 +2739,10 @@ void __init identify_cpu(struct cpuinfo_x86 *c)
 		init_cyrix(c);
 		break;
 
+	case X86_VENDOR_NSC:
+	        init_cyrix(c);
+		break;
+
 	case X86_VENDOR_AMD:
 		init_amd(c);
 		break;
@@ -2638,12 +2768,6 @@ void __init identify_cpu(struct cpuinfo_x86 *c)
 		break;
 	}
 
-	printk(KERN_DEBUG "CPU: After vendor init, caps: %08x %08x %08x %08x\n",
-	       c->x86_capability[0],
-	       c->x86_capability[1],
-	       c->x86_capability[2],
-	       c->x86_capability[3]);
-
 	/*
 	 * The vendor-specific functions might have changed features.  Now
 	 * we do "generic changes."
@@ -2655,10 +2779,9 @@ void __init identify_cpu(struct cpuinfo_x86 *c)
 		clear_bit(X86_FEATURE_TSC, &c->x86_capability);
 #endif
 
-	/* FXSR disabled? */
-	if (disable_x86_fxsr) {
-		clear_bit(X86_FEATURE_FXSR, &c->x86_capability);
-		clear_bit(X86_FEATURE_XMM, &c->x86_capability);
+	/* check for caps that have been disabled earlier */ 
+	for (i = 0; i < NCAPINTS; i++) { 
+	     c->x86_capability[i] &= ~disabled_x86_caps[i];
 	}
 
 	/* Disable the PN if appropriate */
@@ -2713,14 +2836,17 @@ void __init dodgy_tsc(void)
 {
 	get_cpu_vendor(&boot_cpu_data);
 
-	if ( boot_cpu_data.x86_vendor == X86_VENDOR_CYRIX )
+	if ( boot_cpu_data.x86_vendor == X86_VENDOR_CYRIX ||
+	     boot_cpu_data.x86_vendor == X86_VENDOR_NSC )
 		init_cyrix(&boot_cpu_data);
 }
 
 
 /* These need to match <asm/processor.h> */
 static char *cpu_vendor_names[] __initdata = {
-	"Intel", "Cyrix", "AMD", "UMC", "NexGen", "Centaur", "Rise", "Transmeta" };
+	"Intel", "Cyrix", "AMD", "UMC", "NexGen", 
+	"Centaur", "Rise", "Transmeta", "NSC"
+};
 
 
 void __init print_cpu_info(struct cpuinfo_x86 *c)

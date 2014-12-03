@@ -7,7 +7,7 @@
  *
  *	Based on linux/ipv4/udp.c
  *
- *	$Id: udp.c,v 1.64 2001/09/01 00:31:50 davem Exp $
+ *	$Id: udp.c,v 1.64.2.1 2002/03/05 12:47:34 davem Exp $
  *
  *	Fixes:
  *	Hideaki YOSHIFUJI	:	sin6_scope_id support
@@ -267,18 +267,18 @@ ipv4_connected:
 			return err;
 		
 		ipv6_addr_set(&np->daddr, 0, 0, 
-			      __constant_htonl(0x0000ffff),
+			      htonl(0x0000ffff),
 			      sk->daddr);
 
 		if(ipv6_addr_any(&np->saddr)) {
 			ipv6_addr_set(&np->saddr, 0, 0, 
-				      __constant_htonl(0x0000ffff),
+				      htonl(0x0000ffff),
 				      sk->saddr);
 		}
 
 		if(ipv6_addr_any(&np->rcv_saddr)) {
 			ipv6_addr_set(&np->rcv_saddr, 0, 0, 
-				      __constant_htonl(0x0000ffff),
+				      htonl(0x0000ffff),
 				      sk->rcv_saddr);
 		}
 		return 0;
@@ -292,6 +292,8 @@ ipv4_connected:
 				return -EINVAL;
 			}
 			sk->bound_dev_if = usin->sin6_scope_id;
+			if (!sk->bound_dev_if && (addr_type&IPV6_ADDR_MULTICAST))
+				fl.oif = np->mcast_oif;
 		}
 
 		/* Connect to link-local address requires an interface */
@@ -315,6 +317,9 @@ ipv4_connected:
 	fl.oif = sk->bound_dev_if;
 	fl.uli_u.ports.dport = sk->dport;
 	fl.uli_u.ports.sport = sk->sport;
+
+	if (!fl.oif && (addr_type&IPV6_ADDR_MULTICAST))
+		fl.oif = np->mcast_oif;
 
 	if (flowlabel) {
 		if (flowlabel->opt && flowlabel->opt->srcrt) {
@@ -415,9 +420,9 @@ int udpv6_recvmsg(struct sock *sk, struct msghdr *msg, int len,
 		sin6->sin6_flowinfo = 0;
 		sin6->sin6_scope_id = 0;
 
-		if (skb->protocol == __constant_htons(ETH_P_IP)) {
+		if (skb->protocol == htons(ETH_P_IP)) {
 			ipv6_addr_set(&sin6->sin6_addr, 0, 0,
-				      __constant_htonl(0xffff), skb->nh.iph->saddr);
+				      htonl(0xffff), skb->nh.iph->saddr);
 			if (sk->protinfo.af_inet.cmsg_flags)
 				ip_cmsg_recv(msg, skb);
 		} else {
@@ -498,7 +503,7 @@ static inline int udpv6_queue_rcv_skb(struct sock * sk, struct sk_buff *skb)
 {
 #if defined(CONFIG_FILTER)
 	if (sk->filter && skb->ip_summed != CHECKSUM_UNNECESSARY) {
-		if ((unsigned short)csum_fold(csum_partial(skb->h.raw, skb->len, skb->csum))) {
+		if ((unsigned short)csum_fold(skb_checksum(skb, 0, skb->len, skb->csum))) {
 			UDP6_INC_STATS_BH(UdpInErrors);
 			IP6_INC_STATS_BH(Ip6InDiscards);
 			kfree_skb(skb);
@@ -916,7 +921,7 @@ static void get_udp6_sock(struct sock *sp, char *tmpbuf, int i)
 	srcp  = ntohs(sp->sport);
 	sprintf(tmpbuf,
 		"%4d: %08X%08X%08X%08X:%04X %08X%08X%08X%08X:%04X "
-		"%02X %08X:%08X %02X:%08lX %08X %5d %8d %ld %d %p",
+		"%02X %08X:%08X %02X:%08lX %08X %5d %8d %lu %d %p",
 		i,
 		src->s6_addr32[0], src->s6_addr32[1],
 		src->s6_addr32[2], src->s6_addr32[3], srcp,

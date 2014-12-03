@@ -210,7 +210,7 @@ static char *vstrings[] = {
 
 asmlinkage void sunos_vadvise(u32 strategy)
 {
-	static int count = 0;
+	static int count;
 
 	/* I wanna see who uses this... */
 	if (count++ < 5)
@@ -446,7 +446,7 @@ asmlinkage int sunos_uname(struct sunos_utsname *name)
 	ret |= copy_to_user(&name->ver[0], &system_utsname.version[0], sizeof(name->ver) - 1);
 	ret |= copy_to_user(&name->mach[0], &system_utsname.machine[0], sizeof(name->mach) - 1);
 	up_read(&uts_sem);
-	return ret;
+	return (ret ? -EFAULT : 0);
 }
 
 asmlinkage int sunos_nosys(void)
@@ -1199,8 +1199,8 @@ static inline int check_nonblock(int ret, int fd)
 	return ret;
 }
 
-extern asmlinkage int sys_read(unsigned int fd, char *buf, unsigned long count);
-extern asmlinkage int sys_write(unsigned int fd, char *buf, unsigned long count);
+extern asmlinkage ssize_t sys_read(unsigned int fd, char *buf, unsigned long count);
+extern asmlinkage ssize_t sys_write(unsigned int fd, char *buf, unsigned long count);
 extern asmlinkage int sys_recv(int fd, void *ubuf, size_t size, unsigned flags);
 extern asmlinkage int sys_send(int fd, void *buff, size_t len, unsigned flags);
 extern asmlinkage int sys_accept(int fd, struct sockaddr *sa, int *addrlen);

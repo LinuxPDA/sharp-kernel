@@ -55,6 +55,7 @@
  *		Dave Rusling david.rusling@reo.mts.dec.com
  *		David Mosberger davidm@cs.arizona.edu
  */
+#include <linux/config.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/types.h>
@@ -161,7 +162,8 @@ char *pcibios_setup(char *str)
 }
 
 void
-pcibios_align_resource(void *data, struct resource *res, unsigned long size)
+pcibios_align_resource(void *data, struct resource *res, unsigned long size,
+		       unsigned long align)
 {
 	/* this should not be called */
 }

@@ -12,14 +12,13 @@
  */
 #include <linux/config.h>
 #include <asm/asm.h>
-#include <asm/bootinfo.h>
 #include <asm/cachectl.h>
 #include <asm/current.h>
 #include <asm/fpregdef.h>
 #include <asm/mipsregs.h>
 #include <asm/offset.h>
 #include <asm/page.h>
-#include <asm/pgtable.h>
+#include <asm/pgtable-bits.h>
 #include <asm/processor.h>
 #include <asm/regdef.h>
 #include <asm/stackframe.h>
@@ -47,16 +46,16 @@
 	move	$28, a1
 	CPU_RESTORE_NONSCRATCH($28)
 	addiu	t0, $28, KERNEL_STACK_SIZE-32
-#ifdef CONFIG_SMP	 
+#ifdef CONFIG_SMP
 	mfc0	a3, CP0_CONTEXT
 	la	t1, kernelsp
 	srl	a3, 23
 	sll	a3, 2
 	addu	t1, a3, t1
-	sw	t0, (t1)	
+	sw	t0, (t1)
 #else
 	sw	t0, kernelsp
-#endif 
+#endif
 	mfc0	t1, CP0_STATUS		/* Do we really need this? */
 	li	a3, 0xff00
 	and	t1, a3
@@ -78,9 +77,10 @@
 
 LEAF(lazy_fpu_switch)
 	mfc0	t0, CP0_STATUS			# enable cp1
-	li	t3, 0x20000000
+	li	t3, ST0_CU1
 	or	t0, t3
 	mtc0	t0, CP0_STATUS
+	FPU_ENABLE_HAZARD
 
 	beqz	a0, 2f				# Save floating point state
 	 nor	t3, zero, t3
@@ -127,9 +127,10 @@ LEAF(restore_fp)
 LEAF(init_fpu)
 	.set	mips3
 	mfc0	t0, CP0_STATUS
-	li	t1, 0x20000000
+	li	t1, ST0_CU1
 	or	t0, t1
 	mtc0	t0, CP0_STATUS
+	FPU_ENABLE_HAZARD
 
 	li	t1, FPU_DEFAULT
 	ctc1	t1, fcr31

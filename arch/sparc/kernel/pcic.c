@@ -185,7 +185,7 @@ static struct pcic_sn2list pcic_known_sysnames[] = {
  * Only one PCIC per IIep,
  * and since we have no SMP IIep, only one per system.
  */
-static int pcic0_up = 0;
+static int pcic0_up;
 static struct linux_pcic pcic0;
 
 unsigned int pcic_regs;
@@ -865,11 +865,12 @@ void pcibios_update_resource(struct pci_dev *pdev, struct resource *res1,
 {
 }
 
-void pcibios_align_resource(void *data, struct resource *res, unsigned long size)
+void pcibios_align_resource(void *data, struct resource *res,
+			    unsigned long size, unsigned long align)
 {
 }
 
-int pcibios_enable_device(struct pci_dev *pdev)
+int pcibios_enable_device(struct pci_dev *pdev, int mask)
 {
 	return 0;
 }

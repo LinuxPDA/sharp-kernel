@@ -18,11 +18,21 @@ typedef union sigval {
 	void *sival_ptr;
 } sigval_t;
 
+#ifdef __KERNEL__
+
+typedef union sigval32 {
+	int sival_int;
+	s32 sival_ptr;
+} sigval_t32;
+
+#endif /* __KERNEL__ */
+
 /* This structure matches IRIX 32/n32 ABIs for binary compatibility but
    has Linux extensions.  */
 
 #define SI_MAX_SIZE	128
-#define SI_PAD_SIZE	((SI_MAX_SIZE/sizeof(int)) - 3)
+#define SI_PAD_SIZE	((SI_MAX_SIZE/sizeof(int)) - 4)
+#define SI_PAD_SIZE32	((SI_MAX_SIZE/sizeof(int)) - 3)
 
 typedef struct siginfo {
 	int si_signo;
@@ -82,6 +92,68 @@ typedef struct siginfo {
 	} _sifields;
 } siginfo_t;
 
+#ifdef __KERNEL__
+
+typedef struct siginfo32 {
+	int si_signo;
+	int si_code;
+	int si_errno;
+
+	union {
+		int _pad[SI_PAD_SIZE32];
+
+		/* kill() */
+		struct {
+			__kernel_pid_t32 _pid;	/* sender's pid */
+			__kernel_uid_t32 _uid;	/* sender's uid */
+		} _kill;
+
+		/* SIGCHLD */
+		struct {
+			__kernel_pid_t32 _pid;	/* which child */
+			__kernel_uid_t32 _uid;	/* sender's uid */
+			__kernel_clock_t32 _utime;
+			int _status;		/* exit code */
+			__kernel_clock_t32 _stime;
+		} _sigchld;
+
+		/* IRIX SIGCHLD */
+		struct {
+			__kernel_pid_t32 _pid;	/* which child */
+			__kernel_clock_t32 _utime;
+			int _status;		/* exit code */
+			__kernel_clock_t32 _stime;
+		} _irix_sigchld;
+
+		/* SIGILL, SIGFPE, SIGSEGV, SIGBUS */
+		struct {
+			s32 _addr; /* faulting insn/memory ref. */
+		} _sigfault;
+
+		/* SIGPOLL, SIGXFSZ (To do ...)  */
+		struct {
+			int _band;	/* POLL_IN, POLL_OUT, POLL_MSG */
+			int _fd;
+		} _sigpoll;
+
+		/* POSIX.1b timers */
+		struct {
+			unsigned int _timer1;
+			unsigned int _timer2;
+		} _timer;
+
+		/* POSIX.1b signals */
+		struct {
+			__kernel_pid_t32 _pid;	/* sender's pid */
+			__kernel_uid_t32 _uid;	/* sender's uid */
+			sigval_t32 _sigval;
+		} _rt;
+
+	} _sifields;
+} siginfo_t32;
+
+#endif /* __KERNEL__ */
+
 /*
  * How these fields are to be accessed.
  */
@@ -127,6 +199,7 @@ typedef struct siginfo {
 #define SI_TIMER __SI_CODE(__SI_TIMER,-3) /* sent by timer expiration */
 #define SI_MESGQ	-4	/* sent by real time mesq state change */
 #define SI_SIGIO	-5	/* sent by queued SIGIO */
+#define SI_TKILL	-6	/* sent by tkill system call */
 
 #define SI_FROMUSER(siptr)	((siptr)->si_code <= 0)
 #define SI_FROMKERNEL(siptr)	((siptr)->si_code > 0)
@@ -203,8 +276,8 @@ typedef struct siginfo {
 
 /*
  * sigevent definitions
- * 
- * It seems likely that SIGEV_THREAD will have to be handled from 
+ *
+ * It seems likely that SIGEV_THREAD will have to be handled from
  * userspace, libpthread transmuting it to SIGEV_SIGNAL, which the
  * thread manager then catches and does the appropriate nonsense.
  * However, everything is written out here so as to not get lost.
@@ -238,7 +311,7 @@ typedef struct sigevent {
 #ifdef __KERNEL__
 #include <linux/string.h>
 
-extern inline void copy_siginfo(siginfo_t *to, siginfo_t *from)
+static inline void copy_siginfo(siginfo_t *to, siginfo_t *from)
 {
 	if (from->si_code < 0)
 		memcpy(to, from, sizeof(siginfo_t));

@@ -72,7 +72,7 @@ static int e21_probe_list[] = {0x300, 0x280, 0x380, 0x220, 0};
 #define E21_SAPROM		0x10	/* Offset to station address data. */
 #define E21_IO_EXTENT	 0x20
 
-extern inline void mem_on(short port, volatile char *mem_base,
+static inline void mem_on(short port, volatile char *mem_base,
 						  unsigned char start_page )
 {
 	/* This is a little weird: set the shared memory window by doing a
@@ -82,7 +82,7 @@ extern inline void mem_on(short port, volatile char *mem_base,
 	outb(E21_MEM_ON, port + E21_MEM_ENABLE + E21_MEM_ON);
 }
 
-extern inline void mem_off(short port)
+static inline void mem_off(short port)
 {
 	inb(port + E21_MEM_ENABLE);
 	outb(0x00, port + E21_MEM_ENABLE);
@@ -388,10 +388,12 @@ MODULE_PARM(io, "1-" __MODULE_STRING(MAX_E21_CARDS) "i");
 MODULE_PARM(irq, "1-" __MODULE_STRING(MAX_E21_CARDS) "i");
 MODULE_PARM(mem, "1-" __MODULE_STRING(MAX_E21_CARDS) "i");
 MODULE_PARM(xcvr, "1-" __MODULE_STRING(MAX_E21_CARDS) "i");
-MODULE_PARM_DESC(io, "E2100 I/O base address(es)");
-MODULE_PARM_DESC(irq, "E2100 IRQ number(s)");
-MODULE_PARM_DESC(mem, " E2100 memory base address(es)");
-MODULE_PARM_DESC(xcvr, "E2100 tranceiver(s) (0=internal, 1=external)");
+MODULE_PARM_DESC(io, "I/O base address(es)");
+MODULE_PARM_DESC(irq, "IRQ number(s)");
+MODULE_PARM_DESC(mem, " memory base address(es)");
+MODULE_PARM_DESC(xcvr, "tranceiver(s) (0=internal, 1=external)");
+MODULE_DESCRIPTION("Cabletron E2100 ISA ethernet driver");
+MODULE_LICENSE("GPL");
 
 /* This is set up so that only a single autoprobe takes place per call.
 ISA device autoprobes on a running machine are not recommended. */
@@ -440,7 +442,6 @@ cleanup_module(void)
 	}
 }
 #endif /* MODULE */
-MODULE_LICENSE("GPL");
 
 
 /*

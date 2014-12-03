@@ -1,9 +1,10 @@
 /*
  * This file define a set of standard wireless extensions
  *
- * Version :	12	5.10.01
+ * Version :	14	25.1.02
  *
  * Authors :	Jean Tourrilhes - HPL - <jt@hpl.hp.com>
+ * Copyright (c) 1997-2002 Jean Tourrilhes, All Rights Reserved.
  */
 
 #ifndef _LINUX_WIRELESS_H
@@ -11,6 +12,8 @@
 
 /************************** DOCUMENTATION **************************/
 /*
+ * Initial APIs (1996 -> onward) :
+ * -----------------------------
  * Basically, the wireless extensions are for now a set of standard ioctl
  * call + /proc/net/wireless
  *
@@ -27,16 +30,32 @@
  * We have the list of command plus a structure descibing the
  * data exchanged...
  * Note that to add these ioctl, I was obliged to modify :
- *	net/core/dev.c (two place + add include)
- *	net/ipv4/af_inet.c (one place + add include)
+ *	# net/core/dev.c (two place + add include)
+ *	# net/ipv4/af_inet.c (one place + add include)
  *
  * /proc/net/wireless is a copy of /proc/net/dev.
  * We have a structure for data passed from the driver to /proc/net/wireless
  * Too add this, I've modified :
- *	net/core/dev.c (two other places)
- *	include/linux/netdevice.h (one place)
- *	include/linux/proc_fs.h (one place)
+ *	# net/core/dev.c (two other places)
+ *	# include/linux/netdevice.h (one place)
+ *	# include/linux/proc_fs.h (one place)
  *
+ * New driver API (2002 -> onward) :
+ * -------------------------------
+ * This file is only concerned with the user space API and common definitions.
+ * The new driver API is defined and documented in :
+ *	# include/net/iw_handler.h
+ *
+ * Note as well that /proc/net/wireless implementation has now moved in :
+ *	# include/linux/wireless.c
+ *
+ * Wireless Events (2002 -> onward) :
+ * --------------------------------
+ * Events are defined at the end of this file, and implemented in :
+ *	# include/linux/wireless.c
+ *
+ * Other comments :
+ * --------------
  * Do not add here things that are redundant with other mechanisms
  * (drivers init, ifconfig, /proc/net/dev, ...) and with are not
  * wireless specific.
@@ -54,16 +73,14 @@
 #include <linux/socket.h>		/* for "struct sockaddr" et al	*/
 #include <linux/if.h>			/* for IFNAMSIZ and co... */
 
-/**************************** CONSTANTS ****************************/
-
-/* --------------------------- VERSION --------------------------- */
+/***************************** VERSION *****************************/
 /*
  * This constant is used to know the availability of the wireless
  * extensions and to know which version of wireless extensions it is
  * (there is some stuff that will be added in the future...)
  * I just plan to increment with each new version.
  */
-#define WIRELESS_EXT	12
+#define WIRELESS_EXT	14
 
 /*
  * Changes :
@@ -123,12 +140,27 @@
  *	- Add DEV PRIVATE IOCTL to avoid collisions in SIOCDEVPRIVATE space
  *	- Add new statistics (frag, retry, beacon)
  *	- Add average quality (for user space calibration)
+ *
+ * V12 to V13
+ * ----------
+ *	- Document creation of new driver API.
+ *	- Extract union iwreq_data from struct iwreq (for new driver API).
+ *	- Rename SIOCSIWNAME as SIOCSIWCOMMIT
+ *
+ * V13 to V14
+ * ----------
+ *	- Wireless Events support : define struct iw_event
+ *	- Define additional specific event numbers
+ *	- Add "addr" and "param" fields in union iwreq_data
+ *	- AP scanning stuff (SIOCSIWSCAN and friends)
  */
+
+/**************************** CONSTANTS ****************************/
 
 /* -------------------------- IOCTL LIST -------------------------- */
 
 /* Basic operations */
-#define SIOCSIWNAME	0x8B00		/* Unused */
+#define SIOCSIWCOMMIT	0x8B00		/* Commit pending changes to driver */
 #define SIOCGIWNAME	0x8B01		/* get name == wireless protocol */
 #define SIOCSIWNWID	0x8B02		/* set network id (the cell) */
 #define SIOCGIWNWID	0x8B03		/* get network id */
@@ -155,6 +187,8 @@
 #define SIOCSIWAP	0x8B14		/* set access point MAC addresses */
 #define SIOCGIWAP	0x8B15		/* get access point MAC addresses */
 #define SIOCGIWAPLIST	0x8B17		/* get list of access point in range */
+#define SIOCSIWSCAN	0x8B18		/* trigger scanning */
+#define SIOCGIWSCAN	0x8B19		/* get scanning results */
 
 /* 802.11 specific support */
 #define SIOCSIWESSID	0x8B1A		/* set ESSID (network name) */
@@ -217,6 +251,15 @@
 /* Even : get (world access), odd : set (root access) */
 #define IW_IS_SET(cmd)	(!((cmd) & 0x1))
 #define IW_IS_GET(cmd)	((cmd) & 0x1)
+
+/* ----------------------- WIRELESS EVENTS ----------------------- */
+/* Those are *NOT* ioctls, do not issue request on them !!! */
+/* Most events use the same identifier as ioctl requests */
+
+#define IWEVTXDROP	0x8C00		/* Packet dropped to excessive retry */
+#define IWEVQUAL	0x8C01		/* Quality part of statistics */
+
+#define IWEVFIRST	0x8C00
 
 /* ------------------------- PRIVATE INFO ------------------------- */
 /*
@@ -320,6 +363,19 @@
 #define IW_RETRY_MAX		0x0002	/* Value is a maximum */
 #define IW_RETRY_RELATIVE	0x0004	/* Value is not in seconds/ms/us */
 
+/* Scanning request flags */
+#define IW_SCAN_DEFAULT		0x0000	/* Default scan of the driver */
+#define IW_SCAN_ALL_ESSID	0x0001	/* Scan all ESSIDs */
+#define IW_SCAN_THIS_ESSID	0x0002	/* Scan only this ESSID */
+#define IW_SCAN_ALL_FREQ	0x0004	/* Scan all Frequencies */
+#define IW_SCAN_THIS_FREQ	0x0008	/* Scan only this Frequency */
+#define IW_SCAN_ALL_MODE	0x0010	/* Scan all Modes */
+#define IW_SCAN_THIS_MODE	0x0020	/* Scan only this Mode */
+#define IW_SCAN_ALL_RATE	0x0040	/* Scan all Bit-Rates */
+#define IW_SCAN_THIS_RATE	0x0080	/* Scan only this Bit-Rate */
+/* Maximum size of returned data */
+#define IW_SCAN_MAX_DATA	4096	/* In bytes */
+
 /****************************** TYPES ******************************/
 
 /* --------------------------- SUBTYPES --------------------------- */
@@ -414,13 +470,52 @@ struct	iw_statistics
 
 /* ------------------------ IOCTL REQUEST ------------------------ */
 /*
+ * This structure defines the payload of an ioctl, and is used 
+ * below.
+ *
+ * Note that this structure should fit on the memory footprint
+ * of iwreq (which is the same as ifreq), which mean a max size of
+ * 16 octets = 128 bits. Warning, pointers might be 64 bits wide...
+ * You should check this when increasing the structures defined
+ * above in this file...
+ */
+union	iwreq_data
+{
+	/* Config - generic */
+	char		name[IFNAMSIZ];
+	/* Name : used to verify the presence of  wireless extensions.
+	 * Name of the protocol/provider... */
+
+	struct iw_point	essid;		/* Extended network name */
+	struct iw_param	nwid;		/* network id (or domain - the cell) */
+	struct iw_freq	freq;		/* frequency or channel :
+					 * 0-1000 = channel
+					 * > 1000 = frequency in Hz */
+
+	struct iw_param	sens;		/* signal level threshold */
+	struct iw_param	bitrate;	/* default bit rate */
+	struct iw_param	txpower;	/* default transmit power */
+	struct iw_param	rts;		/* RTS threshold threshold */
+	struct iw_param	frag;		/* Fragmentation threshold */
+	__u32		mode;		/* Operation mode */
+	struct iw_param	retry;		/* Retry limits & lifetime */
+
+	struct iw_point	encoding;	/* Encoding stuff : tokens */
+	struct iw_param	power;		/* PM duration/timeout */
+	struct iw_quality qual;		/* Quality part of statistics */
+
+	struct sockaddr	ap_addr;	/* Access point address */
+	struct sockaddr	addr;		/* Destination address (hw) */
+
+	struct iw_param	param;		/* Other small parameters */
+	struct iw_point	data;		/* Other large parameters */
+};
+
+/*
  * The structure to exchange data for ioctl.
  * This structure is the same as 'struct ifreq', but (re)defined for
  * convenience...
- *
- * Note that it should fit on the same memory footprint !
- * You should check this when increasing the above structures (16 octets)
- * 16 octets = 128 bits. Warning, pointers might be 64 bits wide...
+ * Do I need to remind you about structure size (32 octets) ?
  */
 struct	iwreq 
 {
@@ -429,35 +524,8 @@ struct	iwreq
 		char	ifrn_name[IFNAMSIZ];	/* if name, e.g. "eth0" */
 	} ifr_ifrn;
 
-	/* Data part */
-	union
-	{
-		/* Config - generic */
-		char		name[IFNAMSIZ];
-		/* Name : used to verify the presence of  wireless extensions.
-		 * Name of the protocol/provider... */
-
-		struct iw_point	essid;	/* Extended network name */
-		struct iw_param	nwid;	/* network id (or domain - the cell) */
-		struct iw_freq	freq;	/* frequency or channel :
-					 * 0-1000 = channel
-					 * > 1000 = frequency in Hz */
-
-		struct iw_param	sens;		/* signal level threshold */
-		struct iw_param	bitrate;	/* default bit rate */
-		struct iw_param	txpower;	/* default transmit power */
-		struct iw_param	rts;		/* RTS threshold threshold */
-		struct iw_param	frag;		/* Fragmentation threshold */
-		__u32		mode;		/* Operation mode */
-		struct iw_param	retry;		/* Retry limits & lifetime */
-
-		struct iw_point	encoding;	/* Encoding stuff : tokens */
-		struct iw_param	power;		/* PM duration/timeout */
-
-		struct sockaddr	ap_addr;	/* Access point address */
-
-		struct iw_point	data;		/* Other large parameters */
-	}	u;
+	/* Data part (defined just above) */
+	union	iwreq_data	u;
 };
 
 /* -------------------------- IOCTL DATA -------------------------- */
@@ -566,5 +634,36 @@ struct	iw_priv_args
 	__u16		get_args;	/* Type and number of args */
 	char		name[IFNAMSIZ];	/* Name of the extension */
 };
+
+/* ----------------------- WIRELESS EVENTS ----------------------- */
+/*
+ * Wireless events are carried through the rtnetlink socket to user
+ * space. They are encapsulated in the IFLA_WIRELESS field of
+ * a RTM_NEWLINK message.
+ */
+
+/*
+ * A Wireless Event. Contains basically the same data as the ioctl...
+ */
+struct iw_event
+{
+	__u16		len;			/* Real lenght of this stuff */
+	__u16		cmd;			/* Wireless IOCTL */
+	union iwreq_data	u;		/* IOCTL fixed payload */
+};
+
+/* Size of the Event prefix (including padding and alignement junk) */
+#define IW_EV_LCP_LEN	(sizeof(struct iw_event) - sizeof(union iwreq_data))
+/* Size of the various events */
+#define IW_EV_CHAR_LEN	(IW_EV_LCP_LEN + IFNAMSIZ)
+#define IW_EV_UINT_LEN	(IW_EV_LCP_LEN + sizeof(__u32))
+#define IW_EV_FREQ_LEN	(IW_EV_LCP_LEN + sizeof(struct iw_freq))
+#define IW_EV_POINT_LEN	(IW_EV_LCP_LEN + sizeof(struct iw_point))
+#define IW_EV_PARAM_LEN	(IW_EV_LCP_LEN + sizeof(struct iw_param))
+#define IW_EV_ADDR_LEN	(IW_EV_LCP_LEN + sizeof(struct sockaddr))
+#define IW_EV_QUAL_LEN	(IW_EV_LCP_LEN + sizeof(struct iw_quality))
+
+/* Note : in the case of iw_point, the extra data will come at the
+ * end of the event */
 
 #endif	/* _LINUX_WIRELESS_H */

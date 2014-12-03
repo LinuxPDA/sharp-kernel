@@ -1,11 +1,11 @@
 /*
  * Architecture-specific kernel symbols
  */
-
 #include <linux/config.h>
 #include <linux/module.h>
 
 #include <linux/string.h>
+
 EXPORT_SYMBOL_NOVERS(memset);
 EXPORT_SYMBOL(memchr);
 EXPORT_SYMBOL(memcmp);
@@ -24,6 +24,7 @@ EXPORT_SYMBOL(strnlen);
 EXPORT_SYMBOL(strrchr);
 EXPORT_SYMBOL(strstr);
 EXPORT_SYMBOL(strtok);
+EXPORT_SYMBOL(strpbrk);
 
 #include <linux/irq.h>
 EXPORT_SYMBOL(isa_irq_to_vector_map);
@@ -147,3 +148,10 @@ EXPORT_SYMBOL(efi);
 #include <linux/proc_fs.h>
 extern struct proc_dir_entry *efi_dir;
 EXPORT_SYMBOL(efi_dir);
+
+#include <asm/machvec.h>
+#ifdef CONFIG_IA64_GENERIC
+EXPORT_SYMBOL(ia64_mv);
+#endif
+EXPORT_SYMBOL(machvec_noop);
+

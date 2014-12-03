@@ -112,7 +112,7 @@
 #include <asm/system.h>
 #include <asm/uaccess.h>
 
-
+#include <linux/netfilter_arp.h>
 
 /*
  *	Interface to generic neighbour cache.
@@ -450,6 +450,32 @@ int arp_bind_neighbour(struct dst_entry *dst)
 }
 
 /*
+ * Check if we can use proxy ARP for this path
+ */
+
+static inline int arp_fwd_proxy(struct in_device *in_dev, struct rtable *rt)
+{
+	struct in_device *out_dev;
+	int imi, omi = -1;
+
+	if (!IN_DEV_PROXY_ARP(in_dev))
+		return 0;
+
+	if ((imi = IN_DEV_MEDIUM_ID(in_dev)) == 0)
+		return 1;
+	if (imi == -1)
+		return 0;
+
+	/* place to check for proxy_arp for routes */
+
+	if ((out_dev = in_dev_get(rt->u.dst.dev)) != NULL) {
+		omi = IN_DEV_MEDIUM_ID(out_dev);
+		in_dev_put(out_dev);
+	}
+	return (omi != imi && omi != -1);
+}
+
+/*
  *	Interface to link layer: send routine and receive handler.
  */
 
@@ -487,7 +513,7 @@ void arp_send(int type, int ptype, u32 dest_ip,
 	skb->nh.raw = skb->data;
 	arp = (struct arphdr *) skb_put(skb,sizeof(struct arphdr) + 2*(dev->addr_len+4));
 	skb->dev = dev;
-	skb->protocol = __constant_htons (ETH_P_ARP);
+	skb->protocol = htons (ETH_P_ARP);
 	if (src_hw == NULL)
 		src_hw = dev->dev_addr;
 	if (dest_hw == NULL)
@@ -513,33 +539,33 @@ void arp_send(int type, int ptype, u32 dest_ip,
 	switch (dev->type) {
 	default:
 		arp->ar_hrd = htons(dev->type);
-		arp->ar_pro = __constant_htons(ETH_P_IP);
+		arp->ar_pro = htons(ETH_P_IP);
 		break;
 
 #if defined(CONFIG_AX25) || defined(CONFIG_AX25_MODULE)
 	case ARPHRD_AX25:
-		arp->ar_hrd = __constant_htons(ARPHRD_AX25);
-		arp->ar_pro = __constant_htons(AX25_P_IP);
+		arp->ar_hrd = htons(ARPHRD_AX25);
+		arp->ar_pro = htons(AX25_P_IP);
 		break;
 
 #if defined(CONFIG_NETROM) || defined(CONFIG_NETROM_MODULE)
 	case ARPHRD_NETROM:
-		arp->ar_hrd = __constant_htons(ARPHRD_NETROM);
-		arp->ar_pro = __constant_htons(AX25_P_IP);
+		arp->ar_hrd = htons(ARPHRD_NETROM);
+		arp->ar_pro = htons(AX25_P_IP);
 		break;
 #endif
 #endif
 
 #ifdef CONFIG_FDDI
 	case ARPHRD_FDDI:
-		arp->ar_hrd = __constant_htons(ARPHRD_ETHER);
-		arp->ar_pro = __constant_htons(ETH_P_IP);
+		arp->ar_hrd = htons(ARPHRD_ETHER);
+		arp->ar_pro = htons(ETH_P_IP);
 		break;
 #endif
 #ifdef CONFIG_TR
 	case ARPHRD_IEEE802_TR:
-		arp->ar_hrd = __constant_htons(ARPHRD_IEEE802);
-		arp->ar_pro = __constant_htons(ETH_P_IP);
+		arp->ar_hrd = htons(ARPHRD_IEEE802);
+		arp->ar_pro = htons(ETH_P_IP);
 		break;
 #endif
 	}
@@ -561,7 +587,8 @@ void arp_send(int type, int ptype, u32 dest_ip,
 	arp_ptr+=dev->addr_len;
 	memcpy(arp_ptr, &dest_ip, 4);
 
-	dev_queue_xmit(skb);
+	/* Send it off, maybe filter it using firewalling first.  */
+	NF_HOOK(NF_ARP, NF_ARP_OUT, skb, NULL, dev, dev_queue_xmit);
 	return;
 
 out:
@@ -574,49 +601,35 @@ static void parp_redo(struct sk_buff *skb)
 }
 
 /*
- *	Receive an arp request by the device layer.
+ *	Process an arp request.
  */
 
-int arp_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt)
+int arp_process(struct sk_buff *skb)
 {
-	struct arphdr *arp = skb->nh.arph;
-	unsigned char *arp_ptr= (unsigned char *)(arp+1);
+	struct net_device *dev = skb->dev;
+	struct in_device *in_dev = in_dev_get(dev);
+	struct arphdr *arp;
+	unsigned char *arp_ptr;
 	struct rtable *rt;
 	unsigned char *sha, *tha;
 	u32 sip, tip;
 	u16 dev_type = dev->type;
 	int addr_type;
-	struct in_device *in_dev = in_dev_get(dev);
 	struct neighbour *n;
 
-/*
- *	The hardware length of the packet should match the hardware length
- *	of the device.  Similarly, the hardware types should match.  The
- *	device should be ARP-able.  Also, if pln is not 4, then the lookup
- *	is not from an IP number.  We can't currently handle this, so toss
- *	it. 
- */  
-	if (in_dev == NULL ||
-	    arp->ar_hln != dev->addr_len    || 
-	    dev->flags & IFF_NOARP ||
-	    skb->pkt_type == PACKET_OTHERHOST ||
-	    skb->pkt_type == PACKET_LOOPBACK ||
-	    arp->ar_pln != 4)
+	/* arp_rcv below verifies the ARP header, verifies the device
+	 * is ARP'able, and linearizes the SKB (if needed).
+	 */
+
+	if (in_dev == NULL)
 		goto out;
 
-	if ((skb = skb_share_check(skb, GFP_ATOMIC)) == NULL)
-		goto out_of_mem;
-
-	if (skb_is_nonlinear(skb)) {
-		if (skb_linearize(skb, GFP_ATOMIC) != 0)
-			goto freeskb;
-		arp = skb->nh.arph;
-		arp_ptr= (unsigned char *)(arp+1);
-	}
+	arp = skb->nh.arph;
+	arp_ptr= (unsigned char *)(arp+1);
 
 	switch (dev_type) {
 	default:	
-		if (arp->ar_pro != __constant_htons(ETH_P_IP))
+		if (arp->ar_pro != htons(ETH_P_IP))
 			goto out;
 		if (htons(dev_type) != arp->ar_hrd)
 			goto out;
@@ -627,10 +640,10 @@ int arp_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt)
 		 * ETHERNET devices will accept ARP hardware types of either
 		 * 1 (Ethernet) or 6 (IEEE 802.2).
 		 */
-		if (arp->ar_hrd != __constant_htons(ARPHRD_ETHER) &&
-		    arp->ar_hrd != __constant_htons(ARPHRD_IEEE802))
+		if (arp->ar_hrd != htons(ARPHRD_ETHER) &&
+		    arp->ar_hrd != htons(ARPHRD_IEEE802))
 			goto out;
-		if (arp->ar_pro != __constant_htons(ETH_P_IP))
+		if (arp->ar_pro != htons(ETH_P_IP))
 			goto out;
 		break;
 #endif
@@ -640,10 +653,10 @@ int arp_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt)
 		 * Token ring devices will accept ARP hardware types of either
 		 * 1 (Ethernet) or 6 (IEEE 802.2).
 		 */
-		if (arp->ar_hrd != __constant_htons(ARPHRD_ETHER) &&
-		    arp->ar_hrd != __constant_htons(ARPHRD_IEEE802))
+		if (arp->ar_hrd != htons(ARPHRD_ETHER) &&
+		    arp->ar_hrd != htons(ARPHRD_IEEE802))
 			goto out;
-		if (arp->ar_pro != __constant_htons(ETH_P_IP))
+		if (arp->ar_pro != htons(ETH_P_IP))
 			goto out;
 		break;
 #endif
@@ -654,10 +667,10 @@ int arp_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt)
 		 * of 1 (Ethernet).  However, to be more robust, we'll accept hardware
 		 * types of either 1 (Ethernet) or 6 (IEEE 802.2).
 		 */
-		if (arp->ar_hrd != __constant_htons(ARPHRD_ETHER) &&
-		    arp->ar_hrd != __constant_htons(ARPHRD_IEEE802))
+		if (arp->ar_hrd != htons(ARPHRD_ETHER) &&
+		    arp->ar_hrd != htons(ARPHRD_IEEE802))
 			goto out;
-		if (arp->ar_pro != __constant_htons(ETH_P_IP))
+		if (arp->ar_pro != htons(ETH_P_IP))
 			goto out;
 		break;
 #endif
@@ -668,25 +681,25 @@ int arp_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt)
 		 * 802 devices) should accept ARP hardware types of 6 (IEEE 802)
 		 * and 1 (Ethernet).
 		 */
-		if (arp->ar_hrd != __constant_htons(ARPHRD_ETHER) &&
-		    arp->ar_hrd != __constant_htons(ARPHRD_IEEE802))
+		if (arp->ar_hrd != htons(ARPHRD_ETHER) &&
+		    arp->ar_hrd != htons(ARPHRD_IEEE802))
 			goto out;
-		if (arp->ar_pro != __constant_htons(ETH_P_IP))
+		if (arp->ar_pro != htons(ETH_P_IP))
 			goto out;
 		break;
 #endif
 #if defined(CONFIG_AX25) || defined(CONFIG_AX25_MODULE)
 	case ARPHRD_AX25:
-		if (arp->ar_pro != __constant_htons(AX25_P_IP))
+		if (arp->ar_pro != htons(AX25_P_IP))
 			goto out;
-		if (arp->ar_hrd != __constant_htons(ARPHRD_AX25))
+		if (arp->ar_hrd != htons(ARPHRD_AX25))
 			goto out;
 		break;
 #if defined(CONFIG_NETROM) || defined(CONFIG_NETROM_MODULE)
 	case ARPHRD_NETROM:
-		if (arp->ar_pro != __constant_htons(AX25_P_IP))
+		if (arp->ar_pro != htons(AX25_P_IP))
 			goto out;
-		if (arp->ar_hrd != __constant_htons(ARPHRD_NETROM))
+		if (arp->ar_hrd != htons(ARPHRD_NETROM))
 			goto out;
 		break;
 #endif
@@ -695,8 +708,8 @@ int arp_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt)
 
 	/* Understand only these message types */
 
-	if (arp->ar_op != __constant_htons(ARPOP_REPLY) &&
-	    arp->ar_op != __constant_htons(ARPOP_REQUEST))
+	if (arp->ar_op != htons(ARPOP_REPLY) &&
+	    arp->ar_op != htons(ARPOP_REQUEST))
 		goto out;
 
 /*
@@ -741,13 +754,13 @@ int arp_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt)
 
 	/* Special case: IPv4 duplicate address detection packet (RFC2131) */
 	if (sip == 0) {
-		if (arp->ar_op == __constant_htons(ARPOP_REQUEST) &&
+		if (arp->ar_op == htons(ARPOP_REQUEST) &&
 		    inet_addr_type(tip) == RTN_LOCAL)
 			arp_send(ARPOP_REPLY,ETH_P_ARP,tip,dev,tip,sha,dev->dev_addr,dev->dev_addr);
 		goto out;
 	}
 
-	if (arp->ar_op == __constant_htons(ARPOP_REQUEST) &&
+	if (arp->ar_op == htons(ARPOP_REQUEST) &&
 	    ip_route_input(skb, tip, sip, 0, dev) == 0) {
 
 		rt = (struct rtable*)skb->dst;
@@ -768,7 +781,7 @@ int arp_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt)
 		} else if (IN_DEV_FORWARD(in_dev)) {
 			if ((rt->rt_flags&RTCF_DNAT) ||
 			    (addr_type == RTN_UNICAST  && rt->u.dst.dev != dev &&
-			     (IN_DEV_PROXY_ARP(in_dev) || pneigh_lookup(&arp_tbl, &tip, dev, 0)))) {
+			     (arp_fwd_proxy(in_dev, rt) || pneigh_lookup(&arp_tbl, &tip, dev, 0)))) {
 				n = neigh_event_ns(&arp_tbl, sha, &sip, dev);
 				if (n)
 					neigh_release(n);
@@ -797,7 +810,7 @@ int arp_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt)
 	   devices (strip is candidate)
 	 */
 	if (n == NULL &&
-	    arp->ar_op == __constant_htons(ARPOP_REPLY) &&
+	    arp->ar_op == htons(ARPOP_REPLY) &&
 	    inet_addr_type(sip) == RTN_UNICAST)
 		n = __neigh_lookup(&arp_tbl, &sip, dev, -1);
 #endif
@@ -817,7 +830,7 @@ int arp_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt)
 		/* Broadcast replies and request packets
 		   do not assert neighbour reachability.
 		 */
-		if (arp->ar_op != __constant_htons(ARPOP_REPLY) ||
+		if (arp->ar_op != htons(ARPOP_REPLY) ||
 		    skb->pkt_type != PACKET_HOST)
 			state = NUD_STALE;
 		neigh_update(n, sha, state, override, 1);
@@ -827,13 +840,41 @@ int arp_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt)
 out:
 	if (in_dev)
 		in_dev_put(in_dev);
+	kfree_skb(skb);
+	return 0;
+}
+
+
+/*
+ *	Receive an arp request from the device layer.
+ */
+
+int arp_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt)
+{
+	struct arphdr *arp = skb->nh.arph;
+
+	if (arp->ar_hln != dev->addr_len ||
+	    dev->flags & IFF_NOARP ||
+	    skb->pkt_type == PACKET_OTHERHOST ||
+	    skb->pkt_type == PACKET_LOOPBACK ||
+	    arp->ar_pln != 4)
+		goto freeskb;
+
+	if ((skb = skb_share_check(skb, GFP_ATOMIC)) == NULL)
+		goto out_of_mem;
+
+	if (skb_is_nonlinear(skb)) {
+		if (skb_linearize(skb, GFP_ATOMIC) != 0)
+			goto freeskb;
+	}
+
+	return NF_HOOK(NF_ARP, NF_ARP_IN, skb, dev, NULL, arp_process);
+
 freeskb:
 	kfree_skb(skb);
 out_of_mem:
 	return 0;
 }
-
-
 
 /*
  *	User level interface (ioctl, /proc)
@@ -1009,7 +1050,7 @@ int arp_ioctl(unsigned int cmd, void *arg)
 	    (r.arp_flags & (ATF_NETMASK|ATF_DONTPUB)))
 		return -EINVAL;
 	if (!(r.arp_flags & ATF_NETMASK))
-		((struct sockaddr_in *)&r.arp_netmask)->sin_addr.s_addr=__constant_htonl(0xFFFFFFFFUL);
+		((struct sockaddr_in *)&r.arp_netmask)->sin_addr.s_addr=htonl(0xFFFFFFFFUL);
 
 	rtnl_lock();
 	if (r.arp_dev[0]) {

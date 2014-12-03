@@ -28,8 +28,10 @@
 #include <asm/irq.h>
 #include <asm/mips-boards/generic.h>
 #include <asm/mips-boards/prom.h>
-#include <asm/gt64120.h>
 #include <asm/mips-boards/atlasint.h>
+#include <asm/gt64120.h>
+#include <asm/time.h>
+#include <asm/traps.h>
 
 #if defined(CONFIG_SERIAL_CONSOLE) || defined(CONFIG_PROM_CONSOLE)
 extern void console_setup(char *, int *);
@@ -46,6 +48,19 @@ int remote_debug = 0;
 extern struct rtc_ops atlas_rtc_ops;
 
 extern void mips_reboot_setup(void);
+
+const char *get_system_type(void)
+{
+	return "MIPS Atlas";
+}
+
+void __init bus_error_init(void)
+{
+}
+
+extern void mips_time_init(void);
+extern void mips_timer_setup(struct irqaction *irq);
+extern unsigned long mips_rtc_get_time(void);
 
 void __init atlas_setup(void)
 {
@@ -73,7 +88,7 @@ void __init atlas_setup(void)
 		prom_printf("Config serial console: %s\n", serial_console);
 		console_setup(serial_console, NULL);
 	}
-#endif	  
+#endif
 
 #ifdef CONFIG_REMOTE_DEBUG
 	argptr = prom_getcmdline();
@@ -110,6 +125,9 @@ void __init atlas_setup(void)
 		mips_cpu.options &= ~MIPS_CPU_FPU;
 
 	rtc_ops = &atlas_rtc_ops;
+	board_time_init = mips_time_init;
+	board_timer_setup = mips_timer_setup;
+	rtc_get_time = mips_rtc_get_time;
 
 	mips_reboot_setup();
 }

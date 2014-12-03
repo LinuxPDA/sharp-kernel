@@ -66,6 +66,10 @@ static int locate_fd(struct files_struct *files,
 
 	write_lock(&files->file_lock);
 	
+	error = -EINVAL;
+	if (orig_start >= current->rlim[RLIMIT_NOFILE].rlim_cur)
+		goto out;
+
 repeat:
 	/*
 	 * Someone might have closed fd's in the range
@@ -409,7 +413,7 @@ static void send_sigio_to_task(struct task_struct *p,
 			   back to SIGIO in that case. --sct */
 			si.si_signo = fown->signum;
 			si.si_errno = 0;
-		        si.si_code  = reason & ~__SI_MASK;
+		        si.si_code  = reason;
 			/* Make sure we are called with one of the POLL_*
 			   reasons, otherwise we could leak kernel stack into
 			   userspace.  */
@@ -525,7 +529,7 @@ void kill_fasync(struct fasync_struct **fp, int sig, int band)
 
 static int __init fasync_init(void)
 {
-	fasync_cache = kmem_cache_create("fasync cache",
+	fasync_cache = kmem_cache_create("fasync_cache",
 		sizeof(struct fasync_struct), 0, 0, NULL, NULL);
 	if (!fasync_cache)
 		panic("cannot create fasync slab cache");

@@ -125,6 +125,7 @@ static int gx_fix;
 #include <linux/etherdevice.h>
 #include <linux/skbuff.h>
 #include <linux/ethtool.h>
+#include <linux/crc32.h>
 #include <asm/uaccess.h>
 #include <asm/processor.h>		/* Processor type for cache alignment. */
 #include <asm/unaligned.h>
@@ -1019,17 +1020,11 @@ static void yellowfin_interrupt(int irq, void *dev_instance, struct pt_regs *reg
 					if (tx_errs & 0x0800) yp->stats.tx_carrier_errors++;
 					if (tx_errs & 0x2000) yp->stats.tx_window_errors++;
 					if (tx_errs & 0x8000) yp->stats.tx_fifo_errors++;
-#ifdef ETHER_STATS
-					if (tx_errs & 0x1000) yp->stats.collisions16++;
-#endif
 				} else {
 #ifndef final_version
 					if (yellowfin_debug > 4)
 						printk(KERN_DEBUG "%s: Normal transmit, Tx status %4.4x.\n",
 							   dev->name, tx_errs);
-#endif
-#ifdef ETHER_STATS
-					if (tx_errs & 0x0400) yp->stats.tx_deferred++;
 #endif
 					yp->stats.tx_bytes += skb->len;
 					yp->stats.collisions += tx_errs & 15;
@@ -1338,29 +1333,6 @@ static struct net_device_stats *yellowfin_get_stats(struct net_device *dev)
 }
 
 /* Set or clear the multicast filter for this adaptor. */
-
-/* The little-endian AUTODIN32 ethernet CRC calculation.
-   N.B. Do not use for bulk data, use a table-based routine instead.
-   This is common code and should be moved to net/core/crc.c */
-static unsigned const ethernet_polynomial_le = 0xedb88320U;
-
-static inline unsigned ether_crc_le(int length, unsigned char *data)
-{
-	unsigned int crc = 0xffffffff;	/* Initial value. */
-	while(--length >= 0) {
-		unsigned char current_octet = *data++;
-		int bit;
-		for (bit = 8; --bit >= 0; current_octet >>= 1) {
-			if ((crc ^ current_octet) & 1) {
-				crc >>= 1;
-				crc ^= ethernet_polynomial_le;
-			} else
-				crc >>= 1;
-		}
-	}
-	return crc;
-}
-
 
 static void set_rx_mode(struct net_device *dev)
 {

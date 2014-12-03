@@ -124,9 +124,6 @@ static __inline__ void tcp_measure_rcv_mss(struct tcp_opt *tp, struct sk_buff *s
 	len = skb->len;
 	if (len >= tp->ack.rcv_mss) {
 		tp->ack.rcv_mss = len;
-		/* Dubious? Rather, it is final cut. 8) */
-		if (tcp_flag_word(skb->h.th)&TCP_REMNANT)
-			tp->ack.pending |= TCP_ACK_PUSHED;
 	} else {
 		/* Otherwise, we make more careful check taking into account,
 		 * that SACKs block is variable.
@@ -461,13 +458,13 @@ static __inline__ void tcp_rtt_estimator(struct tcp_opt *tp, __u32 mrtt)
 		if (after(tp->snd_una, tp->rtt_seq)) {
 			if (tp->mdev_max < tp->rttvar)
 				tp->rttvar -= (tp->rttvar-tp->mdev_max)>>2;
-			tp->rtt_seq = tp->snd_una;
+			tp->rtt_seq = tp->snd_nxt;
 			tp->mdev_max = TCP_RTO_MIN;
 		}
 	} else {
 		/* no previous measure. */
 		tp->srtt = m<<3;	/* take the measured time to be rtt */
-		tp->mdev = m<<2;	/* make sure rto = 3*rtt */
+		tp->mdev = m<<1;	/* make sure rto = 3*rtt */
 		tp->mdev_max = tp->rttvar = max(tp->mdev, TCP_RTO_MIN);
 		tp->rtt_seq = tp->snd_nxt;
 	}
@@ -1763,6 +1760,7 @@ static int tcp_clean_rtx_queue(struct sock *sk)
 			acked |= FLAG_DATA_ACKED;
 		} else {
 			acked |= FLAG_SYN_ACKED;
+			tp->retrans_stamp = 0;
 		}
 
 		if (sacked) {
@@ -2085,8 +2083,8 @@ static __inline__ int tcp_fast_parse_options(struct sk_buff *skb, struct tcphdr 
 	} else if (tp->tstamp_ok &&
 		   th->doff == (sizeof(struct tcphdr)>>2)+(TCPOLEN_TSTAMP_ALIGNED>>2)) {
 		__u32 *ptr = (__u32 *)(th + 1);
-		if (*ptr == __constant_ntohl((TCPOPT_NOP << 24) | (TCPOPT_NOP << 16)
-					     | (TCPOPT_TIMESTAMP << 8) | TCPOLEN_TIMESTAMP)) {
+		if (*ptr == ntohl((TCPOPT_NOP << 24) | (TCPOPT_NOP << 16)
+				  | (TCPOPT_TIMESTAMP << 8) | TCPOLEN_TIMESTAMP)) {
 			tp->saw_tstamp = 1;
 			++ptr;
 			tp->rcv_tsval = ntohl(*ptr);
@@ -3254,8 +3252,8 @@ int tcp_rcv_established(struct sock *sk, struct sk_buff *skb,
 			__u32 *ptr = (__u32 *)(th + 1);
 
 			/* No? Slow path! */
-			if (*ptr != __constant_ntohl((TCPOPT_NOP << 24) | (TCPOPT_NOP << 16)
-						     | (TCPOPT_TIMESTAMP << 8) | TCPOLEN_TIMESTAMP))
+			if (*ptr != ntohl((TCPOPT_NOP << 24) | (TCPOPT_NOP << 16)
+					   | (TCPOPT_TIMESTAMP << 8) | TCPOLEN_TIMESTAMP))
 				goto slow_path;
 
 			tp->saw_tstamp = 1;
@@ -3268,17 +3266,24 @@ int tcp_rcv_established(struct sock *sk, struct sk_buff *skb,
 			if ((s32)(tp->rcv_tsval - tp->ts_recent) < 0)
 				goto slow_path;
 
-			/* Predicted packet is in window by definition.
-			 * seq == rcv_nxt and rcv_wup <= rcv_nxt.
-			 * Hence, check seq<=rcv_wup reduces to:
+			/* DO NOT update ts_recent here, if checksum fails
+			 * and timestamp was corrupted part, it will result
+			 * in a hung connection since we will drop all
+			 * future packets due to the PAWS test.
 			 */
-			if (tp->rcv_nxt == tp->rcv_wup)
-				tcp_store_ts_recent(tp);
 		}
 
 		if (len <= tcp_header_len) {
 			/* Bulk data transfer: sender */
 			if (len == tcp_header_len) {
+				/* Predicted packet is in window by definition.
+				 * seq == rcv_nxt and rcv_wup <= rcv_nxt.
+				 * Hence, check seq<=rcv_wup reduces to:
+				 */
+				if (tcp_header_len ==
+				    (sizeof(struct tcphdr) + TCPOLEN_TSTAMP_ALIGNED) &&
+				    tp->rcv_nxt == tp->rcv_wup)
+					tcp_store_ts_recent(tp);
 				/* We know that such packets are checksummed
 				 * on entry.
 				 */
@@ -3300,6 +3305,16 @@ int tcp_rcv_established(struct sock *sk, struct sk_buff *skb,
 				__set_current_state(TASK_RUNNING);
 
 				if (!tcp_copy_to_iovec(sk, skb, tcp_header_len)) {
+					/* Predicted packet is in window by definition.
+					 * seq == rcv_nxt and rcv_wup <= rcv_nxt.
+					 * Hence, check seq<=rcv_wup reduces to:
+					 */
+					if (tcp_header_len ==
+					    (sizeof(struct tcphdr) +
+					     TCPOLEN_TSTAMP_ALIGNED) &&
+					    tp->rcv_nxt == tp->rcv_wup)
+						tcp_store_ts_recent(tp);
+
 					__skb_pull(skb, tcp_header_len);
 					tp->rcv_nxt = TCP_SKB_CB(skb)->end_seq;
 					NET_INC_STATS_BH(TCPHPHitsToUser);
@@ -3309,6 +3324,15 @@ int tcp_rcv_established(struct sock *sk, struct sk_buff *skb,
 			if (!eaten) {
 				if (tcp_checksum_complete_user(sk, skb))
 					goto csum_error;
+
+				/* Predicted packet is in window by definition.
+				 * seq == rcv_nxt and rcv_wup <= rcv_nxt.
+				 * Hence, check seq<=rcv_wup reduces to:
+				 */
+				if (tcp_header_len ==
+				    (sizeof(struct tcphdr) + TCPOLEN_TSTAMP_ALIGNED) &&
+				    tp->rcv_nxt == tp->rcv_wup)
+					tcp_store_ts_recent(tp);
 
 				if ((int)skb->truesize > sk->forward_alloc)
 					goto step5;
@@ -3669,6 +3693,9 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb,
 		if(th->ack)
 			return 1;
 
+		if(th->rst)
+			goto discard;
+
 		if(th->syn) {
 			if(tp->af_specific->conn_request(sk, skb) < 0)
 				return 1;
@@ -3850,6 +3877,7 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb,
 	switch (sk->state) {
 	case TCP_CLOSE_WAIT:
 	case TCP_CLOSING:
+	case TCP_LAST_ACK:
 		if (!before(TCP_SKB_CB(skb)->seq, tp->rcv_nxt))
 			break;
 	case TCP_FIN_WAIT1:

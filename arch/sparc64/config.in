@@ -1,4 +1,4 @@
-# $Id: config.in,v 1.156 2001/11/30 00:17:32 davem Exp $
+# $Id: config.in,v 1.156.2.2 2002/03/14 01:26:21 kanoj Exp $
 # For a description of the syntax of this configuration file,
 # see the Configure script.
 #
@@ -262,10 +262,10 @@ endmenu
 
 mainmenu_option next_comment
 comment 'XFree86 DRI support'
-bool 'Direct Rendering Manager (XFree86 DRI support)' CONFIG_DRM
-dep_tristate '  Creator/Creator3D' CONFIG_DRM_FFB $CONFIG_DRM
-dep_tristate '  3dfx Banshee/Voodoo3+' CONFIG_DRM_TDFX $CONFIG_DRM
-dep_tristate '  ATI Rage 128' CONFIG_DRM_R128 $CONFIG_DRM
+bool 'Direct Rendering Manager (XFree86 DRI support)' CONFIG_DRM_NEW
+dep_tristate '  Creator/Creator3D' CONFIG_DRM_FFB $CONFIG_DRM_NEW
+dep_tristate '  3dfx Banshee/Voodoo3+' CONFIG_DRM_TDFX $CONFIG_DRM_NEW
+dep_tristate '  ATI Rage 128' CONFIG_DRM_R128 $CONFIG_DRM_NEW
 endmenu
 
 source drivers/input/Config.in
@@ -283,9 +283,7 @@ endmenu
 
 source drivers/usb/Config.in
 
-if [ "$CONFIG_EXPERIMENTAL" = "y" ]; then
-   source net/bluetooth/Config.in
-fi
+source net/bluetooth/Config.in
 
 mainmenu_option next_comment
 comment 'Watchdog'
@@ -304,5 +302,11 @@ if [ "$CONFIG_DEBUG_KERNEL" != "n" ]; then
    bool '  Verbose BUG() reporting (adds 70K)' CONFIG_DEBUG_BUGVERBOSE
    bool '  D-cache flush debugging' CONFIG_DEBUG_DCFLUSH
 fi
+bool 'Stack Overflow Detection Support' CONFIG_STACK_DEBUG
+if [ "$CONFIG_STACK_DEBUG" = "y" ] ; then
+   define_bool CONFIG_MCOUNT y
+fi
 
 endmenu
+
+source lib/Config.in

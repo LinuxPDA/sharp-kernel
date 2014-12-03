@@ -6,13 +6,10 @@
 # unless it's something special (ie not a .c file).
 #
 
-.S.s:
-	$(CPP) $(CFLAGS) $< -o $*.s
-.S.o:
-	$(CC) $(CFLAGS) -c $< -o $*.o
+USE_STANDARD_AS_RULE := true
 
 O_TARGET:= ddb5xxx.o
 
-obj-y	 += irq.o irq_cpu.o nile4.o prom.o pci.o pci_auto.o rtc_ds1386.o
+obj-y	 += irq.o nile4.o prom.o rtc_ds1386.o
 
 include $(TOPDIR)/Rules.make

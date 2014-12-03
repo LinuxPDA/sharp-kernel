@@ -228,7 +228,7 @@
 #define MSU_SN0_SLOTID_MASK	(UINT64_CAST 7)
 #define MSU_SN00_SLOTID_SHFT	7
 #define MSU_SN00_SLOTID_MASK	(UINT64_CAST 0x80)
-	
+
 #define	MSU_PIMM_PSC_SHFT	4
 #define	MSU_PIMM_PSC_MASK	(0xf << MSU_PIMM_PSC_SHFT)
 
@@ -424,7 +424,7 @@
  * Operations on page migration threshold register
  */
 
-#if _LANGUAGE_C
+#ifndef __ASSEMBLY__
 #ifndef _STANDALONE
 
 /*
@@ -739,7 +739,7 @@ typedef union md_perf_cnt {
 } md_perf_cnt_t;
 
 
-#endif /* _LANGUAGE_C */
+#endif /* !__ASSEMBLY__ */
 
 
 #define DIR_ERROR_VALID_MASK	0xe000000000000000

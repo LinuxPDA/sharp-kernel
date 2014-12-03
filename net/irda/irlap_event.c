@@ -174,6 +174,12 @@ static void irlap_poll_timer_expired(void *data)
 	irlap_do_event(self, POLL_TIMER_EXPIRED, NULL, NULL);
 }
 
+/*
+ * Calculate and set time before we will have to send back the pf bit
+ * to the peer. Use in primary.
+ * Make sure that state is XMIT_P/XMIT_S when calling this function
+ * (and that nobody messed up with the state). - Jean II
+ */
 void irlap_start_poll_timer(struct irlap_cb *self, int timeout)
 {
 	ASSERT(self != NULL, return;);
@@ -252,6 +258,9 @@ void irlap_do_event(struct irlap_cb *self, IRLAP_EVENT event,
 		 * that will change the state away form XMIT
 		 */
 		if (skb_queue_len(&self->txq)) {
+			/* Prevent race conditions with irlap_data_request() */
+			self->local_busy = TRUE;
+
 			/* Try to send away all queued data frames */
 			while ((skb = skb_dequeue(&self->txq)) != NULL) {
 				ret = (*state[self->state])(self, SEND_I_CMD,
@@ -260,6 +269,8 @@ void irlap_do_event(struct irlap_cb *self, IRLAP_EVENT event,
 				if (ret == -EPROTO)
 					break; /* Try again later! */
 			}
+			/* Finished transmitting */
+			self->local_busy = FALSE;
 		} else if (self->disconnect_pending) {
 			self->disconnect_pending = FALSE;
 			
@@ -282,25 +293,15 @@ void irlap_do_event(struct irlap_cb *self, IRLAP_EVENT event,
  *    Switches state and provides debug information
  *
  */
-void irlap_next_state(struct irlap_cb *self, IRLAP_STATE state) 
+static inline void irlap_next_state(struct irlap_cb *self, IRLAP_STATE state) 
 {	
+	/*
 	if (!self || self->magic != LAP_MAGIC)
 		return;
 	
 	IRDA_DEBUG(4, "next LAP state = %s\n", irlap_state[state]);
-
+	*/
 	self->state = state;
-
-#ifdef CONFIG_IRDA_DYNAMIC_WINDOW
-	/*
-	 *  If we are swithing away from a XMIT state then we are allowed to 
-	 *  transmit a maximum number of bytes again when we enter the XMIT 
-	 *  state again. Since its possible to "switch" from XMIT to XMIT,
-	 *  we cannot do this when swithing into the XMIT state :-)
-	 */
-	if ((state != LAP_XMIT_P) && (state != LAP_XMIT_S))
-		self->bytes_left = self->line_capacity;
-#endif /* CONFIG_IRDA_DYNAMIC_WINDOW */
 }
 
 /*
@@ -1017,6 +1018,12 @@ static int irlap_state_xmit_p(struct irlap_cb *self, IRLAP_EVENT event,
 		IRDA_DEBUG(3, __FUNCTION__ "(), POLL_TIMER_EXPIRED (%ld)\n",
 			   jiffies);
 		irlap_send_rr_frame(self, CMD_FRAME);
+		/* Return to NRM properly - Jean II  */
+		self->window = self->window_size;
+#ifdef CONFIG_IRDA_DYNAMIC_WINDOW
+		/* Allowed to transmit a maximum number of bytes again. */
+		self->bytes_left = self->line_capacity;
+#endif /* CONFIG_IRDA_DYNAMIC_WINDOW */
 		irlap_start_final_timer(self, self->final_timeout);
 		irlap_next_state(self, LAP_NRM_P);
 		break;
@@ -1028,6 +1035,10 @@ static int irlap_state_xmit_p(struct irlap_cb *self, IRLAP_EVENT event,
 		irlap_start_final_timer(self, self->final_timeout);
 		self->retry_count = 0;
 		irlap_next_state(self, LAP_PCLOSE);
+		break;
+	case DATA_REQUEST:
+		/* Nothing to do, irlap_do_event() will send the packet
+		 * when we return... - Jean II */
 		break;
 	default:
 		IRDA_DEBUG(0, __FUNCTION__ "(), Unknown event %s\n", 
@@ -1158,15 +1169,26 @@ static int irlap_state_nrm_p(struct irlap_cb *self, IRLAP_EVENT event,
 				self->ack_required = TRUE;
 			
 				irlap_wait_min_turn_around(self, &self->qos_tx);
-				/* 
-				 * Important to switch state before calling
-				 * upper layers
+
+				/* Call higher layer *before* changing state
+				 * to give them a chance to send data in the
+				 * next LAP frame.
+				 * Jean II */
+				irlap_data_indication(self, skb, FALSE);
+
+				/* XMIT states are the most dangerous state
+				 * to be in, because user requests are
+				 * processed directly and may change state.
+				 * On the other hand, in NDM_P, those
+				 * requests are queued and we will process
+				 * them when we return to irlap_do_event().
+				 * Jean II
 				 */
 				irlap_next_state(self, LAP_XMIT_P);
 
-				irlap_data_indication(self, skb, FALSE);
-
-				/* This is the last frame */
+				/* This is the last frame.
+				 * Make sure it's always called in XMIT state.
+				 * - Jean II */
 				irlap_start_poll_timer(self, self->poll_timeout);
 			}
 			break;
@@ -1304,6 +1326,7 @@ static int irlap_state_nrm_p(struct irlap_cb *self, IRLAP_EVENT event,
 		} else {
 			del_timer(&self->final_timer);
 			irlap_data_indication(self, skb, TRUE);
+			irlap_next_state(self, LAP_XMIT_P);
 			printk(__FUNCTION__ "(): RECV_UI_FRAME: next state %s\n", irlap_state[self->state]);
 			irlap_start_poll_timer(self, self->poll_timeout);
 		}
@@ -1645,12 +1668,17 @@ static int irlap_state_xmit_s(struct irlap_cb *self, IRLAP_EVENT event,
 			 */
 			if (skb->len > self->bytes_left) {
 				skb_queue_head(&self->txq, skb_get(skb));
+
 				/*
 				 *  Switch to NRM_S, this is only possible
 				 *  when we are in secondary mode, since we 
 				 *  must be sure that we don't miss any RR
 				 *  frames
 				 */
+				self->window = self->window_size;
+				self->bytes_left = self->line_capacity;
+				irlap_start_wd_timer(self, self->wd_timeout);
+
 				irlap_next_state(self, LAP_NRM_S);
 
 				return -EPROTO; /* Try again later */
@@ -1687,6 +1715,10 @@ static int irlap_state_xmit_s(struct irlap_cb *self, IRLAP_EVENT event,
 		irlap_flush_all_queues(self);
 		irlap_start_wd_timer(self, self->wd_timeout);
 		irlap_next_state(self, LAP_SCLOSE);
+		break;
+	case DATA_REQUEST:
+		/* Nothing to do, irlap_do_event() will send the packet
+		 * when we return... - Jean II */
 		break;
 	default:
 		IRDA_DEBUG(2, __FUNCTION__ "(), Unknown event %s\n", 

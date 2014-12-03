@@ -123,6 +123,7 @@ struct drive_list_entry drive_blacklist [] = {
 
 	{ "WDC AC11000H"	,	"ALL"		},
 	{ "WDC AC22100H"	,	"ALL"		},
+	{ "WDC AC31000H"	,	"ALL"		},
 	{ "WDC AC32500H"	,	"ALL"		},
 	{ "WDC AC33100H"	,	"ALL"		},
 	{ "WDC AC31600H"	,	"ALL"		},
@@ -251,34 +252,85 @@ static int ide_build_sglist (ide_hwif_t *hwif, struct request *rq)
 {
 	struct buffer_head *bh;
 	struct scatterlist *sg = hwif->sg_table;
+	unsigned long lastdataend = ~0UL;
 	int nents = 0;
 
 	if (hwif->sg_dma_active)
 		BUG();
-		
+
 	if (rq->cmd == READ)
 		hwif->sg_dma_direction = PCI_DMA_FROMDEVICE;
 	else
 		hwif->sg_dma_direction = PCI_DMA_TODEVICE;
+
 	bh = rq->bh;
 	do {
-		unsigned char *virt_addr = bh->b_data;
-		unsigned int size = bh->b_size;
+		struct scatterlist *sge;
 
+		/*
+		 * continue segment from before?
+		 */
+		if (bh_phys(bh) == lastdataend) {
+			sg[nents - 1].length += bh->b_size;
+			lastdataend += bh->b_size;
+			continue;
+		}
+
+		/*
+		 * start new segment
+		 */
 		if (nents >= PRD_ENTRIES)
 			return 0;
 
-		while ((bh = bh->b_reqnext) != NULL) {
-			if ((virt_addr + size) != (unsigned char *) bh->b_data)
-				break;
-			size += bh->b_size;
+		sge = &sg[nents];
+		memset(sge, 0, sizeof(*sge));
+
+		if (bh->b_page) {
+			sge->page = bh->b_page;
+			sge->offset = bh_offset(bh);
+		} else {
+			if (((unsigned long) bh->b_data) < PAGE_SIZE)
+				BUG();
+
+			sge->address = bh->b_data;
 		}
+
+		sge->length = bh->b_size;
+		lastdataend = bh_phys(bh) + bh->b_size;
+		nents++;
+	} while ((bh = bh->b_reqnext) != NULL);
+
+	return pci_map_sg(hwif->pci_dev, sg, nents, hwif->sg_dma_direction);
+}
+
+static int ide_raw_build_sglist (ide_hwif_t *hwif, struct request *rq)
+{
+	struct scatterlist *sg = hwif->sg_table;
+	int nents = 0;
+	ide_task_t *args = rq->special;
+	unsigned char *virt_addr = rq->buffer;
+	int sector_count = rq->nr_sectors;
+
+//	if ((args->tfRegister[IDE_COMMAND_OFFSET] == WIN_WRITEDMA) ||
+//	    (args->tfRegister[IDE_COMMAND_OFFSET] == WIN_WRITEDMA_EXT))
+	if (args->command_type == IDE_DRIVE_TASK_RAW_WRITE)
+		hwif->sg_dma_direction = PCI_DMA_TODEVICE;
+	else
+		hwif->sg_dma_direction = PCI_DMA_FROMDEVICE;
+	
+	if (sector_count > 128) {
 		memset(&sg[nents], 0, sizeof(*sg));
 		sg[nents].address = virt_addr;
-		sg[nents].length = size;
+		sg[nents].length = 128  * SECTOR_SIZE;
 		nents++;
-	} while (bh != NULL);
-
+		virt_addr = virt_addr + (128 * SECTOR_SIZE);
+		sector_count -= 128;
+	}
+	memset(&sg[nents], 0, sizeof(*sg));
+	sg[nents].address = virt_addr;
+	sg[nents].length =  sector_count  * SECTOR_SIZE;
+	nents++;
+   
 	return pci_map_sg(hwif->pci_dev, sg, nents, hwif->sg_dma_direction);
 }
 
@@ -299,13 +351,16 @@ int ide_build_dmatable (ide_drive_t *drive, ide_dma_action_t func)
 	int i;
 	struct scatterlist *sg;
 
-	HWIF(drive)->sg_nents = i = ide_build_sglist(HWIF(drive), HWGROUP(drive)->rq);
+	if (HWGROUP(drive)->rq->cmd == IDE_DRIVE_TASKFILE)
+		HWIF(drive)->sg_nents = i = ide_raw_build_sglist(HWIF(drive), HWGROUP(drive)->rq);
+	else
+		HWIF(drive)->sg_nents = i = ide_build_sglist(HWIF(drive), HWGROUP(drive)->rq);
 
 	if (!i)
 		return 0;
 
 	sg = HWIF(drive)->sg_table;
-	while (i && sg_dma_len(sg)) {
+	while (i) {
 		u32 cur_addr;
 		u32 cur_len;
 
@@ -319,36 +374,35 @@ int ide_build_dmatable (ide_drive_t *drive, ide_dma_action_t func)
 		 */
 
 		while (cur_len) {
-			if (count++ >= PRD_ENTRIES) {
-				printk("%s: DMA table too small\n", drive->name);
-				goto use_pio_instead;
-			} else {
-				u32 xcount, bcount = 0x10000 - (cur_addr & 0xffff);
+			u32 xcount, bcount = 0x10000 - (cur_addr & 0xffff);
+			
+			if (count++ >= PRD_ENTRIES)
+				BUG();
 
-				if (bcount > cur_len)
-					bcount = cur_len;
-				*table++ = cpu_to_le32(cur_addr);
-				xcount = bcount & 0xffff;
-				if (is_trm290_chipset)
-					xcount = ((xcount >> 2) - 1) << 16;
-				if (xcount == 0x0000) {
-					/* 
-					 * Most chipsets correctly interpret a length of 0x0000 as 64KB,
-					 * but at least one (e.g. CS5530) misinterprets it as zero (!).
-					 * So here we break the 64KB entry into two 32KB entries instead.
-					 */
-					if (count++ >= PRD_ENTRIES) {
-						printk("%s: DMA table too small\n", drive->name);
-						goto use_pio_instead;
-					}
-					*table++ = cpu_to_le32(0x8000);
-					*table++ = cpu_to_le32(cur_addr + 0x8000);
-					xcount = 0x8000;
-				}
-				*table++ = cpu_to_le32(xcount);
-				cur_addr += bcount;
-				cur_len -= bcount;
+			if (bcount > cur_len)
+				bcount = cur_len;
+			*table++ = cpu_to_le32(cur_addr);
+			xcount = bcount & 0xffff;
+			if (is_trm290_chipset)
+				xcount = ((xcount >> 2) - 1) << 16;
+			if (xcount == 0x0000) {
+				/* 
+				 * Most chipsets correctly interpret a length
+				 * of 0x0000 as 64KB, but at least one
+				 * (e.g. CS5530) misinterprets it as zero (!).
+				 * So here we break the 64KB entry into two
+				 * 32KB entries instead.
+				 */
+				if (count++ >= PRD_ENTRIES)
+					goto use_pio_instead;
+
+				*table++ = cpu_to_le32(0x8000);
+				*table++ = cpu_to_le32(cur_addr + 0x8000);
+				xcount = 0x8000;
 			}
+			*table++ = cpu_to_le32(xcount);
+			cur_addr += bcount;
+			cur_len -= bcount;
 		}
 
 		sg++;
@@ -429,7 +483,14 @@ int report_drive_dmaing (ide_drive_t *drive)
 	struct hd_driveid *id = drive->id;
 
 	if ((id->field_valid & 4) && (eighty_ninty_three(drive)) &&
-	    (id->dma_ultra & (id->dma_ultra >> 11) & 7)) {
+	    (id->dma_ultra & (id->dma_ultra >> 14) & 3)) {
+		if ((id->dma_ultra >> 15) & 1) {
+			printk(", UDMA(mode 7)");	/* UDMA BIOS-enabled! */
+		} else {
+			printk(", UDMA(133)");	/* UDMA BIOS-enabled! */
+		}
+	} else if ((id->field_valid & 4) && (eighty_ninty_three(drive)) &&
+	  	  (id->dma_ultra & (id->dma_ultra >> 11) & 7)) {
 		if ((id->dma_ultra >> 13) & 1) {
 			printk(", UDMA(100)");	/* UDMA BIOS-enabled! */
 		} else if ((id->dma_ultra >> 12) & 1) {
@@ -456,14 +517,24 @@ int report_drive_dmaing (ide_drive_t *drive)
 
 static int config_drive_for_dma (ide_drive_t *drive)
 {
+	int config_allows_dma = 1;
 	struct hd_driveid *id = drive->id;
 	ide_hwif_t *hwif = HWIF(drive);
 
-	if (id && (id->capability & 1) && hwif->autodma) {
+#ifdef CONFIG_IDEDMA_ONLYDISK
+	if (drive->media != ide_disk)
+		config_allows_dma = 0;
+#endif
+
+	if (id && (id->capability & 1) && hwif->autodma && config_allows_dma) {
 		/* Consult the list of known "bad" drives */
 		if (ide_dmaproc(ide_dma_bad_drive, drive))
 			return hwif->dmaproc(ide_dma_off, drive);
 
+		/* Enable DMA on any drive that has UltraDMA (mode 6/7/?) enabled */
+		if ((id->field_valid & 4) && (eighty_ninty_three(drive)))
+			if ((id->dma_ultra & (id->dma_ultra >> 14) & 2))
+				return hwif->dmaproc(ide_dma_on, drive);
 		/* Enable DMA on any drive that has UltraDMA (mode 3/4/5) enabled */
 		if ((id->field_valid & 4) && (eighty_ninty_three(drive)))
 			if ((id->dma_ultra & (id->dma_ultra >> 11) & 7))
@@ -495,7 +566,7 @@ static int dma_timer_expiry (ide_drive_t *drive)
 	printk("%s: dma_timer_expiry: dma status == 0x%02x\n", drive->name, dma_stat);
 #endif /* DEBUG */
 
-#if 1
+#if 0
 	HWGROUP(drive)->expiry = NULL;	/* one free ride for now */
 #endif
 
@@ -532,6 +603,23 @@ static ide_startstop_t ide_dma_timeout_revovery (ide_drive_t *drive)
 }
 #endif /* CONFIG_BLK_DEV_IDEDMA_TIMEOUT */
 
+static inline void ide_toggle_bounce(ide_drive_t *drive, int on)
+{
+	dma64_addr_t addr = BLK_BOUNCE_HIGH;
+
+	if (HWIF(drive)->no_highio || HWIF(drive)->pci_dev == NULL)
+		return;
+
+	if (on && drive->media == ide_disk) {
+		if (!PCI_DMA_BUS_IS_PHYS)
+			addr = BLK_BOUNCE_ANY;
+		else
+			addr = HWIF(drive)->pci_dev->dma_mask;
+	}
+
+	blk_queue_bounce_limit(&drive->queue, addr);
+}
+
 /*
  * ide_dmaproc() initiates/aborts DMA read/write operations on a drive.
  *
@@ -550,22 +638,24 @@ static ide_startstop_t ide_dma_timeout_revovery (ide_drive_t *drive)
  */
 int ide_dmaproc (ide_dma_action_t func, ide_drive_t *drive)
 {
-//	ide_hwgroup_t *hwgroup		= HWGROUP(drive);
+//	ide_hwgroup_t *hwgroup	= HWGROUP(drive);
 	ide_hwif_t *hwif		= HWIF(drive);
 	unsigned long dma_base		= hwif->dma_base;
 	byte unit			= (drive->select.b.unit & 0x01);
-	unsigned int count, reading	= 0;
+	unsigned int count, reading = 0, set_high = 1;
 	byte dma_stat;
 
 	switch (func) {
 		case ide_dma_off:
 			printk("%s: DMA disabled\n", drive->name);
 		case ide_dma_off_quietly:
+			set_high = 0;
 			outb(inb(dma_base+2) & ~(1<<(5+unit)), dma_base+2);
 		case ide_dma_on:
 			drive->using_dma = (func == ide_dma_on);
 			if (drive->using_dma)
 				outb(inb(dma_base+2)|(1<<(5+unit)), dma_base+2);
+			ide_toggle_bounce(drive, set_high);
 			return 0;
 		case ide_dma_check:
 			return config_drive_for_dma (drive);
@@ -582,11 +672,20 @@ int ide_dmaproc (ide_dma_action_t func, ide_drive_t *drive)
 			if (drive->media != ide_disk)
 				return 0;
 #ifdef CONFIG_BLK_DEV_IDEDMA_TIMEOUT
-			ide_set_handler(drive, &ide_dma_intr, WAIT_CMD, NULL);	/* issue cmd to drive */
+			ide_set_handler(drive, &ide_dma_intr, 2*WAIT_CMD, NULL);	/* issue cmd to drive */
 #else /* !CONFIG_BLK_DEV_IDEDMA_TIMEOUT */
 			ide_set_handler(drive, &ide_dma_intr, WAIT_CMD, dma_timer_expiry);	/* issue cmd to drive */
 #endif /* CONFIG_BLK_DEV_IDEDMA_TIMEOUT */
-			OUT_BYTE(reading ? WIN_READDMA : WIN_WRITEDMA, IDE_COMMAND_REG);
+			if ((HWGROUP(drive)->rq->cmd == IDE_DRIVE_TASKFILE) &&
+			    (drive->addressing == 1)) {
+				ide_task_t *args = HWGROUP(drive)->rq->special;
+				OUT_BYTE(args->tfRegister[IDE_COMMAND_OFFSET], IDE_COMMAND_REG);
+			} else if (drive->addressing) {
+				OUT_BYTE(reading ? WIN_READDMA_EXT : WIN_WRITEDMA_EXT, IDE_COMMAND_REG);
+			} else {
+				OUT_BYTE(reading ? WIN_READDMA : WIN_WRITEDMA, IDE_COMMAND_REG);
+			}
+			return HWIF(drive)->dmaproc(ide_dma_begin, drive);
 		case ide_dma_begin:
 			/* Note that this is done *after* the cmd has
 			 * been issued to the drive, as per the BM-IDE spec.
@@ -604,7 +703,7 @@ int ide_dmaproc (ide_dma_action_t func, ide_drive_t *drive)
 			return (dma_stat & 7) != 4 ? (0x10 | dma_stat) : 0;	/* verify good DMA status */
 		case ide_dma_test_irq: /* returns 1 if dma irq issued, 0 otherwise */
 			dma_stat = inb(dma_base+2);
-#if 0	/* do not set unless you know what you are doing */
+#if 0  /* do not set unless you know what you are doing */
 			if (dma_stat & 4) {
 				byte stat = GET_STAT();
 				outb(dma_base+2, dma_stat & 0xE4);
@@ -649,6 +748,8 @@ int ide_dmaproc (ide_dma_action_t func, ide_drive_t *drive)
 				GET_STAT(), dma_stat);
 
 			return restart_request(drive);  // BUG: return types do not match!!
+//#else
+//			return HWGROUP(drive)->handler(drive);
 #endif /* CONFIG_BLK_DEV_IDEDMA_TIMEOUT */
 		case ide_dma_retune:
 		case ide_dma_lostirq:
@@ -696,8 +797,8 @@ void ide_setup_dma (ide_hwif_t *hwif, unsigned long dma_base, unsigned int num_p
 	request_region(dma_base, num_ports, hwif->name);
 	hwif->dma_base = dma_base;
 	hwif->dmatable_cpu = pci_alloc_consistent(hwif->pci_dev,
-						  PRD_ENTRIES * PRD_BYTES,
-						  &hwif->dmatable_dma);
+						    PRD_ENTRIES * PRD_BYTES,
+						    &hwif->dmatable_dma);
 	if (hwif->dmatable_cpu == NULL)
 		goto dma_alloc_failure;
 

@@ -3,7 +3,7 @@
  *
  * Copyright (C) 1998-2001 Hewlett-Packard Co
  *	David Mosberger-Tang <davidm@hpl.hp.com>
- * Copyright (C) 1998, 1999, 2001 Stephane Eranian <eranian@hpl.hp.com>
+ *	Stephane Eranian <eranian@hpl.hp.com>
  * Copyright (C) 2000, Rohit Seth <rohit.seth@intel.com>
  * Copyright (C) 1999 VA Linux Systems
  * Copyright (C) 1999 Walt Drummond <drummond@valinux.com>
@@ -19,6 +19,7 @@
 #include <linux/config.h>
 #include <linux/init.h>
 
+#include <linux/acpi.h>
 #include <linux/bootmem.h>
 #include <linux/delay.h>
 #include <linux/kernel.h>
@@ -28,15 +29,15 @@
 #include <linux/string.h>
 #include <linux/threads.h>
 #include <linux/console.h>
+#include <linux/ioport.h>
+#include <linux/efi.h>
 
-#include <asm/acpi-ext.h>
 #include <asm/ia32.h>
 #include <asm/page.h>
 #include <asm/machvec.h>
 #include <asm/processor.h>
 #include <asm/sal.h>
 #include <asm/system.h>
-#include <asm/efi.h>
 #include <asm/mca.h>
 #include <asm/smp.h>
 
@@ -64,6 +65,8 @@ struct ia64_boot_param *ia64_boot_param;
 struct screen_info screen_info;
 
 unsigned long ia64_iobase;	/* virtual address for I/O accesses */
+
+unsigned char aux_device_present = 0xaa;        /* XXX remove this when legacy I/O is gone */
 
 #define COMMAND_LINE_SIZE	512
 
@@ -147,6 +150,10 @@ free_available_memory (unsigned long start, unsigned long end, void *arg)
 }
 
 
+/*
+ * Find a place to put the bootmap and return its starting address in bootmap_start.
+ * This address must be page-aligned.
+ */
 static int
 find_bootmap_location (unsigned long start, unsigned long end, void *arg)
 {
@@ -165,7 +172,7 @@ find_bootmap_location (unsigned long start, unsigned long end, void *arg)
 
 	for (i = 0; i < num_rsvd_regions; i++) {
 		range_start = MAX(start, free_start);
-		range_end   = MIN(end, rsvd_region[i].start);
+		range_end   = MIN(end, rsvd_region[i].start & PAGE_MASK);
 
 		if (range_end <= range_start) continue;	/* skip over empty range */
 
@@ -177,7 +184,7 @@ find_bootmap_location (unsigned long start, unsigned long end, void *arg)
 		/* nothing more available in this segment */
 		if (range_end == end) return 0;
 
-		free_start = rsvd_region[i].end;
+		free_start = PAGE_ALIGN(rsvd_region[i].end);
 	}
 	return 0;
 }
@@ -279,6 +286,7 @@ void __init
 setup_arch (char **cmdline_p)
 {
 	extern unsigned long ia64_iobase;
+	unsigned long phys_iobase;
 
 	unw_init();
 
@@ -288,6 +296,7 @@ setup_arch (char **cmdline_p)
 
 	efi_init();
 
+	iomem_resource.end = ~0UL;	/* FIXME probably belongs elsewhere */
 	find_memory();
 
 #if 0
@@ -306,25 +315,28 @@ setup_arch (char **cmdline_p)
 	/* process SAL system table: */
 	ia64_sal_init(efi.sal_systab);
 
+#ifdef CONFIG_IA64_GENERIC
+	machvec_init(acpi_get_sysname());
+#endif
+
 	/*
-	 *  Set `iobase' to the appropriate address in region 6
-	 *    (uncached access range)
+	 *  Set `iobase' to the appropriate address in region 6 (uncached access range).
 	 *
-	 *  The EFI memory map is the "prefered" location to get the I/O port
-	 *  space base, rather the relying on AR.KR0. This should become more
-	 *  clear in future SAL specs. We'll fall back to getting it out of
-	 *  AR.KR0 if no appropriate entry is found in the memory map.
+	 *  The EFI memory map is the "preferred" location to get the I/O port space base,
+	 *  rather the relying on AR.KR0. This should become more clear in future SAL
+	 *  specs. We'll fall back to getting it out of AR.KR0 if no appropriate entry is
+	 *  found in the memory map.
 	 */
-	ia64_iobase = efi_get_iobase();
-	if (ia64_iobase)
+	phys_iobase = efi_get_iobase();
+	if (phys_iobase)
 		/* set AR.KR0 since this is all we use it for anyway */
-		ia64_set_kr(IA64_KR_IO_BASE, ia64_iobase);
+		ia64_set_kr(IA64_KR_IO_BASE, phys_iobase);
 	else {
-		ia64_iobase = ia64_get_kr(IA64_KR_IO_BASE);
+		phys_iobase = ia64_get_kr(IA64_KR_IO_BASE);
 		printk("No I/O port range found in EFI memory map, falling back to AR.KR0\n");
-		printk("I/O port base = 0x%lx\n", ia64_iobase);
+		printk("I/O port base = 0x%lx\n", phys_iobase);
 	}
-	ia64_iobase = __IA64_UNCACHED_OFFSET | (ia64_iobase & ~PAGE_OFFSET);
+	ia64_iobase = (unsigned long) ioremap(phys_iobase, 0);
 
 #ifdef CONFIG_SMP
 	cpu_physical_id(0) = hard_smp_processor_id();
@@ -332,23 +344,30 @@ setup_arch (char **cmdline_p)
 
 	cpu_init();	/* initialize the bootstrap CPU */
 
-#ifdef CONFIG_IA64_GENERIC
-	machvec_init(acpi_get_sysname());
+#ifdef CONFIG_ACPI_BOOT
+	acpi_boot_init(*cmdline_p);
 #endif
+#ifdef CONFIG_SERIAL_HCDP
+	if (efi.hcdp) {
+		void setup_serial_hcdp(void *);
 
-	if (efi.acpi20) {
-		/* Parse the ACPI 2.0 tables */
-		acpi20_parse(efi.acpi20);
-	} else if (efi.acpi) {
-		/* Parse the ACPI tables */
-		acpi_parse(efi.acpi);
+		/* Setup the serial ports described by HCDP */
+		setup_serial_hcdp(efi.hcdp);
 	}
-
+#endif
 #ifdef CONFIG_VT
-# if defined(CONFIG_VGA_CONSOLE)
-	conswitchp = &vga_con;
-# elif defined(CONFIG_DUMMY_CONSOLE)
+# if defined(CONFIG_DUMMY_CONSOLE)
 	conswitchp = &dummy_con;
+# endif
+# if defined(CONFIG_VGA_CONSOLE)
+	/*
+	 * Non-legacy systems may route legacy VGA MMIO range to system
+	 * memory.  vga_con probes the MMIO hole, so memory looks like
+	 * a VGA device to it.  The EFI memory map can tell us if it's
+	 * memory so we can avoid this problem.
+	 */
+	if (efi_mem_type(0xA0000) != EFI_CONVENTIONAL_MEMORY)
+		conswitchp = &vga_con;
 # endif
 #endif
 
@@ -371,23 +390,20 @@ show_cpuinfo (struct seq_file *m, void *v)
 {
 #ifdef CONFIG_SMP
 #	define lpj	c->loops_per_jiffy
+#	define cpu	c->processor
 #else
 #	define lpj	loops_per_jiffy
+#	define cpu	0
 #endif
 	char family[32], features[128], *cp;
 	struct cpuinfo_ia64 *c = v;
-	unsigned long mask, cpu = c - cpu_data(0);
-
-#ifdef CONFIG_SMP
-	if (!(cpu_online_map & (1 << cpu)))
-		return 0;
-#endif
+	unsigned long mask;
 
 	mask = c->features;
 
 	switch (c->family) {
 	      case 0x07:	memcpy(family, "Itanium", 8); break;
-	      case 0x1f:	memcpy(family, "McKinley", 9); break;
+	      case 0x1f:	memcpy(family, "Itanium 2", 10); break;
 	      default:		sprintf(family, "%u", c->family); break;
 	}
 
@@ -403,7 +419,7 @@ show_cpuinfo (struct seq_file *m, void *v)
 		sprintf(cp, " 0x%lx", mask);
 
 	seq_printf(m,
-		   "processor  : %lu\n"
+		   "processor  : %d\n"
 		   "vendor     : %s\n"
 		   "arch       : IA-64\n"
 		   "family     : %s\n"
@@ -427,6 +443,10 @@ show_cpuinfo (struct seq_file *m, void *v)
 static void *
 c_start (struct seq_file *m, loff_t *pos)
 {
+#ifdef CONFIG_SMP
+	while (*pos < NR_CPUS && !(cpu_online_map & (1UL << *pos)))
+		++*pos;
+#endif
 	return *pos < NR_CPUS ? cpu_data(*pos) : NULL;
 }
 
@@ -483,6 +503,9 @@ identify_cpu (struct cpuinfo_ia64 *c)
 		cpuid.bits[i] = ia64_get_cpuid(i);
 
 	memcpy(c->vendor, cpuid.field.vendor, 16);
+#ifdef CONFIG_SMP
+	c->processor = smp_processor_id();
+#endif
 	c->ppn = cpuid.field.ppn;
 	c->number = cpuid.field.number;
 	c->revision = cpuid.field.revision;
@@ -534,7 +557,7 @@ cpu_init (void)
 				= alloc_bootmem_pages_node(NODE_DATA(numa_node_id()),
 							   sizeof(struct cpuinfo_ia64));
 		for (cpu = 1; cpu < NR_CPUS; ++cpu)
-			memcpy(my_cpu_data->cpu_data[cpu]->cpu_data_ptrs,
+			memcpy(my_cpu_data->cpu_data[cpu]->cpu_data,
 			       my_cpu_data->cpu_data, sizeof(my_cpu_data->cpu_data));
 	} else {
 		order = get_order(sizeof(struct cpuinfo_ia64));
@@ -558,6 +581,24 @@ cpu_init (void)
 	 */
 	identify_cpu(my_cpu_data);
 
+#ifdef CONFIG_MCKINLEY
+	{
+#define FEATURE_SET 16
+		struct ia64_pal_retval iprv;
+
+		if (my_cpu_data->family == 0x1f) {
+
+			PAL_CALL_PHYS(iprv, PAL_PROC_GET_FEATURES, 0, FEATURE_SET, 0);
+
+			if ((iprv.status == 0) && (iprv.v0 & 0x80) && (iprv.v2 & 0x80)) {
+
+				PAL_CALL_PHYS(iprv, PAL_PROC_SET_FEATURES,
+				              (iprv.v1 | 0x80), FEATURE_SET, 0);
+			}
+		}
+	}
+#endif
+
 	/* Clear the stack memory reserved for pt_regs: */
 	memset(ia64_task_regs(current), 0, sizeof(struct pt_regs));
 
@@ -569,7 +610,7 @@ cpu_init (void)
 	 * shouldn't be affected by this (moral: keep your ia32 locks aligned and you'll
 	 * be fine).
 	 */
-	ia64_set_dcr(  IA64_DCR_DM | IA64_DCR_DP | IA64_DCR_DK | IA64_DCR_DX | IA64_DCR_DR
+	ia64_set_dcr(  IA64_DCR_DP | IA64_DCR_DK | IA64_DCR_DX | IA64_DCR_DR
 		     | IA64_DCR_DA | IA64_DCR_DD | IA64_DCR_LC);
 #ifndef CONFIG_SMP
 	ia64_set_fpu_owner(0);
@@ -616,4 +657,6 @@ cpu_init (void)
 		num_phys_stacked = 96;
 	}
 	local_cpu_data->phys_stacked_size_p8 = num_phys_stacked*8 + 8;
+
+	platform_cpu_init();
 }

@@ -1,5 +1,5 @@
 /*
- * BK Id: SCCS/s.prom.h 1.21 12/01/01 20:09:11 benh
+ * BK Id: %F% %I% %G% %U% %#%
  */
 /*
  * Definitions for talking to the Open Firmware PROM on
@@ -77,6 +77,7 @@ extern struct device_node *find_path_device(const char *path);
 extern struct device_node *find_compatible_devices(const char *type,
 						   const char *compat);
 extern struct device_node *find_all_nodes(void);
+extern struct device_node *find_phandle(phandle);
 extern int device_is_compatible(struct device_node *device, const char *);
 extern int machine_is_compatible(const char *compat);
 extern unsigned char *get_property(struct device_node *node, const char *name,
@@ -107,10 +108,11 @@ extern int call_rtas(const char *service, int nargs, int nret,
  * pointer values.  See arch/ppc/kernel/prom.c for how these are used.
  */
 extern unsigned long reloc_offset(void);
+extern unsigned long add_reloc_offset(unsigned long);
+extern unsigned long sub_reloc_offset(unsigned long);
 
-#define PTRRELOC(x)	((typeof(x))((unsigned long)(x) + offset))
-#define PTRUNRELOC(x)	((typeof(x))((unsigned long)(x) - offset))
-#define RELOC(x)	(*PTRRELOC(&(x)))
+#define PTRRELOC(x)	((typeof(x))add_reloc_offset((unsigned long)(x)))
+#define PTRUNRELOC(x)	((typeof(x))sub_reloc_offset((unsigned long)(x)))
 
 #endif /* _PPC_PROM_H */
 #endif /* __KERNEL__ */

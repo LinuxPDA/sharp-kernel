@@ -52,7 +52,7 @@ extern int  mvme16x_kbdrate (struct kbd_repeat *);
 extern unsigned long mvme16x_gettimeoffset (void);
 extern void mvme16x_gettod (int *year, int *mon, int *day, int *hour,
                            int *min, int *sec);
-extern int mvme16x_hwclk (int, struct hwclk_time *);
+extern int mvme16x_hwclk (int, struct rtc_time *);
 extern int mvme16x_set_clock_mmss (unsigned long);
 extern void mvme16x_check_partition (struct gendisk *hd, unsigned int dev);
 extern void mvme16x_mksound( unsigned int count, unsigned int ticks );
@@ -145,14 +145,16 @@ void __init config_mvme16x(void)
 
     mach_max_dma_address = 0xffffffff;
     mach_sched_init      = mvme16x_sched_init;
+#ifdef CONFIG_VT
     mach_keyb_init       = mvme16x_keyb_init;
     mach_kbdrate         = mvme16x_kbdrate;
+/*  kd_mksound           = mvme16x_mksound; */
+#endif
     mach_init_IRQ        = mvme16x_init_IRQ;
     mach_gettimeoffset   = mvme16x_gettimeoffset;
     mach_gettod  	 = mvme16x_gettod;
     mach_hwclk           = mvme16x_hwclk;
     mach_set_clock_mmss	 = mvme16x_set_clock_mmss;
-/*  kd_mksound           = mvme16x_mksound; */
     mach_reset		 = mvme16x_reset;
     mach_free_irq	 = mvme16x_free_irq;
     mach_process_int	 = mvme16x_process_int;
@@ -291,7 +293,7 @@ int bcd2int (unsigned char b)
 	return ((b>>4)*10 + (b&15));
 }
 
-int mvme16x_hwclk(int op, struct hwclk_time *t)
+int mvme16x_hwclk(int op, struct rtc_time *t)
 {
 	return 0;
 }

@@ -24,7 +24,8 @@
 #include <asm/time.h>
 #include <asm/addrspace.h>
 
-#include <asm/ddb5xxx/debug.h>
+#include <asm/mc146818rtc.h>
+#include <asm/debug.h>
 
 #define	EPOCH		2000
 
@@ -41,7 +42,7 @@ static unsigned long rtc_base;
 
 static unsigned long
 rtc_ds1386_get_time(void)
-{	
+{
 	u8 byte;
 	u8 temp;
 	unsigned int year, month, day, hour, minute, second;
@@ -78,7 +79,7 @@ rtc_ds1386_get_time(void)
 	return mktime(year, month, day, hour, minute, second);
 }
 
-static int 
+static int
 rtc_ds1386_set_time(unsigned long t)
 {
 	struct rtc_time tm;
@@ -94,6 +95,7 @@ rtc_ds1386_set_time(unsigned long t)
 	/* convert */
 	to_tm(t, &tm);
 
+
 	/* check each field one by one */
 	year = BIN_TO_BCD(tm.tm_year - EPOCH);
 	if (year != READ_RTC(0xA)) {
@@ -101,7 +103,7 @@ rtc_ds1386_set_time(unsigned long t)
 	}
 
 	temp = READ_RTC(0x9);
-	month = BIN_TO_BCD(tm.tm_mon);
+	month = BIN_TO_BCD(tm.tm_mon+1);	/* tm_mon starts from 0 to 11 */
 	if (month != (temp & 0x1f)) {
 		WRITE_RTC( 0x9,
 			   (month & 0x1f) | (temp & ~0x1f) );
@@ -136,7 +138,7 @@ rtc_ds1386_set_time(unsigned long t)
 	if (second != READ_RTC(0x1)) {
 		WRITE_RTC(0x1, second);
 	}
-	
+
 	return 0;
 }
 
@@ -144,10 +146,10 @@ void
 rtc_ds1386_init(unsigned long base)
 {
 	unsigned char byte;
-	
+
 	/* remember the base */
 	rtc_base = base;
-	MIPS_ASSERT((rtc_base & 0xe0000000) == KSEG1);
+	db_assert((rtc_base & 0xe0000000) == KSEG1);
 
 	/* turn on RTC if it is not on */
 	byte = READ_RTC(0x9);

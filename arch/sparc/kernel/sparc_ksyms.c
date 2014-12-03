@@ -22,6 +22,7 @@
 #ifdef CONFIG_PCI
 #include <linux/pci.h>
 #endif
+#include <linux/pm.h>
 
 #include <asm/oplib.h>
 #include <asm/delay.h>
@@ -44,6 +45,9 @@
 #ifdef CONFIG_SBUS
 #include <asm/sbus.h>
 #include <asm/dma.h>
+#endif
+#ifdef CONFIG_HIGHMEM
+#include <linux/highmem.h>
 #endif
 #include <asm/a.out.h>
 #include <asm/io-unit.h>
@@ -203,6 +207,12 @@ EXPORT_SYMBOL(pci_unmap_single);
 EXPORT_SYMBOL(pci_dma_sync_single);
 #endif
 
+/* in arch/sparc/mm/highmem.c */
+#ifdef CONFIG_HIGHMEM
+EXPORT_SYMBOL(kmap_atomic);
+EXPORT_SYMBOL(kunmap_atomic);
+#endif
+
 /* Solaris/SunOS binary compatibility */
 EXPORT_SYMBOL(svr4_setcontext);
 EXPORT_SYMBOL(svr4_getcontext);
@@ -296,3 +306,6 @@ EXPORT_SYMBOL_DOT(mul);
 EXPORT_SYMBOL_DOT(umul);
 EXPORT_SYMBOL_DOT(div);
 EXPORT_SYMBOL_DOT(udiv);
+
+/* Sun Power Management Idle Handler */
+EXPORT_SYMBOL(pm_idle);

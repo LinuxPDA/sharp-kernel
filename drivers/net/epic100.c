@@ -60,11 +60,18 @@
 	LK1.1.12:
 	* fix power-up sequence
 
+	LK1.1.13:
+	* revert version 1.1.12, power-up sequence "fix"
+
+	LK1.1.14 (Kryzsztof Halasa):
+	* fix spurious bad initializations
+	* pound phy a la SMSC's app note on the subject
+
 */
 
 #define DRV_NAME	"epic100"
-#define DRV_VERSION	"1.11+LK1.1.12"
-#define DRV_RELDATE	"Jan 18, 2002"
+#define DRV_VERSION	"1.11+LK1.1.14"
+#define DRV_RELDATE	"Aug 4, 2002"
 
 
 /* The user-configurable values.
@@ -131,6 +138,7 @@ static int rx_copybreak;
 #include <linux/spinlock.h>
 #include <linux/ethtool.h>
 #include <linux/mii.h>
+#include <linux/crc32.h>
 #include <asm/bitops.h>
 #include <asm/io.h>
 #include <asm/uaccess.h>
@@ -422,6 +430,8 @@ static int __devinit epic_init_one (struct pci_dev *pdev,
 	ep->mii.dev = dev;
 	ep->mii.mdio_read = mdio_read;
 	ep->mii.mdio_write = mdio_write;
+	ep->mii.phy_id_mask = 0x1f;
+	ep->mii.reg_num_mask = 0x1f;
 
 	ring_space = pci_alloc_consistent(pdev, TX_TOTAL_SIZE, &ring_dma);
 	if (!ring_space)
@@ -453,7 +463,9 @@ static int __devinit epic_init_one (struct pci_dev *pdev,
 	/* Bring the chip out of low-power mode. */
 	outl(0x4200, ioaddr + GENCTL);
 	/* Magic?!  If we don't set this bit the MII interface won't work. */
-	outl(0x0008, ioaddr + TEST1);
+	/* This magic is documented in SMSC app note 7.15 */
+	for (i = 16; i > 0; i--)
+		outl(0x0008, ioaddr + TEST1);
 
 	/* Turn on the MII transceiver. */
 	outl(0x12, ioaddr + MIICfg);
@@ -514,7 +526,7 @@ static int __devinit epic_init_one (struct pci_dev *pdev,
 
 	/* The lower four bits are the media type. */
 	if (duplex) {
-		ep->mii.duplex_lock = ep->mii.full_duplex = 1;
+		ep->mii.force_media = ep->mii.full_duplex = 1;
 		printk(KERN_INFO DRV_NAME "(%s):  Forced full duplex operation requested.\n",
 		       pdev->slot_name);
 	}
@@ -578,7 +590,7 @@ err_out_free_netdev:
 #define EE_READ256_CMD	(6 << 8)
 #define EE_ERASE_CMD	(7 << 6)
 
-static int read_eeprom(long ioaddr, int location)
+static int __devinit read_eeprom(long ioaddr, int location)
 {
 	int i;
 	int retval = 0;
@@ -670,15 +682,17 @@ static int epic_open(struct net_device *dev)
 
 	outl(0x4000, ioaddr + GENCTL);
 	/* This magic is documented in SMSC app note 7.15 */
-	outl(0x0008, ioaddr + TEST1);
+	for (i = 16; i > 0; i--)
+		outl(0x0008, ioaddr + TEST1);
 
 	/* Pull the chip out of low-power mode, enable interrupts, and set for
 	   PCI read multiple.  The MIIcfg setting and strange write order are
 	   required by the details of which bits are reset and the transceiver
 	   wiring on the Ositech CardBus card.
 	*/
-
-	outl(0x12, ioaddr + MIICfg);
+#if 0
+	outl(dev->if_port == 1 ? 0x13 : 0x12, ioaddr + MIICfg);
+#endif
 	if (ep->chip_flags & MII_PWRDWN)
 		outl((inl(ioaddr + NVCTL) & ~0x003C) | 0x4800, ioaddr + NVCTL);
 
@@ -692,6 +706,8 @@ static int epic_open(struct net_device *dev)
 	outl(0x0412 | (RX_FIFO_THRESH<<8), ioaddr + GENCTL);
 #endif
 
+	udelay(20); /* Looks like EPII needs that if you want reliable RX init. FIXME: pci posting bug? */
+	
 	for (i = 0; i < 3; i++)
 		outl(cpu_to_le16(((u16*)dev->dev_addr)[i]), ioaddr + LAN0 + i*4);
 
@@ -841,7 +857,7 @@ static void check_media(struct net_device *dev)
 	int negotiated = mii_lpa & ep->mii.advertising;
 	int duplex = (negotiated & 0x0100) || (negotiated & 0x01C0) == 0x0040;
 
-	if (ep->mii.duplex_lock)
+	if (ep->mii.force_media)
 		return;
 	if (mii_lpa == 0xffff)		/* Bogus read */
 		return;
@@ -1059,13 +1075,7 @@ static void epic_interrupt(int irq, void *dev_instance, struct pt_regs *regs)
 					if (txstatus & 0x0008) ep->stats.tx_carrier_errors++;
 					if (txstatus & 0x0040) ep->stats.tx_window_errors++;
 					if (txstatus & 0x0010) ep->stats.tx_fifo_errors++;
-#ifdef ETHER_STATS
-					if (txstatus & 0x1000) ep->stats.collisions16++;
-#endif
 				} else {
-#ifdef ETHER_STATS
-					if ((txstatus & 0x0002) != 0) ep->stats.tx_deferred++;
-#endif
 					ep->stats.collisions += (txstatus >> 8) & 15;
 					ep->stats.tx_packets++;
 					ep->stats.tx_bytes += ep->tx_skbuff[entry]->len;
@@ -1302,27 +1312,6 @@ static struct net_device_stats *epic_get_stats(struct net_device *dev)
    new frame, not around filling ep->setup_frame.  This is non-deterministic
    when re-entered but still correct. */
 
-/* The little-endian AUTODIN II ethernet CRC calculation.
-   N.B. Do not use for bulk data, use a table-based routine instead.
-   This is common code and should be moved to net/core/crc.c */
-static unsigned const ethernet_polynomial_le = 0xedb88320U;
-static inline unsigned ether_crc_le(int length, unsigned char *data)
-{
-	unsigned int crc = 0xffffffff;	/* Initial value. */
-	while(--length >= 0) {
-		unsigned char current_octet = *data++;
-		int bit;
-		for (bit = 8; --bit >= 0; current_octet >>= 1) {
-			if ((crc ^ current_octet) & 1) {
-				crc >>= 1;
-				crc ^= ethernet_polynomial_le;
-			} else
-				crc >>= 1;
-		}
-	}
-	return crc;
-}
-
 static void set_rx_mode(struct net_device *dev)
 {
 	long ioaddr = dev->base_addr;
@@ -1440,66 +1429,34 @@ static int netdev_ethtool_ioctl (struct net_device *dev, void *useraddr)
 
 static int netdev_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
 {
-	struct epic_private *ep = dev->priv;
+	struct epic_private *np = dev->priv;
 	long ioaddr = dev->base_addr;
 	struct mii_ioctl_data *data = (struct mii_ioctl_data *)&rq->ifr_data;
+	int rc;
 
-	switch(cmd) {
-	case SIOCETHTOOL:
-		return netdev_ethtool_ioctl(dev, (void *) rq->ifr_data);
-
-	case SIOCGMIIPHY:		/* Get address of MII PHY in use. */
-	case SIOCDEVPRIVATE:		/* for binary compat, remove in 2.5 */
-		data->phy_id = ep->phys[0] & 0x1f;
-		/* Fall Through */
-
-	case SIOCGMIIREG:		/* Read MII PHY register. */
-	case SIOCDEVPRIVATE+1:		/* for binary compat, remove in 2.5 */
-		if (! netif_running(dev)) {
-			outl(0x0200, ioaddr + GENCTL);
-			outl((inl(ioaddr + NVCTL) & ~0x003C) | 0x4800, ioaddr + NVCTL);
-		}
-		data->val_out = mdio_read(dev, data->phy_id & 0x1f, data->reg_num & 0x1f);
-#if 0					/* Just leave on if the ioctl() is ever used. */
-		if (! netif_running(dev)) {
-			outl(0x0008, ioaddr + GENCTL);
-			outl((inl(ioaddr + NVCTL) & ~0x483C) | 0x0000, ioaddr + NVCTL);
-		}
-#endif
-		return 0;
-
-	case SIOCSMIIREG:		/* Write MII PHY register. */
-	case SIOCDEVPRIVATE+2:		/* for binary compat, remove in 2.5 */
-		if (!capable(CAP_NET_ADMIN))
-			return -EPERM;
-		if (! netif_running(dev)) {
-			outl(0x0200, ioaddr + GENCTL);
-			outl((inl(ioaddr + NVCTL) & ~0x003C) | 0x4800, ioaddr + NVCTL);
-		}
-		if (data->phy_id == ep->phys[0]) {
-			u16 value = data->val_in;
-			switch (data->reg_num) {
-			case 0:
-				/* Check for autonegotiation on or reset. */
-				ep->mii.duplex_lock = (value & 0x9000) ? 0 : 1;
-				if (ep->mii.duplex_lock)
-					ep->mii.full_duplex = (value & 0x0100) ? 1 : 0;
-				break;
-			case 4: ep->mii.advertising = value; break;
-			}
-			/* Perhaps check_duplex(dev), depending on chip semantics. */
-		}
-		mdio_write(dev, data->phy_id & 0x1f, data->reg_num & 0x1f, data->val_in);
-#if 0					/* Leave on if the ioctl() is used. */
-		if (! netif_running(dev)) {
-			outl(0x0008, ioaddr + GENCTL);
-			outl((inl(ioaddr + NVCTL) & ~0x483C) | 0x0000, ioaddr + NVCTL);
-		}
-#endif
-		return 0;
-	default:
-		return -EOPNOTSUPP;
+	/* power-up, if interface is down */
+	if (! netif_running(dev)) {
+		outl(0x0200, ioaddr + GENCTL);
+		outl((inl(ioaddr + NVCTL) & ~0x003C) | 0x4800, ioaddr + NVCTL);
 	}
+
+	/* ethtool commands */
+	if (cmd == SIOCETHTOOL)
+		rc = netdev_ethtool_ioctl(dev, (void *) rq->ifr_data);
+
+	/* all other ioctls (the SIOC[GS]MIIxxx ioctls) */
+	else {
+		spin_lock_irq(&np->lock);
+		rc = generic_mii_ioctl(&np->mii, data, cmd, NULL);
+		spin_unlock_irq(&np->lock);
+	}
+
+	/* power-down, if interface is down */
+	if (! netif_running(dev)) {
+		outl(0x0008, ioaddr + GENCTL);
+		outl((inl(ioaddr + NVCTL) & ~0x483C) | 0x0000, ioaddr + NVCTL);
+	}
+	return rc;
 }
 
 

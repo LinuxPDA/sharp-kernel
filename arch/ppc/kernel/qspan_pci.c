@@ -1,5 +1,5 @@
 /*
- * BK Id: SCCS/s.qspan_pci.c 1.5 05/17/01 18:14:22 cort
+ * BK Id: %F% %I% %G% %U% %#%
  */
 /*
  * QSpan pci routines.
@@ -14,7 +14,7 @@
  * PCI access and QSpan control register addresses.  The selection is
  * further selected by a bit setting in a board control register.
  * Although it should happen, we disable interrupts during this operation
- * to make sure some driver doesn't accidently access the PCI while
+ * to make sure some driver doesn't accidentally access the PCI while
  * we have switched the chip select.
  */
 
@@ -29,8 +29,7 @@
 #include <asm/mpc8xx.h>
 #include <asm/system.h>
 #include <asm/machdep.h>
-
-#include "pci.h"
+#include <asm/pci-bridge.h>
 
 
 /*

@@ -280,6 +280,7 @@ static const struct {
 	{ BT_ALPINE, NULL, PCI_DEVICE_ID_CIRRUS_5434_4 },
 	{ BT_ALPINE, NULL, PCI_DEVICE_ID_CIRRUS_5430 }, /* GD-5440 has identical id */
 	{ BT_ALPINE, NULL, PCI_DEVICE_ID_CIRRUS_7543 },
+	{ BT_ALPINE, NULL, PCI_DEVICE_ID_CIRRUS_7548 },
 	{ BT_GD5480, NULL, PCI_DEVICE_ID_CIRRUS_5480 }, /* MacPicasso probably */
 	{ BT_PICASSO4, NULL, PCI_DEVICE_ID_CIRRUS_5446 }, /* Picasso 4 is a GD5446 */
 	{ BT_LAGUNA, "CL Laguna", PCI_DEVICE_ID_CIRRUS_5462 },
@@ -414,8 +415,6 @@ static struct clgenfb_info boards[MAX_NUM_BOARDS];	/* the boards */
 
 static unsigned clgen_def_mode = 1;
 static int noaccel = 0;
-
-static int release_io_ports = 0;
 
 
 
@@ -2413,6 +2412,8 @@ static void __init get_prep_addrs (unsigned long *display, unsigned long *regist
 
 
 #ifdef CONFIG_PCI
+static int release_io_ports = 0;
+
 /* Pulled the logic from XFree86 Cirrus driver to get the memory size,
  * based on the DRAM bandwidth bit and DRAM bank switching bit.  This
  * works with 1MB, 2MB and 4MB configurations (which the Motorola boards
@@ -2635,11 +2636,11 @@ static void __exit clgen_zorro_unmap (struct clgenfb_info *info)
 	release_mem_region(info->board_addr, info->board_size);
 
 	if (info->btype == BT_PICASSO4) {
-		iounmap (info->board_addr);
-		iounmap (info->fbmem_phys);
+		iounmap ((void *)info->board_addr);
+		iounmap ((void *)info->fbmem_phys);
 	} else {
 		if (info->board_addr > 0x01000000)
-			iounmap (info->board_addr);
+			iounmap ((void *)info->board_addr);
 	}
 }
 
@@ -3089,7 +3090,7 @@ static void RClut (struct clgenfb_info *fb_info, unsigned char regnum, unsigned 
 *********************************************************************/
 
 /* FIXME: use interrupts instead */
-extern inline void clgen_WaitBLT (caddr_t regbase)
+static inline void clgen_WaitBLT (caddr_t regbase)
 {
 	/* now busy-wait until we're done */
 	while (vga_rgfx (regbase, CL_GR31) & 0x08)

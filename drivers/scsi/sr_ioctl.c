@@ -48,7 +48,7 @@ static int sr_fake_playtrkind(struct cdrom_device_info *cdi, struct cdrom_ti *ti
 	
 	if (ti->cdti_trk1 == ntracks) 
 		ti->cdti_trk1 = CDROM_LEADOUT;
-	else 
+	else if (ti->cdti_trk1 != CDROM_LEADOUT)
 		ti->cdti_trk1 ++;
 
 	trk0_te.cdte_track = ti->cdti_trk0;
@@ -158,13 +158,11 @@ int sr_do_ioctl(int target, unsigned char *sr_cmd, void *buffer, unsigned buflen
 			if (!quiet)
 				printk(KERN_ERR "sr%d: CDROM (ioctl) reports ILLEGAL "
 				       "REQUEST.\n", target);
+			err = -EIO;
 			if (SRpnt->sr_sense_buffer[12] == 0x20 &&
-			    SRpnt->sr_sense_buffer[13] == 0x00) {
+			    SRpnt->sr_sense_buffer[13] == 0x00)
 				/* sense: Invalid command operation code */
 				err = -EDRIVE_CANT_DO_THIS;
-			} else {
-				err = -EINVAL;
-			}
 #ifdef DEBUG
 			print_command(sr_cmd);
 			print_req_sense("sr", SRpnt);

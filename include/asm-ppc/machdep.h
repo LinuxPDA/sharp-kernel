@@ -1,5 +1,5 @@
 /*
- * BK Id: SCCS/s.machdep.h 1.27 12/01/01 20:09:11 benh
+ * BK Id: %F% %I% %G% %U% %#%
  */
 #ifdef __KERNEL__
 #ifndef _PPC_MACHDEP_H
@@ -43,10 +43,7 @@ struct machdep_calls {
 	int		(*set_rtc_time)(unsigned long nowtime);
 	unsigned long	(*get_rtc_time)(void);
 	void		(*calibrate_decr)(void);
-
 	void		(*heartbeat)(void);
-	unsigned long	heartbeat_reset;
-	unsigned long	heartbeat_count;
 
 	unsigned long	(*find_end_of_memory)(void);
 	void		(*setup_io_mappings)(void);
@@ -55,6 +52,9 @@ struct machdep_calls {
 
 	unsigned char 	(*nvram_read_val)(int addr);
 	void		(*nvram_write_val)(int addr, unsigned char val);
+
+	/* Called from prepare_namespace() */
+	void		(*discover_root)(void);
 
 	/* Tons of keyboard stuff. */
 	int		(*kbd_setkeycode)(unsigned int scancode,
@@ -113,7 +113,7 @@ struct machdep_calls {
 };
 
 extern struct machdep_calls ppc_md;
-extern char cmd_line[512];
+extern char cmd_line[];
 
 extern void setup_pci_ptrs(void);
 

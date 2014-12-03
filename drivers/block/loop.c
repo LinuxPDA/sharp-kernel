@@ -36,6 +36,9 @@
  * Al Viro too.
  * Jens Axboe <axboe@suse.de>, Nov 2000
  *
+ * Support up to 256 loop devices
+ * Heinz Mauelshagen <mge@sistina.com>, Feb 2002
+ *
  * Still To Fix:
  * - Advisory locking is ignored here. 
  * - Should use an own CAP_* category instead of CAP_SYS_ADMIN 
@@ -151,7 +154,7 @@ struct loop_func_table *xfer_funcs[MAX_LO_CRYPT] = {
 
 #define MAX_DISK_SIZE 1024*1024*1024
 
-static unsigned long compute_loop_size(struct loop_device *lo, struct dentry * lo_dentry, kdev_t lodev)
+static int compute_loop_size(struct loop_device *lo, struct dentry * lo_dentry, kdev_t lodev)
 {
 	if (S_ISREG(lo_dentry->d_inode->i_mode))
 		return (lo_dentry->d_inode->i_size - lo->lo_offset) >> BLOCK_SIZE_BITS;
@@ -480,9 +483,7 @@ static int loop_make_request(request_queue_t *q, int rw, struct buffer_head *rbh
 		goto err;
 	}
 
-#if CONFIG_HIGHMEM
-	rbh = create_bounce(rw, rbh);
-#endif
+	rbh = blk_queue_bounce(q, rw, rbh);
 
 	/*
 	 * file backed, queue for loop_thread to handle
@@ -965,7 +966,7 @@ static struct block_device_operations lo_fops = {
  * And now the modules code and kernel interface.
  */
 MODULE_PARM(max_loop, "i");
-MODULE_PARM_DESC(max_loop, "Maximum number of loop devices (1-255)");
+MODULE_PARM_DESC(max_loop, "Maximum number of loop devices (1-256)");
 MODULE_LICENSE("GPL");
 
 int loop_register_transfer(struct loop_func_table *funcs)
@@ -1001,9 +1002,9 @@ int __init loop_init(void)
 {
 	int	i;
 
-	if ((max_loop < 1) || (max_loop > 255)) {
+	if ((max_loop < 1) || (max_loop > 256)) {
 		printk(KERN_WARNING "loop: invalid max_loop (must be between"
-				    " 1 and 255), using default (8)\n");
+				    " 1 and 256), using default (8)\n");
 		max_loop = 8;
 	}
 

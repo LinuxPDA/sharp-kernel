@@ -1,5 +1,5 @@
 /*
- *  Copyright 2000 by Hans Reiser, licensing governed by reiserfs/README
+ *  Copyright 2000-2002 by Hans Reiser, licensing governed by reiserfs/README
  */
 
 /*
@@ -166,7 +166,7 @@ inline int comp_cpu_keys (const struct cpu_key * key1,
     if (cpu_key_k_offset (key1) > cpu_key_k_offset (key2))
 	return 1;
 
-    reiserfs_warning ("comp_cpu_keys: type are compared for %k and %k\n",
+    reiserfs_warning ("comp_cpu_keys: type are compared for %K and %K\n",
 		      key1, key2);
 
     if (cpu_key_k_type (key1) < cpu_key_k_type (key2))
@@ -524,6 +524,10 @@ static int is_leaf (char * buf, int blocksize, struct buffer_head * bh)
     ih = (struct item_head *)(buf + BLKH_SIZE);
     prev_location = blocksize;
     for (i = 0; i < nr; i ++, ih ++) {
+	if ( le_ih_k_type(ih) == TYPE_ANY) {
+	    reiserfs_warning ("is_leaf: wrong item type for item %h\n",ih);
+	    return 0;
+	}
 	if (ih_location (ih) >= blocksize || ih_location (ih) < IH_SIZE * nr) {
 	    reiserfs_warning ("is_leaf: item location seems wrong: %h\n", ih);
 	    return 0;
@@ -1242,6 +1246,8 @@ int reiserfs_delete_item (struct reiserfs_transaction_handle *th,
 	if ( n_ret_value != REPEAT_SEARCH )
 	    break;
 
+	PROC_INFO_INC( p_s_sb, delete_item_restarted );
+
 	// file system changed, repeat search
 	n_ret_value = search_for_position_by_key(p_s_sb, p_s_item_key, p_s_path);
 	if (n_ret_value == IO_ERROR)
@@ -1339,8 +1345,10 @@ void reiserfs_delete_solid_item (struct reiserfs_transaction_handle *th,
 	}
 	if (retval != ITEM_FOUND) {
 	    pathrelse (&path);
-	    reiserfs_warning ("vs-5355: reiserfs_delete_solid_item: %k not found",
-			      key);
+	    // No need for a warning, if there is just no free space to insert '..' item into the newly-created subdir
+	    if ( !( (unsigned long long) GET_HASH_VALUE (le_key_k_offset (le_key_version (key), key)) == 0 && \
+		 GET_GENERATION_NUMBER (le_key_k_offset (le_key_version (key), key)) == 1 ) )
+		reiserfs_warning ("vs-5355: reiserfs_delete_solid_item: %k not found", key);
 	    break;
 	}
 	if (!tb_init) {
@@ -1350,8 +1358,10 @@ void reiserfs_delete_solid_item (struct reiserfs_transaction_handle *th,
 	}
 
 	retval = fix_nodes (M_DELETE, &tb, NULL, 0);
-	if (retval == REPEAT_SEARCH)
+	if (retval == REPEAT_SEARCH) {
+	    PROC_INFO_INC( th -> t_super, delete_solid_item_restarted );
 	    continue;
+	}
 
 	if (retval == CARRY_ON) {
 	    do_balance (&tb, 0, 0, M_DELETE);
@@ -1523,7 +1533,7 @@ int reiserfs_cut_from_item (struct reiserfs_transaction_handle *th,
 	    set_cpu_key_k_offset (p_s_item_key, n_new_file_size + 1);
 	    if ( search_for_position_by_key(p_s_sb, p_s_item_key, p_s_path) == POSITION_NOT_FOUND ){
 		print_block (PATH_PLAST_BUFFER (p_s_path), 3, PATH_LAST_POSITION (p_s_path) - 1, PATH_LAST_POSITION (p_s_path) + 1);
-		reiserfs_panic(p_s_sb, "PAP-5580: reiserfs_cut_from_item: item to convert does not exist (%k)", p_s_item_key);
+		reiserfs_panic(p_s_sb, "PAP-5580: reiserfs_cut_from_item: item to convert does not exist (%K)", p_s_item_key);
 	    }
 	    continue;
 	}
@@ -1538,6 +1548,8 @@ int reiserfs_cut_from_item (struct reiserfs_transaction_handle *th,
       	if ( n_ret_value != REPEAT_SEARCH )
 	    break;
 	
+	PROC_INFO_INC( p_s_sb, cut_from_item_restarted );
+
 	n_ret_value = search_for_position_by_key(p_s_sb, p_s_item_key, p_s_path);
 	if (n_ret_value == POSITION_FOUND)
 	    continue;
@@ -1609,9 +1621,9 @@ int reiserfs_cut_from_item (struct reiserfs_transaction_handle *th,
     
     do_balance(&s_cut_balance, NULL, NULL, c_mode);
     if ( n_is_inode_locked ) {
-	/* we've done an indirect->direct conversion.  when the data block 
-	** was freed, it was removed from the list of blocks that must 
-	** be flushed before the transaction commits, so we don't need to 
+	/* we've done an indirect->direct conversion.  when the data block
+	** was freed, it was removed from the list of blocks that must
+	** be flushed before the transaction commits, so we don't need to
 	** deal with it here.
 	*/
 	p_s_inode->u.reiserfs_i.i_flags &= ~i_pack_on_close_mask;
@@ -1716,7 +1728,7 @@ void reiserfs_do_truncate (struct reiserfs_transaction_handle *th,
 	}
 
 	RFALSE( n_deleted > n_file_size,
-		"PAP-5670: reiserfs_truncate_file returns too big number: deleted %d, file_size %lu, item_key %k",
+		"PAP-5670: reiserfs_truncate_file returns too big number: deleted %d, file_size %lu, item_key %K",
 		n_deleted, n_file_size, &s_item_key);
 
 	/* Change key to search the last file item. */
@@ -1802,16 +1814,20 @@ int reiserfs_paste_into_item (struct reiserfs_transaction_handle *th,
     int                 retval;
 
     init_tb_struct(th, &s_paste_balance, th->t_super, p_s_search_path, n_pasted_size);
+#ifdef DISPLACE_NEW_PACKING_LOCALITIES
+    s_paste_balance.key = p_s_key->on_disk_key;
+#endif
     
     while ( (retval = fix_nodes(M_PASTE, &s_paste_balance, NULL, p_c_body)) == REPEAT_SEARCH ) {
 	/* file system changed while we were in the fix_nodes */
+	PROC_INFO_INC( th -> t_super, paste_into_item_restarted );
 	retval = search_for_position_by_key (th->t_super, p_s_key, p_s_search_path);
 	if (retval == IO_ERROR) {
 	    retval = -EIO ;
 	    goto error_out ;
 	}
 	if (retval == POSITION_FOUND) {
-	    reiserfs_warning ("PAP-5710: reiserfs_paste_into_item: entry or pasted byte (%K) exists", p_s_key);
+	    reiserfs_warning ("PAP-5710: reiserfs_paste_into_item: entry or pasted byte (%K) exists\n", p_s_key);
 	    retval = -EEXIST ;
 	    goto error_out ;
 	}
@@ -1846,6 +1862,9 @@ int reiserfs_insert_item(struct reiserfs_transaction_handle *th,
     int                 retval;
 
     init_tb_struct(th, &s_ins_balance, th->t_super, p_s_path, IH_SIZE + ih_item_len(p_s_ih));
+#ifdef DISPLACE_NEW_PACKING_LOCALITIES
+    s_ins_balance.key = key->on_disk_key;
+#endif
 
     /*
     if (p_c_body == 0)
@@ -1855,6 +1874,7 @@ int reiserfs_insert_item(struct reiserfs_transaction_handle *th,
 
     while ( (retval = fix_nodes(M_INSERT, &s_ins_balance, p_s_ih, p_c_body)) == REPEAT_SEARCH) {
 	/* file system changed while we were in the fix_nodes */
+	PROC_INFO_INC( th -> t_super, insert_item_restarted );
 	retval = search_item (th->t_super, key, p_s_path);
 	if (retval == IO_ERROR) {
 	    retval = -EIO;

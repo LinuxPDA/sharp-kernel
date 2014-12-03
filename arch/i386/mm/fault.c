@@ -86,8 +86,7 @@ bad_area:
 
 out_of_memory:
 	if (current->pid == 1) {
-		current->policy |= SCHED_YIELD;
-		schedule();
+		yield();
 		goto survive;
 	}
 	goto bad_area;
@@ -123,12 +122,6 @@ void bust_spinlocks(int yes)
 		printk(" ");
 		console_loglevel = loglevel_save;
 	}
-}
-
-void do_BUG(const char *file, int line)
-{
-	bust_spinlocks(1);
-	printk("kernel BUG at %s:%d!\n", file, line);
 }
 
 asmlinkage void do_invalid_op(struct pt_regs *, unsigned long);
@@ -340,13 +333,11 @@ no_context:
  * us unable to handle the page fault gracefully.
  */
 out_of_memory:
-	up_read(&mm->mmap_sem);
 	if (tsk->pid == 1) {
-		tsk->policy |= SCHED_YIELD;
-		schedule();
-		down_read(&mm->mmap_sem);
+		yield();
 		goto survive;
 	}
+	up_read(&mm->mmap_sem);
 	printk("VM: killing process %s\n", tsk->comm);
 	if (error_code & 4)
 		do_exit(SIGKILL);

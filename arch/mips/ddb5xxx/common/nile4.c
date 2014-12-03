@@ -16,15 +16,13 @@
  ***********************************************************************
  */
 
-#include <linux/config.h>
 #include <linux/types.h>
 #include <linux/kernel.h>
 
 #include <asm/ddb5xxx/ddb5xxx.h>
-#include <asm/ddb5xxx/debug.h>
 
 u32
-ddb_calc_pdar(u32 phys, u32 size, int width, 
+ddb_calc_pdar(u32 phys, u32 size, int width,
 	      int on_memory_bus, int pci_visible)
 {
         u32 maskbits;
@@ -73,7 +71,7 @@ ddb_calc_pdar(u32 phys, u32 size, int width,
                 maskbits = 0;
                 break;
         default:
-                panic("nile4_set_pdar: unsupported size %p\n", (void *) size);
+                panic("nile4_set_pdar: unsupported size %p", (void *) size);
         }
         switch (width) {
         case 8:
@@ -89,7 +87,7 @@ ddb_calc_pdar(u32 phys, u32 size, int width,
                 widthbits = 3;
                 break;
         default:
-                panic("nile4_set_pdar: unsupported width %d\n", width);
+                panic("nile4_set_pdar: unsupported width %d", width);
         }
 
 	return maskbits | (on_memory_bus ? 0x10 : 0) |
@@ -128,7 +126,7 @@ void ddb_set_pmr(u32 pmr, u32 type, u32 addr, u32 options)
         case DDB_PCICMD_CFG:  /* PCI Configuration Space */
                 break;
         default:
-                panic("nile4_set_pmr: invalid type %d\n", type);
+                panic("nile4_set_pmr: invalid type %d", type);
         }
         ddb_out32(pmr, (type << 1) | (addr & 0xffe00000) | options );
         ddb_out32(pmr + 4, 0);

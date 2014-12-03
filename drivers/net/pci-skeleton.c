@@ -96,6 +96,7 @@ IVc. Errata
 #include <linux/delay.h>
 #include <linux/ethtool.h>
 #include <linux/mii.h>
+#include <linux/crc32.h>
 #include <asm/io.h>
 
 #define NETDRV_VERSION		"1.0.0"
@@ -509,7 +510,6 @@ static void netdrv_interrupt (int irq, void *dev_instance,
 static int netdrv_close (struct net_device *dev);
 static int netdrv_ioctl (struct net_device *dev, struct ifreq *rq, int cmd);
 static struct net_device_stats *netdrv_get_stats (struct net_device *dev);
-static inline u32 ether_crc (int length, unsigned char *data);
 static void netdrv_set_rx_mode (struct net_device *dev);
 static void netdrv_hw_start (struct net_device *dev);
 
@@ -1411,10 +1411,6 @@ static void netdrv_tx_interrupt (struct net_device *dev,
 				tp->stats.tx_carrier_errors++;
 			if (txstatus & TxOutOfWindow)
 				tp->stats.tx_window_errors++;
-#ifdef ETHER_STATS
-			if ((txstatus & 0x0f000000) == 0x0f000000)
-				tp->stats.collisions16++;
-#endif
 		} else {
 			if (txstatus & TxUnderrun) {
 				/* Add 64 to the Tx FIFO threshold. */
@@ -1852,27 +1848,6 @@ static struct net_device_stats *netdrv_get_stats (struct net_device *dev)
 
 /* Set or clear the multicast filter for this adaptor.
    This routine is not state sensitive and need not be SMP locked. */
-
-static unsigned const ethernet_polynomial = 0x04c11db7U;
-static inline u32 ether_crc (int length, unsigned char *data)
-{
-	int crc = -1;
-
-	DPRINTK ("ENTER\n");
-
-	while (--length >= 0) {
-		unsigned char current_octet = *data++;
-		int bit;
-		for (bit = 0; bit < 8; bit++, current_octet >>= 1)
-			crc = (crc << 1) ^
-			    ((crc < 0) ^ (current_octet & 1) ?
-			     ethernet_polynomial : 0);
-	}
-
-	DPRINTK ("EXIT\n");
-	return crc;
-}
-
 
 static void netdrv_set_rx_mode (struct net_device *dev)
 {

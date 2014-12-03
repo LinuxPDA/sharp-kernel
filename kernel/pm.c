@@ -30,7 +30,7 @@ int pm_active;
  *	Locking notes:
  *		pm_devs_lock can be a semaphore providing pm ops are not called
  *	from an interrupt handler (already a bad idea so no change here). Each
- *	change must be protected so that an unlink of an entry doesnt clash
+ *	change must be protected so that an unlink of an entry doesn't clash
  *	with a pm send - which is permitted to sleep in the current architecture
  *
  *	Module unloads clashing with pm events now work out safely, the module 
@@ -162,7 +162,7 @@ int pm_send(struct pm_dev *dev, pm_request_t rqst, void *data)
 	case PM_SUSPEND:
 	case PM_RESUME:
 		prev_state = dev->state;
-		next_state = (int) data;
+		next_state = (unsigned long) data;
 		if (prev_state != next_state) {
 			if (dev->callback)
 				status = (*dev->callback)(dev, rqst, data);

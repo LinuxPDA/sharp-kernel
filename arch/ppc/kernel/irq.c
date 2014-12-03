@@ -1,5 +1,5 @@
 /*
- * BK Id: SCCS/s.irq.c 1.34 12/01/01 20:09:06 benh
+ * BK Id: %F% %I% %G% %U% %#%
  */
 /*
  *  arch/ppc/kernel/irq.c
@@ -50,20 +50,15 @@
 
 #include <asm/uaccess.h>
 #include <asm/bitops.h>
-#include <asm/hydra.h>
 #include <asm/system.h>
 #include <asm/io.h>
 #include <asm/pgtable.h>
 #include <asm/irq.h>
-#include <asm/gg2.h>
 #include <asm/cache.h>
 #include <asm/prom.h>
-#include <asm/amigaints.h>
-#include <asm/amigahw.h>
-#include <asm/amigappc.h>
 #include <asm/ptrace.h>
 
-#include "local_irq.h"
+#define NR_MASK_WORDS	((NR_IRQS + 31) / 32)
 
 extern atomic_t ipi_recv;
 extern atomic_t ipi_sent;
@@ -189,9 +184,6 @@ setup_irq(unsigned int irq, struct irqaction * new)
  * now, this is what I need. -- Dan
  */
 #define request_irq	request_8xxirq
-#elif defined(CONFIG_APUS)
-#define request_irq	request_sysirq
-#define free_irq	sys_free_irq
 #endif
 
 void free_irq(unsigned int irq, void* dev_id)
@@ -373,9 +365,6 @@ void enable_irq(unsigned int irq)
 
 int get_irq_list(char *buf)
 {
-#ifdef CONFIG_APUS
-	return apus_get_irq_list (buf);
-#else
 	int i, len = 0, j;
 	struct irqaction * action;
 
@@ -423,7 +412,6 @@ int get_irq_list(char *buf)
 #endif		
 	len += sprintf(buf+len, "BAD: %10u\n", ppc_spurious_interrupts);
 	return len;
-#endif /* CONFIG_APUS */
 }
 
 static inline void
@@ -985,7 +973,7 @@ static void register_irq_proc (unsigned int irq)
 	struct proc_dir_entry *entry;
 	char name [MAX_NAMELEN];
 
-	if (!root_irq_dir || (irq_desc[irq].handler == NULL))
+	if (!root_irq_dir || (irq_desc[irq].handler == NULL) || irq_dir[irq])
 		return;
 
 	memset(name, 0, MAX_NAMELEN);

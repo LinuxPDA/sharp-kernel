@@ -1,6 +1,9 @@
 /*
  *  linux/mm/vmscan.c
  *
+ *  The pageout daemon, decides which pages to evict (swap out) and
+ *  does the actual work of freeing them.
+ *
  *  Copyright (C) 1991, 1992, 1993, 1994  Linus Torvalds
  *
  *  Swap reorganised 29.12.95, Stephen Tweedie.
@@ -20,7 +23,6 @@
 #include <linux/init.h>
 #include <linux/highmem.h>
 #include <linux/file.h>
-#include <linux/compiler.h>
 
 #include <asm/pgalloc.h>
 
@@ -58,7 +60,7 @@ static inline int try_to_swap_out(struct mm_struct * mm, struct vm_area_struct* 
 		return 0;
 
 	/* Don't bother replenishing zones not under pressure.. */
-	if (!memclass(page->zone, classzone))
+	if (!memclass(page_zone(page), classzone))
 		return 0;
 
 	if (TryLockPage(page))
@@ -234,8 +236,7 @@ static inline int swap_out_vma(struct mm_struct * mm, struct vm_area_struct * vm
 	pgdir = pgd_offset(mm, address);
 
 	end = vma->vm_end;
-	if (address >= end)
-		BUG();
+	BUG_ON(address >= end);
 	do {
 		count = swap_out_pgd(mm, vma, pgdir, address, end, count, classzone);
 		if (!count)
@@ -354,10 +355,8 @@ static int shrink_cache(int nr_pages, zone_t * classzone, unsigned int gfp_mask,
 
 		page = list_entry(entry, struct page, lru);
 
-		if (unlikely(!PageLRU(page)))
-			BUG();
-		if (unlikely(PageActive(page)))
-			BUG();
+		BUG_ON(!PageLRU(page));
+		BUG_ON(PageActive(page));
 
 		list_del(entry);
 		list_add(entry, &inactive_list);
@@ -369,7 +368,7 @@ static int shrink_cache(int nr_pages, zone_t * classzone, unsigned int gfp_mask,
 		if (unlikely(!page_count(page)))
 			continue;
 
-		if (!memclass(page->zone, classzone))
+		if (!memclass(page_zone(page), classzone))
 			continue;
 
 		/* Racy check to avoid trylocking when not worthwhile */
@@ -585,7 +584,7 @@ static int shrink_caches(zone_t * classzone, int priority, unsigned int gfp_mask
 	return nr_pages;
 }
 
-int try_to_free_pages(zone_t *classzone, unsigned int gfp_mask, unsigned int order)
+int try_to_free_pages_zone(zone_t *classzone, unsigned int gfp_mask)
 {
 	int priority = DEF_PRIORITY;
 	int nr_pages = SWAP_CLUSTER_MAX;
@@ -603,6 +602,25 @@ int try_to_free_pages(zone_t *classzone, unsigned int gfp_mask, unsigned int ord
 	 */
 	out_of_memory();
 	return 0;
+}
+
+int try_to_free_pages(unsigned int gfp_mask)
+{
+	pg_data_t *pgdat;
+	zonelist_t *zonelist;
+	unsigned long pf_free_pages;
+	int error = 0;
+
+	pf_free_pages = current->flags & PF_FREE_PAGES;
+	current->flags &= ~PF_FREE_PAGES;
+
+	for_each_pgdat(pgdat) {
+		zonelist = pgdat->node_zonelists + (gfp_mask & GFP_ZONEMASK);
+		error |= try_to_free_pages_zone(zonelist->zones[0], gfp_mask);
+	}
+
+	current->flags |= pf_free_pages;
+	return error;
 }
 
 DECLARE_WAIT_QUEUE_HEAD(kswapd_wait);
@@ -631,7 +649,7 @@ static int kswapd_balance_pgdat(pg_data_t * pgdat)
 			schedule();
 		if (!zone->need_balance)
 			continue;
-		if (!try_to_free_pages(zone, GFP_KSWAPD, 0)) {
+		if (!try_to_free_pages_zone(zone, GFP_KSWAPD)) {
 			zone->need_balance = 0;
 			__set_current_state(TASK_INTERRUPTIBLE);
 			schedule_timeout(HZ);
@@ -653,10 +671,9 @@ static void kswapd_balance(void)
 
 	do {
 		need_more_balance = 0;
-		pgdat = pgdat_list;
-		do
+
+		for_each_pgdat(pgdat)
 			need_more_balance |= kswapd_balance_pgdat(pgdat);
-		while ((pgdat = pgdat->node_next));
 	} while (need_more_balance);
 }
 
@@ -679,12 +696,10 @@ static int kswapd_can_sleep(void)
 {
 	pg_data_t * pgdat;
 
-	pgdat = pgdat_list;
-	do {
-		if (kswapd_can_sleep_pgdat(pgdat))
-			continue;
-		return 0;
-	} while ((pgdat = pgdat->node_next));
+	for_each_pgdat(pgdat) {
+		if (!kswapd_can_sleep_pgdat(pgdat))
+			return 0;
+	}
 
 	return 1;
 }

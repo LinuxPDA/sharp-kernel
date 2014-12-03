@@ -39,6 +39,7 @@
 
 #define TICK_SIZE tick
 
+static ext_int_info_t ext_int_info_timer;
 static uint64_t init_timer_cc;
 
 extern rwlock_t xtime_lock;
@@ -82,7 +83,7 @@ static inline unsigned long do_gettimeoffset(void)
 {
 	__u64 now;
 
-	asm ("STCK %0" : "=m" (now));
+	asm ("STCK 0(%0)" : : "a" (&now) : "memory", "cc");
         now = (now - init_timer_cc) >> 12;
 	/* We require the offset from the latest update of xtime */
 	now -= (__u64) wall_jiffies*USECS_PER_JIFFY;
@@ -200,9 +201,10 @@ void __init time_init(void)
 	int cc;
 
         /* kick the TOD clock */
-        asm volatile ("STCK %1\n\t"
+        asm volatile ("STCK 0(%1)\n\t"
                       "IPM  %0\n\t"
-                      "SRL  %0,28" : "=r" (cc), "=m" (init_timer_cc));
+                      "SRL  %0,28" : "=r" (cc) : "a" (&init_timer_cc) 
+				   : "memory", "cc");
         switch (cc) {
         case 0: /* clock in set state: all is fine */
                 break;
@@ -223,7 +225,8 @@ void __init time_init(void)
         tod_to_timeval(set_time_cc, &xtime);
 
         /* request the 0x1004 external interrupt */
-        if (register_external_interrupt(0x1004, do_comparator_interrupt) != 0)
+        if (register_early_external_interrupt(0x1004, do_comparator_interrupt,
+					      &ext_int_info_timer) != 0)
                 panic("Couldn't request external interrupt 0x1004");
 
         /* init CPU timer */

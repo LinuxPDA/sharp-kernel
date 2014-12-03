@@ -42,6 +42,7 @@ struct exec_domain;
 #define CLONE_VFORK	0x00004000	/* set if the parent wants the child to wake it up on mm_release */
 #define CLONE_PARENT	0x00008000	/* set if we want to have the same parent as the cloner */
 #define CLONE_THREAD	0x00010000	/* Same thread group? */
+#define CLONE_NEWNS	0x00020000	/* New namespace group? */
 
 #define CLONE_SIGNAL	(CLONE_SIGHAND | CLONE_THREAD)
 
@@ -79,7 +80,9 @@ extern int last_pid;
 #include <linux/time.h>
 #include <linux/param.h>
 #include <linux/resource.h>
+#ifdef __KERNEL__
 #include <linux/timer.h>
+#endif
 
 #include <asm/processor.h>
 
@@ -166,6 +169,7 @@ extern int current_is_keventd(void);
  */
 #define NR_OPEN_DEFAULT BITS_PER_LONG
 
+struct namespace;
 /*
  * Open file table structure
  */
@@ -199,7 +203,9 @@ struct files_struct {
 }
 
 /* Maximum number of active map areas.. This is a random (large) number */
-#define MAX_MAP_COUNT	(65536)
+#define DEFAULT_MAX_MAP_COUNT	(65536)
+
+extern int max_map_count;
 
 struct mm_struct {
 	struct vm_area_struct * mmap;		/* list of VMAs */
@@ -389,6 +395,8 @@ struct task_struct {
 	struct fs_struct *fs;
 /* open file information */
 	struct files_struct *files;
+/* namespace */
+	struct namespace *namespace;
 /* signal handlers */
 	spinlock_t sigmask_lock;	/* Protects signal and blocked */
 	struct signal_struct *sig;
@@ -450,6 +458,7 @@ struct task_struct {
 #define MAX_COUNTER	(20*HZ/100)
 #define DEF_NICE	(0)
 
+extern void yield(void);
 
 /*
  * The default (Linux) execution domain.
@@ -601,7 +610,7 @@ extern int FASTCALL(wake_up_process(struct task_struct * tsk));
 #define wake_up_interruptible_nr(x, nr)	__wake_up((x),TASK_INTERRUPTIBLE, nr)
 #define wake_up_interruptible_all(x)	__wake_up((x),TASK_INTERRUPTIBLE, 0)
 #define wake_up_interruptible_sync(x)	__wake_up_sync((x),TASK_INTERRUPTIBLE, 1)
-#define wake_up_interruptible_sync_nr(x) __wake_up_sync((x),TASK_INTERRUPTIBLE,  nr)
+#define wake_up_interruptible_sync_nr(x, nr) __wake_up_sync((x),TASK_INTERRUPTIBLE,  nr)
 asmlinkage long sys_wait4(pid_t pid,unsigned int * stat_addr, int options, struct rusage * ru);
 
 extern int in_group_p(gid_t);
@@ -610,6 +619,7 @@ extern int in_egroup_p(gid_t);
 extern void proc_caches_init(void);
 extern void flush_signals(struct task_struct *);
 extern void flush_signal_handlers(struct task_struct *);
+extern void sig_exit(int, int, struct siginfo *);
 extern int dequeue_signal(sigset_t *, siginfo_t *);
 extern void block_all_signals(int (*notifier)(void *priv), void *priv,
 			      sigset_t *mask);
@@ -870,8 +880,13 @@ do {									\
 #define for_each_task(p) \
 	for (p = &init_task ; (p = p->next_task) != &init_task ; )
 
+#define for_each_thread(task) \
+	for (task = next_thread(current) ; task != current ; task = next_thread(task))
+
 #define next_thread(p) \
 	list_entry((p)->thread_group.next, struct task_struct, thread_group)
+
+#define thread_group_leader(p)	(p->pid == p->tgid)
 
 static inline void del_from_runqueue(struct task_struct * p)
 {
@@ -888,7 +903,8 @@ static inline int task_on_runqueue(struct task_struct *p)
 
 static inline void unhash_process(struct task_struct *p)
 {
-	if (task_on_runqueue(p)) BUG();
+	if (task_on_runqueue(p))
+		out_of_line_bug();
 	write_lock_irq(&tasklist_lock);
 	nr_threads--;
 	unhash_pid(p);
@@ -927,6 +943,17 @@ static inline char * d_path(struct dentry *dentry, struct vfsmount *vfsmnt,
 	return res;
 }
 
-#endif /* __KERNEL__ */
+static inline int need_resched(void)
+{
+	return (unlikely(current->need_resched));
+}
 
+extern void __cond_resched(void);
+static inline void cond_resched(void)
+{
+	if (need_resched())
+		__cond_resched();
+}
+
+#endif /* __KERNEL__ */
 #endif

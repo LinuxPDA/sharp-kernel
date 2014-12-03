@@ -138,6 +138,7 @@ static int full_duplex[MAX_UNITS] = {-1, -1, -1, -1, -1, -1, -1, -1};
 #include <linux/ethtool.h>
 #include <linux/mii.h>
 #include <linux/rtnetlink.h>
+#include <linux/crc32.h>
 #include <asm/uaccess.h>
 #include <asm/processor.h>		/* Processor type for cache alignment. */
 #include <asm/bitops.h>
@@ -388,7 +389,6 @@ static int  start_tx(struct sk_buff *skb, struct net_device *dev);
 static void intr_handler(int irq, void *dev_instance, struct pt_regs *regs);
 static void netdev_error(struct net_device *dev, int intr_status);
 static int  netdev_rx(struct net_device *dev);
-static inline unsigned ether_crc(int length, unsigned char *data);
 static u32 __set_rx_mode(struct net_device *dev);
 static void set_rx_mode(struct net_device *dev);
 static struct net_device_stats *get_stats(struct net_device *dev);
@@ -473,7 +473,7 @@ static int __devinit w840_probe1 (struct pci_dev *pdev,
 		np->mii_if.full_duplex = 1;
 
 	if (np->mii_if.full_duplex)
-		np->mii_if.duplex_lock = 1;
+		np->mii_if.force_media = 1;
 
 	/* The chip-specific entries in the device structure. */
 	dev->open = &netdev_open;
@@ -773,7 +773,7 @@ static int update_link(struct net_device *dev)
 		duplex = (negotiated & LPA_100FULL) || ((negotiated & 0x02C0) == LPA_10FULL);
 		fasteth = negotiated & 0x380;
 	}
-	duplex |= np->mii_if.duplex_lock;
+	duplex |= np->mii_if.force_media;
 	/* remove fastether and fullduplex */
 	result = np->csr6 & ~0x20000200;
 	if (duplex)
@@ -1078,7 +1078,7 @@ static int start_tx(struct sk_buff *skb, struct net_device *dev)
 		np->tx_ring[entry].length |= DescEndRing;
 
 	/* Now acquire the irq spinlock.
-	 * The difficult race is the the ordering between
+	 * The difficult race is the ordering between
 	 * increasing np->cur_tx and setting DescOwn:
 	 * - if np->cur_tx is increased first the interrupt
 	 *   handler could consider the packet as transmitted
@@ -1136,13 +1136,7 @@ static void netdev_tx_done(struct net_device *dev)
 			if (tx_status & 0x0002) np->stats.tx_fifo_errors++;
 			if ((tx_status & 0x0080) && np->mii_if.full_duplex == 0)
 				np->stats.tx_heartbeat_errors++;
-#ifdef ETHER_STATS
-			if (tx_status & 0x0100) np->stats.collisions16++;
-#endif
 		} else {
-#ifdef ETHER_STATS
-			if (tx_status & 0x0001) np->stats.tx_deferred++;
-#endif
 #ifndef final_version
 			if (debug > 3)
 				printk(KERN_DEBUG "%s: Transmit slot %d ok, Tx status %8.8x.\n",
@@ -1410,21 +1404,6 @@ static struct net_device_stats *get_stats(struct net_device *dev)
 	return &np->stats;
 }
 
-static unsigned const ethernet_polynomial = 0x04c11db7U;
-static inline u32 ether_crc(int length, unsigned char *data)
-{
-    int crc = -1;
-
-    while(--length >= 0) {
-		unsigned char current_octet = *data++;
-		int bit;
-		for (bit = 0; bit < 8; bit++, current_octet >>= 1) {
-			crc = (crc << 1) ^
-				((crc < 0) ^ (current_octet & 1) ? ethernet_polynomial : 0);
-		}
-    }
-    return crc;
-}
 
 static u32 __set_rx_mode(struct net_device *dev)
 {

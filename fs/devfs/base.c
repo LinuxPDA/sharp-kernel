@@ -608,6 +608,27 @@
 	       Fixed deadlock bug in <devfs_d_revalidate_wait>.
 	       Tag VFS deletable in <devfs_mk_symlink> if handle ignored.
   v1.10
+    20020129   Richard Gooch <rgooch@atnf.csiro.au>
+	       Added KERN_* to remaining messages.
+	       Cleaned up declaration of <stat_read>.
+  v1.11
+    20020219   Richard Gooch <rgooch@atnf.csiro.au>
+	       Changed <devfs_rmdir> to allow later additions if not yet empty.
+  v1.12
+    20020514   Richard Gooch <rgooch@atnf.csiro.au>
+	       Added BKL to <devfs_open> because drivers still need it.
+	       Protected <scan_dir_for_removable> and <get_removable_partition>
+	       from changing directory contents.
+  v1.12a
+    20020721   Richard Gooch <rgooch@atnf.csiro.au>
+	       Switched to ISO C structure field initialisers.
+	       Switch to set_current_state() and move before add_wait_queue().
+    20020722   Richard Gooch <rgooch@atnf.csiro.au>
+	       Fixed devfs entry leak in <devfs_readdir> when *readdir fails.
+  v1.12b
+    20020818   Richard Gooch <rgooch@atnf.csiro.au>
+	       Fixed module unload race in <devfs_open>.
+  v1.12c
 */
 #include <linux/types.h>
 #include <linux/errno.h>
@@ -640,7 +661,7 @@
 #include <asm/bitops.h>
 #include <asm/atomic.h>
 
-#define DEVFS_VERSION            "1.10 (20020120)"
+#define DEVFS_VERSION            "1.12c (20020818)"
 
 #define DEVFS_NAME "devfs"
 
@@ -848,11 +869,11 @@ static int devfsd_ioctl (struct inode *inode, struct file *file,
 			 unsigned int cmd, unsigned long arg);
 static int devfsd_close (struct inode *inode, struct file *file);
 #ifdef CONFIG_DEVFS_DEBUG
-static int stat_read (struct file *file, char *buf, size_t len,
-			    loff_t *ppos);
+static ssize_t stat_read (struct file *file, char *buf, size_t len,
+			  loff_t *ppos);
 static struct file_operations stat_fops =
 {
-    read:    stat_read,
+    .read    = stat_read,
 };
 #endif
 
@@ -860,9 +881,9 @@ static struct file_operations stat_fops =
 /*  Devfs daemon file operations  */
 static struct file_operations devfsd_fops =
 {
-    read:    devfsd_read,
-    ioctl:   devfsd_ioctl,
-    release: devfsd_close,
+    .read    = devfsd_read,
+    .ioctl   = devfsd_ioctl,
+    .release = devfsd_close,
 };
 
 
@@ -1429,12 +1450,12 @@ static int wait_for_devfsd_finished (struct fs_info *fs_info)
     if (fs_info->devfsd_task == NULL) return (TRUE);
     if (devfsd_queue_empty (fs_info) && fs_info->devfsd_sleeping) return TRUE;
     if ( is_devfsd_or_child (fs_info) ) return (FALSE);
+    set_current_state (TASK_UNINTERRUPTIBLE);
     add_wait_queue (&fs_info->revalidate_wait_queue, &wait);
-    current->state = TASK_UNINTERRUPTIBLE;
     if (!devfsd_queue_empty (fs_info) || !fs_info->devfsd_sleeping)
 	if (fs_info->devfsd_task) schedule ();
     remove_wait_queue (&fs_info->revalidate_wait_queue, &wait);
-    current->state = TASK_RUNNING;
+    __set_current_state (TASK_RUNNING);
     return (TRUE);
 }   /*  End Function wait_for_devfsd_finished  */
 
@@ -2415,6 +2436,9 @@ static int try_modload (struct devfs_entry *parent, struct fs_info *fs_info,
  *	@de: The device.
  *
  *	Returns 1 if the media was changed, else 0.
+ *
+ *	This function may block, and may indirectly cause the parent directory
+ *	contents to be changed due to partition re-reading.
  */
 
 static int check_disc_changed (struct devfs_entry *de)
@@ -2431,10 +2455,10 @@ static int check_disc_changed (struct devfs_entry *de)
     if (bdops->check_media_change == NULL) goto out;
     if ( !bdops->check_media_change (dev) ) goto out;
     retval = 1;
-    printk ( KERN_DEBUG "VFS: Disk change detected on device %s\n",
+    printk (KERN_DEBUG "VFS: Disk change detected on device %s\n",
 	     kdevname (dev) );
-    if (invalidate_device(dev, 0))
-	printk("VFS: busy inodes on changed media..\n");
+    if ( invalidate_device (dev, 0) )
+	printk (KERN_WARNING "VFS: busy inodes on changed media..\n");
     /*  Ugly hack to disable messages about unable to read partition table  */
     tmp = warn_no_part;
     warn_no_part = 0;
@@ -2449,19 +2473,29 @@ out:
 /**
  *	scan_dir_for_removable - Scan a directory for removable media devices and check media.
  *	@dir: The directory.
+ *
+ *	This function may block, and may indirectly cause the directory
+ *	contents to be changed due to partition re-reading. The directory will
+ *	be locked for reading.
  */
 
 static void scan_dir_for_removable (struct devfs_entry *dir)
 {
     struct devfs_entry *de;
 
-    if (dir->u.dir.num_removable < 1) return;
-    for (de = dir->u.dir.first; de != NULL; de = de->next)
+    read_lock (&dir->u.dir.lock);
+    if (dir->u.dir.num_removable < 1) de = NULL;
+    else
     {
-	if ( !S_ISBLK (de->mode) ) continue;
-	if (!de->u.fcb.removable) continue;
-	check_disc_changed (de);
+	for (de = dir->u.dir.first; de != NULL; de = de->next)
+	{
+	    if (S_ISBLK (de->mode) && de->u.fcb.removable) break;
+	}
+	devfs_get (de);
     }
+    read_unlock (&dir->u.dir.lock);
+    if (de) check_disc_changed (de);
+    devfs_put (de);
 }   /*  End Function scan_dir_for_removable  */
 
 /**
@@ -2471,25 +2505,37 @@ static void scan_dir_for_removable (struct devfs_entry *dir)
  *	@namelen: The number of characters in <<name>>.
  *
  *	Returns 1 if the media was changed, else 0.
+ *
+ *	This function may block, and may indirectly cause the directory
+ *	contents to be changed due to partition re-reading. The directory must
+ *	be locked for reading upon entry, and will be unlocked upon exit.
  */
 
 static int get_removable_partition (struct devfs_entry *dir, const char *name,
 				    unsigned int namelen)
 {
+    int retval;
     struct devfs_entry *de;
 
+    if (dir->u.dir.num_removable < 1)
+    {
+	read_unlock (&dir->u.dir.lock);
+	return 0;
+    }
     for (de = dir->u.dir.first; de != NULL; de = de->next)
     {
-	if ( !S_ISBLK (de->mode) ) continue;
-	if (!de->u.fcb.removable) continue;
-	if (strcmp (de->name, "disc") == 0) return check_disc_changed (de);
+	if (!S_ISBLK (de->mode) || !de->u.fcb.removable) continue;
+	if (strcmp (de->name, "disc") == 0) break;
 	/*  Support for names where the partition is appended to the disc name
 	 */
 	if (de->namelen >= namelen) continue;
-	if (strncmp (de->name, name, de->namelen) != 0) continue;
-	return check_disc_changed (de);
+	if (strncmp (de->name, name, de->namelen) == 0) break;
     }
-    return 0;
+    devfs_get (de);
+    read_unlock (&dir->u.dir.lock);
+    retval = de ? check_disc_changed (de) : 0;
+    devfs_put (de);
+    return retval;
 }   /*  End Function get_removable_partition  */
 
 
@@ -2555,9 +2601,9 @@ static void devfs_clear_inode (struct inode *inode)
 
 static struct super_operations devfs_sops =
 { 
-    put_inode:     force_delete,
-    clear_inode:   devfs_clear_inode,
-    statfs:        devfs_statfs,
+    .put_inode     = force_delete,
+    .clear_inode   = devfs_clear_inode,
+    .statfs        = devfs_statfs,
 };
 
 
@@ -2703,19 +2749,20 @@ static int devfs_readdir (struct file *file, void *dirent, filldir_t filldir)
 	    {
 		err = (*filldir) (dirent, de->name, de->namelen,
 				  file->f_pos, de->inode.ino, de->mode >> 12);
-		if (err >= 0)
+		if (err < 0) devfs_put (de);
+		else
 		{
 		    file->f_pos++;
 		    ++stored;
 		}
 	    }
+	    if (err == -EINVAL) break;
+	    if (err < 0) return err;
 	    read_lock (&parent->u.dir.lock);
 	    next = devfs_get (de->next);
 	    read_unlock (&parent->u.dir.lock);
 	    devfs_put (de);
 	    de = next;
-	    if (err == -EINVAL) break;
-	    if (err < 0) return err;
 	}
 	break;
     }
@@ -2728,25 +2775,35 @@ static int devfs_open (struct inode *inode, struct file *file)
     struct fcb_type *df;
     struct devfs_entry *de;
     struct fs_info *fs_info = inode->i_sb->u.generic_sbp;
+    void *ops;
 
     de = get_devfs_entry_from_vfs_inode (inode);
     if (de == NULL) return -ENODEV;
     if ( S_ISDIR (de->mode) ) return 0;
     df = &de->u.fcb;
     file->private_data = de->info;
+    ops = devfs_get_ops (de);  /*  Now have module refcount  */
     if ( S_ISBLK (inode->i_mode) )
     {
 	file->f_op = &def_blk_fops;
-	if (df->ops) inode->i_bdev->bd_op = df->ops;
+	if (ops) inode->i_bdev->bd_op = ops;
+	err = def_blk_fops.open (inode, file); /* This bumps module refcount */
+	devfs_put_ops (de);                    /* So drop my refcount        */
     }
-    else file->f_op = fops_get ( (struct file_operations *) df->ops );
-    if (file->f_op)
-	err = file->f_op->open ? (*file->f_op->open) (inode, file) : 0;
     else
     {
-	/*  Fallback to legacy scheme  */
-	if ( S_ISCHR (inode->i_mode) ) err = chrdev_open (inode, file);
-	else err = -ENODEV;
+	file->f_op = ops;
+	if (file->f_op)
+	{
+	    lock_kernel ();
+	    err = file->f_op->open ? (*file->f_op->open) (inode, file) : 0;
+	    unlock_kernel ();
+	}
+	else
+	{   /*  Fallback to legacy scheme (I don't have a module refcount)  */
+	    if ( S_ISCHR (inode->i_mode) ) err = chrdev_open (inode, file);
+	    else err = -ENODEV;
+	}
     }
     if (err < 0) return err;
     /*  Open was successful  */
@@ -2767,14 +2824,14 @@ static int devfs_open (struct inode *inode, struct file *file)
 
 static struct file_operations devfs_fops =
 {
-    open:    devfs_open,
+    .open    = devfs_open,
 };
 
 static struct file_operations devfs_dir_fops =
 {
-    read:    generic_read_dir,
-    readdir: devfs_readdir,
-    open:    devfs_open,
+    .read    = generic_read_dir,
+    .readdir = devfs_readdir,
+    .open    = devfs_open,
 };
 
 
@@ -2816,19 +2873,19 @@ static int devfs_d_delete (struct dentry *dentry);
 
 static struct dentry_operations devfs_dops =
 {
-    d_delete:     devfs_d_delete,
-    d_release:    devfs_d_release,
-    d_iput:       devfs_d_iput,
+    .d_delete     = devfs_d_delete,
+    .d_release    = devfs_d_release,
+    .d_iput       = devfs_d_iput,
 };
 
 static int devfs_d_revalidate_wait (struct dentry *dentry, int flags);
 
 static struct dentry_operations devfs_wait_dops =
 {
-    d_delete:     devfs_d_delete,
-    d_release:    devfs_d_release,
-    d_iput:       devfs_d_iput,
-    d_revalidate: devfs_d_revalidate_wait,
+    .d_delete     = devfs_d_delete,
+    .d_release    = devfs_d_release,
+    .d_iput       = devfs_d_iput,
+    .d_revalidate = devfs_d_revalidate_wait,
 };
 
 /**
@@ -2915,8 +2972,8 @@ static int devfs_d_revalidate_wait (struct dentry *dentry, int flags)
     read_lock (&parent->u.dir.lock);
     if (dentry->d_fsdata)
     {
+	set_current_state (TASK_UNINTERRUPTIBLE);
 	add_wait_queue (&lookup_info->wait_queue, &wait);
-	current->state = TASK_UNINTERRUPTIBLE;
 	read_unlock (&parent->u.dir.lock);
 	schedule ();
     }
@@ -2946,15 +3003,17 @@ static struct dentry *devfs_lookup (struct inode *dir, struct dentry *dentry)
     if (parent == NULL) return ERR_PTR (-ENOENT);
     read_lock (&parent->u.dir.lock);
     de = _devfs_search_dir (parent, dentry->d_name.name, dentry->d_name.len);
-    read_unlock (&parent->u.dir.lock);
-    if ( (de == NULL) && (parent->u.dir.num_removable > 0) &&
-	 get_removable_partition (parent, dentry->d_name.name,
-				  dentry->d_name.len) )
-    {
-	read_lock (&parent->u.dir.lock);
-	de = _devfs_search_dir (parent, dentry->d_name.name,
-				dentry->d_name.len);
-	read_unlock (&parent->u.dir.lock);
+    if (de) read_unlock (&parent->u.dir.lock);
+    else
+    {   /*  Try re-reading the partition (media may have changed)  */
+	if ( get_removable_partition (parent, dentry->d_name.name,
+				      dentry->d_name.len) )  /*  Unlocks  */
+	{   /*  Media did change  */
+	    read_lock (&parent->u.dir.lock);
+	    de = _devfs_search_dir (parent, dentry->d_name.name,
+				    dentry->d_name.len);
+	    read_unlock (&parent->u.dir.lock);
+	}
     }
     lookup_info.de = de;
     init_waitqueue_head (&lookup_info.wait_queue);
@@ -3112,10 +3171,10 @@ static int devfs_rmdir (struct inode *dir, struct dentry *dentry)
     if (de == NULL) return -ENOENT;
     if ( !S_ISDIR (de->mode) ) return -ENOTDIR;
     if (!de->vfs_deletable) return -EPERM;
-    /*  First ensure the directory is empty and will stay thay way  */
+    /*  First ensure the directory is empty and will stay that way  */
     write_lock (&de->u.dir.lock);
-    de->u.dir.no_more_additions = TRUE;
     if (de->u.dir.first) err = -ENOTEMPTY;
+    else de->u.dir.no_more_additions = TRUE;
     write_unlock (&de->u.dir.lock);
     if (err) return err;
     /*  Now unhook the directory from it's parent  */
@@ -3193,25 +3252,25 @@ static int devfs_follow_link (struct dentry *dentry, struct nameidata *nd)
 
 static struct inode_operations devfs_iops =
 {
-    setattr:        devfs_notify_change,
+    .setattr        = devfs_notify_change,
 };
 
 static struct inode_operations devfs_dir_iops =
 {
-    lookup:         devfs_lookup,
-    unlink:         devfs_unlink,
-    symlink:        devfs_symlink,
-    mkdir:          devfs_mkdir,
-    rmdir:          devfs_rmdir,
-    mknod:          devfs_mknod,
-    setattr:        devfs_notify_change,
+    .lookup         = devfs_lookup,
+    .unlink         = devfs_unlink,
+    .symlink        = devfs_symlink,
+    .mkdir          = devfs_mkdir,
+    .rmdir          = devfs_rmdir,
+    .mknod          = devfs_mknod,
+    .setattr        = devfs_notify_change,
 };
 
 static struct inode_operations devfs_symlink_iops =
 {
-    readlink:       devfs_readlink,
-    follow_link:    devfs_follow_link,
-    setattr:        devfs_notify_change,
+    .readlink       = devfs_readlink,
+    .follow_link    = devfs_follow_link,
+    .setattr        = devfs_notify_change,
 };
 
 static struct super_block *devfs_read_super (struct super_block *sb,
@@ -3237,7 +3296,7 @@ static struct super_block *devfs_read_super (struct super_block *sb,
     return sb;
 
 out_no_root:
-    printk ("devfs_read_super: get root inode failed\n");
+    PRINTK ("(): get root inode failed\n");
     if (root_inode) iput (root_inode);
     return NULL;
 }   /*  End Function devfs_read_super  */
@@ -3267,8 +3326,8 @@ static ssize_t devfsd_read (struct file *file, char *buf, size_t len,
     info->major = 0;
     info->minor = 0;
     /*  Block for a new entry  */
+    set_current_state (TASK_INTERRUPTIBLE);
     add_wait_queue (&fs_info->devfsd_wait_queue, &wait);
-    current->state = TASK_INTERRUPTIBLE;
     while ( devfsd_queue_empty (fs_info) )
     {
 	fs_info->devfsd_sleeping = TRUE;
@@ -3278,13 +3337,13 @@ static ssize_t devfsd_read (struct file *file, char *buf, size_t len,
 	if ( signal_pending (current) )
 	{
 	    remove_wait_queue (&fs_info->devfsd_wait_queue, &wait);
-	    current->state = TASK_RUNNING;
+	    __set_current_state (TASK_RUNNING);
 	    return -EINTR;
 	}
 	set_current_state (TASK_INTERRUPTIBLE);
     }
     remove_wait_queue (&fs_info->devfsd_wait_queue, &wait);
-    current->state = TASK_RUNNING;
+    __set_current_state (TASK_RUNNING);
     /*  Now play with the data  */
     ival = atomic_read (&fs_info->devfsd_overrun_count);
     info->overrun_count = ival;
@@ -3464,7 +3523,7 @@ static int __init init_devfs_fs (void)
 {
     int err;
 
-    printk ("%s: v%s Richard Gooch (rgooch@atnf.csiro.au)\n",
+    printk (KERN_INFO "%s: v%s Richard Gooch (rgooch@atnf.csiro.au)\n",
 	    DEVFS_NAME, DEVFS_VERSION);
     devfsd_buf_cache = kmem_cache_create ("devfsd_event",
 					  sizeof (struct devfsd_buf_entry),
@@ -3472,9 +3531,9 @@ static int __init init_devfs_fs (void)
     if (!devfsd_buf_cache) OOPS ("(): unable to allocate event slab\n");
 #ifdef CONFIG_DEVFS_DEBUG
     devfs_debug = devfs_debug_init;
-    printk ("%s: devfs_debug: 0x%0x\n", DEVFS_NAME, devfs_debug);
+    printk (KERN_INFO "%s: devfs_debug: 0x%0x\n", DEVFS_NAME, devfs_debug);
 #endif
-    printk ("%s: boot_options: 0x%0x\n", DEVFS_NAME, boot_options);
+    printk (KERN_INFO "%s: boot_options: 0x%0x\n", DEVFS_NAME, boot_options);
     err = register_filesystem (&devfs_fs_type);
     if (!err)
     {
@@ -3491,8 +3550,8 @@ void __init mount_devfs_fs (void)
 
     if ( !(boot_options & OPTION_MOUNT) ) return;
     err = do_mount ("none", "/dev", "devfs", 0, "");
-    if (err == 0) printk ("Mounted devfs on /dev\n");
-    else printk ("Warning: unable to mount devfs, err: %d\n", err);
+    if (err == 0) printk (KERN_INFO "Mounted devfs on /dev\n");
+    else PRINTK ("(): unable to mount devfs, err: %d\n", err);
 }   /*  End Function mount_devfs_fs  */
 
 module_init(init_devfs_fs)

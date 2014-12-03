@@ -38,6 +38,8 @@
 #define __LC_IO_INT_WORD                0x0C0
 #define __LC_MCCK_CODE                  0x0E8
 
+#define __LC_DIAG44_OPCODE		0x214
+
 #define __LC_SAVE_AREA                  0xC00
 #define __LC_KERNEL_STACK               0xD40
 #define __LC_ASYNC_STACK                0xD48
@@ -62,7 +64,7 @@
 #define _SVC_PSW_MASK        0x0400000180000000
 #define _MCCK_PSW_MASK       0x0400000180000000
 #define _IO_PSW_MASK         0x0400000180000000
-#define _USER_PSW_MASK       0x0701C00180000000
+#define _USER_PSW_MASK       0x0705C00180000000
 #define _WAIT_PSW_MASK       0x0706000180000000
 #define _DW_PSW_MASK         0x0002000180000000
 
@@ -146,7 +148,8 @@ struct _lowcore
 	psw_t        io_new_psw;               /* 0x1f0 */
         psw_t        return_psw;               /* 0x200 */
 	__u32        sync_io_word;             /* 0x210 */
-        __u8         pad8[0xc00-0x214];        /* 0x214 */
+	__u32        diag44_opcode;            /* 0x214 */
+        __u8         pad8[0xc00-0x218];        /* 0x218 */
         /* System info area */
 	__u64        save_area[16];            /* 0xc00 */
         __u8         pad9[0xd40-0xc80];        /* 0xc80 */
@@ -200,12 +203,12 @@ extern __inline__ void set_prefix(__u32 address)
 extern struct _lowcore *lowcore_ptr[];
 
 #ifndef CONFIG_SMP
-#define get_cpu_lowcore(cpu)    S390_lowcore
-#define safe_get_cpu_lowcore(cpu) S390_lowcore
+#define get_cpu_lowcore(cpu)      (&S390_lowcore)
+#define safe_get_cpu_lowcore(cpu) (&S390_lowcore)
 #else
-#define get_cpu_lowcore(cpu)    (*lowcore_ptr[cpu])
+#define get_cpu_lowcore(cpu)      (lowcore_ptr[(cpu)])
 #define safe_get_cpu_lowcore(cpu) \
-        ((cpu)==smp_processor_id() ? S390_lowcore:(*lowcore_ptr[(cpu)]))
+        ((cpu) == smp_processor_id() ? &S390_lowcore : lowcore_ptr[(cpu)])
 #endif
 #endif /* __ASSEMBLY__ */
 

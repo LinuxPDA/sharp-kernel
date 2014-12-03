@@ -29,6 +29,7 @@
 #include <asm/mtrr.h>
 #include <asm/mpspec.h>
 #include <asm/pgalloc.h>
+#include <asm/smpboot.h>
 
 /* Using APIC to generate smp_local_timer_interrupt? */
 int using_apic_timer = 0;
@@ -291,14 +292,13 @@ void __init setup_local_APIC (void)
 	 * an APIC.  See e.g. "AP-388 82489DX User's Manual" (Intel
 	 * document number 292116).  So here it goes...
 	 */
-
-	if (!clustered_apic_mode) {
+	if (clustered_apic_mode != CLUSTERED_APIC_NUMAQ) {
 		/*
-		 * In clustered apic mode, the firmware does this for us 
-		 * Put the APIC into flat delivery mode.
-		 * Must be "all ones" explicitly for 82489DX.
+		 * For NUMA-Q (clustered apic logical), the firmware does this
+		 * for us. Otherwise put the APIC into clustered or flat
+		 * delivery mode. Must be "all ones" explicitly for 82489DX.
 		 */
-		apic_write_around(APIC_DFR, 0xffffffff);
+		apic_write_around(APIC_DFR, APIC_DFR_FLAT);
 
 		/*
 		 * Set up the logical destination ID.
@@ -582,11 +582,16 @@ static inline void apic_pm_init2(void) { }
  * Detect and enable local APICs on non-SMP boards.
  * Original code written by Keir Fraser.
  */
+int dont_enable_local_apic __initdata = 0;
 
 static int __init detect_init_APIC (void)
 {
 	u32 h, l, features;
 	extern void get_cpu_vendor(struct cpuinfo_x86*);
+
+	/* Disabled by DMI scan or kernel option? */
+	if (dont_enable_local_apic)
+		return -1;
 
 	/* Workaround for us being called before identify_cpu(). */
 	get_cpu_vendor(&boot_cpu_data);
@@ -679,7 +684,15 @@ void __init init_apic_mappings(void)
 		for (i = 0; i < nr_ioapics; i++) {
 			if (smp_found_config) {
 				ioapic_phys = mp_ioapics[i].mpc_apicaddr;
+				if (!ioapic_phys) {
+					printk(KERN_ERR "WARNING: bogus zero IO-APIC address found in MPTABLE, disabling IO/APIC support!\n");
+
+					smp_found_config = 0;
+					skip_ioapic_setup = 1;
+					goto fake_ioapic_page;
+				}
 			} else {
+fake_ioapic_page:
 				ioapic_phys = (unsigned long) alloc_bootmem_pages(PAGE_SIZE);
 				ioapic_phys = __pa(ioapic_phys);
 			}
@@ -796,8 +809,7 @@ void setup_APIC_timer(void * data)
 	 */
 
 	slice = clocks / (smp_num_cpus+1);
-	printk("cpu: %d, clocks: %d, slice: %d\n",
-		smp_processor_id(), clocks, slice);
+	printk("cpu: %d, clocks: %d, slice: %d\n", smp_processor_id(), clocks, slice);
 
 	/*
 	 * Wait for IRQ0's slice:
@@ -820,8 +832,7 @@ void setup_APIC_timer(void * data)
 
 	__setup_APIC_LVTT(clocks);
 
-	printk("CPU%d<T0:%d,T1:%d,D:%d,S:%d,C:%d>\n",
-			smp_processor_id(), t0, t1, delta, slice, clocks);
+	printk("CPU%d<T0:%d,T1:%d,D:%d,S:%d,C:%d>\n", smp_processor_id(), t0, t1, delta, slice, clocks);
 
 	__restore_flags(flags);
 }
@@ -905,8 +916,14 @@ int __init calibrate_APIC_clock(void)
 
 static unsigned int calibration_result;
 
+int dont_use_local_apic_timer __initdata = 0;
+
 void __init setup_APIC_clocks (void)
 {
+	/* Disabled by DMI scan or kernel option? */
+	if (dont_use_local_apic_timer)
+		return;
+
 	printk("Using local APIC timer interrupts.\n");
 	using_apic_timer = 1;
 
@@ -922,6 +939,26 @@ void __init setup_APIC_clocks (void)
 
 	/* and update all other cpus */
 	smp_call_function(setup_APIC_timer, (void *)calibration_result, 1, 1);
+}
+
+void __init disable_APIC_timer(void)
+{
+	if (using_apic_timer) {
+		unsigned long v;
+
+		v = apic_read(APIC_LVTT);
+		apic_write_around(APIC_LVTT, v | APIC_LVT_MASKED);
+	}
+}
+
+void enable_APIC_timer(void)
+{
+	if (using_apic_timer) {
+		unsigned long v;
+
+		v = apic_read(APIC_LVTT);
+		apic_write_around(APIC_LVTT, v & ~APIC_LVT_MASKED);
+	}
 }
 
 /*
@@ -1013,7 +1050,7 @@ inline void smp_local_timer_interrupt(struct pt_regs * regs)
 /*
  * Local APIC timer interrupt. This is the most natural way for doing
  * local interrupts, but local timer interrupts can be emulated by
- * broadcast interrupts too. [in case the hw doesnt support APIC timers]
+ * broadcast interrupts too. [in case the hw doesn't support APIC timers]
  *
  * [ if a single-CPU system runs an SMP kernel then we call the local
  *   interrupt as well. Thus we cannot inline the local irq ... ]

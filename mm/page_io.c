@@ -72,11 +72,6 @@ static int rw_swap_page_base(int rw, swp_entry_t entry, struct page *page)
 
  	/* block_size == PAGE_SIZE/zones_used */
  	brw_page(rw, page, dev, zones, block_size);
-
- 	/* Note! For consistency we do all of the logic,
- 	 * decrementing the page count, and unlocking the page in the
- 	 * swap lock map - in the IO completion handler.
- 	 */
 	return 1;
 }
 
@@ -97,8 +92,6 @@ void rw_swap_page(int rw, struct page *page)
 		PAGE_BUG(page);
 	if (!PageSwapCache(page))
 		PAGE_BUG(page);
-	if (page->mapping != &swapper_space)
-		PAGE_BUG(page);
 	if (!rw_swap_page_base(rw, entry, page))
 		UnlockPage(page);
 }
@@ -114,14 +107,14 @@ void rw_swap_page_nolock(int rw, swp_entry_t entry, char *buf)
 	
 	if (!PageLocked(page))
 		PAGE_BUG(page);
-	if (PageSwapCache(page))
-		PAGE_BUG(page);
 	if (page->mapping)
 		PAGE_BUG(page);
 	/* needs sync_page to wait I/O completation */
 	page->mapping = &swapper_space;
-	if (!rw_swap_page_base(rw, entry, page))
-		UnlockPage(page);
-	wait_on_page(page);
+	if (rw_swap_page_base(rw, entry, page))
+		lock_page(page);
+	if (!block_flushpage(page, 0))
+		PAGE_BUG(page);
 	page->mapping = NULL;
+	UnlockPage(page);
 }

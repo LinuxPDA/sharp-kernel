@@ -14,7 +14,7 @@
 #include <linux/fcntl.h>
 #include <linux/init.h>
 #include <linux/poll.h>
-#include <linux/mc146818rtc.h>	/* For struct rtc_time and ioctls, etc */
+#include <linux/rtc.h>	/* For struct rtc_time and ioctls, etc */
 #include <linux/smp_lock.h>
 #include <asm/bvme6000hw.h>
 
@@ -94,7 +94,7 @@ static int rtc_ioctl(struct inode *inode, struct file *file, unsigned int cmd,
 
 		leap_yr = ((!(yrs % 4) && (yrs % 100)) || !(yrs % 400));
 
-		if ((mon > 12) || (day == 0))
+		if ((mon > 12) || (mon < 1) || (day == 0))
 			return -EINVAL;
 
 		if (day > (days_in_mo[mon] + ((mon == 2) && leap_yr)))

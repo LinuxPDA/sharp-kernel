@@ -57,15 +57,12 @@ extern int kmem_cache_destroy(kmem_cache_t *);
 extern int kmem_cache_shrink(kmem_cache_t *);
 extern void *kmem_cache_alloc(kmem_cache_t *, int);
 extern void kmem_cache_free(kmem_cache_t *, void *);
+extern unsigned int kmem_cache_size(kmem_cache_t *);
 
 extern void *kmalloc(size_t, int);
 extern void kfree(const void *);
 
 extern int FASTCALL(kmem_cache_reap(int));
-extern int slabinfo_read_proc(char *page, char **start, off_t off,
-				 int count, int *eof, void *data);
-extern int slabinfo_write_proc(struct file *file, const char *buffer,
-			   unsigned long count, void *data);
 
 /* System wide caches */
 extern kmem_cache_t	*vm_area_cachep;

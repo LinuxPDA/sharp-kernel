@@ -19,7 +19,7 @@
  *
  * ########################################################################
  *
- * Routines for generic manipulation of the interrupts found on the MIPS 
+ * Routines for generic manipulation of the interrupts found on the MIPS
  * Atlas board.
  *
  */
@@ -42,19 +42,11 @@ struct atlas_ictrl_regs *atlas_hw0_icregs
 extern asmlinkage void mipsIRQ(void);
 extern void do_IRQ(int irq, struct pt_regs *regs);
 
-unsigned long spurious_count = 0;
-irq_desc_t irq_desc[NR_IRQS];
-
 #if 0
 #define DEBUG_INT(x...) printk(x)
 #else
 #define DEBUG_INT(x...)
 #endif
-
-void inline disable_irq_nosync(unsigned int irq_nr)
-{
-	disable_atlas_irq(irq_nr);
-}
 
 void disable_atlas_irq(unsigned int irq_nr)
 {
@@ -93,76 +85,6 @@ static struct hw_interrupt_type atlas_irq_type = {
 	NULL
 };
 
-int get_irq_list(char *buf)
-{
-	int i, len = 0;
-	int num = 0;
-	struct irqaction *action;
-
-	for (i = 0; i < ATLASINT_END; i++, num++) {
-		action = irq_desc[i].action;
-		if (!action) 
-			continue;
-		len += sprintf(buf+len, "%2d: %8d %c %s",
-			num, kstat.irqs[0][num],
-			(action->flags & SA_INTERRUPT) ? '+' : ' ',
-			action->name);
-		for (action=action->next; action; action = action->next) {
-			len += sprintf(buf+len, ",%s %s",
-				(action->flags & SA_INTERRUPT) ? " +" : "",
-				action->name);
-		}
-		len += sprintf(buf+len, " [hw0]\n");
-	}
-	return len;
-}
-
-int request_irq(unsigned int irq, 
-		void (*handler)(int, void *, struct pt_regs *),
-		unsigned long irqflags, 
-		const char * devname,
-		void *dev_id)
-{  
-        struct irqaction *action;
-
-	DEBUG_INT("request_irq: irq=%d, devname = %s\n", irq, devname);
-
-	if (irq >= ATLASINT_END)
-		return -EINVAL;
-	if (!handler)
-		return -EINVAL;
-
-	action = (struct irqaction *)kmalloc(sizeof(struct irqaction), GFP_KERNEL);
-	if(!action)
-		return -ENOMEM;
-
-	action->handler = handler;
-	action->flags = irqflags;
-	action->mask = 0;
-	action->name = devname;
-	action->dev_id = dev_id;
-	action->next = 0;
-	irq_desc[irq].action = action;
-	enable_atlas_irq(irq);
-
-	return 0;
-}
-
-void free_irq(unsigned int irq, void *dev_id)
-{
-	struct irqaction *action;
-
-	if (irq >= ATLASINT_END) {
-		printk("Trying to free IRQ%d\n",irq);
-		return;
-	}
-
-	action = irq_desc[irq].action;
-	irq_desc[irq].action = NULL;
-	disable_atlas_irq(irq);
-	kfree(action);
-}
-
 static inline int ls1bit32(unsigned int x)
 {
 	int b = 31, s;
@@ -182,7 +104,7 @@ void atlas_hw0_irqdispatch(struct pt_regs *regs)
 	unsigned long int_status;
 	int irq, cpu = smp_processor_id();
 
-	int_status = atlas_hw0_icregs->intstatus; 
+	int_status = atlas_hw0_icregs->intstatus;
 
 	/* if int_status == 0, then the interrupt has already been cleared */
 	if (int_status == 0)
@@ -194,9 +116,9 @@ void atlas_hw0_irqdispatch(struct pt_regs *regs)
 	DEBUG_INT("atlas_hw0_irqdispatch: irq=%d\n", irq);
 
 	/* if action == NULL, then we don't have a handler for the irq */
-	if ( action == NULL ) {
+	if (action == NULL) {
 		printk("No handler for hw0 irq: %i\n", irq);
-		spurious_count++;
+		atomic_inc(&irq_err_count);
 		return;
 	}
 
@@ -205,18 +127,7 @@ void atlas_hw0_irqdispatch(struct pt_regs *regs)
 	action->handler(irq, action->dev_id, regs);
 	irq_exit(cpu, irq);
 
-	return;		
-}
-
-unsigned long probe_irq_on (void)
-{
-	return 0;
-}
-
-
-int probe_irq_off (unsigned long irqs)
-{
-	return 0;
+	return;
 }
 
 #ifdef CONFIG_REMOTE_DEBUG
@@ -228,11 +139,11 @@ void __init init_IRQ(void)
 {
 	int i;
 
-	/* 
-	 * Mask out all interrupt by writing "1" to all bit position in 
-	 * the interrupt reset reg. 
+	/*
+	 * Mask out all interrupt by writing "1" to all bit position in
+	 * the interrupt reset reg.
 	 */
-	atlas_hw0_icregs->intrsten = 0xffffffff;    
+	atlas_hw0_icregs->intrsten = 0xffffffff;
 
 	/* Now safe to set the exception vector. */
 	set_except_vector(0, mipsIRQ);

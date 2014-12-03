@@ -22,6 +22,8 @@
 #ifndef _TUNER_H
 #define _TUNER_H
 
+#include "id.h"
+
 #define TUNER_TEMIC_PAL     0        /* 4002 FH5 (3X 7756, 9483) */
 #define TUNER_PHILIPS_PAL_I 1
 #define TUNER_PHILIPS_NTSC  2
@@ -60,6 +62,9 @@
 #define TUNER_TEMIC_4012FY5	35	/* 4012 FY5 (3X 0971, 1099)*/
 #define TUNER_TEMIC_4136FY5	36	/* 4136 FY5 (3X 7708, 7746)*/
 #define TUNER_LG_PAL_NEW_TAPC   37
+#define TUNER_PHILIPS_FM1216ME_MK3  38
+#define TUNER_LG_NTSC_NEW_TAPC   39
+
 
 
 

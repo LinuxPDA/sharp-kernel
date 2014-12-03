@@ -45,11 +45,17 @@
 			- Reviewed against 1.18 from scyld.com
 		v1.18a 17Nov2001 Jeff Garzik <jgarzik@mandrakesoft.com>
 			- ethtool support
-*/
+		v1.18b 1Mar2002 Zwane Mwaikambo <zwane@commfireservices.com>
+			- Power Management support
+                v1.18c 1Mar2002 David Ruggiero <jdr@farfalle.com>
+                        - Full duplex support
+		v1.19  16Oct2002 Zwane Mwaikambo <zwane@linuxpower.ca>
+			- Additional ethtool features
+  */
 
 #define DRV_NAME	"3c509"
-#define DRV_VERSION	"1.18a"
-#define DRV_RELDATE	"17Nov2001"
+#define DRV_VERSION	"1.19"
+#define DRV_RELDATE	"16Oct2002"
 
 /* A few values that may be tweaked. */
 
@@ -82,8 +88,9 @@ static int max_interrupt_work = 10;
 #include <asm/bitops.h>
 #include <asm/io.h>
 #include <asm/irq.h>
+#include <linux/pm.h>
 
-static char versionA[] __initdata = DRV_NAME ".c:" DRV_VERSION " " DRV_RELDATE "becker@scyld.com\n";
+static char versionA[] __initdata = DRV_NAME ".c:" DRV_VERSION " " DRV_RELDATE " becker@scyld.com\n";
 static char versionB[] __initdata = "http://www.scyld.com/network/3c509.html\n";
 
 #ifdef EL3_DEBUG
@@ -116,7 +123,8 @@ enum c509cmd {
 	FakeIntr = 12<<11, AckIntr = 13<<11, SetIntrEnb = 14<<11,
 	SetStatusEnb = 15<<11, SetRxFilter = 16<<11, SetRxThreshold = 17<<11,
 	SetTxThreshold = 18<<11, SetTxStart = 19<<11, StatsEnable = 21<<11,
-	StatsDisable = 22<<11, StopCoax = 23<<11,};
+	StatsDisable = 22<<11, StopCoax = 23<<11, PowerUp = 27<<11,
+	PowerDown = 28<<11, PowerAuto = 29<<11};
 
 enum c509status {
 	IntLatch = 0x0001, AdapterFailure = 0x0002, TxComplete = 0x0004,
@@ -134,9 +142,13 @@ enum RxFilter {
 #define TX_STATUS 	0x0B
 #define TX_FREE		0x0C		/* Remaining free bytes in Tx buffer. */
 
+#define WN0_CONF_CTRL	0x04		/* Window 0: Configuration control register */
+#define WN0_ADDR_CONF	0x06		/* Window 0: Address configuration register */
 #define WN0_IRQ		0x08		/* Window 0: Set IRQ line in bits 12-15. */
 #define WN4_MEDIA	0x0A		/* Window 4: Various transcvr/media bits. */
-#define  MEDIA_TP	0x00C0		/* Enable link beat and jabber for 10baseT. */
+#define	MEDIA_TP	0x00C0		/* Enable link beat and jabber for 10baseT. */
+#define WN4_NETDIAG	0x06		/* Window 4: Net diagnostic */
+#define FD_ENABLE	0x8000		/* Enable full-duplex ("external loopback") */  
 
 /*
  * Must be a power of two (we use a binary and in the
@@ -152,6 +164,9 @@ struct el3_private {
 	int head, size;
 	struct sk_buff *queue[SKB_QUEUE_SIZE];
 	char mca_slot;
+#ifdef CONFIG_PM
+	struct pm_dev *pmdev;
+#endif
 };
 static int id_port __initdata = 0x110;	/* Start with 0x110 to avoid new sound cards.*/
 static struct net_device *el3_root_dev;
@@ -168,6 +183,13 @@ static int el3_close(struct net_device *dev);
 static void set_multicast_list(struct net_device *dev);
 static void el3_tx_timeout (struct net_device *dev);
 static int netdev_ioctl (struct net_device *dev, struct ifreq *rq, int cmd);
+static void el3_down(struct net_device *dev);
+static void el3_up(struct net_device *dev);
+#ifdef CONFIG_PM
+static int el3_suspend(struct pm_dev *pdev);
+static int el3_resume(struct pm_dev *pdev);
+static int el3_pm_callback(struct pm_dev *pdev, pm_request_t rqst, void *data);
+#endif
 
 #ifdef CONFIG_MCA
 struct el3_mca_adapters_struct {
@@ -212,14 +234,12 @@ static struct isapnp_device_id el3_isapnp_adapters[] __initdata = {
 };
 
 MODULE_DEVICE_TABLE(isapnp, el3_isapnp_adapters);
-MODULE_LICENSE("GPL");
-
 
 static u16 el3_isapnp_phys_addr[8][3];
-#endif /* CONFIG_ISAPNP || CONFIG_ISAPNP_MODULE */
 static int nopnp;
+#endif /* CONFIG_ISAPNP || CONFIG_ISAPNP_MODULE */
 
-int __init el3_probe(struct net_device *dev)
+int __init el3_probe(struct net_device *dev, int card_idx)
 {
 	struct el3_private *lp;
 	short lrs_state = 0xff, i;
@@ -486,12 +506,18 @@ no_pnp:
 	memcpy(dev->dev_addr, phys_addr, sizeof(phys_addr));
 	dev->base_addr = ioaddr;
 	dev->irq = irq;
-	dev->if_port = (dev->mem_start & 0x1f) ? dev->mem_start & 3 : if_port;
+        
+	if (dev->mem_start & 0x05) { /* xcvr codes 1/3/4/12 */
+		dev->if_port = (dev->mem_start & 0x0f);
+        } else { /* xcvr codes 0/8 */
+		/* use eeprom value, but save user's full-duplex selection */
+		dev->if_port = (if_port | (dev->mem_start & 0x08) );
+	}
 
 	{
 		const char *if_names[] = {"10baseT", "AUI", "undefined", "BNC"};
 		printk("%s: 3c5x9 at %#3.3lx, %s port, address ",
-			   dev->name, dev->base_addr, if_names[dev->if_port]);
+			dev->name, dev->base_addr, if_names[(dev->if_port & 0x03)]);
 	}
 
 	/* Read in the station address. */
@@ -525,6 +551,16 @@ no_pnp:
 	dev->watchdog_timeo = TX_TIMEOUT;
 	dev->do_ioctl = netdev_ioctl;
 
+#ifdef CONFIG_PM
+	/* register power management */
+	lp->pmdev = pm_register(PM_ISA_DEV, card_idx, el3_pm_callback);
+	if (lp->pmdev) {
+		struct pm_dev *p;
+		p = lp->pmdev;
+		p->data = (struct net_device *)dev;
+	}
+#endif
+
 	/* Fill in the generic fields of the device structure. */
 	ether_setup(dev);
 	return 0;
@@ -533,7 +569,7 @@ no_pnp:
 /* Read a word from the EEPROM using the regular EEPROM access register.
    Assume that we are in register window zero.
  */
-static ushort __init read_eeprom(int ioaddr, int index)
+static ushort read_eeprom(int ioaddr, int index)
 {
 	outw(EEPROM_READ + index, ioaddr + 10);
 	/* Pause for at least 162 us. for the read to take place. */
@@ -581,53 +617,7 @@ el3_open(struct net_device *dev)
 		printk("%s: Opening, IRQ %d	 status@%x %4.4x.\n", dev->name,
 			   dev->irq, ioaddr + EL3_STATUS, inw(ioaddr + EL3_STATUS));
 
-	/* Activate board: this is probably unnecessary. */
-	outw(0x0001, ioaddr + 4);
-
-	/* Set the IRQ line. */
-	outw((dev->irq << 12) | 0x0f00, ioaddr + WN0_IRQ);
-
-	/* Set the station address in window 2 each time opened. */
-	EL3WINDOW(2);
-
-	for (i = 0; i < 6; i++)
-		outb(dev->dev_addr[i], ioaddr + i);
-
-	if (dev->if_port == 3)
-		/* Start the thinnet transceiver. We should really wait 50ms...*/
-		outw(StartCoax, ioaddr + EL3_CMD);
-	else if (dev->if_port == 0) {
-		/* 10baseT interface, enabled link beat and jabber check. */
-		EL3WINDOW(4);
-		outw(inw(ioaddr + WN4_MEDIA) | MEDIA_TP, ioaddr + WN4_MEDIA);
-	}
-
-	/* Switch to the stats window, and clear all stats by reading. */
-	outw(StatsDisable, ioaddr + EL3_CMD);
-	EL3WINDOW(6);
-	for (i = 0; i < 9; i++)
-		inb(ioaddr + i);
-	inw(ioaddr + 10);
-	inw(ioaddr + 12);
-
-	/* Switch to register set 1 for normal use. */
-	EL3WINDOW(1);
-
-	/* Accept b-case and phys addr only. */
-	outw(SetRxFilter | RxStation | RxBroadcast, ioaddr + EL3_CMD);
-	outw(StatsEnable, ioaddr + EL3_CMD); /* Turn on statistics. */
-
-	netif_start_queue(dev);
-
-	outw(RxEnable, ioaddr + EL3_CMD); /* Enable the receiver. */
-	outw(TxEnable, ioaddr + EL3_CMD); /* Enable transmitter. */
-	/* Allow status bits to be seen. */
-	outw(SetStatusEnb | 0xff, ioaddr + EL3_CMD);
-	/* Ack all pending events, and set active indicator mask. */
-	outw(AckIntr | IntLatch | TxAvailable | RxEarly | IntReq,
-		 ioaddr + EL3_CMD);
-	outw(SetIntrEnb | IntLatch|TxAvailable|TxComplete|RxComplete|StatsFull,
-		 ioaddr + EL3_CMD);
+	el3_up(dev);
 
 	if (el3_debug > 3)
 		printk("%s: Opened 3c509  IRQ %d  status %4.4x.\n",
@@ -708,7 +698,7 @@ el3_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	outw(0x00, ioaddr + TX_FIFO);
 	/* ... and the packet rounded to a doubleword. */
 #ifdef  __powerpc__
-	outsl_unswapped(ioaddr + TX_FIFO, skb->data, (skb->len + 3) >> 2);
+	outsl_ns(ioaddr + TX_FIFO, skb->data, (skb->len + 3) >> 2);
 #else
 	outsl(ioaddr + TX_FIFO, skb->data, (skb->len + 3) >> 2);
 #endif
@@ -919,7 +909,7 @@ el3_rx(struct net_device *dev)
 
 				/* 'skb->data' points to the start of sk_buff data area. */
 #ifdef  __powerpc__
-				insl_unswapped(ioaddr+RX_FIFO, skb_put(skb,pkt_len),
+				insl_ns(ioaddr+RX_FIFO, skb_put(skb,pkt_len),
 							   (pkt_len + 3) >> 2);
 #else
 				insl(ioaddr + RX_FIFO, skb_put(skb,pkt_len),
@@ -986,23 +976,7 @@ el3_close(struct net_device *dev)
 	if (el3_debug > 2)
 		printk("%s: Shutting down ethercard.\n", dev->name);
 
-	netif_stop_queue(dev);
-
-	/* Turn off statistics ASAP.  We update lp->stats below. */
-	outw(StatsDisable, ioaddr + EL3_CMD);
-
-	/* Disable the receiver and transmitter. */
-	outw(RxDisable, ioaddr + EL3_CMD);
-	outw(TxDisable, ioaddr + EL3_CMD);
-
-	if (dev->if_port == 3)
-		/* Turn off thinnet power.  Green! */
-		outw(StopCoax, ioaddr + EL3_CMD);
-	else if (dev->if_port == 0) {
-		/* Disable link beat and jabber, if_port may change ere next open(). */
-		EL3WINDOW(4);
-		outw(inw(ioaddr + WN4_MEDIA) & ~MEDIA_TP, ioaddr + WN4_MEDIA);
-	}
+	el3_down(dev);
 
 	free_irq(dev->irq, dev);
 	/* Switching back to window 0 disables the IRQ. */
@@ -1010,7 +984,119 @@ el3_close(struct net_device *dev)
 	/* But we explicitly zero the IRQ line select anyway. */
 	outw(0x0f00, ioaddr + WN0_IRQ);
 
-	update_stats(dev);
+	return 0;
+}
+
+static int 
+el3_link_ok(struct net_device *dev)
+{
+	int ioaddr = dev->base_addr;
+	u16 tmp;
+
+	EL3WINDOW(4);
+	tmp = inw(ioaddr + WN4_MEDIA);
+	EL3WINDOW(1);
+	return tmp & (1<<11);
+}
+
+static int
+el3_netdev_get_ecmd(struct net_device *dev, struct ethtool_cmd *ecmd)
+{
+	u16 tmp;
+	int ioaddr = dev->base_addr;
+	
+	EL3WINDOW(0);
+	/* obtain current tranceiver via WN4_MEDIA? */	
+	tmp = inw(ioaddr + WN0_ADDR_CONF);
+	ecmd->transceiver = XCVR_INTERNAL;
+	switch (tmp >> 14) {
+	case 0:
+		ecmd->port = PORT_TP;
+		break;
+	case 1:
+		ecmd->port = PORT_AUI;
+		ecmd->transceiver = XCVR_EXTERNAL;
+		break;
+	case 3:
+		ecmd->port = PORT_BNC;
+	default:
+		break;
+	}
+
+	ecmd->duplex = DUPLEX_HALF;
+	ecmd->supported = 0;
+	tmp = inw(ioaddr + WN0_CONF_CTRL);
+	if (tmp & (1<<13))
+		ecmd->supported |= SUPPORTED_AUI;
+	if (tmp & (1<<12))
+		ecmd->supported |= SUPPORTED_BNC;
+	if (tmp & (1<<9)) {
+		ecmd->supported |= SUPPORTED_TP | SUPPORTED_10baseT_Half |
+				SUPPORTED_10baseT_Full;	/* hmm... */
+		EL3WINDOW(4);
+		tmp = inw(ioaddr + WN4_NETDIAG);
+		if (tmp & FD_ENABLE)
+			ecmd->duplex = DUPLEX_FULL;
+	}
+
+	ecmd->speed = SPEED_10;
+	EL3WINDOW(1);
+	return 0;
+}
+
+static int
+el3_netdev_set_ecmd(struct net_device *dev, struct ethtool_cmd *ecmd)
+{
+	u16 tmp;
+	int ioaddr = dev->base_addr;
+
+	if (ecmd->speed != SPEED_10)
+		return -EINVAL;
+	if ((ecmd->duplex != DUPLEX_HALF) && (ecmd->duplex != DUPLEX_FULL))
+		return -EINVAL;
+	if ((ecmd->transceiver != XCVR_INTERNAL) && (ecmd->transceiver != XCVR_EXTERNAL))
+		return -EINVAL;
+
+	/* change XCVR type */
+	EL3WINDOW(0);
+	tmp = inw(ioaddr + WN0_ADDR_CONF);
+	switch (ecmd->port) {
+	case PORT_TP:
+		tmp &= ~(3<<14);
+		dev->if_port = 0;
+		break;
+	case PORT_AUI:
+		tmp |= (1<<14);
+		dev->if_port = 1;
+		break;
+	case PORT_BNC:
+		tmp |= (3<<14);
+		dev->if_port = 3;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	outw(tmp, ioaddr + WN0_ADDR_CONF);
+	if (dev->if_port == 3) {
+		/* fire up the DC-DC convertor if BNC gets enabled */
+		tmp = inw(ioaddr + WN0_ADDR_CONF);
+		if (tmp & (3 << 14)) {
+			outw(StartCoax, ioaddr + EL3_CMD);
+			udelay(800);
+		} else
+			return -EIO;
+	}
+
+	EL3WINDOW(4);
+	tmp = inw(ioaddr + WN4_NETDIAG);
+	if (ecmd->duplex == DUPLEX_FULL)
+		tmp |= FD_ENABLE;
+	else
+		tmp &= ~FD_ENABLE;
+	outw(tmp, ioaddr + WN4_NETDIAG);
+	EL3WINDOW(1);
+
 	return 0;
 }
 
@@ -1022,9 +1108,11 @@ el3_close(struct net_device *dev)
  * Process the various commands of the SIOCETHTOOL interface.
  */
 
-static int netdev_ethtool_ioctl (struct net_device *dev, void *useraddr)
+static int
+netdev_ethtool_ioctl (struct net_device *dev, void *useraddr)
 {
 	u32 ethcmd;
+	struct el3_private *lp = dev->priv;
 
 	/* dev_ioctl() in ../../net/core/dev.c has already checked
 	   capable(CAP_NET_ADMIN), so don't bother with that here.  */
@@ -1039,6 +1127,41 @@ static int netdev_ethtool_ioctl (struct net_device *dev, void *useraddr)
 		strcpy (info.driver, DRV_NAME);
 		strcpy (info.version, DRV_VERSION);
 		if (copy_to_user (useraddr, &info, sizeof (info)))
+			return -EFAULT;
+		return 0;
+	}
+
+	/* get settings */
+	case ETHTOOL_GSET: {
+		int ret;
+		struct ethtool_cmd ecmd = { ETHTOOL_GSET };
+		spin_lock_irq(&lp->lock);
+		ret = el3_netdev_get_ecmd(dev, &ecmd);
+		spin_unlock_irq(&lp->lock);
+		if (copy_to_user(useraddr, &ecmd, sizeof(ecmd)))
+			return -EFAULT;
+		return ret;
+	}
+
+	/* set settings */
+	case ETHTOOL_SSET: {
+		int ret;
+		struct ethtool_cmd ecmd;
+		if (copy_from_user(&ecmd, useraddr, sizeof(ecmd)))
+			return -EFAULT;
+		spin_lock_irq(&lp->lock);
+		ret = el3_netdev_set_ecmd(dev, &ecmd);
+		spin_unlock_irq(&lp->lock);
+		return ret;
+	}
+
+	/* get link status */
+	case ETHTOOL_GLINK: {
+		struct ethtool_value edata = { ETHTOOL_GLINK };
+		spin_lock_irq(&lp->lock);
+		edata.data = el3_link_ok(dev);
+		spin_unlock_irq(&lp->lock);
+		if (copy_to_user(useraddr, &edata, sizeof(edata)))
 			return -EFAULT;
 		return 0;
 	}
@@ -1076,7 +1199,8 @@ static int netdev_ethtool_ioctl (struct net_device *dev, void *useraddr)
  * Process the various out-of-band ioctls passed to this driver.
  */
 
-static int netdev_ioctl (struct net_device *dev, struct ifreq *rq, int cmd)
+static int
+netdev_ioctl (struct net_device *dev, struct ifreq *rq, int cmd)
 {
 	int rc = 0;
 
@@ -1092,25 +1216,214 @@ static int netdev_ioctl (struct net_device *dev, struct ifreq *rq, int cmd)
 
 	return rc;
 }
- 
+
+static void
+el3_down(struct net_device *dev)
+{
+	int ioaddr = dev->base_addr;
+
+	netif_stop_queue(dev);
+
+	/* Turn off statistics ASAP.  We update lp->stats below. */
+	outw(StatsDisable, ioaddr + EL3_CMD);
+
+	/* Disable the receiver and transmitter. */
+	outw(RxDisable, ioaddr + EL3_CMD);
+	outw(TxDisable, ioaddr + EL3_CMD);
+
+	if (dev->if_port == 3)
+		/* Turn off thinnet power.  Green! */
+		outw(StopCoax, ioaddr + EL3_CMD);
+	else if (dev->if_port == 0) {
+		/* Disable link beat and jabber, if_port may change here next open(). */
+		EL3WINDOW(4);
+		outw(inw(ioaddr + WN4_MEDIA) & ~MEDIA_TP, ioaddr + WN4_MEDIA);
+	}
+
+	outw(SetIntrEnb | 0x0000, ioaddr + EL3_CMD);
+
+	update_stats(dev);
+}
+
+static void
+el3_up(struct net_device *dev)
+{
+	int i, sw_info, net_diag;
+	int ioaddr = dev->base_addr;
+	
+	/* Activating the board required and does no harm otherwise */
+	outw(0x0001, ioaddr + 4);
+
+	/* Set the IRQ line. */
+	outw((dev->irq << 12) | 0x0f00, ioaddr + WN0_IRQ);
+
+	/* Set the station address in window 2 each time opened. */
+	EL3WINDOW(2);
+
+	for (i = 0; i < 6; i++)
+		outb(dev->dev_addr[i], ioaddr + i);
+
+	if ((dev->if_port & 0x03) == 3) /* BNC interface */
+		/* Start the thinnet transceiver. We should really wait 50ms...*/
+		outw(StartCoax, ioaddr + EL3_CMD);
+	else if ((dev->if_port & 0x03) == 0) { /* 10baseT interface */
+		/* Combine secondary sw_info word (the adapter level) and primary
+			sw_info word (duplex setting plus other useless bits) */
+		EL3WINDOW(0);
+		sw_info = (read_eeprom(ioaddr, 0x14) & 0x400f) | 
+			(read_eeprom(ioaddr, 0x0d) & 0xBff0);
+
+		EL3WINDOW(4);
+		net_diag = inw(ioaddr + WN4_NETDIAG);
+		net_diag = (net_diag | FD_ENABLE); /* temporarily assume full-duplex will be set */
+		printk("%s: ", dev->name);
+		switch (dev->if_port & 0x0c) {
+			case 12:
+				/* force full-duplex mode if 3c5x9b */
+				if (sw_info & 0x000f) {
+					printk("Forcing 3c5x9b full-duplex mode");
+					break;
+				}
+			case 8:
+				/* set full-duplex mode based on eeprom config setting */
+				if ((sw_info & 0x000f) && (sw_info & 0x8000)) {
+					printk("Setting 3c5x9b full-duplex mode (from EEPROM configuration bit)");
+					break;
+				}
+			default:
+				/* xcvr=(0 || 4) OR user has an old 3c5x9 non "B" model */
+				printk("Setting 3c5x9/3c5x9B half-duplex mode");
+				net_diag = (net_diag & ~FD_ENABLE); /* disable full duplex */
+		}
+
+		outw(net_diag, ioaddr + WN4_NETDIAG);
+		printk(" if_port: %d, sw_info: %4.4x\n", dev->if_port, sw_info);
+		if (el3_debug > 3)
+			printk("%s: 3c5x9 net diag word is now: %4.4x.\n", dev->name, net_diag);
+		/* Enable link beat and jabber check. */
+		outw(inw(ioaddr + WN4_MEDIA) | MEDIA_TP, ioaddr + WN4_MEDIA);
+	}
+
+	/* Switch to the stats window, and clear all stats by reading. */
+	outw(StatsDisable, ioaddr + EL3_CMD);
+	EL3WINDOW(6);
+	for (i = 0; i < 9; i++)
+		inb(ioaddr + i);
+	inw(ioaddr + 10);
+	inw(ioaddr + 12);
+
+	/* Switch to register set 1 for normal use. */
+	EL3WINDOW(1);
+
+	/* Accept b-case and phys addr only. */
+	outw(SetRxFilter | RxStation | RxBroadcast, ioaddr + EL3_CMD);
+	outw(StatsEnable, ioaddr + EL3_CMD); /* Turn on statistics. */
+
+	outw(RxEnable, ioaddr + EL3_CMD); /* Enable the receiver. */
+	outw(TxEnable, ioaddr + EL3_CMD); /* Enable transmitter. */
+	/* Allow status bits to be seen. */
+	outw(SetStatusEnb | 0xff, ioaddr + EL3_CMD);
+	/* Ack all pending events, and set active indicator mask. */
+	outw(AckIntr | IntLatch | TxAvailable | RxEarly | IntReq,
+		 ioaddr + EL3_CMD);
+	outw(SetIntrEnb | IntLatch|TxAvailable|TxComplete|RxComplete|StatsFull,
+		 ioaddr + EL3_CMD);
+
+	netif_start_queue(dev);
+}
+
+/* Power Management support functions */
+#ifdef CONFIG_PM
+
+static int
+el3_suspend(struct pm_dev *pdev)
+{
+	unsigned long flags;
+	struct net_device *dev;
+	struct el3_private *lp;
+	int ioaddr;
+	
+	if (!pdev && !pdev->data)
+		return -EINVAL;
+
+	dev = (struct net_device *)pdev->data;
+	lp = (struct el3_private *)dev->priv;
+	ioaddr = dev->base_addr;
+
+	spin_lock_irqsave(&lp->lock, flags);
+
+	if (netif_running(dev))
+		netif_device_detach(dev);
+
+	el3_down(dev);
+	outw(PowerDown, ioaddr + EL3_CMD);
+
+	spin_unlock_irqrestore(&lp->lock, flags);
+	return 0;
+}
+
+static int
+el3_resume(struct pm_dev *pdev)
+{
+	unsigned long flags;
+	struct net_device *dev;
+	struct el3_private *lp;
+	int ioaddr;
+	
+	if (!pdev && !pdev->data)
+		return -EINVAL;
+
+	dev = (struct net_device *)pdev->data;
+	lp = (struct el3_private *)dev->priv;
+	ioaddr = dev->base_addr;
+
+	spin_lock_irqsave(&lp->lock, flags);
+
+	outw(PowerUp, ioaddr + EL3_CMD);
+	el3_up(dev);
+
+	if (netif_running(dev))
+		netif_device_attach(dev);
+		
+	spin_unlock_irqrestore(&lp->lock, flags);
+	return 0;
+}
+
+static int
+el3_pm_callback(struct pm_dev *pdev, pm_request_t rqst, void *data)
+{
+	switch (rqst) {
+		case PM_SUSPEND:
+			return el3_suspend(pdev);
+
+		case PM_RESUME:
+			return el3_resume(pdev);
+	}
+	return 0;
+}
+
+#endif /* CONFIG_PM */
+
 #ifdef MODULE
 /* Parameters that may be passed into the module. */
 static int debug = -1;
 static int irq[] = {-1, -1, -1, -1, -1, -1, -1, -1};
-static int xcvr[] = {-1, -1, -1, -1, -1, -1, -1, -1};
+static int xcvr[] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
 
 MODULE_PARM(debug,"i");
 MODULE_PARM(irq,"1-8i");
-MODULE_PARM(xcvr,"1-8i");
+MODULE_PARM(xcvr,"1-12i");
 MODULE_PARM(max_interrupt_work, "i");
-MODULE_PARM_DESC(debug, "EtherLink III debug level (0-6)");
-MODULE_PARM_DESC(irq, "EtherLink III IRQ number(s) (assigned)");
-MODULE_PARM_DESC(xcvr,"EtherLink III tranceiver(s) (0=internal, 1=external)");
-MODULE_PARM_DESC(max_interrupt_work, "EtherLink III maximum events handled per interrupt");
+MODULE_PARM_DESC(debug, "debug level (0-6)");
+MODULE_PARM_DESC(irq, "IRQ number(s) (assigned)");
+MODULE_PARM_DESC(xcvr,"tranceiver(s) (0=internal, 1=external)");
+MODULE_PARM_DESC(max_interrupt_work, "maximum events handled per interrupt");
 #ifdef CONFIG_ISAPNP
 MODULE_PARM(nopnp, "i");
-MODULE_PARM_DESC(nopnp, "EtherLink III disable ISA PnP support (0-1)");
+MODULE_PARM_DESC(nopnp, "disable ISA PnP support (0-1)");
 #endif	/* CONFIG_ISAPNP */
+MODULE_DESCRIPTION("3Com Etherlink III (3c509, 3c509B) ISA/PnP ethernet driver");
+MODULE_LICENSE("GPL");
 
 int
 init_module(void)
@@ -1121,7 +1434,7 @@ init_module(void)
 		el3_debug = debug;
 
 	el3_root_dev = NULL;
-	while (el3_probe(0) == 0) {
+	while (el3_probe(0, el3_cards) == 0) {
 		if (irq[el3_cards] > 1)
 			el3_root_dev->irq = irq[el3_cards];
 		if (xcvr[el3_cards] >= 0)
@@ -1143,7 +1456,12 @@ cleanup_module(void)
 #ifdef CONFIG_MCA		
 		if(lp->mca_slot!=-1)
 			mca_mark_as_unused(lp->mca_slot);
-#endif			
+#endif
+
+#ifdef CONFIG_PM
+		if (lp->pmdev)
+			pm_unregister(lp->pmdev);
+#endif
 		next_dev = lp->next_dev;
 		unregister_netdev(el3_root_dev);
 		release_region(el3_root_dev->base_addr, EL3_IO_EXTENT);

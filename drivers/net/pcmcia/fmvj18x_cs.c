@@ -53,6 +53,7 @@
 #include <linux/skbuff.h>
 #include <linux/if_arp.h>
 #include <linux/ioport.h>
+#include <linux/crc32.h>
 
 #include <pcmcia/version.h>
 #include <pcmcia/cs_types.h>
@@ -361,7 +362,7 @@ static void fmvj18x_detach(dev_link_t *link)
     if (*linkp == NULL)
 	return;
 
-    del_timer(&link->release);
+    del_timer_sync(&link->release);
     if (link->state & DEV_CONFIG) {
 	fmvj18x_release((u_long)link);
 	if (link->state & DEV_STALE_CONFIG) {
@@ -570,8 +571,7 @@ req_irq:
     case XXX10304:
 	/* Read MACID from Buggy CIS */
 	if (fmvj18x_get_hwinfo(link, tuple.TupleData) == -1) {
-	    printk(KERN_NOTICE "fmvj18x_cs: unable to read hardware net 
-		address.");
+	    printk(KERN_NOTICE "fmvj18x_cs: unable to read hardware net address.\n");
 	    unregister_netdev(dev);
 	    goto failed;
 	}
@@ -1248,33 +1248,12 @@ static struct net_device_stats *fjn_get_stats(struct net_device *dev)
   Set the multicast/promiscuous mode for this adaptor.
 */
 
-/* The little-endian AUTODIN II ethernet CRC calculation.
-   N.B. Do not use for bulk data, use a table-based routine instead.
-   This is common code and should be moved to net/core/crc.c */
-static unsigned const ethernet_polynomial_le = 0xedb88320U;
-static inline unsigned ether_crc_le(int length, unsigned char *data)
-{
-    unsigned int crc = 0xffffffff;	/* Initial value. */
-    while(--length >= 0) {
-	unsigned char current_octet = *data++;
-	int bit;
-	for (bit = 8; --bit >= 0; current_octet >>= 1) {
-	    if ((crc ^ current_octet) & 1) {
-		crc >>= 1;
-		crc ^= ethernet_polynomial_le;
-	    } else
-		crc >>= 1;
-	}
-    }
-    return crc;
-}
-
 static void set_rx_mode(struct net_device *dev)
 {
     ioaddr_t ioaddr = dev->base_addr;
     struct local_info_t *lp = (struct local_info_t *)dev->priv;
     unsigned char mc_filter[8];		 /* Multicast hash filter */
-    long flags;
+    unsigned long flags;
     int i;
     
     if (dev->flags & IFF_PROMISC) {

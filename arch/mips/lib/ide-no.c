@@ -1,5 +1,4 @@
-/* $Id: ide-no.c,v 1.2 1998/06/30 00:21:54 ralf Exp $
- *
+/*
  * This file is subject to the terms and conditions of the GNU General Public
  * License.  See the file "COPYING" in the main directory of this archive
  * for more details.
@@ -36,7 +35,7 @@ static int no_ide_request_irq(unsigned int irq,
                               void *dev_id)
 {
 	panic("no_no_ide_request_irq called - shouldn't happen");
-}			
+}
 
 static void no_ide_free_irq(unsigned int irq, void *dev_id)
 {

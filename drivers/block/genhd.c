@@ -22,9 +22,8 @@
 #include <linux/blk.h>
 #include <linux/init.h>
 #include <linux/spinlock.h>
+#include <linux/seq_file.h>
 
-
-static rwlock_t gendisk_lock;
 
 /*
  * Global kernel list of partitioning information.
@@ -34,6 +33,7 @@ static rwlock_t gendisk_lock;
  */
 /*static*/ struct gendisk *gendisk_head;
 static struct gendisk *gendisk_array[MAX_BLKDEV];
+static rwlock_t gendisk_lock = RW_LOCK_UNLOCKED;
 
 EXPORT_SYMBOL(gendisk_head);
 
@@ -130,72 +130,115 @@ out:
 EXPORT_SYMBOL(get_gendisk);
 
 
-#ifdef CONFIG_PROC_FS
+/**
+ * walk_gendisk - issue a command for every registered gendisk
+ * @walk: user-specified callback
+ * @data: opaque data for the callback
+ *
+ * This function walks through the gendisk chain and calls back
+ * into @walk for every element.
+ */
 int
-get_partition_list(char *page, char **start, off_t offset, int count)
+walk_gendisk(int (*walk)(struct gendisk *, void *), void *data)
 {
 	struct gendisk *gp;
-	char buf[64];
-	int len, n;
+	int error = 0;
 
-	len = sprintf(page, "major minor  #blocks  name\n\n");
 	read_lock(&gendisk_lock);
-	for (gp = gendisk_head; gp; gp = gp->next) {
-		for (n = 0; n < (gp->nr_real << gp->minor_shift); n++) {
-			if (gp->part[n].nr_sects == 0)
-				continue;
+	for (gp = gendisk_head; gp; gp = gp->next)
+		if ((error = walk(gp, data)))
+			break;
+	read_unlock(&gendisk_lock);
 
-			len += snprintf(page + len, 63,
-					"%4d  %4d %10d %s\n",
-					gp->major, n, gp->sizes[n],
-					disk_name(gp, n, buf));
-			if (len < offset)
-				offset -= len, len = 0;
-			else if (len >= offset + count)
-				goto out;
+	return error;
+}
+
+#ifdef CONFIG_PROC_FS
+/* iterator */
+static void *part_start(struct seq_file *s, loff_t *ppos)
+{
+	struct gendisk *gp;
+	loff_t pos = *ppos;
+
+	read_lock(&gendisk_lock);
+	for (gp = gendisk_head; gp; gp = gp->next)
+		if (!pos--)
+			return gp;
+	return NULL;
+}
+
+static void *part_next(struct seq_file *s, void *v, loff_t *pos)
+{
+	++*pos;
+	return ((struct gendisk *)v)->next;
+}
+
+static void part_stop(struct seq_file *s, void *v)
+{
+	read_unlock(&gendisk_lock);
+}
+
+static int part_show(struct seq_file *s, void *v)
+{
+	struct gendisk *gp = v;
+	char buf[64];
+	int n;
+
+	if (gp == gendisk_head) {
+		seq_puts(s, "major minor  #blocks  name"
+#ifdef CONFIG_BLK_STATS
+			    "     rio rmerge rsect ruse wio wmerge "
+			    "wsect wuse running use aveq"
+#endif
+			   "\n\n");
+	}
+
+	/* show the full disk and all non-0 size partitions of it */
+	for (n = 0; n < (gp->nr_real << gp->minor_shift); n++) {
+		if (gp->part[n].nr_sects) {
+#ifdef CONFIG_BLK_STATS
+			struct hd_struct *hd = &gp->part[n];
+
+			disk_round_stats(hd);
+			seq_printf(s, "%4d  %4d %10d %s "
+				      "%d %d %d %d %d %d %d %d %d %d %d\n",
+				      gp->major, n, gp->sizes[n],
+				      disk_name(gp, n, buf),
+				      hd->rd_ios, hd->rd_merges,
+#define MSEC(x) ((x) * 1000 / HZ)
+				      hd->rd_sectors, MSEC(hd->rd_ticks),
+				      hd->wr_ios, hd->wr_merges,
+				      hd->wr_sectors, MSEC(hd->wr_ticks),
+				      hd->ios_in_flight, MSEC(hd->io_ticks),
+				      MSEC(hd->aveq));
+#else
+			seq_printf(s, "%4d  %4d %10d %s\n",
+				   gp->major, n, gp->sizes[n],
+				   disk_name(gp, n, buf));
+#endif /* CONFIG_BLK_STATS */
 		}
 	}
 
-out:
-	read_unlock(&gendisk_lock);
-	*start = page + offset;
-	len -= offset;
-	if (len < 0)
-		len = 0;
-	return len > count ? count : len;
+	return 0;
 }
-#endif
 
+struct seq_operations partitions_op = {
+	.start		= part_start,
+	.next		= part_next,
+	.stop		= part_stop,
+	.show		= part_show,
+};
+#endif
 
 extern int blk_dev_init(void);
-#ifdef CONFIG_FUSION_BOOT
-extern int fusion_init(void);
-#endif
 extern int net_dev_init(void);
 extern void console_map_init(void);
-extern int soc_probe(void);
 extern int atmdev_init(void);
-extern int i2o_init(void);
-extern int cpqarray_init(void);
 
 int __init device_init(void)
 {
-	rwlock_init(&gendisk_lock);
 	blk_dev_init();
 	sti();
-#ifdef CONFIG_I2O
-	i2o_init();
-#endif
-#ifdef CONFIG_FUSION_BOOT
-	fusion_init();
-#endif
-#ifdef CONFIG_FC4_SOC
-	/* This has to be done before scsi_dev_init */
-	soc_probe();
-#endif
-#ifdef CONFIG_BLK_CPQ_DA
-	cpqarray_init();
-#endif
 #ifdef CONFIG_NET
 	net_dev_init();
 #endif

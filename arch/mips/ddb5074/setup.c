@@ -25,6 +25,7 @@
 #include <asm/gdb-stub.h>
 #include <asm/nile4.h>
 #include <asm/ddb5074.h>
+#include <asm/traps.h>
 
 
 #ifdef CONFIG_REMOTE_DEBUG
@@ -91,12 +92,16 @@ static void __init ddb_time_init(struct irqaction *irq)
 		          IE_IRQ0 | IE_IRQ1 | IE_IRQ2 | IE_IRQ3 | IE_IRQ4);
 }
 
+
+void __init bus_error_init(void) { /* nothing */ }
+
+
 void __init ddb_setup(void)
 {
 	extern int panic_timeout;
 
 	irq_setup = ddb_irq_setup;
-	mips_io_port_base = NILE4_PCI_IO_BASE;
+	set_io_port_base(NILE4_PCI_IO_BASE);
 	isa_slot_offset = NILE4_PCI_MEM_BASE;
 	request_region(0x00, 0x20, "dma1");
 	request_region(0x40, 0x20, "timer");

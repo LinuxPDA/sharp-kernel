@@ -101,10 +101,16 @@ static struct i2c_client client_template;
 
 /* system switching for Philips FI1216MF MK2
    from datasheet "1996 Jul 09",
+    standard         BG     L      L'
+    picture carrier  38.90  38.90  33.95
+    colour	     34.47  34.37  38.38
+    sound 1          33.40  32.40  40.45
+    sound 2          33.16  -      -
+    NICAM            33.05  33.05  39.80
  */
 #define PHILIPS_MF_SET_BG	0x01 /* Bit 2 must be zero, Bit 3 is system output */
-#define PHILIPS_MF_SET_PAL_L	0x03
-#define PHILIPS_MF_SET_PAL_L2	0x02
+#define PHILIPS_MF_SET_PAL_L	0x03 // France
+#define PHILIPS_MF_SET_PAL_L2	0x02 // L'
 
 
 /* ---------------------------------------------------------------------- */
@@ -132,16 +138,16 @@ struct tunertype
 static struct tunertype tuners[] = {
         { "Temic PAL (4002 FH5)", TEMIC, PAL,
 	  16*140.25,16*463.25,0x02,0x04,0x01,0x8e,623},
-	{ "Philips PAL_I", Philips, PAL_I,
+	{ "Philips PAL_I (FI1246 and compatibles)", Philips, PAL_I,
 	  16*140.25,16*463.25,0xa0,0x90,0x30,0x8e,623},
-	{ "Philips NTSC", Philips, NTSC,
+	{ "Philips NTSC (FI1236 and compatibles)", Philips, NTSC,
 	  16*157.25,16*451.25,0xA0,0x90,0x30,0x8e,732},
-	{ "Philips SECAM", Philips, SECAM,
+	{ "Philips (SECAM+PAL_BG) (FI1216MF, FM1216MF, FR1216MF)", Philips, SECAM,
 	  16*168.25,16*447.25,0xA7,0x97,0x37,0x8e,623},
 
 	{ "NoTuner", NoTuner, NOTUNER,
 	  0,0,0x00,0x00,0x00,0x00,0x00},
-	{ "Philips PAL", Philips, PAL,
+	{ "Philips PAL_BG (FI1216 and compatibles)", Philips, PAL,
 	  16*168.25,16*447.25,0xA0,0x90,0x30,0x8e,623},
 	{ "Temic NTSC (4032 FY5)", TEMIC, NTSC,
 	  16*157.25,16*463.25,0x02,0x04,0x01,0x8e,732},
@@ -154,7 +160,7 @@ static struct tunertype tuners[] = {
 	  16*137.25,16*385.25,0x01,0x02,0x08,0x8e,732},
         { "Alps TSBE1",TEMIC,PAL,
 	  16*137.25,16*385.25,0x01,0x02,0x08,0x8e,732},
-        { "Alps TSBB5", Alps, PAL_I, /* tested (UK UHF) with Modtec MM205 */
+        { "Alps TSBB5", Alps, PAL_I, /* tested (UK UHF) with Modulartech MM205 */
 	  16*133.25,16*351.25,0x01,0x02,0x08,0x8e,632},
 
         { "Alps TSBE5", Alps, PAL, /* untested - data sheet guess. Only IF differs. */
@@ -175,13 +181,13 @@ static struct tunertype tuners[] = {
         { "Temic PAL* auto (4006 FN5)", TEMIC, PAL,
           16*169.00, 16*454.00, 0xa0,0x90,0x30,0x8e,623},
 
-        { "Temic PAL (4009 FR5)", TEMIC, PAL,
+        { "Temic PAL_BG (4009 FR5) or PAL_I (4069 FR5)", TEMIC, PAL,
           16*141.00, 16*464.00, 0xa0,0x90,0x30,0x8e,623},
         { "Temic NTSC (4039 FR5)", TEMIC, NTSC,
           16*158.00, 16*453.00, 0xa0,0x90,0x30,0x8e,732},
         { "Temic PAL/SECAM multi (4046 FM5)", TEMIC, PAL,
           16*169.00, 16*454.00, 0xa0,0x90,0x30,0x8e,623},
-        { "Philips PAL_DK", Philips, PAL,
+        { "Philips PAL_DK (FI1256 and compatibles)", Philips, PAL,
 	  16*170.00,16*450.00,0xa0,0x90,0x30,0x8e,623},
 
 	{ "Philips PAL/SECAM multi (FQ1216ME)", Philips, PAL,
@@ -200,7 +206,7 @@ static struct tunertype tuners[] = {
 	{ "Temic PAL* auto + FM (4009 FN5)", TEMIC, PAL,
 	  16*141.00, 16*464.00, 0xa0,0x90,0x30,0x8e,623},
 	{ "SHARP NTSC_JP (2U5JF5540)", SHARP, NTSC, /* 940=16*58.75 NTSC@Japan */
-	  16*137.25,16*317.25,0x01,0x02,0x08,0x8e,940},
+	  16*137.25,16*317.25,0x01,0x02,0x08,0x8e,732 }, // Corrected to NTSC=732 (was:940)
 
 	{ "Samsung PAL TCPM9091PD27", Samsung, PAL,  /* from sourceforge v3tv */
           16*169,16*464,0xA0,0x90,0x30,0x8e,623},
@@ -215,7 +221,10 @@ static struct tunertype tuners[] = {
           16*158.00, 16*453.00, 0xa0,0x90,0x30,0x8e,732},
         { "LG PAL (newer TAPC series)", LGINNOTEK, PAL,
           16*170.00, 16*450.00, 0x01,0x02,0x08,0x8e,623},
-	
+	{ "Philips PAL/SECAM multi (FM1216ME MK3)", Philips, PAL,
+	  16*160.00,16*442.00,0x01,0x02,0x04,0x8e,623 },
+	{ "LG NTSC (newer TAPC series)", LGINNOTEK, NTSC,
+          16*170.00, 16*450.00, 0x01,0x02,0x08,0x8e,732},
 };
 #define TUNERS (sizeof(tuners)/sizeof(struct tunertype))
 
@@ -253,7 +262,7 @@ static int tuner_stereo(struct i2c_client *c)
 	return (tuner_getstatus (c) & TUNER_STEREO);
 }
 
-
+#if 0 /* unused */
 static int tuner_islocked (struct i2c_client *c)
 {
         return (tuner_getstatus (c) & TUNER_FL);
@@ -264,14 +273,14 @@ static int tuner_afcstatus (struct i2c_client *c)
         return (tuner_getstatus (c) & TUNER_AFC) - 2;
 }
 
-#if 0 /* unused */
 static int tuner_mode (struct i2c_client *c)
 {
         return (tuner_getstatus (c) & TUNER_MODE) >> 3;
 }
 #endif
+
 // Initalization as described in "MT203x Programming Procedures", Rev 1.2, Feb.2001
-int mt2032_init(struct i2c_client *c)
+static int mt2032_init(struct i2c_client *c)
 {
         unsigned char buf[21];
         int ret,xogc,xok=0;
@@ -345,7 +354,7 @@ int mt2032_init(struct i2c_client *c)
 
 
 // IsSpurInBand()?
-int mt2032_spurcheck(int f1, int f2, int spectrum_from,int spectrum_to)
+static int mt2032_spurcheck(int f1, int f2, int spectrum_from,int spectrum_to)
 {
 	int n1=1,n2,f;
 
@@ -373,7 +382,7 @@ int mt2032_spurcheck(int f1, int f2, int spectrum_from,int spectrum_to)
 	return 1;
 }
 
-int mt2032_compute_freq(int rfin, int if1, int if2, int spectrum_from,
+static int mt2032_compute_freq(int rfin, int if1, int if2, int spectrum_from,
 	int spectrum_to, unsigned char *buf, int *ret_sel, int xogc) //all in Hz
 {
         int fref,lo1,lo1n,lo1a,s,sel,lo1freq, desired_lo1,
@@ -449,7 +458,7 @@ int mt2032_compute_freq(int rfin, int if1, int if2, int spectrum_from,
 	return 0;
 }
 
-int mt2032_check_lo_lock(struct i2c_client *c)
+static int mt2032_check_lo_lock(struct i2c_client *c)
 {
 	int try,lock=0;
 	unsigned char buf[2];
@@ -469,7 +478,7 @@ int mt2032_check_lo_lock(struct i2c_client *c)
         return lock;
 }
 
-int mt2032_optimize_vco(struct i2c_client *c,int sel,int lock)
+static int mt2032_optimize_vco(struct i2c_client *c,int sel,int lock)
 {
 	unsigned char buf[2];
 	int tad1;
@@ -505,7 +514,7 @@ int mt2032_optimize_vco(struct i2c_client *c,int sel,int lock)
 }
 
 
-void mt2032_set_if_freq(struct i2c_client *c,int rfin, int if1, int if2, int from, int to)
+static void mt2032_set_if_freq(struct i2c_client *c,int rfin, int if1, int if2, int from, int to)
 {
 	unsigned char buf[21];
 	int lint_try,ret,sel,lock=0;
@@ -560,7 +569,7 @@ void mt2032_set_if_freq(struct i2c_client *c,int rfin, int if1, int if2, int fro
 }
 
 
-void mt2032_set_tv_freq(struct i2c_client *c, int freq, int norm)
+static void mt2032_set_tv_freq(struct i2c_client *c, int freq, int norm)
 {
 	int if2,from,to;
 
@@ -620,7 +629,7 @@ static void set_tv_freq(struct i2c_client *c, int freq)
 
 	/* tv norm specific stuff for multi-norm tuners */
 	switch (t->type) {
-	case TUNER_PHILIPS_SECAM:
+	case TUNER_PHILIPS_SECAM: // FI1216MF
 		/* 0x01 -> ??? no change ??? */
 		/* 0x02 -> PAL BDGHI / SECAM L */
 		/* 0x04 -> ??? PAL others / SECAM others ??? */
@@ -651,8 +660,9 @@ static void set_tv_freq(struct i2c_client *c, int freq)
 		default:
 			config |= TEMIC_SET_PAL_BG;
 			break;
-		break;
 		}
+		break;
+
 	case TUNER_PHILIPS_FQ1216ME:
 		config &= ~0x0f;
 		switch (pal[0]) {
@@ -672,8 +682,8 @@ static void set_tv_freq(struct i2c_client *c, int freq)
 		case 'G':
 			config |= PHILIPS_SET_PAL_BGDK;
 			break;
-		break;
 		}
+		break;
 	}
 
 	
@@ -703,6 +713,8 @@ static void set_tv_freq(struct i2c_client *c, int freq)
 		buffer[2] = tun->config;
 		buffer[3] = config;
 	}
+	dprintk("tuner: tv 0x%02x 0x%02x 0x%02x 0x%02x\n",
+		buffer[0],buffer[1],buffer[2],buffer[3]);
 
         if (4 != (rc = i2c_master_send(c,buffer,4)))
                 printk("tuner: i2c i/o error: rc == %d (should be 4)\n",rc);
@@ -720,12 +732,10 @@ static void mt2032_set_radio_freq(struct i2c_client *c,int freq)
 
 static void set_radio_freq(struct i2c_client *c, int freq)
 {
-	u8 config;
-	u16 div;
 	struct tunertype *tun;
 	struct tuner *t = (struct tuner*)c->data;
         unsigned char buffer[4];
-	int rc;
+	int rc,div;
 
 	if (freq < radio_range[0]*16 || freq > radio_range[1]*16) {
 		printk("tuner: radio freq (%d.%02d) out of range (%d-%d)\n",
@@ -744,35 +754,27 @@ static void set_radio_freq(struct i2c_client *c, int freq)
 	}
 
 	tun=&tuners[t->type];
-	config = 0xa4 /* 0xa5 */; /* bit 0 is AFC (set) vs. RF-Signal (clear) */
-	div=freq + (int)(16*10.7);
-  	div&=0x7fff;
-
+	div = freq + (int)(16*10.7);
         buffer[0] = (div>>8) & 0x7f;
         buffer[1] = div      & 0xff;
-        buffer[2] = tun->config;
-        buffer[3] = config;
+	buffer[2] = tun->config;
+	switch (t->type) {
+	case TUNER_PHILIPS_FM1216ME_MK3:
+		buffer[3] = 0x19;
+		break;
+	default:
+		buffer[3] = 0xa4;
+		break;
+	}
+
+	dprintk("tuner: radio 0x%02x 0x%02x 0x%02x 0x%02x\n",
+		buffer[0],buffer[1],buffer[2],buffer[3]);
+
         if (4 != (rc = i2c_master_send(c,buffer,4)))
                 printk("tuner: i2c i/o error: rc == %d (should be 4)\n",rc);
-
-	if (debug) {
-		current->state   = TASK_INTERRUPTIBLE;
-		schedule_timeout(HZ/10);
-		
-		if (tuner_islocked (c))
-			printk ("tuner: PLL locked\n");
-		else
-			printk ("tuner: PLL not locked\n");
-
-		if (config & 1) {
-			printk ("tuner: AFC: %d\n", tuner_afcstatus(c));
-		} else {
-			printk ("tuner: Signal: %d\n", tuner_signal(c));
-		}
-	}
 }
-/* ---------------------------------------------------------------------- */
 
+/* ---------------------------------------------------------------------- */
 
 static int tuner_attach(struct i2c_adapter *adap, int addr,
 			unsigned short flags, int kind)
@@ -815,14 +817,28 @@ static int tuner_attach(struct i2c_adapter *adap, int addr,
 
 static int tuner_probe(struct i2c_adapter *adap)
 {
+	int rc;
+
 	if (0 != addr) {
 		normal_i2c_range[0] = addr;
 		normal_i2c_range[1] = addr;
 	}
 	this_adap = 0;
-	if (adap->id == (I2C_ALGO_BIT | I2C_HW_B_BT848))
-		return i2c_probe(adap, &addr_data, tuner_attach);
-	return 0;
+	switch (adap->id) {
+	case I2C_ALGO_BIT | I2C_HW_B_BT848:
+	case I2C_ALGO_BIT | I2C_HW_B_RIVA:
+	case I2C_ALGO_SAA7134:
+		printk("tuner: probing %s i2c adapter [id=0x%x]\n",
+		       adap->name,adap->id);
+		rc = i2c_probe(adap, &addr_data, tuner_attach);
+		break;
+	default:
+		printk("tuner: ignoring %s i2c adapter [id=0x%x]\n",
+		       adap->name,adap->id);
+		rc = 0;
+		/* nothing */
+	}
+	return rc;
 }
 
 static int tuner_detach(struct i2c_client *client)
@@ -948,33 +964,27 @@ tuner_command(struct i2c_client *client, unsigned int cmd, void *arg)
 /* ----------------------------------------------------------------------- */
 
 static struct i2c_driver driver = {
-        "i2c TV tuner driver",
-        I2C_DRIVERID_TUNER,
-        I2C_DF_NOTIFY,
-        tuner_probe,
-        tuner_detach,
-        tuner_command,
+        name:           "i2c TV tuner driver",
+        id:             I2C_DRIVERID_TUNER,
+        flags:          I2C_DF_NOTIFY,
+        attach_adapter: tuner_probe,
+        detach_client:  tuner_detach,
+        command:        tuner_command,
 };
-
 static struct i2c_client client_template =
 {
-        "(unset)",		/* name       */
-        -1,
-        0,
-        0,
-        NULL,
-        &driver
+        name:   "(unset)",
+	flags:  I2C_CLIENT_ALLOW_USE,
+        driver: &driver,
 };
 
-EXPORT_NO_SYMBOLS;
-
-int tuner_init_module(void)
+static int tuner_init_module(void)
 {
 	i2c_add_driver(&driver);
 	return 0;
 }
 
-void tuner_cleanup_module(void)
+static void tuner_cleanup_module(void)
 {
 	i2c_del_driver(&driver);
 }

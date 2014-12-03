@@ -140,8 +140,9 @@ enum
 	VM_PAGERDAEMON=8,	/* struct: Control kswapd behaviour */
 	VM_PGT_CACHE=9,		/* struct: Set page table cache parameters */
 	VM_PAGE_CLUSTER=10,	/* int: set number of pages to swap together */
-       VM_MIN_READAHEAD=12,    /* Min file readahead */
-       VM_MAX_READAHEAD=13     /* Max file readahead */
+	VM_MAX_MAP_COUNT=11,	/* int: Maximum number of active map areas */
+	VM_MIN_READAHEAD=12,    /* Min file readahead */
+	VM_MAX_READAHEAD=13,    /* Max file readahead */
 };
 
 
@@ -204,7 +205,8 @@ enum
 	NET_CORE_NO_CONG_THRESH=13,
 	NET_CORE_NO_CONG=14,
 	NET_CORE_LO_CONG=15,
-	NET_CORE_MOD_CONG=16
+	NET_CORE_MOD_CONG=16,
+	NET_CORE_DEV_WEIGHT=17
 };
 
 /* /proc/sys/net/ethernet */
@@ -289,7 +291,8 @@ enum
 	NET_TCP_ADV_WIN_SCALE=87,
 	NET_IPV4_NONLOCAL_BIND=88,
 	NET_IPV4_ICMP_RATELIMIT=89,
-	NET_IPV4_ICMP_RATEMASK=90
+	NET_IPV4_ICMP_RATEMASK=90,
+	NET_TCP_TW_REUSE=91
 };
 
 enum {
@@ -334,7 +337,8 @@ enum
 	NET_IPV4_CONF_BOOTP_RELAY=10,
 	NET_IPV4_CONF_LOG_MARTIANS=11,
 	NET_IPV4_CONF_TAG=12,
-	NET_IPV4_CONF_ARPFILTER=13
+	NET_IPV4_CONF_ARPFILTER=13,
+	NET_IPV4_CONF_MEDIUM_ID=14,
 };
 
 /* /proc/sys/net/ipv6 */

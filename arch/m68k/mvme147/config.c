@@ -48,7 +48,7 @@ extern int mvme147_kbdrate (struct kbd_repeat *);
 extern unsigned long mvme147_gettimeoffset (void);
 extern void mvme147_gettod (int *year, int *mon, int *day, int *hour,
                            int *min, int *sec);
-extern int mvme147_hwclk (int, struct hwclk_time *);
+extern int mvme147_hwclk (int, struct rtc_time *);
 extern int mvme147_set_clock_mmss (unsigned long);
 extern void mvme147_check_partition (struct gendisk *hd, unsigned int dev);
 extern void mvme147_reset (void);
@@ -103,8 +103,10 @@ void __init config_mvme147(void)
 {
 	mach_max_dma_address	= 0x01000000;
 	mach_sched_init		= mvme147_sched_init;
+#ifdef CONFIG_VT
 	mach_keyb_init		= mvme147_keyb_init;
 	mach_kbdrate		= mvme147_kbdrate;
+#endif
 	mach_init_IRQ		= mvme147_init_IRQ;
 	mach_gettimeoffset	= mvme147_gettimeoffset;
 	mach_gettod		= mvme147_gettod;
@@ -184,7 +186,7 @@ static int bcd2int (unsigned char b)
 	return ((b>>4)*10 + (b&15));
 }
 
-int mvme147_hwclk(int op, struct hwclk_time *t)
+int mvme147_hwclk(int op, struct rtc_time *t)
 {
 	return 0;
 }
@@ -241,31 +243,7 @@ void m147_scc_write (struct console *co, const char *str, unsigned count)
 	restore_flags(flags);
 }
 
-
-static int m147_scc_wait_key (struct console *co)
-{
-	volatile unsigned char *p = (volatile char *)M147_SCC_A_ADDR;
-	unsigned long	flags;
-	int		c;
-
-	/* wait for rx buf filled */
-	while ((*p & 0x01) == 0)
-		;
-
-	save_flags(flags);
-	cli();
-
-	*p = 8;
-	scc_delay();
-	c = *p;
-
-	restore_flags(flags);
-	return c;
-}
-
-
 void mvme147_init_console_port (struct console *co, int cflag)
 {
 	co->write    = m147_scc_write;
-	co->wait_key = m147_scc_wait_key;
 }

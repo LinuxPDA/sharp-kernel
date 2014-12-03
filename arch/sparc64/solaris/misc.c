@@ -56,7 +56,7 @@ static u32 do_solaris_mmap(u32 addr, u32 len, u32 prot, u32 flags, u32 fd, u64 o
 	/* Do we need it here? */
 	set_personality(PER_SVR4);
 	if (flags & MAP_NORESERVE) {
-		static int cnt = 0;
+		static int cnt;
 		
 		if (cnt < 5) {
 			printk("%s:  unimplemented Solaris MAP_NORESERVE mmap() flag\n",
@@ -724,6 +724,7 @@ extern int init_socksys(void);
 
 MODULE_AUTHOR("Jakub Jelinek (jj@ultra.linux.cz), Patrik Rak (prak3264@ss1000.ms.mff.cuni.cz)");
 MODULE_DESCRIPTION("Solaris binary emulation module");
+MODULE_LICENSE("GPL");
 EXPORT_NO_SYMBOLS;
 
 #ifdef __sparc_v9__

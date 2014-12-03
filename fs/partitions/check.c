@@ -33,6 +33,7 @@
 #include "sun.h"
 #include "ibm.h"
 #include "ultrix.h"
+#include "efi.h"
 
 extern int *blk_size[];
 
@@ -41,6 +42,9 @@ int warn_no_part = 1; /*This is ugly: should make genhd removable media aware*/
 static int (*check_part[])(struct gendisk *hd, struct block_device *bdev, unsigned long first_sect, int first_minor) = {
 #ifdef CONFIG_ACORN_PARTITION
 	acorn_partition,
+#endif
+#ifdef CONFIG_EFI_PARTITION
+	efi_partition,		/* this must come before msdos */
 #endif
 #ifdef CONFIG_LDM_PARTITION
 	ldm_partition,		/* this must come before msdos */
@@ -77,13 +81,17 @@ static int (*check_part[])(struct gendisk *hd, struct block_device *bdev, unsign
 
 /*
  *	This is ucking fugly but its probably the best thing for 2.4.x
- *	Take it as a clear reminder than we should put the device name
+ *	Take it as a clear reminder that: 1) we should put the device name
  *	generation in the object kdev_t points to in 2.5.
+ *	and 2) ioctls better work on half-opened devices.
  */
  
 #ifdef CONFIG_ARCH_S390
 int (*genhd_dasd_name)(char*,int,int,struct gendisk*) = NULL;
+int (*genhd_dasd_ioctl)(struct inode *inp, struct file *filp,
+			    unsigned int no, unsigned long data);
 EXPORT_SYMBOL(genhd_dasd_name);
+EXPORT_SYMBOL(genhd_dasd_ioctl);
 #endif
 
 /*

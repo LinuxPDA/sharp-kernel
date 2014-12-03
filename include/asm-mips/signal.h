@@ -1,5 +1,4 @@
-/* $Id: signal.h,v 1.6 1999/08/18 23:37:49 ralf Exp $
- *
+/*
  * This file is subject to the terms and conditions of the GNU General Public
  * License.  See the file "COPYING" in the main directory of this archive
  * for more details.
@@ -89,7 +88,7 @@ typedef unsigned long old_sigset_t;		/* at least 32 bits */
 
 #define SA_RESTORER	0x04000000
 
-/* 
+/*
  * sigaltstack controls
  */
 #define SS_ONSTACK     1

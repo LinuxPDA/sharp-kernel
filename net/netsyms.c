@@ -364,7 +364,6 @@ EXPORT_SYMBOL(tcp_inherit_port);
 EXPORT_SYMBOL(tcp_v4_syn_recv_sock);
 EXPORT_SYMBOL(tcp_v4_do_rcv);
 EXPORT_SYMBOL(tcp_v4_connect);
-EXPORT_SYMBOL(tcp_v4_hash_connecting);
 EXPORT_SYMBOL(tcp_unhash);
 EXPORT_SYMBOL(udp_prot);
 EXPORT_SYMBOL(tcp_prot);
@@ -409,12 +408,17 @@ EXPORT_SYMBOL(secure_ipv6_id);
 
 #endif
 
+EXPORT_SYMBOL(tcp_read_sock);
+
 EXPORT_SYMBOL(netlink_set_err);
 EXPORT_SYMBOL(netlink_broadcast);
 EXPORT_SYMBOL(netlink_unicast);
 EXPORT_SYMBOL(netlink_kernel_create);
 EXPORT_SYMBOL(netlink_dump_start);
 EXPORT_SYMBOL(netlink_ack);
+EXPORT_SYMBOL(netlink_set_nonroot);
+EXPORT_SYMBOL(netlink_register_notifier);
+EXPORT_SYMBOL(netlink_unregister_notifier);
 #if defined(CONFIG_NETLINK_DEV) || defined(CONFIG_NETLINK_DEV_MODULE)
 EXPORT_SYMBOL(netlink_attach);
 EXPORT_SYMBOL(netlink_detach);
@@ -447,7 +451,6 @@ EXPORT_SYMBOL(ipv4_config);
 EXPORT_SYMBOL(dev_open);
 
 /* Used by other modules */
-EXPORT_SYMBOL(in_ntoa);
 EXPORT_SYMBOL(xrlim_allow);
 
 EXPORT_SYMBOL(ip_rcv);
@@ -490,6 +493,7 @@ EXPORT_SYMBOL(__kfree_skb);
 EXPORT_SYMBOL(skb_clone);
 EXPORT_SYMBOL(skb_copy);
 EXPORT_SYMBOL(netif_rx);
+EXPORT_SYMBOL(netif_receive_skb);
 EXPORT_SYMBOL(dev_add_pack);
 EXPORT_SYMBOL(dev_remove_pack);
 EXPORT_SYMBOL(dev_get);
@@ -585,7 +589,11 @@ EXPORT_SYMBOL(ip_route_me_harder);
 
 EXPORT_SYMBOL(register_gifconf);
 
-EXPORT_SYMBOL(net_call_rx_atomic);
 EXPORT_SYMBOL(softnet_data);
+
+#if defined(CONFIG_NET_RADIO) || defined(CONFIG_NET_PCMCIA_RADIO)
+#include <net/iw_handler.h>
+EXPORT_SYMBOL(wireless_send_event);
+#endif /* CONFIG_NET_RADIO || CONFIG_NET_PCMCIA_RADIO */
 
 #endif  /* CONFIG_NET */

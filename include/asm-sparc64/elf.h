@@ -21,8 +21,39 @@
 
 typedef unsigned long elf_greg_t;
 
-#define ELF_NGREG (sizeof (struct pt_regs) / sizeof(elf_greg_t))
+#define ELF_NGREG 36
 typedef elf_greg_t elf_gregset_t[ELF_NGREG];
+/* Format of 64-bit elf_gregset_t is:
+ * 	G0 --> G7
+ * 	O0 --> O7
+ * 	L0 --> L7
+ * 	I0 --> I7
+ *	TSTATE
+ *	TPC
+ *	TNPC
+ *	Y
+ */
+#include <asm/psrcompat.h>
+#define ELF_CORE_COPY_REGS(__elf_regs, __pt_regs)	\
+do {	unsigned long *dest = &(__elf_regs[0]);		\
+	struct pt_regs *src = (__pt_regs);		\
+	unsigned long *sp;				\
+	int i;						\
+	for(i = 0; i < 16; i++)				\
+		dest[i] = src->u_regs[i];		\
+	/* Don't try this at home kids... */		\
+	set_fs(USER_DS);				\
+	sp = (unsigned long *)				\
+	 ((src->u_regs[14] + STACK_BIAS)		\
+	  & 0xfffffffffffffff8UL);			\
+	for(i = 0; i < 16; i++)				\
+		__get_user(dest[i+16], &sp[i]);		\
+	set_fs(KERNEL_DS);				\
+	dest[32] = src->tstate;				\
+	dest[33] = src->tpc;				\
+	dest[34] = src->tnpc;				\
+	dest[35] = src->y;				\
+} while (0);
 
 typedef struct {
 	unsigned long	pr_regs[32];
@@ -59,7 +90,8 @@ typedef struct {
 #define ELF_HWCAP	((HWCAP_SPARC_FLUSH | HWCAP_SPARC_STBAR | \
 			  HWCAP_SPARC_SWAP | HWCAP_SPARC_MULDIV | \
 			  HWCAP_SPARC_V9) | \
-			 ((tlb_type == cheetah) ? HWCAP_SPARC_ULTRA3 : 0))
+			 ((tlb_type == cheetah || tlb_type == cheetah_plus) ? \
+			  HWCAP_SPARC_ULTRA3 : 0))
 
 /* This yields a string that ld.so will use to load implementation
    specific libraries for optimization.  This is more specific in
@@ -76,7 +108,7 @@ do {	unsigned char flags = current->thread.flags;	\
 		flags &= ~SPARC_FLAG_32BIT;		\
 	if (flags != current->thread.flags) {		\
 		/* flush_thread will update pgd cache */\
-		current->thread.flags = flags;		\
+		current->thread.flags |= SPARC_FLAG_ABI_PENDING; \
 	}						\
 							\
 	if (ibcs2)					\

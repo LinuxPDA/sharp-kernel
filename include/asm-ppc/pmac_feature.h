@@ -38,9 +38,11 @@
  */
 
 /* PowerSurge are the first generation of PCI Pmacs. This include
- * all of the Grand-Central based machines
+ * all of the Grand-Central based machines. We currently don't
+ * differenciate most of them.
  */
 #define PMAC_TYPE_PSURGE		0x10	/* PowerSurge */
+#define PMAC_TYPE_ANS			0x11	/* Apple Network Server */
 
 /* Here is the infamous serie of OHare based machines
  */
@@ -84,12 +86,19 @@
 #define PMAC_TYPE_PISMO			0x46	/* Pismo PowerBook */
 #define PMAC_TYPE_TITANIUM		0x47	/* Titanium PowerBook */
 #define PMAC_TYPE_TITANIUM2		0x48	/* Titanium II PowerBook */
+#define PMAC_TYPE_TITANIUM3		0x49	/* Titanium III PowerBook (with L3) */
+#define PMAC_TYPE_EMAC			0x50	/* eMac */
 #define PMAC_TYPE_UNKNOWN_CORE99	0x5f
+
+/* MacRisc2 with UniNorth 2.0 */
+#define PMAC_TYPE_RACKMAC		0x80	/* XServe */
+#define PMAC_TYPE_WINDTUNNEL		0x81	
 
 /* MacRISC2 machines based on the Pangea chipset
  */
 #define PMAC_TYPE_PANGEA_IMAC		0x100	/* Flower Power iMac */
 #define PMAC_TYPE_IBOOK2		0x101	/* iBook2 (polycarbonate) */
+#define PMAC_TYPE_FLAT_PANEL_IMAC	0x102	/* Flat panel iMac */
 #define PMAC_TYPE_UNKNOWN_PANGEA	0x10f
 
 /*
@@ -98,6 +107,7 @@
 
 #define PMAC_MB_CAN_SLEEP		0x00000001
 #define PMAC_MB_HAS_FW_POWER		0x00000002
+#define PMAC_MB_OLD_CORE99		0x00000004
 
 /*
  * Feature calls supported on pmac

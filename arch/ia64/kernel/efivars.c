@@ -29,6 +29,14 @@
  *
  * Changelog:
  *
+ *  25 Mar 2002 - Matt Domsch <Matt_Domsch@dell.com>
+ *   move uuid_unparse() to include/asm-ia64/efi.h:efi_guid_unparse()
+ *
+ *  12 Feb 2002 - Matt Domsch <Matt_Domsch@dell.com>
+ *   use list_for_each_safe when deleting vars.
+ *   remove ifdef CONFIG_SMP around include <linux/smp.h>
+ *   v0.04 release to linux-ia64@linuxia64.org
+ *
  *  20 April 2001 - Matt Domsch <Matt_Domsch@dell.com>
  *   Moved vars from /proc/efi to /proc/efi/vars, and made
  *   efi.c own the /proc/efi directory.
@@ -56,18 +64,16 @@
 #include <linux/sched.h>		/* for capable() */
 #include <linux/mm.h>
 #include <linux/module.h>
-
-#include <asm/efi.h>
-#include <asm/uaccess.h>
-#ifdef CONFIG_SMP
 #include <linux/smp.h>
-#endif
+#include <linux/efi.h>
+
+#include <asm/uaccess.h>
 
 MODULE_AUTHOR("Matt Domsch <Matt_Domsch@Dell.com>");
 MODULE_DESCRIPTION("/proc interface to EFI Variables");
 MODULE_LICENSE("GPL");
 
-#define EFIVARS_VERSION "0.03 2001-Apr-20"
+#define EFIVARS_VERSION "0.05 2002-Mar-26"
 
 static int
 efivar_read(char *page, char **start, off_t off,
@@ -138,20 +144,6 @@ proc_calc_metrics(char *page, char **start, off_t off,
 	return len;
 }
 
-
-static void
-uuid_unparse(efi_guid_t *guid, char *out)
-{
-	sprintf(out, "%08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x",
-		guid->data1, guid->data2, guid->data3,
-		guid->data4[0], guid->data4[1], guid->data4[2], guid->data4[3],
-		guid->data4[4], guid->data4[5], guid->data4[6], guid->data4[7]);
-}
-
-
-
-
-
 /*
  * efivar_create_proc_entry()
  * Requires:
@@ -194,7 +186,7 @@ efivar_create_proc_entry(unsigned long variable_name_size,
 	   private variables from another's.         */
 
 	*(short_name + strlen(short_name)) = '-';
-	uuid_unparse(vendor_guid, short_name + strlen(short_name));
+	efi_guid_unparse(vendor_guid, short_name + strlen(short_name));
 
 
 	/* Create the entry in proc */
@@ -265,7 +257,7 @@ efivar_write(struct file *file, const char *buffer,
 {
 	unsigned long strsize1, strsize2;
 	int found=0;
-	struct list_head *pos;
+	struct list_head *pos, *n;
 	unsigned long size = sizeof(efi_variable_t);
 	efi_status_t status;
 	efivar_entry_t *efivar = data, *search_efivar = NULL;
@@ -297,7 +289,7 @@ efivar_write(struct file *file, const char *buffer,
 	   This allows any properly formatted data structure to
 	   be written to any of the files in /proc/efi/vars and it will work.
 	*/
-	list_for_each(pos, &efivar_list) {
+	list_for_each_safe(pos, n, &efivar_list) {
 		search_efivar = efivar_entry(pos);
 		strsize1 = utf8_strsize(search_efivar->var.VariableName, 1024);
 		strsize2 = utf8_strsize(var_data->VariableName, 1024);
@@ -413,12 +405,12 @@ efivars_init(void)
 static void __exit
 efivars_exit(void)
 {
-	struct list_head *pos;
+	struct list_head *pos, *n;
 	efivar_entry_t *efivar;
 
 	spin_lock(&efivars_lock);
 
-	list_for_each(pos, &efivar_list) {
+	list_for_each_safe(pos, n, &efivar_list) {
 		efivar = efivar_entry(pos);
 		remove_proc_entry(efivar->entry->name, efi_vars_dir);
 		list_del(&efivar->list);

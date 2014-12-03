@@ -106,8 +106,6 @@ static struct ipt_table nat_table
 = { { NULL, NULL }, "nat", &nat_initial_table.repl,
     NAT_VALID_HOOKS, RW_LOCK_UNLOCKED, NULL, THIS_MODULE };
 
-LIST_HEAD(nat_expect_list);
-
 /* Source NAT */
 static unsigned int ipt_snat_target(struct sk_buff **pskb,
 				    unsigned int hooknum,
@@ -140,8 +138,12 @@ static unsigned int ipt_dnat_target(struct sk_buff **pskb,
 	struct ip_conntrack *ct;
 	enum ip_conntrack_info ctinfo;
 
+#ifdef CONFIG_IP_NF_NAT_LOCAL
 	IP_NF_ASSERT(hooknum == NF_IP_PRE_ROUTING
 		     || hooknum == NF_IP_LOCAL_OUT);
+#else
+	IP_NF_ASSERT(hooknum == NF_IP_PRE_ROUTING);
+#endif
 
 	ct = ip_conntrack_get(*pskb, &ctinfo);
 
@@ -210,7 +212,7 @@ static int ipt_dnat_checkentry(const char *tablename,
 
 	/* Only allow these for NAT. */
 	if (strcmp(tablename, "nat") != 0) {
-		DEBUGP("SNAT: wrong table %s\n", tablename);
+		DEBUGP("DNAT: wrong table %s\n", tablename);
 		return 0;
 	}
 
@@ -218,6 +220,14 @@ static int ipt_dnat_checkentry(const char *tablename,
 		DEBUGP("DNAT: hook mask 0x%x bad\n", hook_mask);
 		return 0;
 	}
+	
+#ifndef CONFIG_IP_NF_NAT_LOCAL
+	if (hook_mask & (1 << NF_IP_LOCAL_OUT)) {
+		DEBUGP("DNAT: CONFIG_IP_NF_NAT_LOCAL not enabled\n");
+		return 0;
+	}
+#endif
+
 	return 1;
 }
 
@@ -242,19 +252,6 @@ alloc_null_binding(struct ip_conntrack *conntrack,
 	return ip_nat_setup_info(conntrack, &mr, hooknum);
 }
 
-static inline int call_expect(const struct ip_nat_expect *i,
-			      struct sk_buff **pskb,
-			      unsigned int hooknum,
-			      struct ip_conntrack *ct,
-			      struct ip_nat_info *info,
-			      struct ip_conntrack *master,
-			      struct ip_nat_info *masterinfo,
-			      unsigned int *verdict)
-{
-	return i->expect(pskb, hooknum, ct, info, master, masterinfo,
-			 verdict);
-}
-
 int ip_nat_rule_find(struct sk_buff **pskb,
 		     unsigned int hooknum,
 		     const struct net_device *in,
@@ -264,41 +261,14 @@ int ip_nat_rule_find(struct sk_buff **pskb,
 {
 	int ret;
 
-	/* Master won't vanish while this ctrack still alive */
-	if (ct->master.master) {
-		struct ip_conntrack *master;
-
-		master = (struct ip_conntrack *)ct->master.master;
-		if (LIST_FIND(&nat_expect_list,
-			      call_expect,
-			      struct ip_nat_expect *,
-			      pskb, hooknum, ct, info,
-			      master, &master->nat.info, &ret))
-			return ret;
-	}
 	ret = ipt_do_table(pskb, hooknum, in, out, &nat_table, NULL);
+
 	if (ret == NF_ACCEPT) {
 		if (!(info->initialized & (1 << HOOK2MANIP(hooknum))))
 			/* NUL mapping */
 			ret = alloc_null_binding(ct, info, hooknum);
 	}
 	return ret;
-}
-
-int ip_nat_expect_register(struct ip_nat_expect *expect)
-{
-	WRITE_LOCK(&ip_nat_lock);
-	list_prepend(&nat_expect_list, expect);
-	WRITE_UNLOCK(&ip_nat_lock);
-
-	return 0;
-}
-
-void ip_nat_expect_unregister(struct ip_nat_expect *expect)
-{
-	WRITE_LOCK(&ip_nat_lock);
-	LIST_DELETE(&nat_expect_list, expect);
-	WRITE_UNLOCK(&ip_nat_lock);
 }
 
 static struct ipt_target ipt_snat_reg

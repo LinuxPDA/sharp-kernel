@@ -50,10 +50,23 @@
  *	      adapter when live does not take the system down with it.
  * 
  * 06/02/01 - Clean up, copy skb for small packets
+ * 
+ * 06/22/01 - Add EISR error handling routines 
  *
+ * 07/19/01 - Improve bad LAA reporting, strip out freemem
+ *	      into a separate function, its called from 3 
+ *	      different places now. 
+ * 02/09/02 - Replaced sleep_on. 
+ * 03/01/02 - Replace access to several registers from 32 bit to 
+ * 	      16 bit. Fixes alignment errors on PPC 64 bit machines.
+ * 	      Thanks to Al Trautman for this one.
+ * 03/10/02 - Fix BUG in arb_cmd. Bug was there all along but was
+ * 	      silently ignored until the error checking code 
+ * 	      went into version 1.0.0 
+ * 06/04/02 - Add correct start up sequence for the cardbus adapters.
+ * 	      Required for strict compliance with pci power mgmt specs.
  *  To Do:
  *
- *	     Complete full Cardbus / hot-swap support.
  *	     Wake on lan	
  * 
  *  If Problems do Occur
@@ -105,7 +118,7 @@
  */
 
 static char version[] __devinitdata = 
-"Olympic.c v0.9.7 6/02/01 - Peter De Schrijver & Mike Phillips" ; 
+"Olympic.c v1.0.5 6/04/02 - Peter De Schrijver & Mike Phillips" ; 
 
 static char *open_maj_error[]  = {"No error", "Lobe Media Test", "Physical Insertion",
 				   "Address Verification", "Neighbor Notification (Ring Poll)",
@@ -122,7 +135,7 @@ static char *open_min_error[] = {"No error", "Function Failure", "Signal Lost", 
 /* Module paramters */
 
 MODULE_AUTHOR("Mike Phillips <mikep@linuxtr.net>") ; 
-MODULE_DESCRIPTION("Olympic PCI/Cardbus Chipset Driver \n") ; 
+MODULE_DESCRIPTION("Olympic PCI/Cardbus Chipset Driver") ; 
 
 /* Ring Speed 0,4,16,100 
  * 0 = Autosense         
@@ -172,6 +185,7 @@ static int olympic_open(struct net_device *dev);
 static int olympic_xmit(struct sk_buff *skb, struct net_device *dev);
 static int olympic_close(struct net_device *dev);
 static void olympic_set_rx_mode(struct net_device *dev);
+static void olympic_freemem(struct net_device *dev) ;  
 static void olympic_interrupt(int irq, void *dev_id, struct pt_regs *regs);
 static struct net_device_stats * olympic_get_stats(struct net_device *dev);
 static int olympic_set_mac_address(struct net_device *dev, void *addr) ; 
@@ -289,9 +303,10 @@ static int __devinit olympic_init(struct net_device *dev)
 	spin_lock_init(&olympic_priv->olympic_lock) ; 
 
 	/* Needed for cardbus */
-	if(!(readl(olympic_mmio+BCTL) & BCTL_MODE_INDICATOR))
+	if(!(readl(olympic_mmio+BCTL) & BCTL_MODE_INDICATOR)) {
 		writel(readl(olympic_priv->olympic_mmio+FERMASK)|FERMASK_INT_BIT, olympic_mmio+FERMASK);
-
+	}
+	
 #if OLYMPIC_DEBUG
 	printk("BCTL: %x\n",readl(olympic_mmio+BCTL));
 	printk("GPR: %x\n",readw(olympic_mmio+GPR));
@@ -304,24 +319,42 @@ static int __devinit olympic_init(struct net_device *dev)
 	writel(readl(olympic_mmio+BCTL)|BCTL_MIMREB,olympic_mmio+BCTL);
 	
 	if (olympic_priv->olympic_ring_speed  == 0) { /* Autosense */
-		writel(readl(olympic_mmio+GPR)|GPR_AUTOSENSE,olympic_mmio+GPR);
+		writew(readw(olympic_mmio+GPR)|GPR_AUTOSENSE,olympic_mmio+GPR);
 		if (olympic_priv->olympic_message_level) 
 			printk(KERN_INFO "%s: Ringspeed autosense mode on\n",olympic_priv->olympic_card_name);
 	} else if (olympic_priv->olympic_ring_speed == 16) {
 		if (olympic_priv->olympic_message_level) 
 			printk(KERN_INFO "%s: Trying to open at 16 Mbps as requested\n", olympic_priv->olympic_card_name);
-		writel(GPR_16MBPS, olympic_mmio+GPR);
+		writew(GPR_16MBPS, olympic_mmio+GPR);
 	} else if (olympic_priv->olympic_ring_speed == 4) {
 		if (olympic_priv->olympic_message_level) 
 			printk(KERN_INFO "%s: Trying to open at 4 Mbps as requested\n", olympic_priv->olympic_card_name) ; 
-		writel(0, olympic_mmio+GPR);
+		writew(0, olympic_mmio+GPR);
 	} 
 	
-	writel(readl(olympic_mmio+GPR)|GPR_NEPTUNE_BF,olympic_mmio+GPR);
+	writew(readw(olympic_mmio+GPR)|GPR_NEPTUNE_BF,olympic_mmio+GPR);
 
 #if OLYMPIC_DEBUG
 	printk("GPR = %x\n",readw(olympic_mmio + GPR) ) ; 
 #endif
+	/* Solo has been paused to meet the Cardbus power
+	 * specs if the adapter is cardbus. Check to 
+	 * see its been paused and then restart solo. The
+	 * adapter should set the pause bit within 1 second.
+	 */
+
+	if(!(readl(olympic_mmio+BCTL) & BCTL_MODE_INDICATOR)) { 
+		t=jiffies;
+		while (!readl(olympic_mmio+CLKCTL) & CLKCTL_PAUSE) { 
+			schedule() ; 
+			if(jiffies-t > 2*HZ) { 
+				printk(KERN_ERR "IBM Cardbus tokenring adapter not responsing.\n") ; 
+				return -ENODEV;
+			}
+		}
+		writel(readl(olympic_mmio+CLKCTL) & ~CLKCTL_PAUSE, olympic_mmio+CLKCTL) ; 
+	}
+	
 	/* start solo init */
 	writel((1<<15),olympic_mmio+SISR_MASK_SUM);
 
@@ -334,13 +367,13 @@ static int __devinit olympic_init(struct net_device *dev)
 		}
 	}
 	
-	writel(readl(olympic_mmio+LAPWWO),olympic_mmio+LAPA);
+	writel(readw(olympic_mmio+LAPWWO),olympic_mmio+LAPA);
 
 #if OLYMPIC_DEBUG
 	printk("LAPWWO: %x, LAPA: %x\n",readl(olympic_mmio+LAPWWO), readl(olympic_mmio+LAPA));
 #endif
 
-	init_srb=olympic_priv->olympic_lap + ((readl(olympic_mmio+LAPWWO)) & (~0xf800));
+	init_srb=olympic_priv->olympic_lap + ((readw(olympic_mmio+LAPWWO)) & (~0xf800));
 
 #if OLYMPIC_DEBUG		
 {
@@ -396,6 +429,8 @@ static int olympic_open(struct net_device *dev)
 	char open_error[255] ; 
 	int i, open_finished = 1 ;
 
+	DECLARE_WAITQUEUE(wait,current) ; 
+
 	if(request_irq(dev->irq, &olympic_interrupt, SA_SHIRQ , "olympic", dev)) {
 		return -EAGAIN;
 	}
@@ -413,19 +448,17 @@ static int olympic_open(struct net_device *dev)
 
 	/* adapter is closed, so SRB is pointed to by LAPWWO */
 
-	writel(readl(olympic_mmio+LAPWWO),olympic_mmio+LAPA);
-	init_srb=olympic_priv->olympic_lap + ((readl(olympic_mmio+LAPWWO)) & (~0xf800));
+	writel(readw(olympic_mmio+LAPWWO),olympic_mmio+LAPA);
+	init_srb=olympic_priv->olympic_lap + ((readw(olympic_mmio+LAPWWO)) & (~0xf800));
 	
 #if OLYMPIC_DEBUG
-	printk("LAPWWO: %x, LAPA: %x\n",readl(olympic_mmio+LAPWWO), readl(olympic_mmio+LAPA));
+	printk("LAPWWO: %x, LAPA: %x\n",readw(olympic_mmio+LAPWWO), readl(olympic_mmio+LAPA));
 	printk("SISR Mask = %04x\n", readl(olympic_mmio+SISR_MASK));
 	printk("Before the open command \n");
 #endif	
 	do {
 		int i;
 
-		save_flags(flags);
-		cli();
 		for(i=0;i<SRB_COMMAND_SIZE;i+=4)
 			writel(0,init_srb+i);
 		if(SRB_COMMAND_SIZE & 2)
@@ -441,8 +474,12 @@ static int olympic_open(struct net_device *dev)
 			writew(swab16(OPEN_ADAPTER_ENABLE_FDX | OPEN_ADAPTER_PASS_ADC_MAC | OPEN_ADAPTER_PASS_ATT_MAC | OPEN_ADAPTER_PASS_BEACON), init_srb+8);
 		else
 			writew(swab16(OPEN_ADAPTER_ENABLE_FDX), init_srb+8);
+	
+		/* Test OR of first 3 bytes as its totally possible for 
+		 * someone to set the first 2 bytes to be zero, although this 
+		 * is an error, the first byte must have bit 6 set to 1  */
 
-		if (olympic_priv->olympic_laa[0]) {
+		if (olympic_priv->olympic_laa[0] | olympic_priv->olympic_laa[1] | olympic_priv->olympic_laa[2]) {
 			writeb(olympic_priv->olympic_laa[0],init_srb+12);
 			writeb(olympic_priv->olympic_laa[1],init_srb+13);
 			writeb(olympic_priv->olympic_laa[2],init_srb+14);
@@ -452,14 +489,20 @@ static int olympic_open(struct net_device *dev)
 			memcpy(dev->dev_addr,olympic_priv->olympic_laa,dev->addr_len) ;  
 		} 	
 		writeb(1,init_srb+30);
-	
+
+		spin_lock_irqsave(&olympic_priv->olympic_lock,flags);	
 		olympic_priv->srb_queued=1;
 
 		writel(LISR_SRB_CMD,olympic_mmio+LISR_SUM);
+		spin_unlock_irqrestore(&olympic_priv->olympic_lock,flags);
 
 		t = jiffies ; 
+	
+		add_wait_queue(&olympic_priv->srb_wait,&wait) ;
+		set_current_state(TASK_INTERRUPTIBLE) ; 
+ 
  		while(olympic_priv->srb_queued) {        
-        		interruptible_sleep_on_timeout(&olympic_priv->srb_wait, 60*HZ);
+			schedule() ; 
         		if(signal_pending(current))	{            
 				printk(KERN_WARNING "%s: Signal received in open.\n",
                 			dev->name);
@@ -469,13 +512,16 @@ static int olympic_open(struct net_device *dev)
             			olympic_priv->srb_queued=0;
             			break;
         		}
-			if ((jiffies-t) > 60*HZ) { 
+			if ((jiffies-t) > 10*HZ) { 
 				printk(KERN_WARNING "%s: SRB timed out. \n",dev->name) ; 
 				olympic_priv->srb_queued=0;
 				break ; 
 			} 
+			set_current_state(TASK_INTERRUPTIBLE) ; 
     		}
-		restore_flags(flags);
+		remove_wait_queue(&olympic_priv->srb_wait,&wait) ; 
+		set_current_state(TASK_RUNNING) ; 
+		olympic_priv->srb_queued = 0 ; 
 #if OLYMPIC_DEBUG
 		printk("init_srb(%p): ",init_srb);
 		for(i=0;i<20;i++)
@@ -515,6 +561,17 @@ static int olympic_open(struct net_device *dev)
 					return -EIO ; 
  
 				}	/* if autosense && open_finished */
+			} else if (init_srb[2] == 0x32) {
+				printk(KERN_WARNING "%s: Invalid LAA: %02x:%02x:%02x:%02x:%02x:%02x\n",
+					dev->name, 
+					olympic_priv->olympic_laa[0],
+					olympic_priv->olympic_laa[1],
+					olympic_priv->olympic_laa[2],
+					olympic_priv->olympic_laa[3],
+					olympic_priv->olympic_laa[4],
+					olympic_priv->olympic_laa[5]) ; 
+				free_irq(dev->irq,dev) ; 
+				return -EIO ; 
 			} else {  
 				printk(KERN_WARNING "%s: Bad OPEN response: %x\n", dev->name,init_srb[2]);
 				free_irq(dev->irq, dev);
@@ -634,7 +691,10 @@ static int olympic_open(struct net_device *dev)
 	olympic_priv->tx_ring_free=0; /* next entry in tx ring to use */
 	olympic_priv->tx_ring_last_status=OLYMPIC_TX_RING_SIZE-1; /* last processed tx status */
 
-	writel(SISR_TX1_EOF | SISR_ADAPTER_CHECK | SISR_ARB_CMD | SISR_TRB_REPLY | SISR_ASB_FREE,olympic_mmio+SISR_MASK_SUM);
+	writel(0xffffffff, olympic_mmio+EISR_RWM) ; /* clean the eisr */
+	writel(0,olympic_mmio+EISR) ; 
+	writel(EISR_MASK_OPTIONS,olympic_mmio+EISR_MASK) ; /* enables most of the TX error interrupts */
+	writel(SISR_TX1_EOF | SISR_ADAPTER_CHECK | SISR_ARB_CMD | SISR_TRB_REPLY | SISR_ASB_FREE | SISR_ERR,olympic_mmio+SISR_MASK_SUM);
 
 #if OLYMPIC_DEBUG 
 	printk("BMCTL: %x\n",readl(olympic_mmio+BMCTL_SUM));
@@ -757,7 +817,7 @@ static void olympic_rx(struct net_device *dev)
 			   	   	   first. Ideally all frames would be in a single buffer, this can be tuned by
                                	   	   altering the buffer size. If the length of the packet is less than
 					   1500 bytes we're going to copy it over anyway to stop packets getting
-					   dropped from sockets with buffers small than our pkt_buf_sz. */
+					   dropped from sockets with buffers smaller than our pkt_buf_sz. */
 				
  					if (buffer_cnt==1) {
 						olympic_priv->rx_ring_last_received++ ; 
@@ -822,6 +882,35 @@ static void olympic_rx(struct net_device *dev)
 
 }
 
+static void olympic_freemem(struct net_device *dev) 
+{ 
+	struct olympic_private *olympic_priv=(struct olympic_private *)dev->priv;
+	int i;
+			
+	for(i=0;i<OLYMPIC_RX_RING_SIZE;i++) {
+		dev_kfree_skb_irq(olympic_priv->rx_ring_skb[olympic_priv->rx_status_last_received]);
+		if (olympic_priv->olympic_rx_ring[olympic_priv->rx_status_last_received].buffer != 0xdeadbeef) {
+			pci_unmap_single(olympic_priv->pdev, 
+			le32_to_cpu(olympic_priv->olympic_rx_ring[olympic_priv->rx_status_last_received].buffer),
+			olympic_priv->pkt_buf_sz, PCI_DMA_FROMDEVICE);
+		}
+		olympic_priv->rx_status_last_received++;
+		olympic_priv->rx_status_last_received&=OLYMPIC_RX_RING_SIZE-1;
+	}
+	/* unmap rings */
+	pci_unmap_single(olympic_priv->pdev, olympic_priv->rx_status_ring_dma_addr, 
+		sizeof(struct olympic_rx_status) * OLYMPIC_RX_RING_SIZE, PCI_DMA_FROMDEVICE);
+	pci_unmap_single(olympic_priv->pdev, olympic_priv->rx_ring_dma_addr,
+		sizeof(struct olympic_rx_desc) * OLYMPIC_RX_RING_SIZE, PCI_DMA_TODEVICE);
+
+	pci_unmap_single(olympic_priv->pdev, olympic_priv->tx_status_ring_dma_addr, 
+		sizeof(struct olympic_tx_status) * OLYMPIC_TX_RING_SIZE, PCI_DMA_FROMDEVICE);
+	pci_unmap_single(olympic_priv->pdev, olympic_priv->tx_ring_dma_addr, 
+		sizeof(struct olympic_tx_desc) * OLYMPIC_TX_RING_SIZE, PCI_DMA_TODEVICE);
+
+	return ; 
+}
+ 
 static void olympic_interrupt(int irq, void *dev_id, struct pt_regs *regs) 
 {
 	struct net_device *dev= (struct net_device *)dev_id;
@@ -842,9 +931,33 @@ static void olympic_interrupt(int irq, void *dev_id, struct pt_regs *regs)
 
 	spin_lock(&olympic_priv->olympic_lock);
 
+	/* Hotswap gives us this on removal */
+	if (sisr == 0xffffffff) { 
+		printk(KERN_WARNING "%s: Hotswap adapter removal.\n",dev->name) ; 
+		olympic_freemem(dev) ; 
+		free_irq(dev->irq, dev) ;
+		dev->stop = NULL ;  
+		spin_unlock(&olympic_priv->olympic_lock) ; 
+		return ;
+	} 
+		
 	if (sisr & (SISR_SRB_REPLY | SISR_TX1_EOF | SISR_RX_STATUS | SISR_ADAPTER_CHECK |  
-			SISR_ASB_FREE | SISR_ARB_CMD | SISR_TRB_REPLY | SISR_RX_NOBUF)) {  
+			SISR_ASB_FREE | SISR_ARB_CMD | SISR_TRB_REPLY | SISR_RX_NOBUF | SISR_ERR)) {  
 	
+		/* If we ever get this the adapter is seriously dead. Only a reset is going to 
+		 * bring it back to life. We're talking pci bus errors and such like :( */ 
+		if((sisr & SISR_ERR) && (readl(olympic_mmio+EISR) & EISR_MASK_OPTIONS)) {
+			printk(KERN_ERR "Olympic: EISR Error, EISR=%08x\n",readl(olympic_mmio+EISR)) ; 
+			printk(KERN_ERR "The adapter must be reset to clear this condition.\n") ; 
+			printk(KERN_ERR "Please report this error to the driver maintainer and/\n") ; 
+			printk(KERN_ERR "or the linux-tr mailing list.\n") ; 
+			olympic_freemem(dev) ; 
+			free_irq(dev->irq, dev) ;
+			dev->stop = NULL ;  
+			spin_unlock(&olympic_priv->olympic_lock) ; 
+			return ;
+		} /* SISR_ERR */
+
 		if(sisr & SISR_SRB_REPLY) {
 			if(olympic_priv->srb_queued==1) {
 				wake_up_interruptible(&olympic_priv->srb_wait);
@@ -878,34 +991,12 @@ static void olympic_interrupt(int irq, void *dev_id, struct pt_regs *regs)
 		} /* SISR_RX_STATUS */
 	
 		if (sisr & SISR_ADAPTER_CHECK) {
-			int i ; 
 			netif_stop_queue(dev);
 			printk(KERN_WARNING "%s: Adapter Check Interrupt Raised, 8 bytes of information follow:\n", dev->name);
-			writel(readl(olympic_mmio+LAPWWO),olympic_mmio+LAPA);
-			adapter_check_area = (u8 *)(olympic_mmio+LAPWWO) ; 
+			writel(readl(olympic_mmio+LAPWWC),olympic_mmio+LAPA);
+			adapter_check_area = olympic_priv->olympic_lap + ((readl(olympic_mmio+LAPWWC)) & (~0xf800)) ;
 			printk(KERN_WARNING "%s: Bytes %02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x\n",dev->name, readb(adapter_check_area+0), readb(adapter_check_area+1), readb(adapter_check_area+2), readb(adapter_check_area+3), readb(adapter_check_area+4), readb(adapter_check_area+5), readb(adapter_check_area+6), readb(adapter_check_area+7)) ; 
-			/* The adapter is effectively dead, clean up and exit */
-			for(i=0;i<OLYMPIC_RX_RING_SIZE;i++) {
-				dev_kfree_skb_irq(olympic_priv->rx_ring_skb[olympic_priv->rx_status_last_received]);
-				if (olympic_priv->olympic_rx_ring[olympic_priv->rx_status_last_received].buffer != 0xdeadbeef) {
-					pci_unmap_single(olympic_priv->pdev, 
-						le32_to_cpu(olympic_priv->olympic_rx_ring[olympic_priv->rx_status_last_received].buffer),
-						olympic_priv->pkt_buf_sz, PCI_DMA_FROMDEVICE);
-				}
-				olympic_priv->rx_status_last_received++;
-				olympic_priv->rx_status_last_received&=OLYMPIC_RX_RING_SIZE-1;
-			}
-			/* unmap rings */
-			pci_unmap_single(olympic_priv->pdev, olympic_priv->rx_status_ring_dma_addr, 
-				sizeof(struct olympic_rx_status) * OLYMPIC_RX_RING_SIZE, PCI_DMA_FROMDEVICE);
-			pci_unmap_single(olympic_priv->pdev, olympic_priv->rx_ring_dma_addr,
-				sizeof(struct olympic_rx_desc) * OLYMPIC_RX_RING_SIZE, PCI_DMA_TODEVICE);
-
-			pci_unmap_single(olympic_priv->pdev, olympic_priv->tx_status_ring_dma_addr, 
-				sizeof(struct olympic_tx_status) * OLYMPIC_TX_RING_SIZE, PCI_DMA_FROMDEVICE);
-			pci_unmap_single(olympic_priv->pdev, olympic_priv->tx_ring_dma_addr, 
-				sizeof(struct olympic_tx_desc) * OLYMPIC_TX_RING_SIZE, PCI_DMA_TODEVICE);
-
+			olympic_freemem(dev) ;
 			free_irq(dev->irq, dev) ;
 			dev->stop = NULL ;  
 			spin_unlock(&olympic_priv->olympic_lock) ; 
@@ -980,7 +1071,8 @@ static int olympic_close(struct net_device *dev)
 	struct olympic_private *olympic_priv=(struct olympic_private *)dev->priv;
     	u8 *olympic_mmio=olympic_priv->olympic_mmio,*srb;
 	unsigned long t,flags;
-	int i;
+
+	DECLARE_WAITQUEUE(wait,current) ; 
 
 	netif_stop_queue(dev);
 	
@@ -991,16 +1083,19 @@ static int olympic_close(struct net_device *dev)
 	writeb(0,srb+1);
 	writeb(OLYMPIC_CLEAR_RET_CODE,srb+2);
 
-	save_flags(flags);
-	cli();	
-
+	spin_lock_irqsave(&olympic_priv->olympic_lock,flags);
 	olympic_priv->srb_queued=1;
 
 	writel(LISR_SRB_CMD,olympic_mmio+LISR_SUM);
+	spin_unlock_irqrestore(&olympic_priv->olympic_lock,flags);
 	
 	t = jiffies ; 
+
+	add_wait_queue(&olympic_priv->srb_wait,&wait) ;
+	set_current_state(TASK_INTERRUPTIBLE) ; 
+
 	while(olympic_priv->srb_queued) {
-	        interruptible_sleep_on_timeout(&olympic_priv->srb_wait, jiffies+60*HZ);
+		schedule() ; 
         	if(signal_pending(current))	{            
 			printk(KERN_WARNING "%s: SRB timed out.\n",dev->name);
             		printk(KERN_WARNING "SISR=%x MISR=%x\n",readl(olympic_mmio+SISR),readl(olympic_mmio+LISR));
@@ -1012,32 +1107,15 @@ static int olympic_close(struct net_device *dev)
 			olympic_priv->srb_queued=0;
 			break ; 
 		} 
+		set_current_state(TASK_INTERRUPTIBLE) ; 
     	}
+	remove_wait_queue(&olympic_priv->srb_wait,&wait) ; 
+	set_current_state(TASK_RUNNING) ; 
 
-	restore_flags(flags) ; 
 	olympic_priv->rx_status_last_received++;
 	olympic_priv->rx_status_last_received&=OLYMPIC_RX_RING_SIZE-1;
-	
-	for(i=0;i<OLYMPIC_RX_RING_SIZE;i++) {
-		dev_kfree_skb(olympic_priv->rx_ring_skb[olympic_priv->rx_status_last_received]);
-		if (olympic_priv->olympic_rx_ring[olympic_priv->rx_status_last_received].buffer != 0xdeadbeef) {
-			pci_unmap_single(olympic_priv->pdev, 
-				le32_to_cpu(olympic_priv->olympic_rx_ring[olympic_priv->rx_status_last_received].buffer),
-				olympic_priv->pkt_buf_sz, PCI_DMA_FROMDEVICE);
-		}
-		olympic_priv->rx_status_last_received++;
-		olympic_priv->rx_status_last_received&=OLYMPIC_RX_RING_SIZE-1;
-	}
-	/* unmap rings */
-	pci_unmap_single(olympic_priv->pdev, olympic_priv->rx_status_ring_dma_addr, 
-		sizeof(struct olympic_rx_status) * OLYMPIC_RX_RING_SIZE, PCI_DMA_FROMDEVICE);
-	pci_unmap_single(olympic_priv->pdev, olympic_priv->rx_ring_dma_addr,
-		sizeof(struct olympic_rx_desc) * OLYMPIC_RX_RING_SIZE, PCI_DMA_TODEVICE);
 
-	pci_unmap_single(olympic_priv->pdev, olympic_priv->tx_status_ring_dma_addr, 
-		sizeof(struct olympic_tx_status) * OLYMPIC_TX_RING_SIZE, PCI_DMA_FROMDEVICE);
-	pci_unmap_single(olympic_priv->pdev, olympic_priv->tx_ring_dma_addr, 
-		sizeof(struct olympic_tx_desc) * OLYMPIC_TX_RING_SIZE, PCI_DMA_TODEVICE);
+	olympic_freemem(dev) ; 	
 
 	/* reset tx/rx fifo's and busmaster logic */
 
@@ -1046,10 +1124,13 @@ static int olympic_close(struct net_device *dev)
 	writel(readl(olympic_mmio+BCTL)&~(3<<13),olympic_mmio+BCTL);
 
 #if OLYMPIC_DEBUG
+	{
+	int i ; 
 	printk("srb(%p): ",srb);
 	for(i=0;i<4;i++)
 		printk("%x ",readb(srb+i));
 	printk("\n");
+	}
 #endif
 	free_irq(dev->irq,dev);
 
@@ -1318,8 +1399,7 @@ static void olympic_arb_cmd(struct net_device *dev)
 	arb_block = (u8 *)(olympic_priv->olympic_lap + olympic_priv->arb) ; 
 	asb_block = (u8 *)(olympic_priv->olympic_lap + olympic_priv->asb) ; 
 	srb = (u8 *)(olympic_priv->olympic_lap + olympic_priv->srb) ; 
-	writel(readl(olympic_mmio+LAPA),olympic_mmio+LAPWWO);
-
+	
 	if (readb(arb_block+0) == ARB_RECEIVE_DATA) { /* Receive.data, MAC frames */
 
 		header_len = readb(arb_block+8) ; /* 802.5 Token-Ring Header Length */	
@@ -1372,7 +1452,7 @@ drop_frame:
 		/* Now tell the card we have dealt with the received frame */
 
 		/* Set LISR Bit 1 */
-		writel(LISR_ARB_FREE,olympic_priv->olympic_lap + LISR_SUM);
+		writel(LISR_ARB_FREE,olympic_priv->olympic_mmio + LISR_SUM);
 
 		/* Is the ASB free ? */ 	
 		

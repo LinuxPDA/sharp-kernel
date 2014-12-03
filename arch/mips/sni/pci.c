@@ -25,7 +25,7 @@ do {                                                                         \
 		 ((dev->bus->number    & 0xff) << 0x10) |                    \
 	         ((dev->devfn & 0xff) << 0x08) |                             \
 	         (where  & 0xfc);                                            \
-} while(0);
+} while(0)
 
 #if 0
 /* To do:  Bring this uptodate ...  */
@@ -199,7 +199,8 @@ int __init pcibios_enable_device(struct pci_dev *dev)
 }
 
 void __init
-pcibios_align_resource(void *data, struct resource *res, unsigned long size)
+pcibios_align_resource(void *data, struct resource *res, unsigned long size,
+		       unsigned long align)
 {
 }
 

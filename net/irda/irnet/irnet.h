@@ -206,6 +206,17 @@
  *	  just after clearing it. *blush*.
  *	o Use newly created irttp_listen() to fix potential crash when LAP
  *	  destroyed before irnet module removed.
+ *
+ * v10 - 4.3.2 - Jean II
+ *	o When receiving a disconnect indication, don't reenable the
+ *	  PPP Tx queue, this will trigger a reconnect. Instead, close
+ *	  the channel, which will kill pppd...
+ *
+ * v11 - 20.3.02 - Jean II
+ *	o Oops ! v10 fix disabled IrNET retries and passive behaviour.
+ *	  Better fix in irnet_disconnect_indication() :
+ *	  - if connected, kill pppd via hangup.
+ *	  - if not connected, reenable ppp Tx, which trigger IrNET retry.
  */
 
 /***************************** INCLUDES *****************************/

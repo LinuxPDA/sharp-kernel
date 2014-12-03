@@ -320,9 +320,11 @@ static void ultra32_get_8390_hdr(struct net_device *dev,
 	/* Select correct 8KB Window. */
 	outb(ei_status.reg0 | ((ring_page & 0x60) >> 5), RamReg);
 
-#ifdef notdef
+#ifdef __BIG_ENDIAN
 	/* Officially this is what we are doing, but the readl() is faster */
+	/* unfortunately it isn't endian aware of the struct               */
 	isa_memcpy_fromio(hdr, hdr_start, sizeof(struct e8390_pkt_hdr));
+	hdr->count = le16_to_cpu(hdr->count);
 #else
 	((unsigned int*)hdr)[0] = isa_readl(hdr_start);
 #endif
@@ -379,6 +381,9 @@ static void ultra32_block_output(struct net_device *dev,
 #define MAX_ULTRA32_CARDS   4	/* Max number of Ultra cards per module */
 static struct net_device dev_ultra[MAX_ULTRA32_CARDS];
 
+MODULE_DESCRIPTION("SMC Ultra32 EISA ethernet driver");
+MODULE_LICENSE("GPL");
+
 int init_module(void)
 {
 	int this_dev, found = 0;
@@ -415,5 +420,4 @@ void cleanup_module(void)
 	}
 }
 #endif /* MODULE */
-MODULE_LICENSE("GPL");
 

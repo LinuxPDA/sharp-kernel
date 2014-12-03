@@ -12,6 +12,7 @@
 #include <linux/completion.h>
 #include <linux/personality.h>
 #include <linux/tty.h>
+#include <linux/namespace.h>
 #ifdef CONFIG_BSD_PROCESS_ACCT
 #include <linux/acct.h>
 #endif
@@ -151,20 +152,15 @@ static inline int has_stopped_jobs(int pgrp)
 
 /*
  * When we die, we re-parent all our children.
- * Try to give them to another thread in our process
+ * Try to give them to another thread in our thread
  * group, and if no such member exists, give it to
  * the global child reaper process (ie "init")
  */
 static inline void forget_original_parent(struct task_struct * father)
 {
-	struct task_struct * p, *reaper;
+	struct task_struct * p;
 
 	read_lock(&tasklist_lock);
-
-	/* Next in our thread group */
-	reaper = next_thread(father);
-	if (reaper == father)
-		reaper = child_reaper;
 
 	for_each_task(p) {
 		if (p->p_opptr == father) {
@@ -173,10 +169,7 @@ static inline void forget_original_parent(struct task_struct * father)
 			p->self_exec_id++;
 
 			/* Make sure we're not reparenting to ourselves */
-			if (p == reaper)
-				p->p_opptr = child_reaper;
-			else
-				p->p_opptr = reaper;
+			p->p_opptr = child_reaper;
 
 			if (p->pdeath_signal) send_sig(p->pdeath_signal, p, 0);
 		}
@@ -316,7 +309,7 @@ static inline void __exit_mm(struct task_struct * tsk)
 	mm_release();
 	if (mm) {
 		atomic_inc(&mm->mm_count);
-		if (mm != tsk->active_mm) BUG();
+		BUG_ON(mm != tsk->active_mm);
 		/* more a memory barrier than a real lock */
 		task_lock(tsk);
 		tsk->mm = NULL;
@@ -452,6 +445,7 @@ fake_volatile:
 	sem_exit();
 	__exit_files(tsk);
 	__exit_fs(tsk);
+	exit_namespace(tsk);
 	exit_sighand(tsk);
 	exit_thread();
 

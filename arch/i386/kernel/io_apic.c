@@ -32,12 +32,17 @@
 #include <asm/io.h>
 #include <asm/smp.h>
 #include <asm/desc.h>
+#include <asm/smpboot.h>
 
 #undef APIC_LOCKUP_DEBUG
 
 #define APIC_LOCKUP_DEBUG
 
 static spinlock_t ioapic_lock = SPIN_LOCK_UNLOCKED;
+
+unsigned int int_dest_addr_mode = APIC_DEST_LOGICAL;
+unsigned char int_delivery_mode = dest_LowestPrio;
+
 
 /*
  * # of IRQ routing registers
@@ -67,7 +72,7 @@ static struct irq_pin_list {
  * shared ISA-space IRQs, so we have to support them. We are super
  * fast in the common case, and fast for shared ISA-space IRQs.
  */
-static void add_pin_to_irq(unsigned int irq, int apic, int pin)
+static void __init add_pin_to_irq(unsigned int irq, int apic, int pin)
 {
 	static int first_free_entry = NR_IRQS;
 	struct irq_pin_list *entry = irq_2_pin + irq;
@@ -83,6 +88,26 @@ static void add_pin_to_irq(unsigned int irq, int apic, int pin)
 	}
 	entry->apic = apic;
 	entry->pin = pin;
+}
+
+/*
+ * Reroute an IRQ to a different pin.
+ */
+static void __init replace_pin_at_irq(unsigned int irq,
+				      int oldapic, int oldpin,
+				      int newapic, int newpin)
+{
+	struct irq_pin_list *entry = irq_2_pin + irq;
+
+	while (1) {
+		if (entry->apic == oldapic && entry->pin == oldpin) {
+			entry->apic = newapic;
+			entry->pin = newpin;
+		}
+		if (!entry->next)
+			break;
+		entry = irq_2_pin + entry->next;
+	}
 }
 
 #define __DO_ACTION(R, ACTION, FINAL)					\
@@ -173,13 +198,21 @@ int pirq_entries [MAX_PIRQS];
 int pirqs_enabled;
 int skip_ioapic_setup;
 
-static int __init ioapic_setup(char *str)
+static int __init noioapic_setup(char *str)
 {
 	skip_ioapic_setup = 1;
 	return 1;
 }
 
-__setup("noapic", ioapic_setup);
+__setup("noapic", noioapic_setup);
+
+static int __init ioapic_setup(char *str)
+{
+	skip_ioapic_setup = 0;
+	return 1;
+}
+
+__setup("apic", ioapic_setup);
 
 static int __init ioapic_pirq_setup(char *str)
 {
@@ -597,10 +630,10 @@ void __init setup_IO_APIC_irqs(void)
 		 */
 		memset(&entry,0,sizeof(entry));
 
-		entry.delivery_mode = dest_LowestPrio;
-		entry.dest_mode = INT_DELIVERY_MODE;
+		entry.delivery_mode = INT_DELIVERY_MODE;
+		entry.dest_mode = (INT_DEST_ADDR_MODE != 0);
 		entry.mask = 0;				/* enable IRQ */
-		entry.dest.logical.logical_dest = TARGET_CPUS;
+		entry.dest.logical.logical_dest = target_cpus();
 
 		idx = find_irq_entry(apic,pin,mp_INT);
 		if (idx == -1) {
@@ -618,11 +651,18 @@ void __init setup_IO_APIC_irqs(void)
 		if (irq_trigger(idx)) {
 			entry.trigger = 1;
 			entry.mask = 1;
-			entry.dest.logical.logical_dest = TARGET_CPUS;
 		}
 
 		irq = pin_2_irq(idx, apic, pin);
-		add_pin_to_irq(irq, apic, pin);
+		/*
+		 * skip adding the timer int on secondary nodes, which causes
+		 * a small but painful rift in the time-space continuum
+		 */
+		if ((clustered_apic_mode == CLUSTERED_APIC_NUMAQ) 
+			&& (apic != 0) && (irq == 0))
+			continue;
+		else
+			add_pin_to_irq(irq, apic, pin);
 
 		if (!apic && !IO_APIC_IRQ(irq))
 			continue;
@@ -672,16 +712,16 @@ void __init setup_ExtINT_IRQ0_pin(unsigned int pin, int vector)
 	 * We use logical delivery to get the timer IRQ
 	 * to the first CPU.
 	 */
-	entry.dest_mode = INT_DELIVERY_MODE;
+	entry.dest_mode = (INT_DEST_ADDR_MODE != 0);
 	entry.mask = 0;					/* unmask IRQ now */
-	entry.dest.logical.logical_dest = TARGET_CPUS;
-	entry.delivery_mode = dest_LowestPrio;
+	entry.dest.logical.logical_dest = target_cpus();
+	entry.delivery_mode = INT_DELIVERY_MODE;
 	entry.polarity = 0;
 	entry.trigger = 0;
 	entry.vector = vector;
 
 	/*
-	 * The timer IRQ doesnt have to know that behind the
+	 * The timer IRQ doesn't have to know that behind the
 	 * scene we have a 8259A-master in AEOI mode ...
 	 */
 	irq_desc[0].handler = &ioapic_edge_irq_type;
@@ -1533,6 +1573,10 @@ static inline void check_timer(void)
 		setup_ExtINT_IRQ0_pin(pin2, vector);
 		if (timer_irq_works()) {
 			printk("works.\n");
+			if (pin1 != -1)
+				replace_pin_at_irq(0, 0, pin1, 0, pin2);
+			else
+				add_pin_to_irq(0, 0, pin2);
 			if (nmi_watchdog == NMI_IO_APIC) {
 				setup_nmi();
 				check_nmi_watchdog();
@@ -1547,7 +1591,7 @@ static inline void check_timer(void)
 	printk(" failed.\n");
 
 	if (nmi_watchdog) {
-		printk(KERN_WARNING "timer doesnt work through the IO-APIC - disabling NMI Watchdog!\n");
+		printk(KERN_WARNING "timer doesn't work through the IO-APIC - disabling NMI Watchdog!\n");
 		nmi_watchdog = 0;
 	}
 

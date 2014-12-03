@@ -3,7 +3,7 @@
  *
  * Kernel entry points.
  *
- * Copyright (C) 1998-2001 Hewlett-Packard Co
+ * Copyright (C) 1998-2002 Hewlett-Packard Co
  *	David Mosberger-Tang <davidm@hpl.hp.com>
  * Copyright (C) 1999 VA Linux Systems
  * Copyright (C) 1999 Walt Drummond <drummond@valinux.com>
@@ -115,7 +115,7 @@ GLOBAL_ENTRY(sys_clone)
 	mov loc1=r16				// save ar.pfs across do_fork
 	.body
 	mov out1=in1
-	mov out3=0
+	mov out3=16				// stacksize (compensates for 16-byte scratch area)
 	adds out2=IA64_SWITCH_STACK_SIZE+16,sp	// out2 = &regs
 	mov out0=in0				// out0 = clone_flags
 	br.call.sptk.many rp=do_fork
@@ -521,35 +521,38 @@ GLOBAL_ENTRY(ia64_leave_kernel)
 	;;
 	mov.ret.sptk rp=r14,.restart
 .restart:
+	// need_resched and signals atomic test
+(pUser)	rsm psr.i
 	adds r17=IA64_TASK_NEED_RESCHED_OFFSET,r13
 	adds r18=IA64_TASK_SIGPENDING_OFFSET,r13
 #ifdef CONFIG_PERFMON
-	adds r19=IA64_TASK_PFM_MUST_BLOCK_OFFSET,r13
+	adds r19=IA64_TASK_PFM_OVFL_BLOCK_RESET_OFFSET,r13
 #endif
 	;;
 #ifdef CONFIG_PERFMON
-(pUser)	ld8 r19=[r19]				// load current->thread.pfm_must_block
+(pUser)	ld8 r19=[r19]				// load current->thread.pfm_ovfl_block_reset
 #endif
 (pUser)	ld8 r17=[r17]				// load current->need_resched
 (pUser)	ld4 r18=[r18]				// load current->sigpending
 	;;
 #ifdef CONFIG_PERFMON
-(pUser)	cmp.ne.unc p9,p0=r19,r0			// current->thread.pfm_must_block != 0?
+(pUser)	cmp.ne.unc p9,p0=r19,r0			// current->thread.pfm_ovfl_block_reset != 0?
 #endif
 (pUser)	cmp.ne.unc p7,p0=r17,r0			// current->need_resched != 0?
 (pUser)	cmp.ne.unc p8,p0=r18,r0			// current->sigpending != 0?
 	;;
-	adds r2=PT(R8)+16,r12
-	adds r3=PT(R9)+16,r12
 #ifdef CONFIG_PERFMON
-(p9)	br.call.spnt.many b7=pfm_block_on_overflow
+(p9)	br.call.spnt.many b7=pfm_ovfl_block_reset
 #endif
 #if __GNUC__ < 3
 (p7)	br.call.spnt.many b7=invoke_schedule
 #else
 (p7)	br.call.spnt.many b7=schedule
 #endif
-(p8)	br.call.spnt.many b7=handle_signal_delivery	// check & deliver pending signals
+(p8)	br.call.spnt.many rp=handle_signal_delivery	// check & deliver pending signals (once)
+	;;
+.ret9:	adds r2=PT(R8)+16,r12
+	adds r3=PT(R9)+16,r12
 	;;
 	// start restoring the state saved on the kernel stack (struct pt_regs):
 	ld8.fill r8=[r2],16
@@ -582,7 +585,7 @@ GLOBAL_ENTRY(ia64_leave_kernel)
 	ld8.fill r30=[r2],16
 	ld8.fill r31=[r3],16
 	;;
-	rsm psr.i | psr.ic	// initiate turning off of interrupts & interruption collection
+	rsm psr.i | psr.ic	// initiate turning off of interrupt and interruption collection
 	invala			// invalidate ALAT
 	;;
 	ld8 r1=[r2],16		// ar.ccv
@@ -601,7 +604,7 @@ GLOBAL_ENTRY(ia64_leave_kernel)
 	mov ar.fpsr=r13
 	mov b0=r14
 	;;
-	srlz.i			// ensure interrupts & interruption collection are off
+	srlz.i			// ensure interruption collection is off
 	mov b7=r15
 	;;
 	bsw.0			// switch back to bank 0
@@ -664,23 +667,38 @@ dont_preserve_current_frame:
 	/*
 	 * To prevent leaking bits between the kernel and user-space,
 	 * we must clear the stacked registers in the "invalid" partition here.
-	 * Not pretty, but at least it's fast (3.34 registers/cycle).
-	 * Architecturally, this loop could go at 4.67 registers/cycle, but that would
-	 * oversubscribe Itanium.
+	 * Not pretty, but at least it's fast (3.34 registers/cycle on Itanium,
+	 * 5 registers/cycle on McKinley).
 	 */
 #	define pRecurse	p6
 #	define pReturn	p7
+#ifdef CONFIG_ITANIUM
 #	define Nregs	10
+#else
+#	define Nregs	14
+#endif
 	alloc loc0=ar.pfs,2,Nregs-2,2,0
 	shr.u loc1=r18,9		// RNaTslots <= dirtySize / (64*8) + 1
 	sub r17=r17,r18			// r17 = (physStackedSize + 8) - dirtySize
 	;;
+#if 1
+	.align 32		// see comment below about gas bug...
+#endif
 	mov ar.rsc=r19			// load ar.rsc to be used for "loadrs"
 	shladd in0=loc1,3,r17
 	mov in1=0
+#if 0
+	// gas-2.11.90 is unable to generate a stop bit after .align, which is bad,
+	// because alloc must be at the beginning of an insn-group.
+	.align 32
+#else
+	nop 0
+	nop 0
+	nop 0
+#endif
 	;;
-//	.align 32	// gas-2.11.90 is unable to generate a stop bit after .align
 rse_clear_invalid:
+#ifdef CONFIG_ITANIUM
 	// cycle 0
  { .mii
 	alloc loc0=ar.pfs,2,Nregs-2,2,0
@@ -709,9 +727,31 @@ rse_clear_invalid:
 	mov loc7=0
 (pReturn) br.ret.sptk.many b6
 }
+#else /* !CONFIG_ITANIUM */
+	alloc loc0=ar.pfs,2,Nregs-2,2,0
+	cmp.lt pRecurse,p0=Nregs*8,in0	// if more than Nregs regs left to clear, (re)curse
+	add out0=-Nregs*8,in0
+	add out1=1,in1			// increment recursion count
+	mov loc1=0
+	mov loc2=0
+	;;
+	mov loc3=0
+	mov loc4=0
+	mov loc9=0
+	mov loc5=0
+	mov loc6=0
+(pRecurse) br.call.sptk.many b6=rse_clear_invalid
+	;;
+	mov loc7=0
+	mov loc8=0
+	cmp.ne pReturn,p0=r0,in1	// if recursion count != 0, we need to do a br.ret
+	mov loc10=0
+	mov loc11=0
+(pReturn) br.ret.sptk.many b6
+#endif /* !CONFIG_ITANIUM */
 #	undef pRecurse
 #	undef pReturn
-
+	;;
 	alloc r17=ar.pfs,0,0,0,0	// drop current register frame
 	;;
 	loadrs
@@ -1142,7 +1182,7 @@ sys_call_table:
 	data8 ia64_ni_syscall
 	data8 ia64_ni_syscall
 	data8 ia64_ni_syscall
-	data8 ia64_ni_syscall
+	data8 sys_tkill
 	data8 ia64_ni_syscall			// 1230
 	data8 ia64_ni_syscall
 	data8 ia64_ni_syscall

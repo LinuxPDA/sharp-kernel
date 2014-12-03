@@ -1,5 +1,5 @@
 /*
- * BK Id: SCCS/s.setup.c 1.67 12/01/01 20:09:07 benh
+ * BK Id: %F% %I% %G% %U% %#%
  */
 /*
  * Common prep/pmac/chrp boot and setup code.
@@ -29,17 +29,6 @@
 #include <asm/smp.h>
 #include <asm/elf.h>
 #include <asm/cputable.h>
-#ifdef CONFIG_8xx
-#include <asm/mpc8xx.h>
-#include <asm/8xx_immap.h>
-#endif
-#ifdef CONFIG_8260
-#include <asm/mpc8260.h>
-#include <asm/immap_8260.h>
-#endif
-#ifdef CONFIG_4xx
-#include <asm/ppc4xx.h>
-#endif
 #include <asm/bootx.h>
 #include <asm/btext.h>
 #include <asm/machdep.h>
@@ -50,16 +39,17 @@
 extern void platform_init(unsigned long r3, unsigned long r4,
 		unsigned long r5, unsigned long r6, unsigned long r7);
 extern void bootx_init(unsigned long r4, unsigned long phys);
-extern unsigned long reloc_offset(void);
 extern void identify_cpu(unsigned long offset, unsigned long cpu);
 extern void do_cpu_ftr_fixups(unsigned long offset);
+extern void reloc_got2(unsigned long offset);
 
 #ifdef CONFIG_XMON
 extern void xmon_map_scc(void);
 #endif
 
 extern boot_infos_t *boot_infos;
-char saved_command_line[256];
+char saved_command_line[512];
+extern char cmd_line[512];
 unsigned char aux_device_present;
 struct ide_machdep_calls ppc_ide_md;
 char *sysmap;
@@ -67,9 +57,7 @@ unsigned long sysmap_size;
 
 /* Used with the BI_MEMSIZE bootinfo parameter to store the memory
    size value reported by the boot loader. */ 
-unsigned int boot_mem_size;
-
-int parse_bootinfo(void);
+unsigned long boot_mem_size;
 
 unsigned long ISA_DMA_THRESHOLD;
 unsigned long DMA_MODE_READ, DMA_MODE_WRITE;
@@ -291,22 +279,22 @@ early_init(int r3, int r4, int r5)
 	do_cpu_ftr_fixups(offset);
 
 #if defined(CONFIG_ALL_PPC)
+	reloc_got2(offset);
+
 	/* If we came here from BootX, clear the screen,
 	 * set up some pointers and return. */
-	if ((r3 == 0x426f6f58) && (r5 == 0)) {
+	if ((r3 == 0x426f6f58) && (r5 == 0))
 		bootx_init(r4, phys);
-		return phys;
-	}
 
-	/* check if we're prep, return if we are */
-	if ( *(unsigned long *)(0) == 0xdeadc0de )
-		return phys;
-
-	/* 
+	/*
+	 * don't do anything on prep
 	 * for now, don't use bootinfo because it breaks yaboot 0.5
 	 * and assume that if we didn't find a magic number, we have OF
 	 */
-	phys = prom_init(r3, r4, (prom_entry)r5);
+	else if (*(unsigned long *)(0) != 0xdeadc0de)
+		phys = prom_init(r3, r4, (prom_entry)r5);
+
+	reloc_got2(-offset);
 #endif
 
 	return phys;
@@ -343,13 +331,13 @@ platform_init(unsigned long r3, unsigned long r4, unsigned long r5,
 	      unsigned long r6, unsigned long r7)
 {
 #ifdef CONFIG_BOOTX_TEXT
-	extern boot_infos_t *disp_bi;
-
-	if (disp_bi) {
+	if (boot_text_mapped) {
 		btext_clearscreen();
-		btext_welcome(disp_bi);
+		btext_welcome();
 	}
 #endif	
+
+	parse_bootinfo(find_bootinfo());
 
 	/* if we didn't get any bootinfo telling us what we are... */
 	if (_machine == 0) {
@@ -409,15 +397,14 @@ platform_init(unsigned long r3, unsigned long r4, unsigned long r5,
 		char *p;
 			
 #ifdef CONFIG_BLK_DEV_INITRD
-		if (r3 && r4 && r4 != 0xdeadbeef)
-			{
-				if (r3 < KERNELBASE)
-					r3 += KERNELBASE;
-				initrd_start = r3;
-				initrd_end = r3 + r4;
-				ROOT_DEV = MKDEV(RAMDISK_MAJOR, 0);
-				initrd_below_start_ok = 1;
-			}
+		if (r3 && r4 && r4 != 0xdeadbeef) {
+			if (r3 < KERNELBASE)
+				r3 += KERNELBASE;
+			initrd_start = r3;
+			initrd_end = r3 + r4;
+			ROOT_DEV = MKDEV(RAMDISK_MAJOR, 0);
+			initrd_below_start_ok = 1;
+		}
 #endif
 		chosen = find_devices("chosen");
 		if (chosen != NULL) {
@@ -441,7 +428,8 @@ platform_init(unsigned long r3, unsigned long r4, unsigned long r5,
 }
 #endif /* CONFIG_ALL_PPC */
 
-int parse_bootinfo(void)
+#ifndef CONFIG_APUS
+struct bi_record *find_bootinfo(void)
 {
 	struct bi_record *rec;
 	extern char __bss_start[];
@@ -455,15 +443,21 @@ int parse_bootinfo(void)
 		 */
 		rec = (struct bi_record *)_ALIGN((ulong)__bss_start+0x10000+(1<<20)-1,(1<<20));
 		if ( rec->tag != BI_FIRST )
-			return -1;
+			return NULL;
 	}
-	for ( ; rec->tag != BI_LAST ;
-	      rec = (struct bi_record *)((ulong)rec + rec->size) )
-	{
+	return rec;
+}
+
+void parse_bootinfo(struct bi_record *rec)
+{
+	if (rec == NULL || rec->tag != BI_FIRST)
+		return;
+	while (rec->tag != BI_LAST) {
 		ulong *data = rec->data;
 		switch (rec->tag) {
 		case BI_CMD_LINE:
-			memcpy(cmd_line, (void *)data, rec->size);
+			memcpy(cmd_line, (void *)data, rec->size - 
+					sizeof(struct bi_record));
 			break;
 		case BI_SYSMAP:
 			sysmap = (char *)((data[0] >= (KERNELBASE)) ? data[0] :
@@ -485,10 +479,10 @@ int parse_bootinfo(void)
 			boot_mem_size = data[0];
 			break;
 		}
+		rec = (struct bi_record *)((ulong)rec + rec->size);
 	}
-
-	return 0;
 }
+#endif /* CONFIG_APUS */
 
 /*
  * Find out what kind of machine we're on and save any data we need
@@ -503,8 +497,6 @@ machine_init(unsigned long r3, unsigned long r4, unsigned long r5,
 #ifdef CONFIG_CMDLINE
 	strcpy(cmd_line, CONFIG_CMDLINE);
 #endif /* CONFIG_CMDLINE */
-
-	parse_bootinfo();
 
 	platform_init(r3, r4, r5, r6, r7);
 
@@ -524,6 +516,12 @@ int __init ppc_setup_l2cr(char *str)
 	return 1;
 }
 __setup("l2cr=", ppc_setup_l2cr);
+
+void __init arch_discover_root(void)
+{
+	if (ppc_md.discover_root != NULL)
+		ppc_md.discover_root();
+}
 
 void __init ppc_init(void)
 {
@@ -599,24 +597,6 @@ void __init setup_arch(char **cmdline_p)
 	ppc_md.setup_arch();
 	if ( ppc_md.progress ) ppc_md.progress("arch: exit", 0x3eab);
 
-#if defined(CONFIG_PCI) && defined(CONFIG_ALL_PPC)
-	/* We create the "pci-OF-bus-map" property now so it appear in the
-	 * /proc device tree
-	 */
-	if (have_of) {
-		struct property* of_prop;
-		
-		of_prop = (struct property*)alloc_bootmem(sizeof(struct property) + 256);
-		if (of_prop && find_path_device("/")) {
-			memset(of_prop, -1, sizeof(struct property) + 256);
-			of_prop->name = "pci-OF-bus-map";
-			of_prop->length = 256;
-			of_prop->value = (unsigned char *)&of_prop[1];
-			prom_add_property(find_path_device("/"), of_prop);
-		}
-	}
-#endif /* CONFIG_PCI && CONFIG_ALL_PPC */
-
 	paging_init();
 	sort_exception_table();
 
@@ -624,6 +604,8 @@ void __init setup_arch(char **cmdline_p)
 	ppc_md.ppc_machine = _machine;
 }
 
+#if defined(CONFIG_BLK_DEV_IDE) || defined(CONFIG_BLK_DEV_IDE_MODULE) \
+	|| defined(CONFIG_USB_STORAGE) || defined(CONFIG_USB_STORAGE_MODULE)
 /* Convert the shorts/longs in hd_driveid from little to big endian;
  * chars are endian independant, of course, but strings need to be flipped.
  * (Despite what it says in drivers/block/ide.h, they come up as little
@@ -694,8 +676,12 @@ void ppc_generic_ide_fix_driveid(struct hd_driveid *id)
 	id->CurAPMvalues   = __le16_to_cpu(id->CurAPMvalues);
 	id->word92         = __le16_to_cpu(id->word92);
 	id->hw_config      = __le16_to_cpu(id->hw_config);
-	for (i = 0; i < 32; i++)
-		id->words94_125[i]  = __le16_to_cpu(id->words94_125[i]);
+	id->acoustic       = __le16_to_cpu(id->acoustic);
+	for (i = 0; i < 5; i++)
+		id->words95_99[i]  = __le16_to_cpu(id->words95_99[i]);
+	id->lba_capacity_2 = __le64_to_cpu(id->lba_capacity_2);
+	for (i = 0; i < 22; i++)
+		id->words104_125[i]   = __le16_to_cpu(id->words104_125[i]);
 	id->last_lun       = __le16_to_cpu(id->last_lun);
 	id->word127        = __le16_to_cpu(id->word127);
 	id->dlf            = __le16_to_cpu(id->dlf);
@@ -705,6 +691,13 @@ void ppc_generic_ide_fix_driveid(struct hd_driveid *id)
 	id->word156        = __le16_to_cpu(id->word156);
 	for (i = 0; i < 3; i++)
 		id->words157_159[i] = __le16_to_cpu(id->words157_159[i]);
-	for (i = 0; i < 96; i++)
-		id->words160_255[i] = __le16_to_cpu(id->words160_255[i]);
+	id->cfa_power      = __le16_to_cpu(id->cfa_power);
+	for (i = 0; i < 14; i++)
+		id->words161_175[i] = __le16_to_cpu(id->words161_175[i]);
+	for (i = 0; i < 31; i++)
+		id->words176_205[i] = __le16_to_cpu(id->words176_205[i]);
+	for (i = 0; i < 48; i++)
+		id->words206_254[i] = __le16_to_cpu(id->words206_254[i]);
+	id->integrity_word  = __le16_to_cpu(id->integrity_word);
 }
+#endif

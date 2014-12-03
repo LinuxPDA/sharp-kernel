@@ -297,13 +297,13 @@ struct usb_audio_state;
 #define FLG_CONNECTED    32
 
 struct my_data_urb {
-	urb_t urb;
-	iso_packet_descriptor_t isoframe[DESCFRAMES];
+	struct urb urb;
+	struct iso_packet_descriptor isoframe[DESCFRAMES];
 };
 
 struct my_sync_urb {
-	urb_t urb;
-	iso_packet_descriptor_t isoframe[SYNCFRAMES];
+	struct urb urb;
+	struct iso_packet_descriptor isoframe[SYNCFRAMES];
 };
 
 
@@ -399,7 +399,7 @@ struct usb_audio_state {
 
 /* prevent picking up a bogus abs macro */
 #undef abs
-extern inline int abs(int x)
+static inline int abs(int x)
 {
         if (x < 0)
 		return -x;
@@ -408,7 +408,7 @@ extern inline int abs(int x)
                                 
 /* --------------------------------------------------------------------- */
 
-extern inline unsigned ld2(unsigned int x)
+static inline unsigned ld2(unsigned int x)
 {
 	unsigned r = 0;
 	
@@ -833,7 +833,7 @@ static void usbin_convert(struct usbin *u, unsigned char *buffer, unsigned int s
 	}
 }		
 
-static int usbin_prepare_desc(struct usbin *u, purb_t urb)
+static int usbin_prepare_desc(struct usbin *u, struct urb *urb)
 {
 	unsigned int i, maxsize, offs;
 
@@ -850,7 +850,7 @@ static int usbin_prepare_desc(struct usbin *u, purb_t urb)
  * return value: 0 if descriptor should be restarted, -1 otherwise
  * convert sample format on the fly if necessary
  */
-static int usbin_retire_desc(struct usbin *u, purb_t urb)
+static int usbin_retire_desc(struct usbin *u, struct urb *urb)
 {
 	unsigned int i, ufmtsh, dfmtsh, err = 0, cnt, scnt, dmafree;
 	unsigned char *cp;
@@ -930,7 +930,7 @@ static void usbin_completed(struct urb *urb)
 /*
  * we output sync data
  */
-static int usbin_sync_prepare_desc(struct usbin *u, purb_t urb)
+static int usbin_sync_prepare_desc(struct usbin *u, struct urb *urb)
 {
 	unsigned char *cp = urb->transfer_buffer;
 	unsigned int i, offs;
@@ -948,7 +948,7 @@ static int usbin_sync_prepare_desc(struct usbin *u, purb_t urb)
 /*
  * return value: 0 if descriptor should be restarted, -1 otherwise
  */
-static int usbin_sync_retire_desc(struct usbin *u, purb_t urb)
+static int usbin_sync_retire_desc(struct usbin *u, struct urb *urb)
 {
 	unsigned int i;
 	
@@ -996,7 +996,7 @@ static int usbin_start(struct usb_audiodev *as)
 {
 	struct usb_device *dev = as->state->usbdev;
 	struct usbin *u = &as->usbin;
-	purb_t urb;
+	struct urb *urb;
 	unsigned long flags;
 	unsigned int maxsze, bufsz;
 
@@ -1186,7 +1186,7 @@ static void usbout_convert(struct usbout *u, unsigned char *buffer, unsigned int
 	}
 }		
 
-static int usbout_prepare_desc(struct usbout *u, purb_t urb)
+static int usbout_prepare_desc(struct usbout *u, struct urb *urb)
 {
 	unsigned int i, ufmtsh, dfmtsh, err = 0, cnt, scnt, offs;
 	unsigned char *cp = urb->transfer_buffer;
@@ -1238,7 +1238,7 @@ static int usbout_prepare_desc(struct usbout *u, purb_t urb)
 /*
  * return value: 0 if descriptor should be restarted, -1 otherwise
  */
-static int usbout_retire_desc(struct usbout *u, purb_t urb)
+static int usbout_retire_desc(struct usbout *u, struct urb *urb)
 {
 	unsigned int i;
 
@@ -1285,7 +1285,7 @@ static void usbout_completed(struct urb *urb)
 	spin_unlock_irqrestore(&as->lock, flags);
 }
 
-static int usbout_sync_prepare_desc(struct usbout *u, purb_t urb)
+static int usbout_sync_prepare_desc(struct usbout *u, struct urb *urb)
 {
 	unsigned int i, offs;
 
@@ -1299,7 +1299,7 @@ static int usbout_sync_prepare_desc(struct usbout *u, purb_t urb)
 /*
  * return value: 0 if descriptor should be restarted, -1 otherwise
  */
-static int usbout_sync_retire_desc(struct usbout *u, purb_t urb)
+static int usbout_sync_retire_desc(struct usbout *u, struct urb *urb)
 {
 	unsigned char *cp = urb->transfer_buffer;
 	unsigned int f, i;
@@ -1361,7 +1361,7 @@ static int usbout_start(struct usb_audiodev *as)
 {
 	struct usb_device *dev = as->state->usbdev;
 	struct usbout *u = &as->usbout;
-	purb_t urb;
+	struct urb *urb;
 	unsigned long flags;
 	unsigned int maxsze, bufsz;
 
@@ -1931,13 +1931,13 @@ static void release(struct usb_audio_state *s)
 	kfree(s);
 }
 
-extern inline int prog_dmabuf_in(struct usb_audiodev *as)
+static inline int prog_dmabuf_in(struct usb_audiodev *as)
 {
 	usbin_stop(as);
 	return dmabuf_init(&as->usbin.dma);
 }
 
-extern inline int prog_dmabuf_out(struct usb_audiodev *as)
+static inline int prog_dmabuf_out(struct usb_audiodev *as)
 {
 	usbout_stop(as);
 	return dmabuf_init(&as->usbout.dma);
@@ -2536,7 +2536,7 @@ static int usb_audio_ioctl(struct inode *inode, struct file *file, unsigned int 
 		if (as->usbin.dma.mapped)
 			as->usbin.dma.count &= as->usbin.dma.fragsize-1;
 		spin_unlock_irqrestore(&as->lock, flags);
-		return copy_to_user((void *)arg, &cinfo, sizeof(cinfo));
+		return copy_to_user((void *)arg, &cinfo, sizeof(cinfo)) ? -EFAULT : 0;
 
 	case SNDCTL_DSP_GETOPTR:
 		if (!(file->f_mode & FMODE_WRITE))
@@ -2548,7 +2548,7 @@ static int usb_audio_ioctl(struct inode *inode, struct file *file, unsigned int 
 		if (as->usbout.dma.mapped)
 			as->usbout.dma.count &= as->usbout.dma.fragsize-1;
 		spin_unlock_irqrestore(&as->lock, flags);
-		return copy_to_user((void *)arg, &cinfo, sizeof(cinfo));
+		return copy_to_user((void *)arg, &cinfo, sizeof(cinfo)) ? -EFAULT : 0;
 
        case SNDCTL_DSP_GETBLKSIZE:
 		if (file->f_mode & FMODE_WRITE) {
@@ -3207,7 +3207,7 @@ static void prepmixch(struct consmixstate *state)
 
 static void usb_audio_recurseunit(struct consmixstate *state, unsigned char unitid);
 
-extern inline int checkmixbmap(unsigned char *bmap, unsigned char flg, unsigned int inidx, unsigned int numoch)
+static inline int checkmixbmap(unsigned char *bmap, unsigned char flg, unsigned int inidx, unsigned int numoch)
 {
 	unsigned int idx;
 

@@ -628,6 +628,7 @@ struct super_block *usbdevfs_read_super(struct super_block *s, void *data, int s
         s->s_root = d_alloc_root(root_inode);
         if (!s->s_root)
                 goto out_no_root;
+	lock_kernel();
 	list_add_tail(&s->u.usbdevfs_sb.slist, &superlist);
 	for (i = 0; i < NRSPECIAL; i++) {
 		if (!(inode = iget(s, IROOT+1+i)))
@@ -646,6 +647,7 @@ struct super_block *usbdevfs_read_super(struct super_block *s, void *data, int s
 		recurse_new_dev_inode(bus->root_hub, s);
 	}
 	up (&usb_bus_list_lock);
+	unlock_kernel();
         return s;
 
  out_no_root:
@@ -654,7 +656,13 @@ struct super_block *usbdevfs_read_super(struct super_block *s, void *data, int s
         return NULL;
 }
 
+/*
+ * The usbdevfs name is now deprecated (as of 2.4.19).
+ * It will be removed when the 2.7.x development cycle is started.
+ * You have been warned :)
+ */
 static DECLARE_FSTYPE(usbdevice_fs_type, "usbdevfs", usbdevfs_read_super, FS_SINGLE);
+static DECLARE_FSTYPE(usbfs_type, "usbfs", usbdevfs_read_super, FS_SINGLE);
 
 /* --------------------------------------------------------------------- */
 
@@ -751,6 +759,11 @@ int __init usbdevfs_init(void)
 		usb_deregister(&usbdevfs_driver);
 		return ret;
 	}
+	if ((ret = register_filesystem(&usbfs_type))) {
+		usb_deregister(&usbdevfs_driver);
+		unregister_filesystem(&usbdevice_fs_type);
+		return ret;
+	}
 #ifdef CONFIG_PROC_FS		
 	/* create mount point for usbdevfs */
 	usbdir = proc_mkdir("usb", proc_bus);
@@ -762,6 +775,7 @@ void __exit usbdevfs_cleanup(void)
 {
 	usb_deregister(&usbdevfs_driver);
 	unregister_filesystem(&usbdevice_fs_type);
+	unregister_filesystem(&usbfs_type);
 #ifdef CONFIG_PROC_FS	
         if (usbdir)
                 remove_proc_entry("usb", proc_bus);

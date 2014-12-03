@@ -414,6 +414,7 @@ static void irda_getvalue_confirm(int result, __u16 obj_id,
  * hint bits), and then wake up any process waiting for answer...
  */
 static void irda_selective_discovery_indication(discovery_t *discovery,
+						DISCOVERY_MODE mode,
 						void *priv)
 {
 	struct irda_sock *self;
@@ -1025,28 +1026,26 @@ static int irda_connect(struct socket *sock, struct sockaddr *uaddr,
 	/* Now the loop */
 	if (sk->state != TCP_ESTABLISHED && (flags & O_NONBLOCK))
 		return -EINPROGRESS;
-		
-	cli();	/* To avoid races on the sleep */
-	
-	/* A Connect Ack with Choke or timeout or failed routing will go to
-	 * closed.  */
+
+	/* Here, there is a race condition : the state may change between
+	 * our test and the sleep, via irda_connect_confirm().
+	 * The way to workaround that is to sleep with a timeout, so that
+	 * we don't sleep forever and check the state when waking up.
+	 * 50ms is plenty good enough, because the LAP is already connected.
+	 * Jean II */
 	while (sk->state == TCP_SYN_SENT) {
-		interruptible_sleep_on(sk->sleep);
+		interruptible_sleep_on_timeout(sk->sleep, HZ/20);
 		if (signal_pending(current)) {
-			sti();
 			return -ERESTARTSYS;
 		}
 	}
 	
 	if (sk->state != TCP_ESTABLISHED) {
-		sti();
 		sock->state = SS_UNCONNECTED;
 		return sock_error(sk);	/* Always set at this point */
 	}
 	
 	sock->state = SS_CONNECTED;
-	
-	sti();
 	
 	/* At this point, IrLMP has assigned our source address */
 	self->saddr = irttp_get_saddr(self->tsap);
@@ -1292,6 +1291,9 @@ static int irda_sendmsg(struct socket *sock, struct msghdr *msg, int len,
 		/* Check if we are still connected */
 		if (sk->state != TCP_ESTABLISHED)
 			return -ENOTCONN;
+		/* Handle signals */
+		if (signal_pending(current)) 
+			return -ERESTARTSYS;
 	}
 
 	/* Check that we don't send out to big frames */
@@ -1710,7 +1712,7 @@ static unsigned int irda_poll(struct file * file, struct socket *sock,
 
 		if (sk->state == TCP_ESTABLISHED) {
 			if ((self->tx_flow == FLOW_START) && 
-			    (sk->sndbuf - (int)atomic_read(&sk->wmem_alloc) >= SOCK_MIN_WRITE_SPACE))
+			    sock_writeable(sk))
 			{
 				mask |= POLLOUT | POLLWRNORM | POLLWRBAND;
 			}
@@ -1718,13 +1720,13 @@ static unsigned int irda_poll(struct file * file, struct socket *sock,
 		break;
 	case SOCK_SEQPACKET:
 		if ((self->tx_flow == FLOW_START) && 
-		    (sk->sndbuf - (int)atomic_read(&sk->wmem_alloc) >= SOCK_MIN_WRITE_SPACE))
+		    sock_writeable(sk))
 		{	
 			mask |= POLLOUT | POLLWRNORM | POLLWRBAND;
 		}
 		break;
 	case SOCK_DGRAM:
-		if (sk->sndbuf - (int)atomic_read(&sk->wmem_alloc) >= SOCK_MIN_WRITE_SPACE)
+		if (sock_writeable(sk))
 			mask |= POLLOUT | POLLWRNORM | POLLWRBAND;
 		break;
 	default:

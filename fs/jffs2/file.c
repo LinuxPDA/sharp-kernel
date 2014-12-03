@@ -31,7 +31,7 @@
  * provisions above, a recipient may use your version of this file
  * under either the RHEPL or the GPL.
  *
- * $Id: file.c,v 1.58 2001/09/20 15:28:31 dwmw2 Exp $
+ * $Id: file.c,v 1.58.2.6 2002/11/12 13:17:01 dwmw2 Exp $
  *
  */
 
@@ -102,15 +102,14 @@ int jffs2_setattr (struct dentry *dentry, struct iattr *iattr)
 	   must read the original data associated with the node
 	   (i.e. the device numbers or the target name) and write
 	   it out again with the appropriate data attached */
-	if ((inode->i_mode & S_IFMT) == S_IFBLK ||
-	    (inode->i_mode & S_IFMT) == S_IFCHR) {
+	if (S_ISBLK(inode->i_mode) || S_ISCHR(inode->i_mode)) {
 		/* For these, we don't actually need to read the old node */
 		dev =  (MAJOR(to_kdev_t(dentry->d_inode->i_rdev)) << 8) | 
 			MINOR(to_kdev_t(dentry->d_inode->i_rdev));
 		mdata = (char *)&dev;
 		mdatalen = sizeof(dev);
 		D1(printk(KERN_DEBUG "jffs2_setattr(): Writing %d bytes of kdev_t\n", mdatalen));
-	} else if ((inode->i_mode & S_IFMT) == S_IFLNK) {
+	} else if (S_ISLNK(inode->i_mode)) {
 		mdatalen = f->metadata->size;
 		mdata = kmalloc(f->metadata->size, GFP_USER);
 		if (!mdata)
@@ -125,7 +124,7 @@ int jffs2_setattr (struct dentry *dentry, struct iattr *iattr)
 
 	ri = jffs2_alloc_raw_inode();
 	if (!ri) {
-		if ((inode->i_mode & S_IFMT) == S_IFLNK)
+		if (S_ISLNK(inode->i_mode))
 			kfree(mdata);
 		return -ENOMEM;
 	}
@@ -133,7 +132,7 @@ int jffs2_setattr (struct dentry *dentry, struct iattr *iattr)
 	ret = jffs2_reserve_space(c, sizeof(*ri) + mdatalen, &phys_ofs, &alloclen, ALLOC_NORMAL);
 	if (ret) {
 		jffs2_free_raw_inode(ri);
-		if ((inode->i_mode & S_IFMT) == S_IFLNK)
+		if (S_ISLNK(inode->i_mode))
 			 kfree(mdata);
 		return ret;
 	}
@@ -177,7 +176,7 @@ int jffs2_setattr (struct dentry *dentry, struct iattr *iattr)
 		ri->data_crc = 0;
 
 	new_metadata = jffs2_write_dnode(inode, ri, mdata, mdatalen, phys_ofs, NULL);
-	if ((inode->i_mode & S_IFMT) == S_IFLNK)
+	if (S_ISLNK(inode->i_mode))
 		kfree(mdata);
 
 	jffs2_complete_reservation(c);
@@ -277,23 +276,28 @@ int jffs2_do_readpage_nolock (struct inode *inode, struct page *pg)
 			continue;
 		} else {
 			__u32 readlen;
-			readlen = min(frag->size, end - offset);
-			D1(printk(KERN_DEBUG "Reading %d-%d from node at 0x%x\n", frag->ofs, frag->ofs+readlen, frag->node->raw->flash_offset & ~3));
-			ret = jffs2_read_dnode(c, frag->node, pg_buf, frag->ofs - frag->node->ofs, readlen);
+			__u32 fragofs; /* offset within the frag to start reading */
+
+			fragofs = offset - frag->ofs;
+			readlen = min(frag->size - fragofs, end - offset);
+			D1(printk(KERN_DEBUG "Reading %d-%d from node at 0x%x\n", frag->ofs+fragofs, 
+				  fragofs+frag->ofs+readlen, frag->node->raw->flash_offset & ~3));
+			ret = jffs2_read_dnode(c, frag->node, pg_buf, fragofs + frag->ofs - frag->node->ofs, readlen);
 			D2(printk(KERN_DEBUG "node read done\n"));
 			if (ret) {
 				D1(printk(KERN_DEBUG"jffs2_readpage error %d\n",ret));
-				memset(pg_buf, 0, frag->size);
+				memset(pg_buf, 0, readlen);
 				ClearPageUptodate(pg);
 				SetPageError(pg);
 				kunmap(pg);
 				return ret;
 			}
+		
+			pg_buf += readlen;
+			offset += readlen;
+			frag = frag->next;
+			D2(printk(KERN_DEBUG "node read was OK. Looping\n"));
 		}
-		pg_buf += frag->size;
-		offset += frag->size;
-		frag = frag->next;
-		D2(printk(KERN_DEBUG "node read was OK. Looping\n"));
 	}
 	D2(printk(KERN_DEBUG "readpage finishing\n"));
 	SetPageUptodate(pg);
@@ -316,23 +320,22 @@ int jffs2_do_readpage_unlock(struct inode *inode, struct page *pg)
 
 int jffs2_readpage (struct file *filp, struct page *pg)
 {
-	struct jffs2_inode_info *f = JFFS2_INODE_INFO(filp->f_dentry->d_inode);
+	struct jffs2_inode_info *f = JFFS2_INODE_INFO(pg->mapping->host);
 	int ret;
 	
 	down(&f->sem);
-	ret = jffs2_do_readpage_unlock(filp->f_dentry->d_inode, pg);
+	ret = jffs2_do_readpage_unlock(pg->mapping->host, pg);
 	up(&f->sem);
 	return ret;
 }
 
 int jffs2_prepare_write (struct file *filp, struct page *pg, unsigned start, unsigned end)
 {
-	struct inode *inode = filp->f_dentry->d_inode;
+	struct inode *inode = pg->mapping->host;
 	struct jffs2_inode_info *f = JFFS2_INODE_INFO(inode);
 	__u32 pageofs = pg->index << PAGE_CACHE_SHIFT;
 	int ret = 0;
 
-	down(&f->sem);
 	D1(printk(KERN_DEBUG "jffs2_prepare_write() nrpages %ld\n", inode->i_mapping->nrpages));
 
 	if (pageofs > inode->i_size) {
@@ -346,10 +349,10 @@ int jffs2_prepare_write (struct file *filp, struct page *pg, unsigned start, uns
 			  (unsigned int)inode->i_size, pageofs));
 
 		ret = jffs2_reserve_space(c, sizeof(ri), &phys_ofs, &alloc_len, ALLOC_NORMAL);
-		if (ret) {
-			up(&f->sem);
+		if (ret)
 			return ret;
-		}
+
+		down(&f->sem);
 		memset(&ri, 0, sizeof(ri));
 
 		ri.magic = JFFS2_MAGIC_BITMASK;
@@ -392,14 +395,17 @@ int jffs2_prepare_write (struct file *filp, struct page *pg, unsigned start, uns
 			return ret;
 		}
 		inode->i_size = pageofs;
+		up(&f->sem);
 	}
 	
 
-	/* Read in the page if it wasn't already present */
-	if (!Page_Uptodate(pg) && (start || end < PAGE_SIZE))
+	/* Read in the page if it wasn't already present, unless it's a whole page */
+	if (!Page_Uptodate(pg) && (start || end < PAGE_CACHE_SIZE)) {
+		down(&f->sem);
 		ret = jffs2_do_readpage_nolock(inode, pg);
-	D1(printk(KERN_DEBUG "end prepare_write(). nrpages %ld\n", inode->i_mapping->nrpages));
-	up(&f->sem);
+		up(&f->sem);
+	}
+	D1(printk(KERN_DEBUG "end prepare_write(). pg->flags %lx\n", pg->flags));
 	return ret;
 }
 
@@ -408,7 +414,7 @@ int jffs2_commit_write (struct file *filp, struct page *pg, unsigned start, unsi
 	/* Actually commit the write from the page cache page we're looking at.
 	 * For now, we write the full page out each time. It sucks, but it's simple
 	 */
-	struct inode *inode = filp->f_dentry->d_inode;
+	struct inode *inode = pg->mapping->host;
 	struct jffs2_inode_info *f = JFFS2_INODE_INFO(inode);
 	struct jffs2_sb_info *c = JFFS2_SB_INFO(inode->i_sb);
 	__u32 newsize = max_t(__u32, filp->f_dentry->d_inode->i_size, (pg->index << PAGE_CACHE_SHIFT) + end);
@@ -418,7 +424,15 @@ int jffs2_commit_write (struct file *filp, struct page *pg, unsigned start, unsi
 	int ret = 0;
 	ssize_t writtenlen = 0;
 
-	D1(printk(KERN_DEBUG "jffs2_commit_write(): ino #%lu, page at 0x%lx, range %d-%d, nrpages %ld\n", inode->i_ino, pg->index << PAGE_CACHE_SHIFT, start, end, filp->f_dentry->d_inode->i_mapping->nrpages));
+	D1(printk(KERN_DEBUG "jffs2_commit_write(): ino #%lu, page at 0x%lx, range %d-%d, flags %lx\n", inode->i_ino, pg->index << PAGE_CACHE_SHIFT, start, end, pg->flags));
+
+	if (!start && end == PAGE_CACHE_SIZE) {
+		/* We need to avoid deadlock with page_cache_read() in
+		   jffs2_garbage_collect_pass(). So we have to mark the
+		   page up to date, to prevent page_cache_read() from 
+		   trying to re-lock it. */
+		SetPageUptodate(pg);
+	}
 
 	ri = jffs2_alloc_raw_inode();
 	if (!ri)

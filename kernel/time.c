@@ -80,8 +80,10 @@ asmlinkage long sys_stime(int * tptr)
 	if (get_user(value, tptr))
 		return -EFAULT;
 	write_lock_irq(&xtime_lock);
+	vxtime_lock();
 	xtime.tv_sec = value;
 	xtime.tv_usec = 0;
+	vxtime_unlock();
 	time_adjust = 0;	/* stop active adjtime() */
 	time_status |= STA_UNSYNC;
 	time_maxerror = NTP_PHASE_LIMIT;
@@ -126,7 +128,9 @@ asmlinkage long sys_gettimeofday(struct timeval *tv, struct timezone *tz)
 inline static void warp_clock(void)
 {
 	write_lock_irq(&xtime_lock);
+	vxtime_lock();
 	xtime.tv_sec += sys_tz.tz_minuteswest * 60;
+	vxtime_unlock();
 	write_unlock_irq(&xtime_lock);
 }
 
@@ -215,6 +219,11 @@ int do_adjtimex(struct timex *txc)
 		return -EPERM;
 		
 	/* Now we validate the data before disabling interrupts */
+
+	if ((txc->modes & ADJ_OFFSET_SINGLESHOT) == ADJ_OFFSET_SINGLESHOT)
+	  /* singleshot must not be used with any other mode bits */
+		if (txc->modes != ADJ_OFFSET_SINGLESHOT)
+			return -EINVAL;
 
 	if (txc->modes != ADJ_OFFSET_SINGLESHOT && (txc->modes & ADJ_OFFSET))
 	  /* adjustment Offset limited to +- .512 seconds */

@@ -1,10 +1,10 @@
 /* Driver for USB Mass Storage compliant devices
  * Ununsual Devices File
  *
- * $Id: unusual_devs.h,v 1.25 2002/01/13 06:39:17 mdharm Exp $
+ * $Id: unusual_devs.h,v 1.32 2002/02/25 02:41:24 mdharm Exp $
  *
  * Current development and maintenance by:
- *   (c) 2000 Matthew Dharm (mdharm-usb@one-eyed-alien.net)
+ *   (c) 2000-2002 Matthew Dharm (mdharm-usb@one-eyed-alien.net)
  *
  * Initial work by:
  *   (c) 2000 Adam J. Richter (adam@yggdrasil.com), Yggdrasil Computing, Inc.
@@ -64,6 +64,17 @@ UNUSUAL_DEV(  0x03f0, 0x0307, 0x0001, 0x0001,
 		"CD-Writer+ CD-4e",
 		US_SC_8070, US_PR_SCM_ATAPI, init_8200e, 0), 
 #endif
+
+/* Deduced by Jonathan Woithe <jwoithe@physics.adelaide.edu.au>
+ * Entry needed for flags: US_FL_FIX_INQUIRY because initial inquiry message
+ * always fails and confuses drive; without US_FL_START_STOP, drive accesses
+ * (read or write) all fail.
+ */
+UNUSUAL_DEV(  0x0411, 0x001c, 0x0113, 0x0113,
+		"Buffalo",
+		"DUB-P40G HDD",
+		US_SC_SCSI, US_PR_BULK, NULL,
+		US_FL_FIX_INQUIRY | US_FL_START_STOP),
 
 #ifdef CONFIG_USB_STORAGE_DPCM
 UNUSUAL_DEV(  0x0436, 0x0005, 0x0100, 0x0100,
@@ -198,7 +209,7 @@ UNUSUAL_DEV(  0x0525, 0xa140, 0x0100, 0x0100,
 /* This entry is needed because the device reports Sub=ff */
 UNUSUAL_DEV(  0x054c, 0x0010, 0x0106, 0x0422, 
 		"Sony",
-		"DSC-S30/S70/S75/505V/F505", 
+		"DSC-S30/S70/S75/505V/F505/F707", 
 		US_SC_SCSI, US_PR_CB, NULL,
 		US_FL_SINGLE_LUN | US_FL_START_STOP | US_FL_MODE_XLATE ),
 
@@ -289,8 +300,38 @@ UNUSUAL_DEV(  0x05dc, 0x0001, 0x0000, 0x0001,
 		"Lexar",
 		"Jumpshot USB CF Reader",
 		US_SC_SCSI, US_PR_JUMPSHOT, NULL,
-		US_FL_MODE_XLATE | US_FL_START_STOP ),
+		US_FL_MODE_XLATE ),
 #endif
+
+/* Reported by Blake Matheny <bmatheny@purdue.edu> */
+UNUSUAL_DEV(  0x05dc, 0xb002, 0x0000, 0x0113,
+		"Lexar",
+		"USB CF Reader",
+		US_SC_SCSI, US_PR_BULK, NULL,
+		US_FL_FIX_INQUIRY ),
+
+/* Reported by Carlos Villegas <cav@uniscope.co.jp>
+ * This device needs an INQUIRY of exactly 36-bytes to function.
+ * That is the only reason this entry is needed.
+ */
+UNUSUAL_DEV(  0x05e3, 0x0700, 0x0000, 0xffff,
+		"SIIG",
+		"CompactFlash Card Reader",
+		US_SC_SCSI, US_PR_BULK, NULL,
+		US_FL_FIX_INQUIRY ),
+
+/* Reported by Peter Marks <peter.marks@turner.com>
+ * Like the SIIG unit above, this unit needs an INQUIRY to ask for exactly
+ * 36 bytes of data.  No more, no less. That is the only reason this entry
+ * is needed.
+ *
+ * ST818 slim drives (rev 0.02) don't need special care.
+*/
+UNUSUAL_DEV(  0x05e3, 0x0702, 0x0000, 0x0001,
+		"EagleTec",
+		"External Hard Disk",
+		US_SC_SCSI, US_PR_BULK, NULL,
+		US_FL_FIX_INQUIRY ),
 
 UNUSUAL_DEV(  0x0644, 0x0000, 0x0100, 0x0100, 
 		"TEAC",
@@ -305,6 +346,14 @@ UNUSUAL_DEV(  0x066b, 0x0105, 0x0100, 0x0100,
 		US_FL_SINGLE_LUN | US_FL_START_STOP ),
 #endif
 
+/* Submitted by kedar@centillium
+ * Needed for START_STOP flag, but that is unconfirmed */
+UNUSUAL_DEV( 0x0686, 0x4006, 0x0001, 0x0001,
+                "Minolta",
+                "Dimage S304",
+                US_SC_SCSI, US_PR_BULK, NULL,
+                US_FL_START_STOP ),
+
 /* Submitted by f.brugmans@hccnet.nl
  * Needed for START_STOP flag */
 UNUSUAL_DEV( 0x0686, 0x4007, 0x0001, 0x0001,
@@ -312,6 +361,12 @@ UNUSUAL_DEV( 0x0686, 0x4007, 0x0001, 0x0001,
                 "Dimage S304",
                 US_SC_SCSI, US_PR_BULK, NULL,
                 US_FL_START_STOP ),
+
+UNUSUAL_DEV( 0x0686, 0x400b, 0x0001, 0x0001, 
+		"Minolta", 
+		"Dimage 7i", 
+		US_SC_SCSI, US_PR_BULK, NULL, 
+		US_FL_START_STOP ),
 
 UNUSUAL_DEV(  0x0693, 0x0002, 0x0100, 0x0100, 
 		"Hagiwara",
@@ -381,7 +436,7 @@ UNUSUAL_DEV(  0x07c4, 0xa000, 0x0000, 0x0015,
 		"Datafab",
 		"MDCFE-B USB CF Reader",
 		US_SC_SCSI, US_PR_DATAFAB, NULL,
-		US_FL_MODE_XLATE | US_FL_START_STOP ),
+		US_FL_MODE_XLATE ),
 
 	/*
 	 * The following Datafab-based devices may or may not work
@@ -398,38 +453,38 @@ UNUSUAL_DEV( 0x07c4, 0xa001, 0x0000, 0xffff,
 		"SIIG/Datafab",
 		"SIIG/Datafab Memory Stick+CF Reader/Writer",
 		US_SC_SCSI, US_PR_DATAFAB, NULL,
-		US_FL_MODE_XLATE | US_FL_START_STOP ),
+		US_FL_MODE_XLATE ),
 
 UNUSUAL_DEV( 0x07c4, 0xa003, 0x0000, 0xffff,
 		"Datafab/Unknown",
 		"Datafab-based Reader",
 		US_SC_SCSI, US_PR_DATAFAB, NULL,
-		US_FL_MODE_XLATE | US_FL_START_STOP ),
+		US_FL_MODE_XLATE ),
 
 UNUSUAL_DEV( 0x07c4, 0xa004, 0x0000, 0xffff,
 		"Datafab/Unknown",
 		"Datafab-based Reader",
 		US_SC_SCSI, US_PR_DATAFAB, NULL,
-		US_FL_MODE_XLATE | US_FL_START_STOP ),
+		US_FL_MODE_XLATE ),
 
 UNUSUAL_DEV( 0x07c4, 0xa005, 0x0000, 0xffff,
 		"PNY/Datafab",
 		"PNY/Datafab CF+SM Reader",
 		US_SC_SCSI, US_PR_DATAFAB, NULL,
-		US_FL_MODE_XLATE | US_FL_START_STOP ),
+		US_FL_MODE_XLATE ),
 
 UNUSUAL_DEV( 0x07c4, 0xa006, 0x0000, 0xffff,
 		"Simple Tech/Datafab",
 		"Simple Tech/Datafab CF+SM Reader",
 		US_SC_SCSI, US_PR_DATAFAB, NULL,
-		US_FL_MODE_XLATE | US_FL_START_STOP ),
+		US_FL_MODE_XLATE ),
 
 /* Submitted by Olaf Hering <olh@suse.de> */
 UNUSUAL_DEV(  0x07c4, 0xa109, 0x0000, 0xffff,
 		"Datafab Systems, Inc.",
 		"USB to CF + SM Combo (LC1)",
 		US_SC_SCSI, US_PR_DATAFAB, NULL,
-		US_FL_MODE_XLATE | US_FL_START_STOP ),
+		US_FL_MODE_XLATE ),
 #endif
 
 /* Casio QV 2x00/3x00/4000/8000 digital still cameras are not conformant
@@ -459,9 +514,14 @@ UNUSUAL_DEV(  0x0bf6, 0xa001, 0x0100, 0x0110,
                 0 ),
 #endif
 
-/* Submitted by Brian Hall <brihall@bigfoot.com>
+/* Submitted by Brian Hall <brihall@pcisys.net>
  * Needed for START_STOP flag */
 UNUSUAL_DEV(  0x0c76, 0x0003, 0x0100, 0x0100,
+		"JMTek",
+		"USBDrive",
+		US_SC_SCSI, US_PR_BULK, NULL,
+		US_FL_START_STOP ),
+UNUSUAL_DEV(  0x0c76, 0x0005, 0x0100, 0x0100,
 		"JMTek",
 		"USBDrive",
 		US_SC_SCSI, US_PR_BULK, NULL,
@@ -469,9 +529,19 @@ UNUSUAL_DEV(  0x0c76, 0x0003, 0x0100, 0x0100,
 
 /* Reported by Dan Pilone <pilone@slac.com>
  * The device needs the flags only.
+ * Also reported by Brian Hall <brihall@pcisys.net>, again for flags.
+ * I also suspect this device may have a broken serial number.
  */
 UNUSUAL_DEV(  0x1065, 0x2136, 0x0000, 0x9999,
 		"CCYU TECHNOLOGY",
 		"EasyDisk Portable Device",
 		US_SC_SCSI, US_PR_BULK, NULL,
 		US_FL_MODE_XLATE | US_FL_START_STOP),
+
+#ifdef CONFIG_USB_STORAGE_SDDR55
+UNUSUAL_DEV(  0x55aa, 0xa103, 0x0000, 0x9999, 
+		"Sandisk",
+		"ImageMate SDDR55",
+		US_SC_SCSI, US_PR_SDDR55, NULL,
+		US_FL_SINGLE_LUN),
+#endif

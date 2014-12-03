@@ -26,6 +26,7 @@
 #include <asm/mtrr.h>
 #include <asm/mpspec.h>
 #include <asm/pgalloc.h>
+#include <asm/smpboot.h>
 
 /* Have we found an MP table */
 int smp_found_config;
@@ -37,6 +38,8 @@ int smp_found_config;
 int apic_version [MAX_APICS];
 int mp_bus_id_to_type [MAX_MP_BUSSES];
 int mp_bus_id_to_node [MAX_MP_BUSSES];
+int mp_bus_id_to_local [MAX_MP_BUSSES];
+int quad_local_to_mp_bus_id [NR_CPUS/4][4];
 int mp_bus_id_to_pci_bus [MAX_MP_BUSSES] = { [0 ... MAX_MP_BUSSES-1] = -1 };
 int mp_current_pci_id;
 
@@ -62,6 +65,8 @@ static unsigned int num_processors;
 
 /* Bitmask of physically existing CPUs */
 unsigned long phys_cpu_present_map;
+
+unsigned char esr_disable = 0;
 
 /*
  * Intel MP BIOS table parsing routines:
@@ -113,6 +118,8 @@ static char __init *mpc_family(int family,int model)
 		case 0x0F:
 			if (model == 0x00)
 				return("Pentium 4(tm)");
+			if (model == 0x02)
+				return("Pentium 4(tm) XEON(tm)");
 			if (model == 0x0F)
 				return("Special controller");
 	}
@@ -143,7 +150,7 @@ void __init MP_processor_info (struct mpc_config_processor *m)
 		return;
 
 	logical_apicid = m->mpc_apicid;
-	if (clustered_apic_mode) {
+	if (clustered_apic_mode == CLUSTERED_APIC_NUMAQ) {
 		quad = translation_table[mpc_record]->trans_quad;
 		logical_apicid = (quad << 4) + 
 			(m->mpc_apicid ? m->mpc_apicid << 1 : 1);
@@ -219,11 +226,12 @@ void __init MP_processor_info (struct mpc_config_processor *m)
 	if (m->mpc_apicid > MAX_APICS) {
 		printk("Processor #%d INVALID. (Max ID: %d).\n",
 			m->mpc_apicid, MAX_APICS);
+			--num_processors;
 		return;
 	}
 	ver = m->mpc_apicver;
 
-	if (clustered_apic_mode) {
+	if (clustered_apic_mode == CLUSTERED_APIC_NUMAQ) {
 		phys_cpu_present_map |= (logical_apicid&0xf) << (4*quad);
 	} else {
 		phys_cpu_present_map |= 1 << m->mpc_apicid;
@@ -241,13 +249,17 @@ void __init MP_processor_info (struct mpc_config_processor *m)
 static void __init MP_bus_info (struct mpc_config_bus *m)
 {
 	char str[7];
+	int quad;
 
 	memcpy(str, m->mpc_bustype, 6);
 	str[6] = 0;
 	
-	if (clustered_apic_mode) {
-		mp_bus_id_to_node[m->mpc_busid] = translation_table[mpc_record]->trans_quad;
-		printk("Bus #%d is %s (node %d)\n", m->mpc_busid, str, mp_bus_id_to_node[m->mpc_busid]);
+	if (clustered_apic_mode == CLUSTERED_APIC_NUMAQ) {
+		quad = translation_table[mpc_record]->trans_quad;
+		mp_bus_id_to_node[m->mpc_busid] = quad;
+		mp_bus_id_to_local[m->mpc_busid] = translation_table[mpc_record]->trans_local;
+		quad_local_to_mp_bus_id[quad][translation_table[mpc_record]->trans_local] = m->mpc_busid;
+		printk("Bus #%d is %s (node %d)\n", m->mpc_busid, str, quad);
 	} else {
 		Dprintk("Bus #%d is %s\n", m->mpc_busid, str);
 	}
@@ -324,13 +336,14 @@ static void __init MP_lintsrc_info (struct mpc_config_lintsrc *m)
 
 static void __init MP_translation_info (struct mpc_config_translation *m)
 {
-	printk("Translation: record %d, type %d, quad %d, global %d, local %d\n", mpc_record, m->trans_type, 
-		m->trans_quad, m->trans_global, m->trans_local);
+	printk("Translation: record %d, type %d, quad %d, global %d, local %d\n", mpc_record, m->trans_type, m->trans_quad, m->trans_global, m->trans_local);
 
 	if (mpc_record >= MAX_MPC_ENTRY) 
 		printk("MAX_MPC_ENTRY exceeded!\n");
 	else
 		translation_table[mpc_record] = m; /* stash this for later */
+	if (m->trans_quad+1 > numnodes)
+		numnodes = m->trans_quad+1;
 }
 
 /*
@@ -426,7 +439,7 @@ static int __init smp_read_mpc(struct mp_config_table *mpc)
 	if (!have_acpi_tables)
 		mp_lapic_addr = mpc->mpc_lapic;
 
-	if (clustered_apic_mode && mpc->mpc_oemptr) {
+	if ((clustered_apic_mode == CLUSTERED_APIC_NUMAQ) && mpc->mpc_oemptr) {
 		/* We need to process the oem mpc tables to tell us which quad things are in ... */
 		mpc_record = 0;
 		smp_read_mpc_oem((struct mp_config_oemtable *) mpc->mpc_oemptr, mpc->mpc_oemsize);
@@ -495,10 +508,11 @@ static int __init smp_read_mpc(struct mp_config_table *mpc)
 		}
 		++mpc_record;
 	}
-	if (clustered_apic_mode && nr_ioapics > 2) {
-		/* don't initialise IO apics on secondary quads */
-		nr_ioapics = 2;
+
+	if (clustered_apic_mode){
+		esr_disable = 1;
 	}
+
 	if (!num_processors)
 		printk(KERN_ERR "SMP mptable: no processors registered!\n");
 	return num_processors;
@@ -812,7 +826,7 @@ void __init find_intel_smp (void)
 
 /*
  * The Visual Workstation is Intel MP compliant in the hardware
- * sense, but it doesnt have a BIOS(-configuration table).
+ * sense, but it doesn't have a BIOS(-configuration table).
  * No problem for Linux.
  */
 void __init find_visws_smp(void)

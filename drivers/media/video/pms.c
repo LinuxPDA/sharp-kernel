@@ -11,7 +11,7 @@
  *
  *	Most of this code is directly derived from his userspace driver.
  *	His driver works so send any reports to alan@redhat.com unless the
- *	userspace driver also doesnt work for you...
+ *	userspace driver also doesn't work for you...
  */
 
 #include <linux/module.h>
@@ -69,12 +69,12 @@ static int video_nr             =       -1;
 
 	
 
-extern __inline__ void mvv_write(u8 index, u8 value)
+static inline void mvv_write(u8 index, u8 value)
 {
 	outw(index|(value<<8), io_port);
 }
 
-extern __inline__ u8 mvv_read(u8 index)
+static inline u8 mvv_read(u8 index)
 {
 	outb(index, io_port);
 	return inb(data_port);

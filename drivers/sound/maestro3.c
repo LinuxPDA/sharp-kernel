@@ -28,6 +28,9 @@
  * Shouts go out to Mike "DJ XPCom" Ang.
  *
  * History
+ *  v1.23 - Jun 5 2002 - Michael Olson <olson@cs.odu.edu>
+ *   added a module option to allow selection of GPIO pin number 
+ *   for external amp 
  *  v1.22 - Feb 28 2001 - Zach Brown <zab@zabbo.net>
  *   allocate mem at insmod/setup, rather than open
  *   limit pci dma addresses to 28bit, thanks guys.
@@ -153,7 +156,7 @@
 
 #define M_DEBUG 1
 
-#define DRIVER_VERSION      "1.22"
+#define DRIVER_VERSION      "1.23"
 #define M3_MODULE_NAME      "maestro3"
 #define PFX                 M3_MODULE_NAME ": "
 
@@ -190,6 +193,7 @@ struct m3_list {
 };
 
 int external_amp = 1;
+int gpio_pin = -1;
 
 struct m3_state {
     unsigned int magic;
@@ -1805,7 +1809,7 @@ static int m3_ioctl(struct inode *inode, struct file *file, unsigned int cmd, un
         if (s->dma_adc.mapped)
             s->dma_adc.count &= s->dma_adc.fragsize-1;
         spin_unlock_irqrestore(&s->lock, flags);
-        return copy_to_user((void *)arg, &cinfo, sizeof(cinfo));
+        return copy_to_user((void *)arg, &cinfo, sizeof(cinfo)) ? -EFAULT : 0;
 
     case SNDCTL_DSP_GETOPTR:
         if (!(file->f_mode & FMODE_WRITE))
@@ -1818,7 +1822,7 @@ static int m3_ioctl(struct inode *inode, struct file *file, unsigned int cmd, un
         if (s->dma_dac.mapped)
             s->dma_dac.count &= s->dma_dac.fragsize-1;
         spin_unlock_irqrestore(&s->lock, flags);
-        return copy_to_user((void *)arg, &cinfo, sizeof(cinfo));
+        return copy_to_user((void *)arg, &cinfo, sizeof(cinfo)) ? -EFAULT : 0;
 
     case SNDCTL_DSP_GETBLKSIZE:
         if (file->f_mode & FMODE_WRITE) {
@@ -2469,14 +2473,20 @@ static void m3_amp_enable(struct m3_card *card, int enable)
     if(!external_amp)
         return;
 
-    switch (card->card_type) {
-        case ESS_ALLEGRO:
-            polarity_port = 0x1800;
-            break;
-        default:
-            /* presumably this is for all 'maestro3's.. */
-            polarity_port = 0x1100;
-            break;
+    if (gpio_pin >= 0  && gpio_pin <= 15) {
+        polarity_port = 0x1000 + (0x100 * gpio_pin);
+    } else {
+        switch (card->card_type) {
+            case ESS_ALLEGRO:
+                polarity_port = 0x1800;
+                break;
+            default:
+                polarity_port = 0x1100;
+                /* Panasonic toughbook CF72 has to be different... */
+                if(card->pcidev->subsystem_vendor == 0x10F7 && card->pcidev->subsystem_device == 0x833D)
+                	polarity_port = 0x1D00;
+                break;
+        }
     }
 
     gpo = (polarity_port >> 8) & 0x0F;
@@ -2911,6 +2921,7 @@ MODULE_LICENSE("GPL");
 MODULE_PARM(debug,"i");
 #endif
 MODULE_PARM(external_amp,"i");
+MODULE_PARM(gpio_pin, "i");
 
 static struct pci_driver m3_pci_driver = {
     name:       "ess_m3_audio",

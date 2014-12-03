@@ -7,6 +7,7 @@
 #include <linux/config.h>
 #include <linux/spinlock.h>
 #include <linux/list.h>
+#include <linux/wait.h>
 
 /*
  * Free memory management - zoned buddy allocator.
@@ -46,6 +47,35 @@ typedef struct zone_struct {
 	 * free areas of different sizes
 	 */
 	free_area_t		free_area[MAX_ORDER];
+
+	/*
+	 * wait_table		-- the array holding the hash table
+	 * wait_table_size	-- the size of the hash table array
+	 * wait_table_shift	-- wait_table_size
+	 * 				== BITS_PER_LONG (1 << wait_table_bits)
+	 *
+	 * The purpose of all these is to keep track of the people
+	 * waiting for a page to become available and make them
+	 * runnable again when possible. The trouble is that this
+	 * consumes a lot of space, especially when so few things
+	 * wait on pages at a given time. So instead of using
+	 * per-page waitqueues, we use a waitqueue hash table.
+	 *
+	 * The bucket discipline is to sleep on the same queue when
+	 * colliding and wake all in that wait queue when removing.
+	 * When something wakes, it must check to be sure its page is
+	 * truly available, a la thundering herd. The cost of a
+	 * collision is great, but given the expected load of the
+	 * table, they should be so rare as to be outweighed by the
+	 * benefits from the saved space.
+	 *
+	 * __wait_on_page() and unlock_page() in mm/filemap.c, are the
+	 * primary users of these fields, and in mm/page_alloc.c
+	 * free_area_init_core() performs the initialization of them.
+	 */
+	wait_queue_head_t	* wait_table;
+	unsigned long		wait_table_size;
+	unsigned long		wait_table_shift;
 
 	/*
 	 * Discontig memory support fields.
@@ -128,14 +158,74 @@ extern void free_area_init_core(int nid, pg_data_t *pgdat, struct page **gmap,
 
 extern pg_data_t contig_page_data;
 
+/**
+ * for_each_pgdat - helper macro to iterate over all nodes
+ * @pgdat - pg_data_t * variable
+ *
+ * Meant to help with common loops of the form
+ * pgdat = pgdat_list;
+ * while(pgdat) {
+ * 	...
+ * 	pgdat = pgdat->node_next;
+ * }
+ */
+#define for_each_pgdat(pgdat) \
+	for (pgdat = pgdat_list; pgdat; pgdat = pgdat->node_next)
+
+
+/*
+ * next_zone - helper magic for for_each_zone()
+ * Thanks to William Lee Irwin III for this piece of ingenuity.
+ */
+static inline zone_t *next_zone(zone_t *zone)
+{
+	pg_data_t *pgdat = zone->zone_pgdat;
+
+	if (zone - pgdat->node_zones < MAX_NR_ZONES - 1)
+		zone++;
+
+	else if (pgdat->node_next) {
+		pgdat = pgdat->node_next;
+		zone = pgdat->node_zones;
+	} else
+		zone = NULL;
+
+	return zone;
+}
+
+/**
+ * for_each_zone - helper macro to iterate over all memory zones
+ * @zone - zone_t * variable
+ *
+ * The user only needs to declare the zone variable, for_each_zone
+ * fills it in. This basically means for_each_zone() is an
+ * easier to read version of this piece of code:
+ *
+ * for(pgdat = pgdat_list; pgdat; pgdat = pgdat->node_next)
+ * 	for(i = 0; i < MAX_NR_ZONES; ++i) {
+ * 		zone_t * z = pgdat->node_zones + i;
+ * 		...
+ * 	}
+ * }
+ */
+#define for_each_zone(zone) \
+	for(zone = pgdat_list->node_zones; zone; zone = next_zone(zone))
+
+
 #ifndef CONFIG_DISCONTIGMEM
 
 #define NODE_DATA(nid)		(&contig_page_data)
 #define NODE_MEM_MAP(nid)	mem_map
+#define MAX_NR_NODES		1
 
 #else /* !CONFIG_DISCONTIGMEM */
 
 #include <asm/mmzone.h>
+
+/* page->zone is currently 8 bits ... */
+#ifndef MAX_NR_NODES
+#define MAX_NR_NODES		(255 / MAX_NR_ZONES)
+#endif
 
 #endif /* !CONFIG_DISCONTIGMEM */
 

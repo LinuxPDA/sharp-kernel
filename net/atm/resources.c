@@ -32,7 +32,7 @@ static struct atm_dev *alloc_atm_dev(const char *type)
 {
 	struct atm_dev *dev;
 
-	dev = kmalloc(sizeof(*dev),GFP_KERNEL);
+	dev = kmalloc(sizeof(*dev), GFP_ATOMIC);
 	if (!dev) return NULL;
 	memset(dev,0,sizeof(*dev));
 	dev->type = type;
@@ -40,31 +40,23 @@ static struct atm_dev *alloc_atm_dev(const char *type)
 	dev->link_rate = ATM_OC3_PCR;
 	dev->next = NULL;
 
-	spin_lock(&atm_dev_lock);
-
 	dev->prev = last_dev;
 
 	if (atm_devs) last_dev->next = dev;
 	else atm_devs = dev;
 	last_dev = dev;
-	spin_unlock(&atm_dev_lock);
 	return dev;
 }
 
 
 static void free_atm_dev(struct atm_dev *dev)
 {
-	spin_lock (&atm_dev_lock);
-	
 	if (dev->prev) dev->prev->next = dev->next;
 	else atm_devs = dev->next;
 	if (dev->next) dev->next->prev = dev->prev;
 	else last_dev = dev->prev;
 	kfree(dev);
-	
-	spin_unlock (&atm_dev_lock);
 }
-
 
 struct atm_dev *atm_find_dev(int number)
 {
@@ -75,17 +67,18 @@ struct atm_dev *atm_find_dev(int number)
 	return NULL;
 }
 
-
 struct atm_dev *atm_dev_register(const char *type,const struct atmdev_ops *ops,
     int number,atm_dev_flags_t *flags)
 {
-	struct atm_dev *dev;
+	struct atm_dev *dev = NULL;
+
+	spin_lock(&atm_dev_lock);
 
 	dev = alloc_atm_dev(type);
 	if (!dev) {
 		printk(KERN_ERR "atm_dev_register: no space for dev %s\n",
 		    type);
-		return NULL;
+		goto done;
 	}
 	if (number != -1) {
 		if (atm_find_dev(number)) {
@@ -93,8 +86,7 @@ struct atm_dev *atm_dev_register(const char *type,const struct atmdev_ops *ops,
 			return NULL;
 		}
 		dev->number = number;
-	}
-	else {
+	} else {
 		dev->number = 0;
 		while (atm_find_dev(dev->number)) dev->number++;
 	}
@@ -102,20 +94,23 @@ struct atm_dev *atm_dev_register(const char *type,const struct atmdev_ops *ops,
 	dev->dev_data = NULL;
 	barrier();
 	dev->ops = ops;
-	if (flags) dev->flags = *flags;
-	else memset(&dev->flags,0,sizeof(dev->flags));
+	if (flags) 
+		dev->flags = *flags;
+	else 
+		memset(&dev->flags,0,sizeof(dev->flags));
 	memset((void *) &dev->stats,0,sizeof(dev->stats));
 #ifdef CONFIG_PROC_FS
 	if (ops->proc_read)
 		if (atm_proc_dev_register(dev) < 0) {
 			printk(KERN_ERR "atm_dev_register: "
 			    "atm_proc_dev_register failed for dev %s\n",type);
-			spin_unlock (&atm_dev_lock);		
 			free_atm_dev(dev);
-			return NULL;
+			goto done;
 		}
 #endif
-	spin_unlock (&atm_dev_lock);		
+
+done:
+	spin_unlock(&atm_dev_lock);
 	return dev;
 }
 
@@ -125,9 +120,10 @@ void atm_dev_deregister(struct atm_dev *dev)
 #ifdef CONFIG_PROC_FS
 	if (dev->ops->proc_read) atm_proc_dev_deregister(dev);
 #endif
+	spin_lock(&atm_dev_lock);
 	free_atm_dev(dev);
+	spin_unlock(&atm_dev_lock);
 }
-
 
 void shutdown_atm_dev(struct atm_dev *dev)
 {
@@ -145,7 +141,6 @@ static void atm_free_sock(struct sock *sk)
 {
 	kfree(sk->protinfo.af_atm);
 }
-
 
 struct sock *alloc_atm_vcc_sk(int family)
 {

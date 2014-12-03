@@ -25,8 +25,7 @@
 #ifndef _BTTVP_H_
 #define _BTTVP_H_
 
-#define BTTV_VERSION_CODE KERNEL_VERSION(0,7,83)
-
+#define BTTV_VERSION_CODE KERNEL_VERSION(0,7,96)
 
 #include <linux/types.h>
 #include <linux/wait.h>
@@ -49,6 +48,7 @@ extern unsigned int bttv_debug;
 extern unsigned int bttv_gpio;
 extern void bttv_gpio_tracking(struct bttv *btv, char *comment);
 extern int init_bttv_i2c(struct bttv *btv);
+extern int pvr_boot(struct bttv *btv);
 
 #define dprintk		if (bttv_debug) printk
 
@@ -136,7 +136,6 @@ struct bttv {
         unsigned int nr;
 	unsigned short id;
 	struct pci_dev *dev;
-	unsigned int irq;          /* IRQ used by Bt848 card */
 	unsigned char revision;
 	unsigned long bt848_adr;      /* bus address of IO mem returned by PCI BIOS */
 	unsigned char *bt848_mem;   /* pointer to mapped IO memory */
@@ -196,6 +195,7 @@ struct bttv {
 
 	wait_queue_head_t gpioq;
 	int shutdown;
+        void (*audio_hook)(struct bttv *btv, struct video_audio *v, int set);
 };
 #endif
 

@@ -31,6 +31,7 @@
 #include <linux/init.h>
 #include <linux/delay.h>
 #include <linux/ioport.h>
+#include <linux/vt_kern.h>
 
 #include <asm/bootinfo.h>
 #include <asm/setup.h>
@@ -38,6 +39,7 @@
 #include <asm/atariints.h>
 #include <asm/atari_stram.h>
 #include <asm/system.h>
+#include <asm/keyboard.h>
 #include <asm/machdep.h>
 #include <asm/hwtest.h>
 #include <asm/io.h>
@@ -81,8 +83,8 @@ extern void atari_sched_init(void (*)(int, void *, struct pt_regs *));
 extern unsigned long atari_gettimeoffset (void);
 extern void atari_mste_gettod (int *, int *, int *, int *, int *, int *);
 extern void atari_tt_gettod (int *, int *, int *, int *, int *, int *);
-extern int atari_mste_hwclk (int, struct hwclk_time *);
-extern int atari_tt_hwclk (int, struct hwclk_time *);
+extern int atari_mste_hwclk (int, struct rtc_time *);
+extern int atari_tt_hwclk (int, struct rtc_time *);
 extern int atari_mste_set_clock_mmss (unsigned long);
 extern int atari_tt_set_clock_mmss (unsigned long);
 
@@ -101,7 +103,6 @@ static char atari_sysrq_xlate[128] =
 	"0.\r\000\000\000\000\000\000\000\000\000\000\000\000\000";	/* 0x70 - 0x7f */
 #endif
 
-extern void (*kd_mksound)(unsigned int, unsigned int);
 
 /* I've moved hwreg_present() and hwreg_present_bywrite() out into
  * mm/hwtest.c, to avoid having multiple copies of the same routine
@@ -253,11 +254,13 @@ void __init config_atari(void)
                                            to 4GB. */
 
     mach_sched_init      = atari_sched_init;
+#ifdef CONFIG_VT
     mach_keyb_init       = atari_keyb_init;
     mach_kbdrate         = atari_kbdrate;
     mach_kbd_translate   = atari_kbd_translate;
-    SYSRQ_KEY            = 0xff;
     mach_kbd_leds        = atari_kbd_leds;
+    kd_mksound		 = atari_mksound;
+#endif
     mach_init_IRQ        = atari_init_IRQ;
     mach_request_irq     = atari_request_irq;
     mach_free_irq        = atari_free_irq;
@@ -275,8 +278,8 @@ void __init config_atari(void)
     conswitchp	         = &dummy_con;
 #endif
     mach_max_dma_address = 0xffffff;
-    kd_mksound		 = atari_mksound;
 #ifdef CONFIG_MAGIC_SYSRQ
+    SYSRQ_KEY            = 0xff;
     mach_sysrq_key = 98;          /* HELP */
     mach_sysrq_shift_state = 8;   /* Alt */
     mach_sysrq_shift_mask = 0xff; /* all modifiers except CapsLock */

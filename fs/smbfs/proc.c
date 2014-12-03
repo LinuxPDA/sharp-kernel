@@ -33,9 +33,6 @@
    config option. */
 #define SMBFS_POSIX_UNLINK 1
 
-/* Allow smb_retry to be interrupted. */
-#define SMB_RETRY_INTR
-
 #define SMB_VWV(packet)  ((packet) + SMB_HEADER_LEN)
 #define SMB_CMD(packet)  (*(packet+8))
 #define SMB_WCT(packet)  (*(packet+SMB_HEADER_LEN - 1))
@@ -109,6 +106,22 @@ static int convert_memcpy(char *output, int olen,
 	return ilen;
 }
 
+static inline int write_char(unsigned char ch, char *output, int olen)
+{
+	if (olen < 4)
+		return -ENAMETOOLONG;
+	sprintf(output, ":x%02x", ch);
+	return 4;
+}
+
+static inline int write_unichar(wchar_t ch, char *output, int olen)
+{
+	if (olen < 5)
+		return -ENAMETOOLONG;
+	sprintf(output, ":%04x", ch);
+	return 5;
+}
+
 /* convert from one "codepage" to another (possibly being utf8). */
 static int convert_cp(char *output, int olen,
 		      const char *input, int ilen,
@@ -119,20 +132,26 @@ static int convert_cp(char *output, int olen,
 	int n;
 	wchar_t ch;
 
-	if (!nls_from || !nls_to) {
-		PARANOIA("nls_from=%p, nls_to=%p\n", nls_from, nls_to);
-		return convert_memcpy(output, olen, input, ilen, NULL, NULL);
-	}
-
 	while (ilen > 0) {
 		/* convert by changing to unicode and back to the new cp */
 		n = nls_from->char2uni((unsigned char *)input, ilen, &ch);
-		if (n < 0)
+		if (n == -EINVAL) {
+			ilen--;
+			n = write_char(*input++, output, olen);
+			if (n < 0)
+				goto fail;
+			output += n;
+			olen -= n;
+			len += n;
+			continue;
+		} else if (n < 0)
 			goto fail;
 		input += n;
 		ilen -= n;
 
 		n = nls_to->uni2char(ch, output, olen);
+		if (n == -EINVAL)
+			n = write_unichar(ch, output, olen);
 		if (n < 0)
 			goto fail;
 		output += n;
@@ -226,8 +245,8 @@ static int smb_build_path(struct smb_sb_info *server, char * buf, int maxlen,
 	if (maxlen < 2)
 		return -ENAMETOOLONG;
 
-	if (maxlen > SMB_MAXNAMELEN + 1)
-		maxlen = SMB_MAXNAMELEN + 1;
+	if (maxlen > SMB_MAXPATHLEN + 1)
+		maxlen = SMB_MAXPATHLEN + 1;
 
 	if (entry == NULL)
 		goto test_name_and_out;
@@ -693,28 +712,11 @@ smb_retry(struct smb_sb_info *server)
 	/*
 	 * Wait for the new connection.
 	 */
-#ifdef SMB_RETRY_INTR
 	smb_unlock_server(server);
-	interruptible_sleep_on_timeout(&server->wait,  30*HZ);
+	interruptible_sleep_on_timeout(&server->wait, server->mnt->timeo*HZ);
 	smb_lock_server(server);
 	if (signal_pending(current))
 		printk(KERN_INFO "smb_retry: caught signal\n");
-#else
-	/*
-	 * We don't want to be interrupted. For example, what if 'current'
-	 * already has received a signal? sleep_on would terminate immediately
-	 * and smbmount would not be able to re-establish connection.
-	 *
-	 * smbmount should be able to reconnect later, but it can't because
-	 * it will get an -EIO on attempts to open the mountpoint!
-	 *
-	 * FIXME: go back to the interruptable version now that smbmount
-	 * can avoid -EIO on the mountpoint when reconnecting?
-	 */
-	smb_unlock_server(server);
-	sleep_on_timeout(&server->wait, 30*HZ);
-	smb_lock_server(server);
-#endif
 
 	/*
 	 * Check for a valid connection.
@@ -873,11 +875,7 @@ out_putf:
 int
 smb_wakeup(struct smb_sb_info *server)
 {
-#ifdef SMB_RETRY_INTR
 	wake_up_interruptible(&server->wait);
-#else
-	wake_up(&server->wait);
-#endif
 	return 0;
 }
 
@@ -1579,12 +1577,16 @@ smb_decode_short_dirent(struct smb_sb_info *server, char *p,
 	}
 #endif
 
-	qname->len = server->convert(server->name_buf, SMB_MAXNAMELEN,
-				     qname->name, len,
-				     server->remote_nls, server->local_nls);
-	qname->name = server->name_buf;
+	qname->len = 0;
+	len = server->convert(server->name_buf, SMB_MAXNAMELEN,
+			    qname->name, len,
+			    server->remote_nls, server->local_nls);
+	if (len > 0) {
+		qname->len = len;
+		qname->name = server->name_buf;
+		DEBUG1("len=%d, name=%.*s\n",qname->len,qname->len,qname->name);
+	}
 
-	DEBUG1("len=%d, name=%.*s\n", qname->len, qname->len, qname->name);
 	return p + 22;
 }
 
@@ -1700,7 +1702,8 @@ smb_proc_readdir_short(struct file *filp, void *dirent, filldir_t filldir,
 		for (i = 0; i < count; i++) {
 			p = smb_decode_short_dirent(server, p, 
 						    &qname, &fattr);
-
+			if (qname.len == 0)
+				continue;
 			if (entries_seen == 2 && qname.name[0] == '.') {
 				if (qname.len == 1)
 					continue;
@@ -1737,6 +1740,7 @@ smb_decode_long_dirent(struct smb_sb_info *server, char *p, int level,
 {
 	char *result;
 	unsigned int len = 0;
+	int n;
 	__u16 date, time;
 
 	/*
@@ -1812,10 +1816,14 @@ smb_decode_long_dirent(struct smb_sb_info *server, char *p, int level,
 	}
 #endif
 
-	qname->len = server->convert(server->name_buf, SMB_MAXNAMELEN,
-				     qname->name, len,
-				     server->remote_nls, server->local_nls);
-	qname->name = server->name_buf;
+	qname->len = 0;
+	n = server->convert(server->name_buf, SMB_MAXNAMELEN,
+			    qname->name, len,
+			    server->remote_nls, server->local_nls);
+	if (n > 0) {
+		qname->len = n;
+		qname->name = server->name_buf;
+	}
 
 out:
 	return result;
@@ -1881,7 +1889,7 @@ smb_proc_readdir_long(struct file *filp, void *dirent, filldir_t filldir,
 	 */
 	mask = param + 12;
 
-	mask_len = smb_encode_path(server, mask, SMB_MAXNAMELEN+1, dir, &star);
+	mask_len = smb_encode_path(server, mask, SMB_MAXPATHLEN+1, dir, &star);
 	if (mask_len < 0) {
 		result = mask_len;
 		goto unlock_return;
@@ -2030,6 +2038,8 @@ smb_proc_readdir_long(struct file *filp, void *dirent, filldir_t filldir,
 
 			p = smb_decode_long_dirent(server, p, info_level,
 						   &qname, &fattr);
+			if (qname.len == 0)
+				continue;
 
 			/* ignore . and .. from the server */
 			if (entries_seen == 2 && qname.name[0] == '.') {
@@ -2088,7 +2098,7 @@ smb_proc_getattr_ff(struct smb_sb_info *server, struct dentry *dentry,
 	int mask_len, result;
 
 retry:
-	mask_len = smb_encode_path(server, mask, SMB_MAXNAMELEN+1, dentry, NULL);
+	mask_len = smb_encode_path(server, mask, SMB_MAXPATHLEN+1, dentry, NULL);
 	if (mask_len < 0) {
 		result = mask_len;
 		goto out;
@@ -2214,7 +2224,7 @@ smb_proc_getattr_trans2(struct smb_sb_info *server, struct dentry *dir,
       retry:
 	WSET(param, 0, 1);	/* Info level SMB_INFO_STANDARD */
 	DSET(param, 2, 0);
-	result = smb_encode_path(server, param+6, SMB_MAXNAMELEN+1, dir, NULL);
+	result = smb_encode_path(server, param+6, SMB_MAXPATHLEN+1, dir, NULL);
 	if (result < 0)
 		goto out;
 	p = param + 6 + result;
@@ -2464,7 +2474,7 @@ smb_proc_setattr_trans2(struct smb_sb_info *server,
       retry:
 	WSET(param, 0, 1);	/* Info level SMB_INFO_STANDARD */
 	DSET(param, 2, 0);
-	result = smb_encode_path(server, param+6, SMB_MAXNAMELEN+1, dir, NULL);
+	result = smb_encode_path(server, param+6, SMB_MAXPATHLEN+1, dir, NULL);
 	if (result < 0)
 		goto out;
 	p = param + 6 + result;

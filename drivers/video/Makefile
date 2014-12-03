@@ -4,7 +4,7 @@
 
 O_TARGET := video.o
 
-mod-subdirs	:= matrox
+mod-subdirs	:= matrox sti
 
 # All of the (potential) objects that export symbols.
 # This list comes from 'grep -l EXPORT_SYMBOL *.[hc]'.
@@ -15,14 +15,13 @@ export-objs    := fbmem.o fbcmap.o fbcon.o fbmon.o modedb.o \
 		  fbcon-iplan2p8.o fbcon-vga-planes.o fbcon-cfb16.o \
 		  fbcon-cfb2.o fbcon-cfb24.o fbcon-cfb32.o fbcon-cfb4.o \
 		  fbcon-cfb8.o fbcon-mac.o fbcon-mfb.o \
-		  cyber2000fb.o sa1100fb.o fbcon-hga.o
+		  cyber2000fb.o sa1100fb.o fbcon-hga.o fbgen.o
 
 # Each configuration option enables a list of files.
 
 obj-$(CONFIG_DUMMY_CONSOLE)       += dummycon.o
 obj-$(CONFIG_SGI_NEWPORT_CONSOLE) += newport_con.o
 obj-$(CONFIG_PROM_CONSOLE)        += promcon.o promcon_tbl.o
-obj-$(CONFIG_STI_CONSOLE)         += sticon.o sticon-bmode.o sticore.o
 obj-$(CONFIG_VGA_CONSOLE)         += vgacon.o
 obj-$(CONFIG_MDA_CONSOLE)         += mdacon.o
 
@@ -44,11 +43,13 @@ endif
 obj-$(CONFIG_FB_ACORN)            += acornfb.o
 obj-$(CONFIG_FB_AMIGA)            += amifb.o
 obj-$(CONFIG_FB_PM2)              += pm2fb.o fbgen.o
+obj-$(CONFIG_FB_PM3)              += pm3fb.o fbgen.o
 obj-$(CONFIG_FB_APOLLO)           += dnfb.o
 obj-$(CONFIG_FB_Q40)              += q40fb.o
 obj-$(CONFIG_FB_ATARI)            += atafb.o
 obj-$(CONFIG_FB_ATY128)           += aty128fb.o
 obj-$(CONFIG_FB_RADEON)		  += radeonfb.o
+obj-$(CONFIG_FB_NEOMAGIC)         += neofb.o
 obj-$(CONFIG_FB_IGA)              += igafb.o
 obj-$(CONFIG_FB_CONTROL)          += controlfb.o
 obj-$(CONFIG_FB_PLATINUM)         += platinumfb.o
@@ -80,12 +81,21 @@ obj-$(CONFIG_FB_TCX)              += tcxfb.o sbusfb.o
 obj-$(CONFIG_FB_CGFOURTEEN)       += cgfourteenfb.o sbusfb.o
 obj-$(CONFIG_FB_P9100)            += p9100fb.o sbusfb.o
 obj-$(CONFIG_FB_LEO)              += leofb.o sbusfb.o
-obj-$(CONFIG_FB_STI)	          += stifb.o sticore.o fbgen.o
 obj-$(CONFIG_FB_PMAG_BA)          += pmag-ba-fb.o
 obj-$(CONFIG_FB_PMAGB_B)          += pmagb-b-fb.o
 obj-$(CONFIG_FB_MAXINE)           += maxinefb.o
 obj-$(CONFIG_FB_TX3912)           += tx3912fb.o
+obj-$(CONFIG_FB_AU1100)		  += au1100fb.o fbgen.o
 
+subdir-$(CONFIG_STI_CONSOLE)      += sti
+ifeq ($(CONFIG_STI_CONSOLE),y)
+obj-y                             += sti/sti.o fonts.o
+endif
+
+subdir-$(CONFIG_FB_STI)           += sti
+ifeq ($(CONFIG_FB_STI),y)
+obj-y                             += sti/sti.o fbgen.o
+endif
 
 subdir-$(CONFIG_FB_MATROX)	  += matrox
 ifeq ($(CONFIG_FB_MATROX),y)

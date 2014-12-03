@@ -440,12 +440,14 @@ enum
 #define IFLA_COST IFLA_COST
 	IFLA_PRIORITY,
 #define IFLA_PRIORITY IFLA_PRIORITY
-	IFLA_MASTER
+	IFLA_MASTER,
 #define IFLA_MASTER IFLA_MASTER
+	IFLA_WIRELESS,		/* Wireless Extension event - see wireless.h */
+#define IFLA_WIRELESS IFLA_WIRELESS
 };
 
 
-#define IFLA_MAX IFLA_MASTER
+#define IFLA_MAX IFLA_WIRELESS
 
 #define IFLA_RTA(r)  ((struct rtattr*)(((char*)(r)) + NLMSG_ALIGN(sizeof(struct ifinfomsg))))
 #define IFLA_PAYLOAD(n) NLMSG_PAYLOAD(n,sizeof(struct ifinfomsg))
@@ -587,7 +589,7 @@ extern void rtnetlink_init(void);
 
 #define ASSERT_RTNL() do { if (down_trylock(&rtnl_sem) == 0)  { up(&rtnl_sem); \
 printk("RTNL: assertion failed at " __FILE__ "(%d)\n", __LINE__); } \
-		   } while(0);
+		   } while(0)
 #define BUG_TRAP(x) if (!(x)) { printk("KERNEL: assertion (" #x ") failed at " __FILE__ "(%d)\n", __LINE__); }
 
 

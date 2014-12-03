@@ -1417,7 +1417,7 @@ static int zr36060_reset(struct zoran *zr)
 		zr36060_sleep(zr, 0);
 		post_office_write(zr, 3, 0, 0);
 		udelay(2);
-	default:
+	default:;
 	}
 	return 0;
 }
@@ -3265,7 +3265,10 @@ static int zoran_open(struct video_device *dev, int flags)
 
 			btwrite(IRQ_MASK, ZR36057_ISR);	// Clears interrupts
 			btor(ZR36057_ICR_IntPinEn, ZR36057_ICR);
-			dev->busy = 0;	/* Allow second open */
+			/* FIXME: Don't do it this way, use the
+			 * video_device->fops registration for a sane
+			 * implementation of multiple opens */
+			dev->users--;	/* Allow second open */
 		}
 
 		break;
@@ -3323,6 +3326,7 @@ static void zoran_close(struct video_device *dev)
 		}
 	}
 
+	dev->users++;
 	zr->user--;
 
 	MOD_DEC_USE_COUNT;
@@ -3759,7 +3763,7 @@ static int do_zoran_ioctl(struct zoran *zr, unsigned int cmd,
 			 *   Write the overlay mask if clips are wanted.
 			 */
 			 
-			if (vw.clipcount > 2048)
+			if (vw.clipcount < 0 || vw.clipcount > 2048)
 				return -EINVAL;
 			if (vw.clipcount) {
 				vcp =
@@ -4159,7 +4163,6 @@ static int do_zoran_ioctl(struct zoran *zr, unsigned int cmd,
 		{
 			struct zoran_status bs;
 			int norm, input, status;
-			unsigned long timeout;
 
 			if (zr->codec_mode != BUZ_MODE_IDLE) {
 				DEBUG1(printk(KERN_ERR
@@ -4205,9 +4208,8 @@ static int do_zoran_ioctl(struct zoran *zr, unsigned int cmd,
 
 			/* sleep 1 second */
 
-			timeout = jiffies + 1 * HZ;
-			while (jiffies < timeout)
-				schedule();
+			set_current_state(TASK_UNINTERRUPTIBLE);
+			schedule_timeout(HZ);
 
 			/* Get status of video decoder */
 
@@ -4397,22 +4399,18 @@ static int zoran_init_done(struct video_device *dev)
 }
 
 static struct video_device zoran_template = {
-	THIS_MODULE,
-	ZORAN_NAME,
-	VID_TYPE_CAPTURE | VID_TYPE_OVERLAY | VID_TYPE_CLIPPING |
-	    VID_TYPE_FRAMERAM | VID_TYPE_SCALES | VID_TYPE_SUBCAPTURE,
-	ZORAN_HARDWARE,
-	zoran_open,
-	zoran_close,
-	zoran_read,
-	zoran_write,
-	NULL,
-	zoran_ioctl,
-	zoran_mmap,
-	zoran_init_done,
-	NULL,
-	0,
-	0
+	owner:		THIS_MODULE,
+	name:		ZORAN_NAME,
+	type:		VID_TYPE_CAPTURE | VID_TYPE_OVERLAY | VID_TYPE_CLIPPING |
+			VID_TYPE_FRAMERAM | VID_TYPE_SCALES | VID_TYPE_SUBCAPTURE,
+	hardware:	ZORAN_HARDWARE,
+	open:		zoran_open,
+	close:		zoran_close,
+	read:		zoran_read,
+	write:		zoran_write,
+	ioctl:		zoran_ioctl,
+	mmap:		zoran_mmap,
+	initialize:	zoran_init_done,
 };
 
 /*

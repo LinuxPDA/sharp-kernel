@@ -458,7 +458,10 @@ extern void parport_ieee1284_interrupt (int, void *, struct pt_regs *);
 extern int parport_negotiate (struct parport *, int mode);
 extern ssize_t parport_write (struct parport *, const void *buf, size_t len);
 extern ssize_t parport_read (struct parport *, void *buf, size_t len);
+
+#define PARPORT_INACTIVITY_O_NONBLOCK 1
 extern long parport_set_timeout (struct pardevice *, long inactivity);
+
 extern int parport_wait_event (struct parport *, long timeout);
 extern int parport_wait_peripheral (struct parport *port,
 				    unsigned char mask,
@@ -541,7 +544,7 @@ extern void dec_parport_count(void);
 extern void inc_parport_count(void);
 
 /* If PC hardware is the only type supported, we can optimise a bit.  */
-#if (defined(CONFIG_PARPORT_PC) || defined(CONFIG_PARPORT_PC_MODULE)) && !(defined(CONFIG_PARPORT_ARC) || defined(CONFIG_PARPORT_ARC_MODULE)) && !(defined(CONFIG_PARPORT_AMIGA) || defined(CONFIG_PARPORT_AMIGA_MODULE)) && !(defined(CONFIG_PARPORT_MFC3) || defined(CONFIG_PARPORT_MFC3_MODULE)) && !(defined(CONFIG_PARPORT_ATARI) || defined(CONFIG_PARPORT_ATARI_MODULE)) && !(defined(CONFIG_USB_USS720) || defined(CONFIG_USB_USS720_MODULE)) && !(defined(CONFIG_PARPORT_SUNBPP) || defined(CONFIG_PARPORT_SUNBPP_MODULE)) && !defined(CONFIG_PARPORT_OTHER)
+#if (defined(CONFIG_PARPORT_PC) || defined(CONFIG_PARPORT_PC_MODULE)) && !(defined(CONFIG_PARPORT_ARC) || defined(CONFIG_PARPORT_ARC_MODULE)) && !(defined(CONFIG_PARPORT_AMIGA) || defined(CONFIG_PARPORT_AMIGA_MODULE)) && !(defined(CONFIG_PARPORT_MFC3) || defined(CONFIG_PARPORT_MFC3_MODULE)) && !(defined(CONFIG_PARPORT_ATARI) || defined(CONFIG_PARPORT_ATARI_MODULE)) && !(defined(CONFIG_USB_USS720) || defined(CONFIG_USB_USS720_MODULE)) && !(defined(CONFIG_PARPORT_SUNBPP) || defined(CONFIG_PARPORT_SUNBPP_MODULE)) && !(defined(CONFIG_PARPORT_GSC) || defined(CONFIG_PARPORT_GSC_MODULE)) && !defined(CONFIG_PARPORT_OTHER)
 
 #undef PARPORT_NEED_GENERIC_OPS
 #include <linux/parport_pc.h>

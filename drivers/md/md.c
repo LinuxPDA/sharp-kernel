@@ -724,9 +724,9 @@ static void free_mddev(mddev_t *mddev)
 	 * Make sure nobody else is using this mddev
 	 * (careful, we rely on the global kernel lock here)
 	 */
-	while (md_atomic_read(&mddev->resync_sem.count) != 1)
+	while (sem_getcount(&mddev->resync_sem) != 1)
 		schedule();
-	while (md_atomic_read(&mddev->recovery_sem.count) != 1)
+	while (sem_getcount(&mddev->recovery_sem) != 1)
 		schedule();
 
 	del_mddev_mapping(mddev, MKDEV(MD_MAJOR, mdidx(mddev)));
@@ -3219,7 +3219,7 @@ static int md_status_read_proc(char *page, char **start, off_t off,
 		if (mddev->curr_resync) {
 			sz += status_resync (page+sz, mddev);
 		} else {
-			if (md_atomic_read(&mddev->resync_sem.count) != 1)
+			if (sem_getcount(&mddev->resync_sem) != 1)
 				sz += sprintf(page + sz, "	resync=DELAYED");
 		}
 		sz += sprintf(page + sz, "\n");
@@ -3332,6 +3332,10 @@ void md_done_sync(mddev_t *mddev, int blocks, int ok)
 	wake_up(&mddev->recovery_wait);
 	if (!ok) {
 		// stop recovery, signal do_sync ....
+		if (mddev->pers->stop_resync)
+			mddev->pers->stop_resync(mddev);
+		if (mddev->recovery_running)
+			md_interrupt_thread(md_recovery_thread);
 	}
 }
 
@@ -3486,7 +3490,7 @@ recheck:
 	 * this also signals 'finished resyncing' to md_stop
 	 */
 out:
-	wait_event(mddev->recovery_wait, atomic_read(&mddev->recovery_active)==0);
+	wait_disk_event(mddev->recovery_wait, atomic_read(&mddev->recovery_active)==0);
 	up(&mddev->resync_sem);
 out_nolock:
 	mddev->curr_resync = 0;
@@ -3708,7 +3712,7 @@ struct {
  * Searches all registered partitions for autorun RAID arrays
  * at boot time.
  */
-static int detected_devices[128];
+static kdev_t detected_devices[128];
 static int dev_cnt;
 
 void md_autodetect_dev(kdev_t dev)

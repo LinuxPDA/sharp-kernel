@@ -101,6 +101,7 @@ static int csr0 = 0x00A00000 | 0x4800;
 #include <linux/init.h>
 #include <linux/mii.h>
 #include <linux/ethtool.h>
+#include <linux/crc32.h>
 
 #include <asm/io.h>
 #include <asm/processor.h>	/* Processor type for cache alignment. */
@@ -354,7 +355,7 @@ static void outl_CSR6(u32 newcsr6, long ioaddr)
 	const int strict_bits =
 		TxThresh10 | TxStoreForw | TxThreshMask | EnableTxRx | FullDuplexBit;
     int csr5, csr5_22_20, csr5_19_17, currcsr6, attempts = 200;
-    long flags;
+    unsigned long flags;
     save_flags(flags);
     cli();
 	/* mask out the reserved bits that always read 0 on the Xircom cards */
@@ -1104,9 +1105,6 @@ static void xircom_interrupt(int irq, void *dev_instance, struct pt_regs *regs)
 					tp->stats.tx_errors++;
 					if (status & Tx0ManyColl) {
 						tp->stats.tx_aborted_errors++;
-#ifdef ETHER_STATS
-						tp->stats.collisions16++;
-#endif
 					}
 					if (status & Tx0NoCarrier) tp->stats.tx_carrier_errors++;
 					if (status & Tx0LateColl) tp->stats.tx_window_errors++;
@@ -1463,7 +1461,7 @@ static int xircom_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
 	struct xircom_private *tp = dev->priv;
 	u16 *data = (u16 *)&rq->ifr_data;
 	int phy = tp->phys[0] & 0x1f;
-	long flags;
+	unsigned long flags;
 
 	switch(cmd) {
 	case SIOCETHTOOL:
@@ -1517,43 +1515,6 @@ static int xircom_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
 
 	return -EOPNOTSUPP;
 }
-
-
-/* The little-endian AUTODIN32 ethernet CRC calculation.
-   N.B. Do not use for bulk data, use a table-based routine instead.
-   This is common code and should be moved to net/core/crc.c */
-static unsigned const ethernet_polynomial_le = 0xedb88320U;
-static inline u32 ether_crc_le(int length, unsigned char *data)
-{
-	u32 crc = 0xffffffff;	/* Initial value. */
-	while(--length >= 0) {
-		unsigned char current_octet = *data++;
-		int bit;
-		for (bit = 8; --bit >= 0; current_octet >>= 1) {
-			if ((crc ^ current_octet) & 1) {
-				crc >>= 1;
-				crc ^= ethernet_polynomial_le;
-			} else
-				crc >>= 1;
-		}
-	}
-	return crc;
-}
-static unsigned const ethernet_polynomial = 0x04c11db7U;
-static inline u32 ether_crc(int length, unsigned char *data)
-{
-    int crc = -1;
-
-    while(--length >= 0) {
-		unsigned char current_octet = *data++;
-		int bit;
-		for (bit = 0; bit < 8; bit++, current_octet >>= 1)
-			crc = (crc << 1) ^
-				((crc < 0) ^ (current_octet & 1) ? ethernet_polynomial : 0);
-    }
-    return crc;
-}
-
 
 /* Set or clear the multicast filter for this adaptor.
    Note that we only use exclusion around actually queueing the

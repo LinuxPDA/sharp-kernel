@@ -180,7 +180,7 @@ void fib_free(struct fib * fibptr)
 	} else {
 		if (fibptr->fib->header.XferState != 0) {
 			printk(KERN_WARNING "fib_free, XferState != 0, fibptr = 0x%p, XferState = 0x%x\n", 
-					 fibptr, fibptr->fib->header.XferState);
+				 (void *)fibptr, fibptr->fib->header.XferState);
 		}
 		fibptr->next = fibptr->dev->free_fib;
 		fibptr->dev->free_fib = fibptr;
@@ -280,8 +280,7 @@ static int aac_get_entry (struct aac_dev * dev, u32 qid, struct aac_entry **entr
 	else BUG();
 
         if (*index + 1 == le32_to_cpu(*(q->headers.consumer))) { /* Queue is full */
-		printk(KERN_WARNING "Queue %d full, %ld outstanding.\n",
-				qid, q->numpending);
+		printk(KERN_WARNING "Queue %d full, %ld outstanding.\n", qid, q->numpending);
 		return 0;
 	} else {
 	        *entry = q->base + *index;
@@ -336,7 +335,7 @@ static int aac_queue_get(struct aac_dev * dev, u32 * index, u32 qid, struct hw_f
         	 *	Setup queue entry with command, status and fib mapped
         	 */
         	entry->size = cpu_to_le32(le16_to_cpu(fib->header.Size));
-        	entry->addr = cpu_to_le32(fib->header.SenderFibAddress);     			/* Restore adapters pointer to the FIB */
+        	entry->addr = cpu_to_le32(fib->header.SenderFibAddress);     		/* Restore adapters pointer to the FIB */
 		fib->header.ReceiverFibAddress = fib->header.SenderFibAddress;		/* Let the adapter now where to find its data */
         	map = 0;
 	} 
@@ -445,13 +444,18 @@ int fib_send(u16 command, struct fib * fibptr, unsigned long size,  int priority
 		fib->header.XferState |= cpu_to_le32(ResponseExpected);
 		FIB_COUNTER_INCREMENT(aac_config.NormalSent);
 	} 
-	fib->header.SenderData = (unsigned long)fibptr;	/* for callback */
+	/*
+	 *	Map the fib into 32bits by using the fib number
+	 */
+	fib->header.SenderData = fibptr-&dev->fibs[0];	/* for callback */
 	/*
 	 *	Set FIB state to indicate where it came from and if we want a
 	 *	response from the adapter. Also load the command from the
 	 *	caller.
+	 *
+	 *	Map the hw fib pointer as a 32bit value
 	 */
-	fib->header.SenderFibAddress = cpu_to_le32((u32)fib);
+	fib->header.SenderFibAddress = fib2addr(fib);
 	fib->header.Command = cpu_to_le16(command);
 	fib->header.XferState |= cpu_to_le32(SentFromHost);
 	fibptr->fib->header.Flags = 0;				/* Zero the flags field - its internal only...	 */
@@ -677,7 +681,7 @@ int fib_adapter_complete(struct fib * fibptr, unsigned short size)
 	}
 	else 
 	{
-        	printk(KERN_WARNING "fib_complete: Unknown xferstate detected.\n");
+        	printk(KERN_WARNING "fib_adapter_complete: Unknown xferstate detected.\n");
         	BUG();
 	}   
 	return 0;
@@ -756,9 +760,9 @@ void aac_printf(struct aac_dev *dev, u32 val)
 	if (cp[length] != 0)
 		cp[length] = 0;
 	if (level == LOG_HIGH_ERROR)
-		printk(KERN_WARNING "aacraid:%s.\n", cp);
+		printk(KERN_WARNING "aacraid:%s", cp);
 	else
-		printk(KERN_INFO "aacraid:%s.\n", cp);
+		printk(KERN_INFO "aacraid:%s", cp);
 	memset(cp, 0,  256);
 }
 

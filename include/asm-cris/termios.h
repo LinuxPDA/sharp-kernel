@@ -3,6 +3,7 @@
 
 #include <asm/termbits.h>
 #include <asm/ioctls.h>
+#include <asm/rs485.h>
 
 struct winsize {
 	unsigned short ws_row;
@@ -36,6 +37,8 @@ struct termio {
 #define TIOCM_OUT1	0x2000
 #define TIOCM_OUT2	0x4000
 #define TIOCM_LOOP	0x8000
+
+#define TIOCM_MODEM_BITS       TIOCM_OUT2      /* IRDA support */
 
 /* ioctl (fd, TIOCSERGETLSR, &result) where result may be as below */
 

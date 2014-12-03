@@ -387,7 +387,7 @@ static inline void ixj_fsk_alloc(IXJ *j)
 #ifdef PERFMON_STATS
 #define ixj_perfmon(x)	((x)++)
 #else
-#define ixj_perfmon(x)	do {} while(0);
+#define ixj_perfmon(x)	do { } while(0)
 #endif
 
 static int ixj_convert_loaded;
@@ -2807,7 +2807,10 @@ static void ulaw2alaw(unsigned char *buff, unsigned long len)
 	};
 
 	while (len--)
-		*buff++ = table_ulaw2alaw[*(unsigned char *)buff];
+	{
+		*buff = table_ulaw2alaw[*(unsigned char *)buff];
+		buff++;
+	}
 }
 
 static void alaw2ulaw(unsigned char *buff, unsigned long len)
@@ -2849,7 +2852,10 @@ static void alaw2ulaw(unsigned char *buff, unsigned long len)
 	};
 
         while (len--)
-                *buff++ = table_alaw2ulaw[*(unsigned char *)buff];
+        {
+                *buff = table_alaw2ulaw[*(unsigned char *)buff];
+                buff++;
+	}
 }
 
 static ssize_t ixj_read(struct file * file_p, char *buf, size_t length, loff_t * ppos)
@@ -3451,7 +3457,7 @@ static void ixj_write_cidcw(IXJ *j)
 	j->cidcw_wait = 0;
 	if(!j->flags.cidcw_ack) {
 		if(ixjdebug & 0x0200) {
-			printk("IXJ cidcw phone%d did not recieve ACK from display %ld\n", j->board, jiffies);
+			printk("IXJ cidcw phone%d did not receive ACK from display %ld\n", j->board, jiffies);
 		}
 		ixj_post_cid(j);
 		if(j->cid_play_flag) {
@@ -5944,7 +5950,7 @@ static int ixj_build_cadence(IXJ *j, IXJ_CADENCE * cp)
 	lcp = kmalloc(sizeof(IXJ_CADENCE), GFP_KERNEL);
 	if (lcp == NULL)
 		return -ENOMEM;
-	if (copy_from_user(lcp, (char *) cp, sizeof(IXJ_CADENCE)) || (unsigned)lcp->elements_used >= ~0U/sizeof(IXJ_CADENCE) )
+	if (copy_from_user(lcp, (char *) cp, sizeof(IXJ_CADENCE)) || (unsigned)lcp->elements_used >= ~0U/sizeof(IXJ_CADENCE_ELEMENT) )
         {
                 kfree(lcp);
                 return -EFAULT;

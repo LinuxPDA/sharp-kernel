@@ -34,6 +34,14 @@
 #define TMPFS_MAGIC	0x01021994
 
 #define ENTRIES_PER_PAGE (PAGE_CACHE_SIZE/sizeof(unsigned long))
+#define BLOCKS_PER_PAGE  (PAGE_CACHE_SIZE/512)
+
+#define SHMEM_MAX_INDEX  (SHMEM_NR_DIRECT + ENTRIES_PER_PAGE * (ENTRIES_PER_PAGE/2) * (ENTRIES_PER_PAGE+1))
+#define SHMEM_MAX_BYTES  ((unsigned long long)SHMEM_MAX_INDEX << PAGE_CACHE_SHIFT)
+#define VM_ACCT(size)    (((size) + PAGE_CACHE_SIZE - 1) >> PAGE_SHIFT)
+
+/* Pretend that each entry is of this size in directory's i_size */
+#define BOGO_DIRENT_SIZE 20
 
 #define SHMEM_SB(sb) (&sb->u.shmem_sb)
 
@@ -41,7 +49,6 @@ static struct super_operations shmem_ops;
 static struct address_space_operations shmem_aops;
 static struct file_operations shmem_file_operations;
 static struct inode_operations shmem_inode_operations;
-static struct file_operations shmem_dir_operations;
 static struct inode_operations shmem_dir_inode_operations;
 static struct vm_operations_struct shmem_vm_ops;
 
@@ -49,7 +56,7 @@ LIST_HEAD (shmem_inodes);
 static spinlock_t shmem_ilock = SPIN_LOCK_UNLOCKED;
 atomic_t shmem_nrpages = ATOMIC_INIT(0); /* Not used right now */
 
-#define BLOCKS_PER_PAGE (PAGE_CACHE_SIZE/512)
+static struct page *shmem_getpage_locked(struct shmem_inode_info *, struct inode *, unsigned long);
 
 /*
  * shmem_recalc_inode - recalculate the size of an inode
@@ -126,9 +133,6 @@ static void shmem_recalc_inode(struct inode * inode)
  * 	      	       +-> 48-51
  * 	      	       +-> 52-55
  */
-
-#define SHMEM_MAX_BLOCKS (SHMEM_NR_DIRECT + ENTRIES_PER_PAGE * ENTRIES_PER_PAGE/2*(ENTRIES_PER_PAGE+1))
-
 static swp_entry_t * shmem_swp_entry (struct shmem_inode_info *info, unsigned long index, unsigned long page) 
 {
 	unsigned long offset;
@@ -181,7 +185,7 @@ static inline swp_entry_t * shmem_alloc_entry (struct shmem_inode_info *info, un
 	unsigned long page = 0;
 	swp_entry_t * res;
 
-	if (index >= SHMEM_MAX_BLOCKS)
+	if (index >= SHMEM_MAX_INDEX)
 		return ERR_PTR(-EFBIG);
 
 	if (info->next_index <= index)
@@ -313,6 +317,7 @@ shmem_truncate_indirect(struct shmem_inode_info *info, unsigned long index)
 static void shmem_truncate (struct inode * inode)
 {
 	unsigned long index;
+	unsigned long partial;
 	unsigned long freed = 0;
 	struct shmem_inode_info * info = SHMEM_I(inode);
 
@@ -320,6 +325,28 @@ static void shmem_truncate (struct inode * inode)
 	inode->i_ctime = inode->i_mtime = CURRENT_TIME;
 	spin_lock (&info->lock);
 	index = (inode->i_size + PAGE_CACHE_SIZE - 1) >> PAGE_CACHE_SHIFT;
+	partial = inode->i_size & ~PAGE_CACHE_MASK;
+
+	if (partial) {
+		swp_entry_t *entry = shmem_swp_entry(info, index-1, 0);
+		struct page *page;
+		/*
+		 * This check is racy: it's faintly possible that page
+		 * was assigned to swap during truncate_inode_pages,
+		 * and now assigned to file; but better than nothing.
+		 */
+		if (!IS_ERR(entry) && entry->val) {
+			spin_unlock(&info->lock);
+			page = shmem_getpage_locked(info, inode, index-1);
+			if (!IS_ERR(page)) {
+				memclear_highpage_flush(page, partial,
+					PAGE_CACHE_SIZE - partial);
+				UnlockPage(page);
+				page_cache_release(page);
+			}
+			spin_lock(&info->lock);
+		}
+	}
 
 	while (index < info->next_index) 
 		freed += shmem_truncate_indirect(info, index);
@@ -334,11 +361,11 @@ static void shmem_delete_inode(struct inode * inode)
 {
 	struct shmem_sb_info *sbinfo = SHMEM_SB(inode->i_sb);
 
-	inode->i_size = 0;
-	if (inode->i_op->truncate == shmem_truncate){ 
+	if (inode->i_op->truncate == shmem_truncate) {
 		spin_lock (&shmem_ilock);
 		list_del (&SHMEM_I(inode)->list);
 		spin_unlock (&shmem_ilock);
+		inode->i_size = 0;
 		shmem_truncate (inode);
 	}
 	spin_lock (&sbinfo->stat_lock);
@@ -347,28 +374,30 @@ static void shmem_delete_inode(struct inode * inode)
 	clear_inode(inode);
 }
 
-static int shmem_clear_swp (swp_entry_t entry, swp_entry_t *ptr, int size) {
+static inline int shmem_find_swp(swp_entry_t entry, swp_entry_t *ptr, swp_entry_t *eptr)
+{
 	swp_entry_t *test;
 
-	for (test = ptr; test < ptr + size; test++) {
-		if (test->val == entry.val) {
-			swap_free (entry);
-			*test = (swp_entry_t) {0};
+	for (test = ptr; test < eptr; test++) {
+		if (test->val == entry.val)
 			return test - ptr;
-		}
 	}
 	return -1;
 }
 
-static int shmem_unuse_inode (struct shmem_inode_info *info, swp_entry_t entry, struct page *page)
+static int shmem_unuse_inode(struct shmem_inode_info *info, swp_entry_t entry, struct page *page)
 {
 	swp_entry_t *ptr;
 	unsigned long idx;
 	int offset;
-	
+
 	idx = 0;
+	ptr = info->i_direct;
 	spin_lock (&info->lock);
-	offset = shmem_clear_swp (entry, info->i_direct, SHMEM_NR_DIRECT);
+	offset = info->next_index;
+	if (offset > SHMEM_NR_DIRECT)
+		offset = SHMEM_NR_DIRECT;
+	offset = shmem_find_swp(entry, ptr, ptr + offset);
 	if (offset >= 0)
 		goto found;
 
@@ -377,13 +406,18 @@ static int shmem_unuse_inode (struct shmem_inode_info *info, swp_entry_t entry, 
 		ptr = shmem_swp_entry(info, idx, 0);
 		if (IS_ERR(ptr))
 			continue;
-		offset = shmem_clear_swp (entry, ptr, ENTRIES_PER_PAGE);
+		offset = info->next_index - idx;
+		if (offset > ENTRIES_PER_PAGE)
+			offset = ENTRIES_PER_PAGE;
+		offset = shmem_find_swp(entry, ptr, ptr + offset);
 		if (offset >= 0)
 			goto found;
 	}
 	spin_unlock (&info->lock);
 	return 0;
 found:
+	swap_free(entry);
+	ptr[offset] = (swp_entry_t) {0};
 	delete_from_swap_cache(page);
 	add_to_page_cache(page, info->inode->i_mapping, offset + idx);
 	SetPageDirty(page);
@@ -394,7 +428,7 @@ found:
 }
 
 /*
- * unuse_shmem() search for an eventually swapped out shmem page.
+ * shmem_unuse() search for an eventually swapped out shmem page.
  */
 void shmem_unuse(swp_entry_t entry, struct page *page)
 {
@@ -405,8 +439,12 @@ void shmem_unuse(swp_entry_t entry, struct page *page)
 	list_for_each(p, &shmem_inodes) {
 		info = list_entry(p, struct shmem_inode_info, list);
 
-		if (shmem_unuse_inode(info, entry, page))
+		if (info->swapped && shmem_unuse_inode(info, entry, page)) {
+			/* move head to start search for next from here */
+			list_del(&shmem_inodes);
+			list_add_tail(&shmem_inodes, p);
 			break;
+		}
 	}
 	spin_unlock (&shmem_ilock);
 }
@@ -522,7 +560,7 @@ repeat:
 		unsigned long flags;
 
 		/* Look it up and read it in.. */
-		page = find_get_page(&swapper_space, entry->val);
+		page = lookup_swap_cache(*entry);
 		if (!page) {
 			swp_entry_t swap = *entry;
 			spin_unlock (&info->lock);
@@ -577,6 +615,7 @@ repeat:
 		if (!page)
 			return ERR_PTR(-ENOMEM);
 		clear_highpage(page);
+		flush_dcache_page(page);
 		inode->i_blocks += BLOCKS_PER_PAGE;
 		add_to_page_cache (page, mapping, idx);
 	}
@@ -696,13 +735,15 @@ struct inode *shmem_get_inode(struct super_block *sb, int mode, int dev)
 			inode->i_op = &shmem_inode_operations;
 			inode->i_fop = &shmem_file_operations;
 			spin_lock (&shmem_ilock);
-			list_add (&SHMEM_I(inode)->list, &shmem_inodes);
+			list_add_tail(&info->list, &shmem_inodes);
 			spin_unlock (&shmem_ilock);
 			break;
 		case S_IFDIR:
 			inode->i_nlink++;
+			/* Some things misbehave if size == 0 on a directory */
+			inode->i_size = 2 * BOGO_DIRENT_SIZE;
 			inode->i_op = &shmem_dir_inode_operations;
-			inode->i_fop = &shmem_dir_operations;
+			inode->i_fop = &dcache_dir_ops;
 			break;
 		case S_IFLNK:
 			break;
@@ -870,7 +911,6 @@ out:
 fail_write:
 	status = -EFAULT;
 	ClearPageUptodate(page);
-	kunmap(page);
 	goto unlock;
 }
 
@@ -965,7 +1005,7 @@ static int shmem_statfs(struct super_block *sb, struct statfs *buf)
 	buf->f_files = sbinfo->max_inodes;
 	buf->f_ffree = sbinfo->free_inodes;
 	spin_unlock (&sbinfo->stat_lock);
-	buf->f_namelen = 255;
+	buf->f_namelen = NAME_MAX;
 	return 0;
 }
 
@@ -987,8 +1027,9 @@ static int shmem_mknod(struct inode *dir, struct dentry *dentry, int mode, int d
 	struct inode * inode = shmem_get_inode(dir->i_sb, mode, dev);
 	int error = -ENOSPC;
 
-	dir->i_ctime = dir->i_mtime = CURRENT_TIME;
 	if (inode) {
+		dir->i_size += BOGO_DIRENT_SIZE;
+		dir->i_ctime = dir->i_mtime = CURRENT_TIME;
 		d_instantiate(dentry, inode);
 		dget(dentry); /* Extra count - pin the dentry in core */
 		error = 0;
@@ -1021,6 +1062,7 @@ static int shmem_link(struct dentry *old_dentry, struct inode * dir, struct dent
 	if (S_ISDIR(inode->i_mode))
 		return -EPERM;
 
+	dir->i_size += BOGO_DIRENT_SIZE;
 	inode->i_ctime = dir->i_ctime = dir->i_mtime = CURRENT_TIME;
 	inode->i_nlink++;
 	atomic_inc(&inode->i_count);	/* New dentry reference */
@@ -1065,6 +1107,8 @@ static int shmem_empty(struct dentry *dentry)
 static int shmem_unlink(struct inode * dir, struct dentry *dentry)
 {
 	struct inode *inode = dentry->d_inode;
+
+	dir->i_size -= BOGO_DIRENT_SIZE;
 	inode->i_ctime = dir->i_ctime = dir->i_mtime = CURRENT_TIME;
 	inode->i_nlink--;
 	dput(dentry);	/* Undo the count from "create" - this does all the work */
@@ -1088,39 +1132,45 @@ static int shmem_rmdir(struct inode * dir, struct dentry *dentry)
  */
 static int shmem_rename(struct inode * old_dir, struct dentry *old_dentry, struct inode * new_dir,struct dentry *new_dentry)
 {
-	int error = -ENOTEMPTY;
+	struct inode *inode = old_dentry->d_inode;
+	int they_are_dirs = S_ISDIR(inode->i_mode);
 
-	if (shmem_empty(new_dentry)) {
-		struct inode *inode = new_dentry->d_inode;
-		if (inode) {
-			inode->i_ctime = CURRENT_TIME;
-			inode->i_nlink--;
-			dput(new_dentry);
-		}
-		error = 0;
-		old_dentry->d_inode->i_ctime = old_dir->i_ctime = old_dir->i_mtime = CURRENT_TIME;
+	if (!shmem_empty(new_dentry)) 
+		return -ENOTEMPTY;
+
+	if (new_dentry->d_inode) {
+		(void) shmem_unlink(new_dir, new_dentry);
+		if (they_are_dirs)
+			old_dir->i_nlink--;
+	} else if (they_are_dirs) {
+		old_dir->i_nlink--;
+		new_dir->i_nlink++;
 	}
-	return error;
+
+	old_dir->i_size -= BOGO_DIRENT_SIZE;
+	new_dir->i_size += BOGO_DIRENT_SIZE;
+	old_dir->i_ctime = old_dir->i_mtime =
+	new_dir->i_ctime = new_dir->i_mtime =
+	inode->i_ctime = CURRENT_TIME;
+	return 0;
 }
 
 static int shmem_symlink(struct inode * dir, struct dentry *dentry, const char * symname)
 {
-	int error;
 	int len;
 	struct inode *inode;
 	struct page *page;
 	char *kaddr;
 	struct shmem_inode_info * info;
 
-	error = shmem_mknod(dir, dentry, S_IFLNK | S_IRWXUGO, 0);
-	if (error)
-		return error;
-
 	len = strlen(symname) + 1;
 	if (len > PAGE_CACHE_SIZE)
 		return -ENAMETOOLONG;
-		
-	inode = dentry->d_inode;
+
+	inode = shmem_get_inode(dir->i_sb, S_IFLNK|S_IRWXUGO, 0);
+	if (!inode)
+		return -ENOSPC;
+
 	info = SHMEM_I(inode);
 	inode->i_size = len-1;
 	if (len <= sizeof(struct shmem_inode_info)) {
@@ -1128,15 +1178,17 @@ static int shmem_symlink(struct inode * dir, struct dentry *dentry, const char *
 		memcpy(info, symname, len);
 		inode->i_op = &shmem_symlink_inline_operations;
 	} else {
-		spin_lock (&shmem_ilock);
-		list_add (&info->list, &shmem_inodes);
-		spin_unlock (&shmem_ilock);
 		down(&info->sem);
 		page = shmem_getpage_locked(info, inode, 0);
 		if (IS_ERR(page)) {
 			up(&info->sem);
+			iput(inode);
 			return PTR_ERR(page);
 		}
+		inode->i_op = &shmem_symlink_inode_operations;
+		spin_lock (&shmem_ilock);
+		list_add_tail(&info->list, &shmem_inodes);
+		spin_unlock (&shmem_ilock);
 		kaddr = kmap(page);
 		memcpy(kaddr, symname, len);
 		kunmap(page);
@@ -1144,9 +1196,11 @@ static int shmem_symlink(struct inode * dir, struct dentry *dentry, const char *
 		UnlockPage(page);
 		page_cache_release(page);
 		up(&info->sem);
-		inode->i_op = &shmem_symlink_inode_operations;
 	}
+	dir->i_size += BOGO_DIRENT_SIZE;
 	dir->i_ctime = dir->i_mtime = CURRENT_TIME;
+	d_instantiate(dentry, inode);
+	dget(dentry);
 	return 0;
 }
 
@@ -1307,7 +1361,7 @@ static struct super_block *shmem_read_super(struct super_block * sb, void * data
 	sbinfo->free_blocks = blocks;
 	sbinfo->max_inodes = inodes;
 	sbinfo->free_inodes = inodes;
-	sb->s_maxbytes = (unsigned long long) SHMEM_MAX_BLOCKS << PAGE_CACHE_SHIFT;
+	sb->s_maxbytes = SHMEM_MAX_BYTES;
 	sb->s_blocksize = PAGE_CACHE_SIZE;
 	sb->s_blocksize_bits = PAGE_CACHE_SHIFT;
 	sb->s_magic = TMPFS_MAGIC;
@@ -1344,14 +1398,6 @@ static struct file_operations shmem_file_operations = {
 
 static struct inode_operations shmem_inode_operations = {
 	truncate:	shmem_truncate,
-};
-
-static struct file_operations shmem_dir_operations = {
-	read:		generic_read_dir,
-	readdir:	dcache_readdir,
-#ifdef CONFIG_TMPFS
-	fsync:		shmem_sync_file,
-#endif
 };
 
 static struct inode_operations shmem_dir_inode_operations = {
@@ -1449,10 +1495,10 @@ struct file *shmem_file_setup(char * name, loff_t size)
 	struct qstr this;
 	int vm_enough_memory(long pages);
 
-	if (size > (unsigned long long) SHMEM_MAX_BLOCKS << PAGE_CACHE_SHIFT)
+	if (size > SHMEM_MAX_BYTES)
 		return ERR_PTR(-EINVAL);
 
-	if (!vm_enough_memory((size) >> PAGE_CACHE_SHIFT))
+	if (!vm_enough_memory(VM_ACCT(size)))
 		return ERR_PTR(-ENOMEM);
 
 	this.name = name;
@@ -1474,13 +1520,12 @@ struct file *shmem_file_setup(char * name, loff_t size)
 		goto close_file;
 
 	d_instantiate(dentry, inode);
-	dentry->d_inode->i_size = size;
-	shmem_truncate(inode);
+	inode->i_size = size;
+	inode->i_nlink = 0;	/* It is unlinked */
 	file->f_vfsmnt = mntget(shm_mnt);
 	file->f_dentry = dentry;
 	file->f_op = &shmem_file_operations;
 	file->f_mode = FMODE_WRITE | FMODE_READ;
-	inode->i_nlink = 0;	/* It is unlinked */
 	return(file);
 
 close_file:
@@ -1489,6 +1534,7 @@ put_dentry:
 	dput (dentry);
 	return ERR_PTR(error);	
 }
+
 /*
  * shmem_zero_setup - setup a shared anonymous mapping
  *

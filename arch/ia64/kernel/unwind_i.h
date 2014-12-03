@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2000 Hewlett-Packard Co
- * Copyright (C) 2000 David Mosberger-Tang <davidm@hpl.hp.com>
+ * Copyright (C) 2000, 2002 Hewlett-Packard Co
+ *	David Mosberger-Tang <davidm@hpl.hp.com>
  *
  * Kernel unwind support.
  */
@@ -85,6 +85,17 @@ struct unw_reg_info {
 	int when;			/* when the register gets saved */
 };
 
+struct unw_reg_state {
+	struct unw_reg_state *next;		/* next (outer) element on state stack */
+	struct unw_reg_info reg[UNW_NUM_REGS];	/* register save locations */
+};
+
+struct unw_labeled_state {
+	struct unw_labeled_state *next;		/* next labeled state (or NULL) */
+	unsigned long label;			/* label for this state */
+	struct unw_reg_state saved_state;
+};
+
 struct unw_state_record {
 	unsigned int first_region : 1;	/* is this the first region? */
 	unsigned int done : 1;		/* are we done scanning descriptors? */
@@ -92,7 +103,7 @@ struct unw_state_record {
 	unsigned int in_body : 1;	/* are we inside a body (as opposed to a prologue)? */
 	unsigned long flags;		/* see UNW_FLAG_* in unwind.h */
 
-	u8 *imask;			/* imask of of spill_mask record or NULL */
+	u8 *imask;			/* imask of spill_mask record or NULL */
 	unsigned long pr_val;		/* predicate values */
 	unsigned long pr_mask;		/* predicate mask */
 	long spill_offset;		/* psp-relative offset for spill base */
@@ -105,11 +116,8 @@ struct unw_state_record {
 	u8 gr_save_loc;			/* next general register to use for saving a register */
 	u8 return_link_reg;		/* branch register in which the return link is passed */
 
-	struct unw_reg_state {
-		struct unw_reg_state *next;
-		unsigned long label;		/* label of this state record */
-		struct unw_reg_info reg[UNW_NUM_REGS];
-	} curr, *stack, *reg_state_list;
+	struct unw_labeled_state *labeled_states;	/* list of all labeled states */
+	struct unw_reg_state curr;	/* current state */
 };
 
 enum unw_nat_type {

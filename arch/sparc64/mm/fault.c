@@ -1,4 +1,4 @@
-/* $Id: fault.c,v 1.58 2001/09/01 00:11:16 kanoj Exp $
+/* $Id: fault.c,v 1.58.2.2 2002/03/12 12:25:15 davem Exp $
  * arch/sparc64/mm/fault.c: Page fault handlers for the 64-bit Sparc.
  *
  * Copyright (C) 1996 David S. Miller (davem@caip.rutgers.edu)
@@ -55,13 +55,21 @@ void syscall_trace_exit(struct pt_regs *regs)
  */
 void set_brkpt(unsigned long addr, unsigned char mask, int flags, int mode)
 {
-	unsigned long lsubits = LSU_CONTROL_IC|LSU_CONTROL_DC|LSU_CONTROL_IM|LSU_CONTROL_DM;
+	unsigned long lsubits;
+
+	__asm__ __volatile__("ldxa [%%g0] %1, %0"
+			     : "=r" (lsubits)
+			     : "i" (ASI_LSU_CONTROL));
+	lsubits &= ~(LSU_CONTROL_PM | LSU_CONTROL_VM |
+		     LSU_CONTROL_PR | LSU_CONTROL_VR |
+		     LSU_CONTROL_PW | LSU_CONTROL_VW);
 
 	__asm__ __volatile__("stxa	%0, [%1] %2\n\t"
 			     "membar	#Sync"
 			     : /* no outputs */
 			     : "r" (addr), "r" (mode ? VIRT_WATCHPOINT : PHYS_WATCHPOINT),
 			       "i" (ASI_DMMU));
+
 	lsubits |= ((unsigned long)mask << (mode ? 25 : 33));
 	if (flags & VM_READ)
 		lsubits |= (mode ? LSU_CONTROL_VR : LSU_CONTROL_PR);
@@ -121,8 +129,8 @@ unsigned long __init prom_probe_memory (void)
 	return tally;
 }
 
-void unhandled_fault(unsigned long address, struct task_struct *tsk,
-                     struct pt_regs *regs)
+static void unhandled_fault(unsigned long address, struct task_struct *tsk,
+			    struct pt_regs *regs)
 {
 	if ((unsigned long) address < PAGE_SIZE) {
 		printk(KERN_ALERT "Unable to handle kernel NULL "
@@ -137,6 +145,19 @@ void unhandled_fault(unsigned long address, struct task_struct *tsk,
 	       (tsk->mm ? (unsigned long) tsk->mm->pgd :
 		          (unsigned long) tsk->active_mm->pgd));
 	die_if_kernel("Oops", regs);
+}
+
+extern void show_trace_raw(struct task_struct *, unsigned long);
+
+static void bad_kernel_pc(struct pt_regs *regs)
+{
+	unsigned long ksp;
+
+	printk(KERN_CRIT "OOPS: Bogus kernel PC [%016lx] in fault handler\n",
+	       regs->tpc);
+	__asm__("mov %%sp, %0" : "=r" (ksp));
+	show_trace_raw(current, ksp);
+	unhandled_fault(regs->tpc, current, regs);
 }
 
 /*
@@ -203,7 +224,7 @@ static inline unsigned int get_fault_insn(struct pt_regs *regs, unsigned int ins
 		if (!regs->tpc || (regs->tpc & 0x3))
 			return 0;
 		if (regs->tstate & TSTATE_PRIV) {
-			insn = *(unsigned int *)regs->tpc;
+			insn = *(unsigned int *) regs->tpc;
 		} else {
 			insn = get_user_insn(regs->tpc);
 		}
@@ -294,6 +315,20 @@ asmlinkage void do_sparc64_fault(struct pt_regs *regs)
 	    (fault_code & FAULT_CODE_DTLB))
 		BUG();
 
+	if (regs->tstate & TSTATE_PRIV) {
+		unsigned long tpc = regs->tpc;
+		extern unsigned int _etext;
+
+		/* Sanity check the PC. */
+		if ((tpc >= KERNBASE && tpc < (unsigned long) &_etext) ||
+		    (tpc >= MODULES_VADDR && tpc < MODULES_END)) {
+			/* Valid, no problems... */
+		} else {
+			bad_kernel_pc(regs);
+			return;
+		}
+	}
+
 	/*
 	 * If we're in an interrupt or have no user
 	 * context, we must not take the fault..
@@ -340,6 +375,20 @@ continue_fault:
 		goto good_area;
 	if (!(vma->vm_flags & VM_GROWSDOWN))
 		goto bad_area;
+	if (!(fault_code & FAULT_CODE_WRITE)) {
+		/* Non-faulting loads shouldn't expand stack. */
+		insn = get_fault_insn(regs, insn);
+		if ((insn & 0xc0800000) == 0xc0800000) {
+			unsigned char asi;
+
+			if (insn & 0x2000)
+				asi = (regs->tstate >> 24);
+			else
+				asi = (insn >> 5);
+			if ((asi & 0xf2) == 0x82)
+				goto bad_area;
+		}
+	}
 	if (expand_stack(vma, address))
 		goto bad_area;
 	/*

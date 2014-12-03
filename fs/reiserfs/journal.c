@@ -71,7 +71,9 @@ DECLARE_WAIT_QUEUE_HEAD(reiserfs_commit_thread_wait) ;
 static DECLARE_WAIT_QUEUE_HEAD(reiserfs_commit_thread_done) ;
 DECLARE_TASK_QUEUE(reiserfs_commit_thread_tq) ;
 
-#define JOURNAL_TRANS_HALF 1018   /* must be correct to keep the desc and commit structs at 4k */
+#define JOURNAL_TRANS_HALF 1018   /* must be correct to keep the desc and commit
+				     structs at 4k */
+#define BUFNR 64 /*read ahead */
 
 /* cnode stat bits.  Move these into reiserfs_fs.h */
 
@@ -117,13 +119,13 @@ allocate_bitmap_node(struct super_block *p_s_sb) {
   struct reiserfs_bitmap_node *bn ;
   static int id = 0 ;
 
-  bn = kmalloc(sizeof(struct reiserfs_bitmap_node), GFP_NOFS) ;
+  bn = reiserfs_kmalloc(sizeof(struct reiserfs_bitmap_node), GFP_NOFS, p_s_sb) ;
   if (!bn) {
     return NULL ;
   }
-  bn->data = kmalloc(p_s_sb->s_blocksize, GFP_NOFS) ;
+  bn->data = reiserfs_kmalloc(p_s_sb->s_blocksize, GFP_NOFS, p_s_sb) ;
   if (!bn->data) {
-    kfree(bn) ;
+    reiserfs_kfree(bn, sizeof(struct reiserfs_bitmap_node), p_s_sb) ;
     return NULL ;
   }
   bn->id = id++ ;
@@ -149,8 +151,7 @@ repeat:
   }
   bn = allocate_bitmap_node(p_s_sb) ;
   if (!bn) {
-    current->policy |= SCHED_YIELD ;
-    schedule() ;
+    yield();
     goto repeat ;
   }
   return bn ;
@@ -159,8 +160,8 @@ static inline void free_bitmap_node(struct super_block *p_s_sb,
                                     struct reiserfs_bitmap_node *bn) {
   SB_JOURNAL(p_s_sb)->j_used_bitmap_nodes-- ;
   if (SB_JOURNAL(p_s_sb)->j_free_bitmap_nodes > REISERFS_MAX_BITMAP_NODES) {
-    kfree(bn->data) ;
-    kfree(bn) ;
+    reiserfs_kfree(bn->data, p_s_sb->s_blocksize, p_s_sb) ;
+    reiserfs_kfree(bn, sizeof(struct reiserfs_bitmap_node), p_s_sb) ;
   } else {
     list_add(&bn->list, &SB_JOURNAL(p_s_sb)->j_bitmap_nodes) ;
     SB_JOURNAL(p_s_sb)->j_free_bitmap_nodes++ ;
@@ -189,7 +190,7 @@ static int set_bit_in_list_bitmap(struct super_block *p_s_sb, int block,
   if (!jb->bitmaps[bmap_nr]) {
     jb->bitmaps[bmap_nr] = get_bitmap_node(p_s_sb) ;
   }
-  set_bit(bit_nr, jb->bitmaps[bmap_nr]->data) ;
+  set_bit(bit_nr, (unsigned long *)jb->bitmaps[bmap_nr]->data) ;
   return 0 ;
 }
 
@@ -228,8 +229,8 @@ static int free_bitmap_nodes(struct super_block *p_s_sb) {
   while(next != &SB_JOURNAL(p_s_sb)->j_bitmap_nodes) {
     bn = list_entry(next, struct reiserfs_bitmap_node, list) ;
     list_del(next) ;
-    kfree(bn->data) ;
-    kfree(bn) ;
+    reiserfs_kfree(bn->data, p_s_sb->s_blocksize, p_s_sb) ;
+    reiserfs_kfree(bn, sizeof(struct reiserfs_bitmap_node), p_s_sb) ;
     next = SB_JOURNAL(p_s_sb)->j_bitmap_nodes.next ;
     SB_JOURNAL(p_s_sb)->j_free_bitmap_nodes-- ;
   }
@@ -373,7 +374,7 @@ static int clear_prepared_bits(struct buffer_head *bh) {
 /* buffer is in current transaction */
 inline int buffer_journaled(const struct buffer_head *bh) {
   if (bh)
-    return test_bit(BH_JDirty, ( struct buffer_head * ) &bh->b_state) ;
+    return test_bit(BH_JDirty, &((struct buffer_head *)bh)->b_state) ;
   else
     return 0 ;
 }
@@ -383,7 +384,7 @@ inline int buffer_journaled(const struct buffer_head *bh) {
 */ 
 inline int buffer_journal_new(const struct buffer_head *bh) {
   if (bh) 
-    return test_bit(BH_JNew, ( struct buffer_head * )&bh->b_state) ;
+    return test_bit(BH_JNew, &((struct buffer_head *)bh)->b_state) ;
   else
     return 0 ;
 }
@@ -506,14 +507,12 @@ int dump_journal_writers(void) {
 **
 */
 int reiserfs_in_journal(struct super_block *p_s_sb, kdev_t dev, 
-                        unsigned long bl, int size, int search_all, 
-			unsigned long *next_zero_bit) {
+                        int bmap_nr, int bit_nr, int size, int search_all, 
+			unsigned int *next_zero_bit) {
   struct reiserfs_journal_cnode *cn ;
   struct reiserfs_list_bitmap *jb ;
   int i ;
-  int bmap_nr = bl / (p_s_sb->s_blocksize << 3) ;
-  int bit_nr = bl % (p_s_sb->s_blocksize << 3) ;
-  int tmp_bit ;
+  unsigned long bl;
 
   *next_zero_bit = 0 ; /* always start this at zero. */
 
@@ -532,16 +531,16 @@ int reiserfs_in_journal(struct super_block *p_s_sb, kdev_t dev,
       PROC_INFO_INC( p_s_sb, journal.in_journal_bitmap );
       jb = SB_JOURNAL(p_s_sb)->j_list_bitmap + i ;
       if (jb->journal_list && jb->bitmaps[bmap_nr] &&
-          test_bit(bit_nr, jb->bitmaps[bmap_nr]->data)) {
-	tmp_bit = find_next_zero_bit((unsigned long *)
+          test_bit(bit_nr, (unsigned long *)jb->bitmaps[bmap_nr]->data)) {
+	*next_zero_bit = find_next_zero_bit((unsigned long *)
 	                             (jb->bitmaps[bmap_nr]->data),
 	                             p_s_sb->s_blocksize << 3, bit_nr+1) ; 
-	*next_zero_bit = bmap_nr * (p_s_sb->s_blocksize << 3) + tmp_bit ;
 	return 1 ;
       }
     }
   }
 
+  bl = bmap_nr * (p_s_sb->s_blocksize << 3) + bit_nr;
   /* is it in any old transactions? */
   if (search_all && (cn = get_journal_hash_dev(SB_JOURNAL(p_s_sb)->j_list_hash_table, dev,bl,size))) {
     return 1; 
@@ -1500,13 +1499,13 @@ static int journal_read_transaction(struct super_block *p_s_sb, unsigned long cu
   }
   trans_id = le32_to_cpu(desc->j_trans_id) ;
   /* now we know we've got a good transaction, and it was inside the valid time ranges */
-  log_blocks = kmalloc(le32_to_cpu(desc->j_len) * sizeof(struct buffer_head *), GFP_NOFS) ;
-  real_blocks = kmalloc(le32_to_cpu(desc->j_len) * sizeof(struct buffer_head *), GFP_NOFS) ;
+  log_blocks = reiserfs_kmalloc(le32_to_cpu(desc->j_len) * sizeof(struct buffer_head *), GFP_NOFS, p_s_sb) ;
+  real_blocks = reiserfs_kmalloc(le32_to_cpu(desc->j_len) * sizeof(struct buffer_head *), GFP_NOFS, p_s_sb) ;
   if (!log_blocks  || !real_blocks) {
     brelse(c_bh) ;
     brelse(d_bh) ;
-    kfree(log_blocks) ;
-    kfree(real_blocks) ;
+    reiserfs_kfree(log_blocks, le32_to_cpu(desc->j_len) * sizeof(struct buffer_head *), p_s_sb) ;
+    reiserfs_kfree(real_blocks, le32_to_cpu(desc->j_len) * sizeof(struct buffer_head *), p_s_sb) ;
     reiserfs_warning("journal-1169: kmalloc failed, unable to mount FS\n") ;
     return -1 ;
   }
@@ -1525,8 +1524,8 @@ static int journal_read_transaction(struct super_block *p_s_sb, unsigned long cu
       brelse_array(real_blocks, i) ;
       brelse(c_bh) ;
       brelse(d_bh) ;
-      kfree(log_blocks) ;
-      kfree(real_blocks) ;
+      reiserfs_kfree(log_blocks, le32_to_cpu(desc->j_len) * sizeof(struct buffer_head *), p_s_sb) ;
+      reiserfs_kfree(real_blocks, le32_to_cpu(desc->j_len) * sizeof(struct buffer_head *), p_s_sb) ;
       return -1 ;
     }
   }
@@ -1540,8 +1539,8 @@ static int journal_read_transaction(struct super_block *p_s_sb, unsigned long cu
       brelse_array(real_blocks, le32_to_cpu(desc->j_len)) ;
       brelse(c_bh) ;
       brelse(d_bh) ;
-      kfree(log_blocks) ;
-      kfree(real_blocks) ;
+      reiserfs_kfree(log_blocks, le32_to_cpu(desc->j_len) * sizeof(struct buffer_head *), p_s_sb) ;
+      reiserfs_kfree(real_blocks, le32_to_cpu(desc->j_len) * sizeof(struct buffer_head *), p_s_sb) ;
       return -1 ;
     }
     memcpy(real_blocks[i]->b_data, log_blocks[i]->b_data, real_blocks[i]->b_size) ;
@@ -1560,8 +1559,8 @@ static int journal_read_transaction(struct super_block *p_s_sb, unsigned long cu
       brelse_array(real_blocks + i, le32_to_cpu(desc->j_len) - i) ;
       brelse(c_bh) ;
       brelse(d_bh) ;
-      kfree(log_blocks) ;
-      kfree(real_blocks) ;
+      reiserfs_kfree(log_blocks, le32_to_cpu(desc->j_len) * sizeof(struct buffer_head *), p_s_sb) ;
+      reiserfs_kfree(real_blocks, le32_to_cpu(desc->j_len) * sizeof(struct buffer_head *), p_s_sb) ;
       return -1 ;
     }
     brelse(real_blocks[i]) ;
@@ -1577,8 +1576,8 @@ static int journal_read_transaction(struct super_block *p_s_sb, unsigned long cu
   SB_JOURNAL(p_s_sb)->j_trans_id = trans_id + 1;
   brelse(c_bh) ;
   brelse(d_bh) ;
-  kfree(log_blocks) ;
-  kfree(real_blocks) ;
+  reiserfs_kfree(log_blocks, le32_to_cpu(desc->j_len) * sizeof(struct buffer_head *), p_s_sb) ;
+  reiserfs_kfree(real_blocks, le32_to_cpu(desc->j_len) * sizeof(struct buffer_head *), p_s_sb) ;
   return 0 ;
 }
 
@@ -1591,6 +1590,41 @@ static int journal_read_transaction(struct super_block *p_s_sb, unsigned long cu
 **
 ** On exit, it sets things up so the first transaction will work correctly.
 */
+struct buffer_head * reiserfs_breada (kdev_t dev, int block, int bufsize,
+			    unsigned int max_block)
+{
+	struct buffer_head * bhlist[BUFNR];
+	unsigned int blocks = BUFNR;
+	struct buffer_head * bh;
+	int i, j;
+	
+	bh = getblk (dev, block, bufsize);
+	if (buffer_uptodate (bh))
+		return (bh);   
+		
+	if (block + BUFNR > max_block) {
+		blocks = max_block - block;
+	}
+	bhlist[0] = bh;
+	j = 1;
+	for (i = 1; i < blocks; i++) {
+		bh = getblk (dev, block + i, bufsize);
+		if (buffer_uptodate (bh)) {
+			brelse (bh);
+			break;
+		}
+		else bhlist[j++] = bh;
+	}
+	ll_rw_block (READ, j, bhlist);
+	for(i = 1; i < j; i++) 
+		brelse (bhlist[i]);
+	bh = bhlist[0];
+	wait_on_buffer (bh);
+	if (buffer_uptodate (bh))
+		return bh;
+	brelse (bh);
+	return NULL;
+}
 static int journal_read(struct super_block *p_s_sb) {
   struct reiserfs_journal_desc *desc ;
   unsigned long last_flush_trans_id = 0 ;
@@ -1660,7 +1694,8 @@ static int journal_read(struct super_block *p_s_sb) {
   ** all the valid transactions, and pick out the oldest.
   */
   while(continue_replay && cur_dblock < (reiserfs_get_journal_block(p_s_sb) + JOURNAL_BLOCK_COUNT)) {
-    d_bh = sb_bread(p_s_sb, cur_dblock) ;
+    d_bh = reiserfs_breada(p_s_sb->s_dev, cur_dblock, p_s_sb->s_blocksize,
+			   reiserfs_get_journal_block(p_s_sb) + JOURNAL_BLOCK_COUNT) ;
     ret = journal_transaction_is_valid(p_s_sb, d_bh, &oldest_invalid_trans_id, &newest_mount_id) ;
     if (ret == 1) {
       desc = (struct reiserfs_journal_desc *)d_bh->b_data ;
@@ -1773,11 +1808,12 @@ static void reiserfs_journal_commit_task_func(struct reiserfs_journal_commit_tas
   jl = SB_JOURNAL_LIST(ct->p_s_sb) + ct->jindex ;
 
   flush_commit_list(ct->p_s_sb, SB_JOURNAL_LIST(ct->p_s_sb) + ct->jindex, 1) ; 
-  if (jl->j_len > 0 && atomic_read(&(jl->j_nonzerolen)) > 0 && 
+
+  if (jl->j_len > 0 && atomic_read(&(jl->j_nonzerolen)) > 0 &&
       atomic_read(&(jl->j_commit_left)) == 0) {
     kupdate_one_transaction(ct->p_s_sb, jl) ;
   }
-  kfree(ct->self) ;
+  reiserfs_kfree(ct->self, sizeof(struct reiserfs_journal_commit_task), ct->p_s_sb) ;
 }
 
 static void setup_commit_task_arg(struct reiserfs_journal_commit_task *ct,
@@ -1801,7 +1837,7 @@ static void commit_flush_async(struct super_block *p_s_sb, int jindex) {
   /* using GFP_NOFS, GFP_KERNEL could try to flush inodes, which will try
   ** to start/join a transaction, which will deadlock
   */
-  ct = kmalloc(sizeof(struct reiserfs_journal_commit_task), GFP_NOFS) ;
+  ct = reiserfs_kmalloc(sizeof(struct reiserfs_journal_commit_task), GFP_NOFS, p_s_sb) ;
   if (ct) {
     setup_commit_task_arg(ct, p_s_sb, jindex) ;
     queue_task(&(ct->task), &reiserfs_commit_thread_tq);

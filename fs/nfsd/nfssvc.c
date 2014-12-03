@@ -66,7 +66,7 @@ struct list_head nfsd_list = LIST_HEAD_INIT(nfsd_list);
 /*
  * Maximum number of nfsd processes
  */
-#define	NFSD_MAXSERVS		128
+#define	NFSD_MAXSERVS		8192
 
 int
 nfsd_svc(unsigned short port, int nrservs)
@@ -87,6 +87,7 @@ nfsd_svc(unsigned short port, int nrservs)
 	if (error<0)
 		goto out;
 	if (!nfsd_serv) {
+		error = -ENOMEM;
 		nfsd_serv = svc_create(&nfsd_program, NFSD_BUFSIZE, NFSSVC_XDRSIZE);
 		if (nfsd_serv == NULL)
 			goto out;
@@ -94,7 +95,7 @@ nfsd_svc(unsigned short port, int nrservs)
 		if (error < 0)
 			goto failure;
 
-#if 0	/* Don't even pretend that TCP works. It doesn't. */
+#if CONFIG_NFSD_TCP
 		error = svc_makesock(nfsd_serv, IPPROTO_TCP, port);
 		if (error < 0)
 			goto failure;
@@ -188,7 +189,7 @@ nfsd(struct svc_rqst *rqstp)
 		 * recvfrom routine.
 		 */
 		while ((err = svc_recv(serv, rqstp,
-				       MAX_SCHEDULE_TIMEOUT)) == -EAGAIN)
+				       5*60*HZ)) == -EAGAIN)
 		    ;
 		if (err < 0)
 			break;

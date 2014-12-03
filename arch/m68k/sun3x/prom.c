@@ -96,7 +96,6 @@ static struct console sun3x_debug = {
 	sun3x_prom_write,  	/* write */
 	NULL,			/* read */
 	NULL,			/* device */
-	NULL,			/* wait_key */
 	NULL,			/* unblank */
 	NULL,			/* setup */
 	CON_PRINTBUFFER,
@@ -125,7 +124,8 @@ void sun3x_prom_init(void)
     idprom = &idprom_buffer;
 
     if((idprom->id_machtype & SM_ARCH_MASK) != SM_SUN3X) {
-	    printk("Warning: machine reports strange type %02x\n");
+	    printk("Warning: machine reports strange type %02x\n",
+		   idprom->id_machtype);
 	    printk("Pretending it's a 3/80, but very afraid...\n");
 	    idprom->id_machtype = SM_SUN3X | SM_3_80;
     }

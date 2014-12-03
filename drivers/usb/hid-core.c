@@ -47,15 +47,13 @@
 #include <linux/usb.h>
 
 #include "hid.h"
-#ifdef CONFIG_USB_HIDDEV
 #include <linux/hiddev.h>
-#endif
 
 /*
  * Version Information
  */
 
-#define DRIVER_VERSION "v1.8"
+#define DRIVER_VERSION "v1.8.1"
 #define DRIVER_AUTHOR "Andreas Gal, Vojtech Pavlik <vojtech@suse.cz>"
 #define DRIVER_DESC "USB HID support drivers"
 
@@ -204,16 +202,12 @@ static int hid_add_field(struct hid_parser *parser, unsigned report_type, unsign
 		return -1;
 	}
 
-	if (HID_MAIN_ITEM_VARIABLE & ~flags) { /* ARRAY */
-		if (parser->global.logical_maximum <= parser->global.logical_minimum) {
-			dbg("logical range invalid %d %d", parser->global.logical_minimum, parser->global.logical_maximum);
-			return -1;
-		}
-		usages = parser->local.usage_index;
-		/* Hint: we can assume usages < MAX_USAGE here */
-	} else { /* VARIABLE */
-		usages = parser->global.report_count;
+	if (parser->global.logical_maximum <= parser->global.logical_minimum) {
+		dbg("logical range invalid %d %d", parser->global.logical_minimum, parser->global.logical_maximum);
+		return -1;
 	}
+
+	usages = parser->local.usage_index;
 
 	offset = report->size;
 	report->size += parser->global.report_size * parser->global.report_count;
@@ -310,7 +304,10 @@ static int hid_parser_global(struct hid_parser *parser, struct hid_item *item)
 			return 0;
 
 		case HID_GLOBAL_ITEM_TAG_LOGICAL_MAXIMUM:
-			parser->global.logical_maximum = item_sdata(item);
+			if (parser->global.logical_minimum < 0)
+				parser->global.logical_maximum = item_sdata(item);
+			else
+				parser->global.logical_maximum = item_udata(item);
 			return 0;
 
 		case HID_GLOBAL_ITEM_TAG_PHYSICAL_MINIMUM:
@@ -318,7 +315,10 @@ static int hid_parser_global(struct hid_parser *parser, struct hid_item *item)
 			return 0;
 
 		case HID_GLOBAL_ITEM_TAG_PHYSICAL_MAXIMUM:
-			parser->global.physical_maximum = item_sdata(item);
+			if (parser->global.physical_minimum < 0)
+				parser->global.physical_maximum = item_sdata(item);
+			else
+				parser->global.physical_maximum = item_udata(item);
 			return 0;
 
 		case HID_GLOBAL_ITEM_TAG_UNIT_EXPONENT:
@@ -735,10 +735,8 @@ static void hid_process_event(struct hid_device *hid, struct hid_field *field, s
 	hid_dump_input(usage, value);
 	if (hid->claimed & HID_CLAIMED_INPUT)
 		hidinput_hid_event(hid, field, usage, value);
-#ifdef CONFIG_USB_HIDDEV
 	if (hid->claimed & HID_CLAIMED_HIDDEV)
 		hiddev_hid_event(hid, usage->hid, value);
-#endif
 }
 
 
@@ -897,6 +895,9 @@ void hid_read_report(struct hid_device *hid, struct hid_report *report)
 	u8 data[len];
 	int read;
 
+	if (hid->quirks & HID_QUIRK_NOGET)
+		return;
+
 	if ((read = usb_get_report(hid->dev, hid->ifnum, report->type + 1, report->id, data, len)) != len) {
 		dbg("reading report type %d id %d failed len %d read %d", report->type + 1, report->id, len, read);
 		return;
@@ -987,7 +988,7 @@ int hid_find_field(struct hid_device *hid, unsigned int type, unsigned int code,
 
 static int hid_submit_out(struct hid_device *hid)
 {
-	hid->urbout.transfer_buffer_length = le16_to_cpup(&hid->out[hid->outtail].dr.length);
+	hid->urbout.transfer_buffer_length = le16_to_cpup(&hid->out[hid->outtail].dr.wLength);
 	hid->urbout.transfer_buffer = hid->out[hid->outtail].buffer;
 	hid->urbout.setup_packet = (void *) &(hid->out[hid->outtail].dr);
 	hid->urbout.dev = hid->dev;
@@ -1017,8 +1018,8 @@ void hid_write_report(struct hid_device *hid, struct hid_report *report)
 {
 	hid_output_report(report, hid->out[hid->outhead].buffer);
 
-	hid->out[hid->outhead].dr.value = cpu_to_le16(0x200 | report->id);
-	hid->out[hid->outhead].dr.length = cpu_to_le16((report->size + 7) >> 3);
+	hid->out[hid->outhead].dr.wValue = cpu_to_le16(0x200 | report->id);
+	hid->out[hid->outhead].dr.wLength = cpu_to_le16((report->size + 7) >> 3);
 
 	hid->outhead = (hid->outhead + 1) & (HID_CONTROL_FIFO_SIZE - 1);
 
@@ -1064,8 +1065,8 @@ void hid_init_reports(struct hid_device *hid)
 			list = report_enum->report_list.next;
 			while (list != &report_enum->report_list) {
 				report = (struct hid_report *) list;
-				usb_set_idle(hid->dev, hid->ifnum, 0, report->id);
 				hid_read_report(hid, report);
+				usb_set_idle(hid->dev, hid->ifnum, 0, report->id);
 				list = list->next;
 			}
 		}
@@ -1073,19 +1074,47 @@ void hid_init_reports(struct hid_device *hid)
 }
 
 #define USB_VENDOR_ID_WACOM		0x056a
+#define USB_DEVICE_ID_WACOM_PENPARTNER	0x0000
 #define USB_DEVICE_ID_WACOM_GRAPHIRE	0x0010
 #define USB_DEVICE_ID_WACOM_INTUOS	0x0020
+#define USB_DEVICE_ID_WACOM_PL		0x0030
+#define USB_DEVICE_ID_WACOM_INTUOS2	0x0041
+
+#define USB_VENDOR_ID_ATEN		0x0557
+#define USB_DEVICE_ID_ATEN_UC100KM	0x2004
+#define USB_DEVICE_ID_ATEN_CS124U	0x2202
+#define USB_DEVICE_ID_ATEN_2PORTKVM	0x2204
+#define USB_DEVICE_ID_ATEN_4PORTKVM	0x2205
 
 struct hid_blacklist {
 	__u16 idVendor;
 	__u16 idProduct;
+	unsigned quirks;
 } hid_blacklist[] = {
-	{ USB_VENDOR_ID_WACOM, USB_DEVICE_ID_WACOM_GRAPHIRE },
-	{ USB_VENDOR_ID_WACOM, USB_DEVICE_ID_WACOM_INTUOS },
-	{ USB_VENDOR_ID_WACOM, USB_DEVICE_ID_WACOM_INTUOS + 1},
-	{ USB_VENDOR_ID_WACOM, USB_DEVICE_ID_WACOM_INTUOS + 2},
-	{ USB_VENDOR_ID_WACOM, USB_DEVICE_ID_WACOM_INTUOS + 3},
-	{ USB_VENDOR_ID_WACOM, USB_DEVICE_ID_WACOM_INTUOS + 4},
+	{ USB_VENDOR_ID_WACOM, USB_DEVICE_ID_WACOM_PENPARTNER, HID_QUIRK_IGNORE },
+	{ USB_VENDOR_ID_WACOM, USB_DEVICE_ID_WACOM_GRAPHIRE, HID_QUIRK_IGNORE },
+	{ USB_VENDOR_ID_WACOM, USB_DEVICE_ID_WACOM_GRAPHIRE + 1, HID_QUIRK_IGNORE },
+	{ USB_VENDOR_ID_WACOM, USB_DEVICE_ID_WACOM_GRAPHIRE + 2, HID_QUIRK_IGNORE },
+	{ USB_VENDOR_ID_WACOM, USB_DEVICE_ID_WACOM_INTUOS, HID_QUIRK_IGNORE },
+	{ USB_VENDOR_ID_WACOM, USB_DEVICE_ID_WACOM_INTUOS + 1, HID_QUIRK_IGNORE },
+	{ USB_VENDOR_ID_WACOM, USB_DEVICE_ID_WACOM_INTUOS + 2, HID_QUIRK_IGNORE },
+	{ USB_VENDOR_ID_WACOM, USB_DEVICE_ID_WACOM_INTUOS + 3, HID_QUIRK_IGNORE },
+	{ USB_VENDOR_ID_WACOM, USB_DEVICE_ID_WACOM_INTUOS + 4, HID_QUIRK_IGNORE },
+	{ USB_VENDOR_ID_WACOM, USB_DEVICE_ID_WACOM_PL, HID_QUIRK_IGNORE },
+	{ USB_VENDOR_ID_WACOM, USB_DEVICE_ID_WACOM_PL + 1, HID_QUIRK_IGNORE },
+	{ USB_VENDOR_ID_WACOM, USB_DEVICE_ID_WACOM_PL + 2, HID_QUIRK_IGNORE },
+	{ USB_VENDOR_ID_WACOM, USB_DEVICE_ID_WACOM_PL + 3, HID_QUIRK_IGNORE },
+	{ USB_VENDOR_ID_WACOM, USB_DEVICE_ID_WACOM_PL + 4, HID_QUIRK_IGNORE },
+	{ USB_VENDOR_ID_WACOM, USB_DEVICE_ID_WACOM_PL + 5, HID_QUIRK_IGNORE },
+	{ USB_VENDOR_ID_WACOM, USB_DEVICE_ID_WACOM_INTUOS2, HID_QUIRK_IGNORE },
+	{ USB_VENDOR_ID_WACOM, USB_DEVICE_ID_WACOM_INTUOS2 + 1, HID_QUIRK_IGNORE },
+	{ USB_VENDOR_ID_WACOM, USB_DEVICE_ID_WACOM_INTUOS2 + 2, HID_QUIRK_IGNORE },
+	{ USB_VENDOR_ID_WACOM, USB_DEVICE_ID_WACOM_INTUOS2 + 3, HID_QUIRK_IGNORE },
+	{ USB_VENDOR_ID_WACOM, USB_DEVICE_ID_WACOM_INTUOS2 + 4, HID_QUIRK_IGNORE },
+	{ USB_VENDOR_ID_ATEN, USB_DEVICE_ID_ATEN_UC100KM, HID_QUIRK_NOGET },
+	{ USB_VENDOR_ID_ATEN, USB_DEVICE_ID_ATEN_CS124U, HID_QUIRK_NOGET },
+	{ USB_VENDOR_ID_ATEN, USB_DEVICE_ID_ATEN_2PORTKVM, HID_QUIRK_NOGET },
+	{ USB_VENDOR_ID_ATEN, USB_DEVICE_ID_ATEN_4PORTKVM, HID_QUIRK_NOGET },
 	{ 0, 0 }
 };
 
@@ -1094,13 +1123,17 @@ static struct hid_device *usb_hid_configure(struct usb_device *dev, int ifnum)
 	struct usb_interface_descriptor *interface = dev->actconfig->interface[ifnum].altsetting + 0;
 	struct hid_descriptor *hdesc;
 	struct hid_device *hid;
-	unsigned rsize = 0;
+	unsigned quirks = 0, rsize = 0;
 	char *buf;
 	int n;
 
 	for (n = 0; hid_blacklist[n].idVendor; n++)
 		if ((hid_blacklist[n].idVendor == dev->descriptor.idVendor) &&
-			(hid_blacklist[n].idProduct == dev->descriptor.idProduct)) return NULL;
+			(hid_blacklist[n].idProduct == dev->descriptor.idProduct))
+				quirks = hid_blacklist[n].quirks;
+
+	if (quirks & HID_QUIRK_IGNORE)
+		return NULL;
 
 	if (usb_get_extra_descriptor(interface, USB_DT_HID, &hdesc) && ((!interface->bNumEndpoints) ||
 		usb_get_extra_descriptor(&interface->endpoint[0], USB_DT_HID, &hdesc))) {
@@ -1138,6 +1171,8 @@ static struct hid_device *usb_hid_configure(struct usb_device *dev, int ifnum)
 		}
 	}
 
+	hid->quirks = quirks;
+
 	for (n = 0; n < interface->bNumEndpoints; n++) {
 
 		struct usb_endpoint_descriptor *endpoint = &interface->endpoint[n];
@@ -1169,9 +1204,9 @@ static struct hid_device *usb_hid_configure(struct usb_device *dev, int ifnum)
 	hid->ifnum = interface->bInterfaceNumber;
 
 	for (n = 0; n < HID_CONTROL_FIFO_SIZE; n++) {
-		hid->out[n].dr.requesttype = USB_TYPE_CLASS | USB_RECIP_INTERFACE;
-		hid->out[n].dr.request = USB_REQ_SET_REPORT;
-		hid->out[n].dr.index = cpu_to_le16(hid->ifnum);
+		hid->out[n].dr.bRequestType = USB_TYPE_CLASS | USB_RECIP_INTERFACE;
+		hid->out[n].dr.bRequest = USB_REQ_SET_REPORT;
+		hid->out[n].dr.wIndex = cpu_to_le16(hid->ifnum);
 	}
 
 	hid->name[0] = 0;
@@ -1221,10 +1256,8 @@ static void* hid_probe(struct usb_device *dev, unsigned int ifnum,
 
 	if (!hidinput_connect(hid))
 		hid->claimed |= HID_CLAIMED_INPUT;
-#ifdef CONFIG_USB_HIDDEV
 	if (!hiddev_connect(hid))
 		hid->claimed |= HID_CLAIMED_HIDDEV;
-#endif
 	printk(KERN_INFO);
 
 	if (hid->claimed & HID_CLAIMED_INPUT)
@@ -1254,13 +1287,10 @@ static void hid_disconnect(struct usb_device *dev, void *ptr)
 
 	dbg("cleanup called");
 	usb_unlink_urb(&hid->urb);
-
 	if (hid->claimed & HID_CLAIMED_INPUT)
 		hidinput_disconnect(hid);
-#ifdef CONFIG_USB_HIDDEV
 	if (hid->claimed & HID_CLAIMED_HIDDEV)
 		hiddev_disconnect(hid);
-#endif
 	hid_free_device(hid);
 }
 
@@ -1281,9 +1311,7 @@ static struct usb_driver hid_driver = {
 
 static int __init hid_init(void)
 {
-#ifdef CONFIG_USB_HIDDEV
 	hiddev_init();
-#endif
 	usb_register(&hid_driver);
 	info(DRIVER_VERSION " " DRIVER_AUTHOR);
 	info(DRIVER_DESC);
@@ -1293,9 +1321,7 @@ static int __init hid_init(void)
 
 static void __exit hid_exit(void)
 {
-#ifdef CONFIG_USB_HIDDEV
 	hiddev_exit();
-#endif
 	usb_deregister(&hid_driver);
 }
 

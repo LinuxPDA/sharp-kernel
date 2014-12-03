@@ -44,6 +44,7 @@
 #include <linux/iobuf.h>
 #include <linux/highmem.h>
 #include <linux/pagemap.h>
+#include <linux/module.h>
 
 #include <asm/pgalloc.h>
 #include <asm/uaccess.h>
@@ -51,6 +52,7 @@
 
 unsigned long max_mapnr;
 unsigned long num_physpages;
+unsigned long num_mappedpages;
 void * high_memory;
 struct page *highmem_start_page;
 
@@ -524,6 +526,8 @@ bad_page:
 	goto out;
 }
 
+EXPORT_SYMBOL(get_user_pages);
+
 /*
  * Force in an entire range of pages from the current process's user VA,
  * and pin them in physical memory.  
@@ -582,6 +586,8 @@ int map_user_kiobuf(int rw, struct kiobuf *iobuf, unsigned long va, size_t len)
  * occurs, the number of bytes read into memory may be less than the
  * size of the kiobuf, so we have to stop marking pages dirty once the
  * requested byte count has been reached.
+ *
+ * Must be called from process context - set_page_dirty() takes VFS locks.
  */
 
 void mark_dirty_kiobuf(struct kiobuf *iobuf, int bytes)
@@ -599,7 +605,7 @@ void mark_dirty_kiobuf(struct kiobuf *iobuf, int bytes)
 		page = iobuf->maplist[index];
 		
 		if (!PageReserved(page))
-			SetPageDirty(page);
+			set_page_dirty(page);
 
 		remaining -= (PAGE_SIZE - offset);
 		offset = 0;
@@ -1466,4 +1472,25 @@ int make_pages_present(unsigned long addr, unsigned long end)
 	ret = get_user_pages(current, current->mm, addr,
 			len, write, 0, NULL, NULL);
 	return ret == len ? 0 : -1;
+}
+
+struct page * vmalloc_to_page(void * vmalloc_addr)
+{
+	unsigned long addr = (unsigned long) vmalloc_addr;
+	struct page *page = NULL;
+	pmd_t *pmd;
+	pte_t *pte;
+	pgd_t *pgd;
+	
+	pgd = pgd_offset_k(addr);
+	if (!pgd_none(*pgd)) {
+		pmd = pmd_offset(pgd, addr);
+		if (!pmd_none(*pmd)) {
+			pte = pte_offset(pmd, addr);
+			if (pte_present(*pte)) {
+				page = pte_page(*pte);
+			}
+		}
+	}
+	return page;
 }

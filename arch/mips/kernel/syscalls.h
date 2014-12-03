@@ -3,7 +3,7 @@
  * License.  See the file "COPYING" in the main directory of this archive
  * for more details.
  *
- * Copyright (C) 1995, 96, 97, 98, 99, 2000 by Ralf Baechle
+ * Copyright (C) 1995, 96, 97, 98, 99, 2000, 2001, 2002 by Ralf Baechle
  */
 
 /*
@@ -20,7 +20,7 @@ SYS(sys_fork, 0)
 SYS(sys_read, 3)
 SYS(sys_write, 3)
 SYS(sys_open, 3)				/* 4005 */
-SYS(sys_close, 3)
+SYS(sys_close, 1)
 SYS(sys_waitpid, 3)
 SYS(sys_creat, 2)
 SYS(sys_link, 2)
@@ -221,7 +221,7 @@ SYS(sys_getcwd, 2)
 SYS(sys_capget, 2)
 SYS(sys_capset, 2)				/* 4205 */
 SYS(sys_sigaltstack, 0)
-SYS(sys_sendfile, 3)
+SYS(sys_sendfile, 4)
 SYS(sys_ni_syscall, 0)
 SYS(sys_ni_syscall, 0)
 SYS(sys_mmap2, 6)				/* 4210 */
@@ -235,3 +235,23 @@ SYS(sys_mincore, 3)
 SYS(sys_madvise, 3)
 SYS(sys_getdents64, 3)
 SYS(sys_fcntl64, 3)				/* 4220 */
+SYS(sys_ni_syscall, 0)
+SYS(sys_gettid, 0)
+SYS(sys_readahead, 5)
+SYS(sys_setxattr, 5)
+SYS(sys_lsetxattr, 5)				/* 4225 */
+SYS(sys_fsetxattr, 5)
+SYS(sys_getxattr, 4)
+SYS(sys_lgetxattr, 4)
+SYS(sys_fgetxattr, 4)
+SYS(sys_listxattr, 3)				/* 4230 */
+SYS(sys_llistxattr, 3)
+SYS(sys_flistxattr, 3)
+SYS(sys_removexattr, 2)
+SYS(sys_lremovexattr, 2)
+SYS(sys_fremovexattr, 2)			/* 4235 */
+SYS(sys_tkill, 2)
+SYS(sys_ni_syscall, 0)				/* res. for sendfile64 */
+SYS(sys_ni_syscall, 0)				/* res. for futex */
+SYS(sys_ni_syscall, 0)				/* res. for sched_setaffinity */
+SYS(sys_ni_syscall, 0)				/* 4240 res. for sched_getaffinity */

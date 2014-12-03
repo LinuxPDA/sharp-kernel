@@ -1,6 +1,26 @@
 /*
  *      u14-34f.c - Low-level driver for UltraStor 14F/34F SCSI host adapters.
  *
+ *      25 Jun 2002 Rev. 6.70 for linux 2.4.19
+ *        + Fixed endian-ness problem due to bitfields.
+ *
+ *      21 Feb 2002 Rev. 6.52 for linux 2.4.18
+ *        + Backport from rev. 7.22 (use io_request_lock).
+ *
+ *      20 Feb 2002 Rev. 7.22 for linux 2.5.5
+ *        + Remove any reference to virt_to_bus().
+ *        + Fix pio hang while detecting multiple HBAs.
+ *
+ *      01 Jan 2002 Rev. 7.20 for linux 2.5.1
+ *        + Use the dynamic DMA mapping API.
+ *
+ *      19 Dec 2001 Rev. 7.02 for linux 2.5.1
+ *        + Use SCpnt->sc_data_direction if set.
+ *        + Use sglist.page instead of sglist.address.
+ *
+ *      11 Dec 2001 Rev. 7.00 for linux 2.5.1
+ *        + Use host->host_lock instead of io_request_lock.
+ *
  *       1 May 2001 Rev. 6.05 for linux 2.4.4
  *        + Fix data transfer direction for opcode SEND_CUE_SHEET (0x5d)
  *
@@ -20,7 +40,7 @@
  *        + When loaded as a module, accepts the new parameter boot_options
  *          which value is a string with the same format of the kernel boot
  *          command line options. A valid example is:
- *          modprobe u14-34f boot_options=\"0x230,0x340,lc:y,mq:4\"
+ *          modprobe u14-34f 'boot_options="0x230,0x340,lc:y,mq:4"'
  *
  *      22 Jul 1999 Rev. 5.00 for linux 2.2.10 and 2.3.11
  *        + Removed pre-2.2 source code compatibility.
@@ -183,7 +203,7 @@
  *
  *          Multiple U14F and/or U34F host adapters are supported.
  *
- *  Copyright (C) 1994-2001 Dario Ballabio (ballabio_dario@emc.com)
+ *  Copyright (C) 1994-2002 Dario Ballabio (ballabio_dario@emc.com)
  *
  *  Alternate email: dario.ballabio@inwind.it, dario.ballabio@tiscalinet.it
  *
@@ -334,7 +354,6 @@
  *  the driver sets host->wish_block = TRUE for all ISA boards.
  */
 
-#include <linux/module.h>
 #include <linux/version.h>
 
 #ifndef LinuxVersionCode
@@ -342,6 +361,9 @@
 #endif
 
 #define MAX_INT_PARAM 10
+
+#if defined(MODULE)
+#include <linux/module.h>
 
 MODULE_PARM(boot_options, "s");
 MODULE_PARM(io_port, "1-" __MODULE_STRING(MAX_INT_PARAM) "i");
@@ -351,6 +373,8 @@ MODULE_PARM(link_statistics, "i");
 MODULE_PARM(max_queue_depth, "i");
 MODULE_PARM(ext_tran, "i");
 MODULE_AUTHOR("Dario Ballabio");
+
+#endif
 
 #include <linux/string.h>
 #include <linux/sched.h>
@@ -370,16 +394,14 @@ MODULE_AUTHOR("Dario Ballabio");
 #include "u14-34f.h"
 #include <linux/stat.h>
 #include <linux/config.h>
+#include <linux/pci.h>
 #include <linux/init.h>
 #include <linux/ctype.h>
 #include <linux/spinlock.h>
 
-#define SPIN_FLAGS unsigned long spin_flags;
-#define SPIN_LOCK spin_lock_irq(&io_request_lock);
-#define SPIN_LOCK_SAVE spin_lock_irqsave(&io_request_lock, spin_flags);
-#define SPIN_UNLOCK spin_unlock_irq(&io_request_lock);
-#define SPIN_UNLOCK_RESTORE \
-                  spin_unlock_irqrestore(&io_request_lock, spin_flags);
+#if !defined(__BIG_ENDIAN_BITFIELD) && !defined(__LITTLE_ENDIAN_BITFIELD)
+#error "Adjust your <asm/byteorder.h> defines"
+#endif
 
 /* Values for the PRODUCT_ID ports for the 14/34F */
 #define PRODUCT_ID1  0x56
@@ -447,7 +469,7 @@ MODULE_AUTHOR("Dario Ballabio");
 #define REG_CONFIG2       7
 #define REG_OGM           8
 #define REG_ICM           12
-#define REGION_SIZE       13
+#define REGION_SIZE       13UL
 #define BSY_ASSERTED      0x01
 #define IRQ_ASSERTED      0x01
 #define CMD_RESET         0xc0
@@ -469,29 +491,44 @@ struct sg_list {
 
 /* MailBox SCSI Command Packet */
 struct mscp {
-   unsigned char opcode: 3;             /* type of command */
-   unsigned char xdir: 2;               /* data transfer direction */
-   unsigned char dcn: 1;                /* disable disconnect */
-   unsigned char ca: 1;                 /* use cache (if available) */
-   unsigned char sg: 1;                 /* scatter/gather operation */
-   unsigned char target: 3;             /* SCSI target id */
-   unsigned char channel: 2;            /* SCSI channel number */
-   unsigned char lun: 3;                /* SCSI logical unit number */
+
+#if defined(__BIG_ENDIAN_BITFIELD)
+   unsigned char sg:1, ca:1, dcn:1, xdir:2, opcode:3;
+   unsigned char lun: 3, channel:2, target:3;
+#else
+   unsigned char opcode: 3,             /* type of command */
+                 xdir: 2,               /* data transfer direction */
+                 dcn: 1,                /* disable disconnect */
+                 ca: 1,                 /* use cache (if available) */
+                 sg: 1;                 /* scatter/gather operation */
+   unsigned char target: 3,             /* SCSI target id */
+                 channel: 2,            /* SCSI channel number */
+                 lun: 3;                /* SCSI logical unit number */
+#endif
+
    unsigned int data_address PACKED;    /* transfer data pointer */
    unsigned int data_len PACKED;        /* length in bytes */
    unsigned int link_address PACKED;    /* for linking command chains */
    unsigned char clink_id;              /* identifies command in chain */
    unsigned char use_sg;                /* (if sg is set) 8 bytes per list */
    unsigned char sense_len;
-   unsigned char scsi_cdbs_len;         /* 6, 10, or 12 */
-   unsigned char scsi_cdbs[12];         /* SCSI commands */
+   unsigned char cdb_len;               /* 6, 10, or 12 */
+   unsigned char cdb[12];               /* SCSI Command Descriptor Block */
    unsigned char adapter_status;        /* non-zero indicates HA error */
    unsigned char target_status;         /* non-zero indicates target error */
    unsigned int sense_addr PACKED;
+
+   /* Additional fields begin here. */
    Scsi_Cmnd *SCpnt;
-   unsigned int index;                  /* cp index */
-   struct sg_list *sglist;
+   unsigned int cpp_index;              /* cp index */
+
+   /* All the cp structure is zero filled by queuecommand except the
+      following CP_TAIL_SIZE bytes, initialized by detect */
+   dma_addr_t cp_dma_addr; /* dma handle for this cp structure */
+   struct sg_list *sglist; /* pointer to the allocated SG list */
    };
+
+#define CP_TAIL_SIZE (sizeof(struct sglist *) + sizeof(dma_addr_t))
 
 struct hostdata {
    struct mscp cp[MAX_MAILBOXES];       /* Mailboxes for this board */
@@ -500,18 +537,16 @@ struct hostdata {
    unsigned int iocount;                /* Total i/o done for this board */
    int board_number;                    /* Number of this board */
    char board_name[16];                 /* Name of this board */
-   char board_id[256];                  /* data from INQUIRY on this board */
    int in_reset;                        /* True if board is doing a reset */
    int target_to[MAX_TARGET][MAX_CHANNEL]; /* N. of timeout errors on target */
    int target_redo[MAX_TARGET][MAX_CHANNEL]; /* If TRUE redo i/o on target */
    unsigned int retries;                /* Number of internal retries */
    unsigned long last_retried_pid;      /* Pid of last retried command */
    unsigned char subversion;            /* Bus type, either ISA or ESA */
+   struct pci_dev *pdev;                /* Always NULL */
    unsigned char heads;
    unsigned char sectors;
-
-   /* slot != 0 for the U24F, slot == 0 for both the U14F and U34F */
-   unsigned char slot;
+   char board_id[256];                  /* data from INQUIRY on this board */
    };
 
 static struct Scsi_Host *sh[MAX_BOARDS + 1];
@@ -537,21 +572,9 @@ static unsigned long io_port[] = {
 #define HD(board) ((struct hostdata *) &sh[board]->hostdata)
 #define BN(board) (HD(board)->board_name)
 
-#define SWAP_BYTE(x) ((unsigned long)( \
-        (((unsigned long)(x) & 0x000000ffU) << 24) | \
-        (((unsigned long)(x) & 0x0000ff00U) <<  8) | \
-        (((unsigned long)(x) & 0x00ff0000U) >>  8) | \
-        (((unsigned long)(x) & 0xff000000U) >> 24)))
-
-#if defined(__BIG_ENDIAN)
-#define H2DEV(x) SWAP_BYTE(x)
-#else
-#define H2DEV(x) (x)
-#endif
-
-#define DEV2H(x) H2DEV(x)
-#define V2DEV(addr) ((addr) ? H2DEV(virt_to_bus((void *)addr)) : 0)
-#define DEV2V(addr) ((addr) ? DEV2H(bus_to_virt((unsigned long)addr)) : 0)
+/* Device is Little Endian */
+#define H2DEV(x) cpu_to_le32(x)
+#define DEV2H(x) le32_to_cpu(x)
 
 static void do_interrupt_handler(int, void *, struct pt_regs *);
 static void flush_dev(Scsi_Device *, unsigned long, unsigned int, unsigned int);
@@ -645,16 +668,21 @@ static inline int wait_on_busy(unsigned long iobase, unsigned int loop) {
 
 static int board_inquiry(unsigned int j) {
    struct mscp *cpp;
+   dma_addr_t id_dma_addr;
    unsigned int time, limit = 0;
 
+   id_dma_addr = pci_map_single(HD(j)->pdev, HD(j)->board_id,
+                    sizeof(HD(j)->board_id), PCI_DMA_BIDIRECTIONAL);
    cpp = &HD(j)->cp[0];
-   memset(cpp, 0, sizeof(struct mscp));
+   cpp->cp_dma_addr = pci_map_single(HD(j)->pdev, cpp, sizeof(struct mscp),
+                                     PCI_DMA_BIDIRECTIONAL);
+   memset(cpp, 0, sizeof(struct mscp) - CP_TAIL_SIZE);
    cpp->opcode = OP_HOST_ADAPTER;
    cpp->xdir = DTD_IN;
-   cpp->data_address = V2DEV(HD(j)->board_id);
+   cpp->data_address = H2DEV(id_dma_addr);
    cpp->data_len = H2DEV(sizeof(HD(j)->board_id));
-   cpp->scsi_cdbs_len = 6;
-   cpp->scsi_cdbs[0] = HA_CMD_INQUIRY;
+   cpp->cdb_len = 6;
+   cpp->cdb[0] = HA_CMD_INQUIRY;
 
    if (wait_on_busy(sh[j]->io_port, MAXLOOP)) {
       printk("%s: board_inquiry, adapter busy.\n", BN(j));
@@ -667,15 +695,15 @@ static int board_inquiry(unsigned int j) {
    outb(CMD_CLR_INTR, sh[j]->io_port + REG_SYS_INTR);
 
    /* Store pointer in OGM address bytes */
-   outl(V2DEV(cpp), sh[j]->io_port + REG_OGM);
+   outl(H2DEV(cpp->cp_dma_addr), sh[j]->io_port + REG_OGM);
 
    /* Issue OGM interrupt */
    outb(CMD_OGM_INTR, sh[j]->io_port + REG_LCL_INTR);
 
-   SPIN_UNLOCK
+   spin_unlock_irq(&io_request_lock);
    time = jiffies;
    while ((jiffies - time) < HZ && limit++ < 20000) udelay(100L);
-   SPIN_LOCK
+   spin_lock_irq(&io_request_lock);
 
    if (cpp->adapter_status || HD(j)->cp_stat[0] != FREE) {
       HD(j)->cp_stat[0] = FREE;
@@ -683,6 +711,10 @@ static int board_inquiry(unsigned int j) {
       return TRUE;
       }
 
+   pci_unmap_single(HD(j)->pdev, cpp->cp_dma_addr, sizeof(struct mscp),
+                    PCI_DMA_BIDIRECTIONAL);
+   pci_unmap_single(HD(j)->pdev, id_dma_addr, sizeof(HD(j)->board_id),
+                    PCI_DMA_BIDIRECTIONAL);
    return FALSE;
 }
 
@@ -714,17 +746,27 @@ static inline int port_detect \
            };
 
    struct config_1 {
-      unsigned char bios_segment: 3;
-      unsigned char removable_disks_as_fixed: 1;
-      unsigned char interrupt: 2;
-      unsigned char dma_channel: 2;
+
+#if defined(__BIG_ENDIAN_BITFIELD)
+      unsigned char dma_channel: 2, interrupt:2,
+                    removable_disks_as_fixed:1, bios_segment: 3;
+#else
+      unsigned char bios_segment: 3, removable_disks_as_fixed: 1,
+                    interrupt: 2, dma_channel: 2;
+#endif
+
       } config_1;
 
    struct config_2 {
-      unsigned char ha_scsi_id: 3;
-      unsigned char mapping_mode: 2;
-      unsigned char bios_drive_number: 1;
-      unsigned char tfr_port: 2;
+
+#if defined(__BIG_ENDIAN_BITFIELD)
+      unsigned char tfr_port: 2, bios_drive_number: 1,
+                    mapping_mode: 2, ha_scsi_id: 3;
+#else
+      unsigned char ha_scsi_id: 3, mapping_mode: 2,
+                    bios_drive_number: 1, tfr_port: 2;
+#endif
+
       } config_2;
 
    char name[16];
@@ -820,6 +862,7 @@ static inline int port_detect \
    HD(j)->heads = mapping_table[config_2.mapping_mode].heads;
    HD(j)->sectors = mapping_table[config_2.mapping_mode].sectors;
    HD(j)->subversion = subversion;
+   HD(j)->pdev = NULL;
    HD(j)->board_number = j;
 
    if (have_old_firmware) sh[j]->sg_tablesize = MAX_SAFE_SGLIST;
@@ -834,14 +877,14 @@ static inline int port_detect \
       unsigned long flags;
       scsi_register_blocked_host(sh[j]);
       sh[j]->unchecked_isa_dma = TRUE;
-      
+
       flags=claim_dma_lock();
       disable_dma(dma_channel);
       clear_dma_ff(dma_channel);
       set_dma_mode(dma_channel, DMA_MODE_CASCADE);
       enable_dma(dma_channel);
       release_dma_lock(flags);
-      
+
       sh[j]->dma_channel = dma_channel;
       sprintf(BN(j), "U14F%d", j);
       bus_type = "ISA";
@@ -867,6 +910,10 @@ static inline int port_detect \
    else                       sprintf(dma_name, "DMA %u", dma_channel);
 
    for (i = 0; i < sh[j]->can_queue; i++)
+      HD(j)->cp[i].cp_dma_addr = pci_map_single(HD(j)->pdev,
+            &HD(j)->cp[i], sizeof(struct mscp), PCI_DMA_BIDIRECTIONAL);
+
+   for (i = 0; i < sh[j]->can_queue; i++)
       if (! ((&HD(j)->cp[i])->sglist = kmalloc(
             sh[j]->sg_tablesize * sizeof(struct sg_list),
             (sh[j]->unchecked_isa_dma ? GFP_DMA : 0) | GFP_ATOMIC))) {
@@ -881,7 +928,7 @@ static inline int port_detect \
    if (max_queue_depth < MAX_CMD_PER_LUN) max_queue_depth = MAX_CMD_PER_LUN;
 
    if (j == 0) {
-      printk("UltraStor 14F/34F: Copyright (C) 1994-2001 Dario Ballabio.\n");
+      printk("UltraStor 14F/34F: Copyright (C) 1994-2002 Dario Ballabio.\n");
       printk("%s config options -> of:%c, lc:%c, mq:%d, et:%c.\n",
              driver_name, YESNO(have_old_firmware), YESNO(linked_comm),
              max_queue_depth, YESNO(ext_tran));
@@ -951,8 +998,7 @@ static int option_setup(char *str) {
    return 1;
 }
 
-int u14_34f_detect(Scsi_Host_Template *tpnt)
-{
+int u14_34f_detect(Scsi_Host_Template *tpnt) {
    unsigned int j = 0, k;
 
    tpnt->proc_name = "u14-34f";
@@ -980,26 +1026,98 @@ int u14_34f_detect(Scsi_Host_Template *tpnt)
    return j;
 }
 
-static inline void build_sg_list(struct mscp *cpp, Scsi_Cmnd *SCpnt) {
-   unsigned int k, data_len = 0;
+static inline void map_dma(unsigned int i, unsigned int j) {
+   unsigned int data_len = 0;
+   unsigned int k, count, pci_dir;
    struct scatterlist *sgpnt;
+   struct mscp *cpp;
+   Scsi_Cmnd *SCpnt;
+
+   cpp = &HD(j)->cp[i]; SCpnt = cpp->SCpnt;
+   pci_dir = scsi_to_pci_dma_dir(SCpnt->sc_data_direction);
+
+   if (SCpnt->sense_buffer)
+      cpp->sense_addr = H2DEV(pci_map_single(HD(j)->pdev, SCpnt->sense_buffer,
+                           sizeof SCpnt->sense_buffer, PCI_DMA_FROMDEVICE));
+
+   cpp->sense_len = sizeof SCpnt->sense_buffer;
+
+   if (!SCpnt->use_sg) {
+
+      /* If we get here with PCI_DMA_NONE, pci_map_single triggers a BUG() */
+      if (!SCpnt->request_bufflen) pci_dir = PCI_DMA_BIDIRECTIONAL;
+
+      if (SCpnt->request_buffer)
+         cpp->data_address = H2DEV(pci_map_single(HD(j)->pdev,
+                  SCpnt->request_buffer, SCpnt->request_bufflen, pci_dir));
+
+      cpp->data_len = H2DEV(SCpnt->request_bufflen);
+      return;
+      }
 
    sgpnt = (struct scatterlist *) SCpnt->request_buffer;
+   count = pci_map_sg(HD(j)->pdev, sgpnt, SCpnt->use_sg, pci_dir);
 
-   for (k = 0; k < SCpnt->use_sg; k++) {
-      cpp->sglist[k].address = V2DEV(sgpnt[k].address);
-      cpp->sglist[k].num_bytes = H2DEV(sgpnt[k].length);
+   for (k = 0; k < count; k++) {
+      cpp->sglist[k].address = H2DEV(sg_dma_address(&sgpnt[k]));
+      cpp->sglist[k].num_bytes = H2DEV(sg_dma_len(&sgpnt[k]));
       data_len += sgpnt[k].length;
       }
 
+   cpp->sg = TRUE;
    cpp->use_sg = SCpnt->use_sg;
-   cpp->data_address = V2DEV(cpp->sglist);
+   cpp->data_address = H2DEV(pci_map_single(HD(j)->pdev, cpp->sglist,
+                             SCpnt->use_sg * sizeof(struct sg_list), pci_dir));
    cpp->data_len = H2DEV(data_len);
 }
 
-static inline int do_qcomm(Scsi_Cmnd *SCpnt, void (*done)(Scsi_Cmnd *)) {
-   unsigned int i, j, k;
+static void unmap_dma(unsigned int i, unsigned int j) {
+   unsigned int pci_dir;
    struct mscp *cpp;
+   Scsi_Cmnd *SCpnt;
+
+   cpp = &HD(j)->cp[i]; SCpnt = cpp->SCpnt;
+   pci_dir = scsi_to_pci_dma_dir(SCpnt->sc_data_direction);
+
+   if (DEV2H(cpp->sense_addr))
+      pci_unmap_single(HD(j)->pdev, DEV2H(cpp->sense_addr),
+                       DEV2H(cpp->sense_len), PCI_DMA_FROMDEVICE);
+
+   if (SCpnt->use_sg)
+      pci_unmap_sg(HD(j)->pdev, SCpnt->request_buffer, SCpnt->use_sg, pci_dir);
+
+   if (!DEV2H(cpp->data_len)) pci_dir = PCI_DMA_BIDIRECTIONAL;
+
+   if (DEV2H(cpp->data_address))
+      pci_unmap_single(HD(j)->pdev, DEV2H(cpp->data_address),
+                       DEV2H(cpp->data_len), pci_dir);
+}
+
+static void sync_dma(unsigned int i, unsigned int j) {
+   unsigned int pci_dir;
+   struct mscp *cpp;
+   Scsi_Cmnd *SCpnt;
+
+   cpp = &HD(j)->cp[i]; SCpnt = cpp->SCpnt;
+   pci_dir = scsi_to_pci_dma_dir(SCpnt->sc_data_direction);
+
+   if (DEV2H(cpp->sense_addr))
+      pci_dma_sync_single(HD(j)->pdev, DEV2H(cpp->sense_addr),
+                          DEV2H(cpp->sense_len), PCI_DMA_FROMDEVICE);
+
+   if (SCpnt->use_sg)
+      pci_dma_sync_sg(HD(j)->pdev, SCpnt->request_buffer,
+                         SCpnt->use_sg, pci_dir);
+
+   if (!DEV2H(cpp->data_len)) pci_dir = PCI_DMA_BIDIRECTIONAL;
+
+   if (DEV2H(cpp->data_address))
+      pci_dma_sync_single(HD(j)->pdev, DEV2H(cpp->data_address),
+                       DEV2H(cpp->data_len), pci_dir);
+}
+
+static inline void scsi_to_dev_dir(unsigned int i, unsigned int j) {
+   unsigned int k;
 
    static const unsigned char data_out_cmds[] = {
       0x0a, 0x2a, 0x15, 0x55, 0x04, 0x07, 0x18, 0x1d, 0x24, 0x2e,
@@ -1010,8 +1128,50 @@ static inline int do_qcomm(Scsi_Cmnd *SCpnt, void (*done)(Scsi_Cmnd *)) {
    static const unsigned char data_none_cmds[] = {
       0x01, 0x0b, 0x10, 0x11, 0x13, 0x16, 0x17, 0x19, 0x2b, 0x1e,
       0x2c, 0xac, 0x2f, 0xaf, 0x33, 0xb3, 0x35, 0x36, 0x45, 0x47,
-      0x48, 0x49, 0xa9, 0x4b, 0xa5, 0xa6, 0xb5
+      0x48, 0x49, 0xa9, 0x4b, 0xa5, 0xa6, 0xb5, 0x00
       };
+
+   struct mscp *cpp;
+   Scsi_Cmnd *SCpnt;
+
+   cpp = &HD(j)->cp[i]; SCpnt = cpp->SCpnt;
+
+   if (SCpnt->sc_data_direction == SCSI_DATA_READ) {
+      cpp->xdir = DTD_IN;
+      return;
+      }
+   else if (SCpnt->sc_data_direction == SCSI_DATA_WRITE) {
+      cpp->xdir = DTD_OUT;
+      return;
+      }
+   else if (SCpnt->sc_data_direction == SCSI_DATA_NONE) {
+      cpp->xdir = DTD_NONE;
+      return;
+      }
+
+   if (SCpnt->sc_data_direction != SCSI_DATA_UNKNOWN)
+      panic("%s: qcomm, invalid SCpnt->sc_data_direction.\n", BN(j));
+
+   cpp->xdir = DTD_IN;
+
+   for (k = 0; k < ARRAY_SIZE(data_out_cmds); k++)
+      if (SCpnt->cmnd[0] == data_out_cmds[k]) {
+         cpp->xdir = DTD_OUT;
+         break;
+         }
+
+   if (cpp->xdir == DTD_IN)
+      for (k = 0; k < ARRAY_SIZE(data_none_cmds); k++)
+         if (SCpnt->cmnd[0] == data_none_cmds[k]) {
+            cpp->xdir = DTD_NONE;
+            break;
+            }
+
+}
+
+static inline int do_qcomm(Scsi_Cmnd *SCpnt, void (*done)(Scsi_Cmnd *)) {
+   unsigned int i, j, k;
+   struct mscp *cpp;
 
    /* j is the board number */
    j = ((struct hostdata *) SCpnt->host->hostdata)->board_number;
@@ -1042,49 +1202,28 @@ static inline int do_qcomm(Scsi_Cmnd *SCpnt, void (*done)(Scsi_Cmnd *)) {
    /* Set pointer to control packet structure */
    cpp = &HD(j)->cp[i];
 
-   memset(cpp, 0, sizeof(struct mscp) - sizeof(struct sg_list *));
+   memset(cpp, 0, sizeof(struct mscp) - CP_TAIL_SIZE);
    SCpnt->scsi_done = done;
-   cpp->index = i;
-   SCpnt->host_scribble = (unsigned char *) &cpp->index;
+   cpp->cpp_index = i;
+   SCpnt->host_scribble = (unsigned char *) &cpp->cpp_index;
 
    if (do_trace) printk("%s: qcomm, mbox %d, target %d.%d:%d, pid %ld.\n",
                         BN(j), i, SCpnt->channel, SCpnt->target,
                         SCpnt->lun, SCpnt->pid);
-
-   cpp->xdir = DTD_IN;
-
-   for (k = 0; k < ARRAY_SIZE(data_out_cmds); k++)
-      if (SCpnt->cmnd[0] == data_out_cmds[k]) {
-         cpp->xdir = DTD_OUT;
-         break;
-         }
-
-   if (cpp->xdir == DTD_IN)
-      for (k = 0; k < ARRAY_SIZE(data_none_cmds); k++)
-         if (SCpnt->cmnd[0] == data_none_cmds[k]) {
-            cpp->xdir = DTD_NONE;
-            break;
-            }
 
    cpp->opcode = OP_SCSI;
    cpp->channel = SCpnt->channel;
    cpp->target = SCpnt->target;
    cpp->lun = SCpnt->lun;
    cpp->SCpnt = SCpnt;
-   cpp->sense_addr = V2DEV(SCpnt->sense_buffer);
-   cpp->sense_len = sizeof SCpnt->sense_buffer;
+   cpp->cdb_len = SCpnt->cmd_len;
+   memcpy(cpp->cdb, SCpnt->cmnd, SCpnt->cmd_len);
 
-   if (SCpnt->use_sg) {
-      cpp->sg = TRUE;
-      build_sg_list(cpp, SCpnt);
-      }
-   else {
-      cpp->data_address = V2DEV(SCpnt->request_buffer);
-      cpp->data_len = H2DEV(SCpnt->request_bufflen);
-      }
+   /* Use data transfer direction SCpnt->sc_data_direction */
+   scsi_to_dev_dir(i, j);
 
-   cpp->scsi_cdbs_len = SCpnt->cmd_len;
-   memcpy(cpp->scsi_cdbs, SCpnt->cmnd, cpp->scsi_cdbs_len);
+   /* Map DMA buffers and SG list */
+   map_dma(i, j);
 
    if (linked_comm && SCpnt->device->queue_depth > 2
                                      && TLDEV(SCpnt->device->type)) {
@@ -1094,6 +1233,7 @@ static inline int do_qcomm(Scsi_Cmnd *SCpnt, void (*done)(Scsi_Cmnd *)) {
       }
 
    if (wait_on_busy(sh[j]->io_port, MAXLOOP)) {
+      unmap_dma(i, j);
       SCpnt->host_scribble = NULL;
       printk("%s: qcomm, target %d.%d:%d, pid %ld, adapter busy.\n",
              BN(j), SCpnt->channel, SCpnt->target, SCpnt->lun, SCpnt->pid);
@@ -1101,7 +1241,7 @@ static inline int do_qcomm(Scsi_Cmnd *SCpnt, void (*done)(Scsi_Cmnd *)) {
       }
 
    /* Store pointer in OGM address bytes */
-   outl(V2DEV(cpp), sh[j]->io_port + REG_OGM);
+   outl(H2DEV(cpp->cp_dma_addr), sh[j]->io_port + REG_OGM);
 
    /* Issue OGM interrupt */
    outb(CMD_OGM_INTR, sh[j]->io_port + REG_LCL_INTR);
@@ -1156,6 +1296,7 @@ static inline int do_abort(Scsi_Cmnd *SCarg) {
          printk("%s: abort, mbox %d, interrupt pending.\n", BN(j), i);
 
       if (SCarg->eh_state == SCSI_STATE_TIMEOUT) {
+         unmap_dma(i, j);
          SCarg->host_scribble = NULL;
          HD(j)->cp_stat[i] = FREE;
          printk("%s, abort, mbox %d, eh_state timeout, pid %ld.\n",
@@ -1177,6 +1318,7 @@ static inline int do_abort(Scsi_Cmnd *SCarg) {
       }
 
    if (HD(j)->cp_stat[i] == READY || HD(j)->cp_stat[i] == ABORTING) {
+      unmap_dma(i, j);
       SCarg->result = DID_ABORT << 16;
       SCarg->host_scribble = NULL;
       HD(j)->cp_stat[i] = FREE;
@@ -1274,16 +1416,19 @@ static inline int do_reset(Scsi_Cmnd *SCarg) {
 #endif
 
    HD(j)->in_reset = TRUE;
-   SPIN_UNLOCK
+
+   spin_unlock_irq(&io_request_lock);
    time = jiffies;
    while ((jiffies - time) < (10 * HZ) && limit++ < 200000) udelay(100L);
-   SPIN_LOCK
+   spin_lock_irq(&io_request_lock);
+
    printk("%s: reset, interrupts disabled, loops %d.\n", BN(j), limit);
 
    for (i = 0; i < sh[j]->can_queue; i++) {
 
       if (HD(j)->cp_stat[i] == IN_RESET) {
          SCpnt = HD(j)->cp[i].SCpnt;
+         unmap_dma(i, j);
          SCpnt->result = DID_RESET << 16;
          SCpnt->host_scribble = NULL;
 
@@ -1296,6 +1441,7 @@ static inline int do_reset(Scsi_Cmnd *SCarg) {
 
       else if (HD(j)->cp_stat[i] == ABORTING) {
          SCpnt = HD(j)->cp[i].SCpnt;
+         unmap_dma(i, j);
          SCpnt->result = DID_RESET << 16;
          SCpnt->host_scribble = NULL;
 
@@ -1505,7 +1651,7 @@ static void flush_dev(Scsi_Device *dev, unsigned long cursec, unsigned int j,
          continue;
          }
 
-      outl(V2DEV(cpp), sh[j]->io_port + REG_OGM);
+      outl(H2DEV(cpp->cp_dma_addr), sh[j]->io_port + REG_OGM);
       outb(CMD_OGM_INTR, sh[j]->io_port + REG_LCL_INTR);
       HD(j)->cp_stat[k] = IN_USE;
       }
@@ -1536,23 +1682,25 @@ static inline void ihdlr(int irq, unsigned int j) {
       return;
       }
 
-   spp = (struct mscp *)DEV2V(ret = inl(sh[j]->io_port + REG_ICM));
-   cpp = spp;
+   ret = inl(sh[j]->io_port + REG_ICM);
 
    /* Clear interrupt pending flag */
    outb(CMD_CLR_INTR, sh[j]->io_port + REG_SYS_INTR);
 
+   /* Find the mailbox to be serviced on this board */
+   for (i = 0; i < sh[j]->can_queue; i++)
+      if (H2DEV(HD(j)->cp[i].cp_dma_addr) == ret) break;
+
+   if (i >= sh[j]->can_queue)
+      panic("%s: ihdlr, invalid mscp bus address %p, cp0 %p.\n", BN(j),
+            (void *)ret, (void *)H2DEV(HD(j)->cp[0].cp_dma_addr));
+
+   cpp = &(HD(j)->cp[i]);
+   spp = cpp;
+
 #if defined(DEBUG_GENERATE_ABORTS)
    if ((HD(j)->iocount > 500) && ((HD(j)->iocount % 500) < 3)) return;
 #endif
-
-   /* Find the mailbox to be serviced on this board */
-   i = cpp - HD(j)->cp;
-
-   if (cpp < HD(j)->cp || cpp >= HD(j)->cp + sh[j]->can_queue
-                                     || i >= sh[j]->can_queue)
-      panic("%s: ihdlr, invalid mscp bus address %p, cp0 %p.\n", BN(j),
-            (void *)ret, HD(j)->cp);
 
    if (HD(j)->cp_stat[i] == IGNORE) {
       HD(j)->cp_stat[i] = FREE;
@@ -1587,6 +1735,8 @@ static inline void ihdlr(int irq, unsigned int j) {
    if (*(unsigned int *)SCpnt->host_scribble != i)
       panic("%s: ihdlr, mbox %d, pid %ld, index mismatch %d.\n",
             BN(j), i, SCpnt->pid, *(unsigned int *)SCpnt->host_scribble);
+
+   sync_dma(i, j);
 
    if (linked_comm && SCpnt->device->queue_depth > 2
                                      && TLDEV(SCpnt->device->type))
@@ -1705,6 +1855,8 @@ static inline void ihdlr(int irq, unsigned int j) {
              SCpnt->channel, SCpnt->target, SCpnt->lun, SCpnt->pid,
              reg, HD(j)->iocount);
 
+   unmap_dma(i, j);
+
    /* Set the command state to inactive */
    SCpnt->host_scribble = NULL;
 
@@ -1718,14 +1870,14 @@ static inline void ihdlr(int irq, unsigned int j) {
 
 static void do_interrupt_handler(int irq, void *shap, struct pt_regs *regs) {
    unsigned int j;
-   SPIN_FLAGS
+   unsigned long spin_flags;
 
    /* Check if the interrupt must be processed by this handler */
    if ((j = (unsigned int)((char *)shap - sha)) >= num_boards) return;
 
-   SPIN_LOCK_SAVE
+   spin_lock_irqsave(&io_request_lock, spin_flags);
    ihdlr(irq, j);
-   SPIN_UNLOCK_RESTORE
+   spin_unlock_irqrestore(&io_request_lock, spin_flags);
 }
 
 int u14_34f_release(struct Scsi_Host *shpnt) {
@@ -1736,12 +1888,14 @@ int u14_34f_release(struct Scsi_Host *shpnt) {
    if (sh[j] == NULL) panic("%s: release, invalid Scsi_Host pointer.\n",
                             driver_name);
 
-   if( sh[j]->unchecked_isa_dma ) {
-	   scsi_deregister_blocked_host(sh[j]);
-   }
+   if(sh[j]->unchecked_isa_dma) scsi_deregister_blocked_host(sh[j]);
 
    for (i = 0; i < sh[j]->can_queue; i++)
       if ((&HD(j)->cp[i])->sglist) kfree((&HD(j)->cp[i])->sglist);
+
+   for (i = 0; i < sh[j]->can_queue; i++)
+      pci_unmap_single(HD(j)->pdev, HD(j)->cp[i].cp_dma_addr,
+                     sizeof(struct mscp), PCI_DMA_BIDIRECTIONAL);
 
    free_irq(sh[j]->irq, &sha[j]);
 
@@ -1752,7 +1906,6 @@ int u14_34f_release(struct Scsi_Host *shpnt) {
    return FALSE;
 }
 
-MODULE_LICENSE("BSD without advertisement clause");
 static Scsi_Host_Template driver_template = ULTRASTOR_14_34F;
 
 #include "scsi_module.c"
@@ -1760,3 +1913,4 @@ static Scsi_Host_Template driver_template = ULTRASTOR_14_34F;
 #ifndef MODULE
 __setup("u14-34f=", option_setup);
 #endif /* end MODULE */
+MODULE_LICENSE("GPL");
