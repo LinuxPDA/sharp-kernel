@@ -19,6 +19,7 @@
 
 #define COTULLA_RAMBASE      0xa0000000
 
+#ifdef __KERNEL__
 #ifndef __ASSEMBLY__
 #include <asm/types.h>
 
@@ -60,6 +61,7 @@ typedef struct {
 	volatile u32 dcmd;	/* DCMD value for the current transfer */
 } pxa_dma_desc;
 #endif
+#endif	/* __KERNEL__ */
 
 /* 
  * Clock Manager Controle registers
@@ -920,6 +922,42 @@ typedef struct {
 #define UICR1		__REG(0x40600054)  /* UDC Interrupt Control Register 1 */
 #define USIR0		__REG(0x40600058)  /* UDC Status Interrupt Register 0 */
 #define USIR1		__REG(0x4060005C)  /* UDC Status Interrupt Register 1 */
+
+/*
+ * Memory controller
+ */
+
+#define MDCNFG		__REG(0x48000000)  /* SDRAM Configuration Register 0 */
+#define MDREFR		__REG(0x48000004)  /* SDRAM Refresh Control Register */
+#define MSC0		__REG(0x48000008)  /* Static Memory Control Register 0 */
+#define MSC1		__REG(0x4800000C)  /* Static Memory Control Register 1 */
+#define MSC2		__REG(0x48000010)  /* Static Memory Control Register 2 */
+#define MECR		__REG(0x48000014)  /* Expansion Memory (PCMCIA/Compact Flash) Bus Configuration */
+#define SXLCR		__REG(0x48000018)  /* LCR value to be written to SDRAM-Timing Synchronous Flash */
+#define SXCNFG		__REG(0x4800001C)  /* Synchronous Static Memory Control Register */
+#define SXMRS		__REG(0x48000024)  /* MRS value to be written to Synchronous Flash or SMROM */
+#define MCMEM0		__REG(0x48000028)  /* Card interface Common Memory Space Socket 0 Timing */
+#define MCMEM1		__REG(0x4800002C)  /* Card interface Common Memory Space Socket 1 Timing */
+#define MCATT0		__REG(0x48000030)  /* Card interface Attribute Space Socket 0 Timing Configuration */
+#define MCATT1		__REG(0x48000034)  /* Card interface Attribute Space Socket 1 Timing Configuration */
+#define MCIO0		__REG(0x48000038)  /* Card interface I/O Space Socket 0 Timing Configuration */
+#define MCIO1		__REG(0x4800003C)  /* Card interface I/O Space Socket 1 Timing Configuration */
+#define MDMRS		__REG(0x48000040)  /* MRS value to be written to SDRAM */
+#define BOOT_DEF	__REG(0x48000044)  /* Read-Only Boot-Time Register. Contains BOOT_SEL and PKG_SEL */
+
+#define MDREFR_K2FREE	(1 << 25)	/* SDRAM Free-Running Control */
+#define MDREFR_K1FREE	(1 << 24)	/* SDRAM Free-Running Control */
+#define MDREFR_K0FREE	(1 << 23)	/* SDRAM Free-Running Control */
+#define MDREFR_SLFRSH	(1 << 22)	/* SDRAM Self-Refresh Control/Status */
+#define MDREFR_APD	(1 << 20)	/* SDRAM/SSRAM Auto-Power-Down Enable */
+#define MDREFR_K2DB2	(1 << 19)	/* SDCLK2 Divide by 2 Control/Status */
+#define MDREFR_K2RUN	(1 << 18)	/* SDCLK2 Run Control/Status */
+#define MDREFR_K1DB2	(1 << 17)	/* SDCLK1 Divide by 2 Control/Status */
+#define MDREFR_K1RUN	(1 << 16)	/* SDCLK1 Run Control/Status */
+#define MDREFR_E1PIN	(1 << 15)	/* SDCKE1 Level Control/Status */
+#define MDREFR_K0DB2	(1 << 14)	/* SDCLK0 Divide by 2 Control/Status */
+#define MDREFR_K0RUN	(1 << 13)	/* SDCLK0 Run Control/Status */
+#define MDREFR_E0PIN	(1 << 12)	/* SDCKE0 Level Control/Status */
 
 #ifndef __ASSEMBLY__
 extern unsigned int cotulla_rev; /* Board revision */

@@ -299,11 +299,26 @@ ENTRY(cpu_xscale_reset)
  * XScale supports clock switching, but using idle mode support
  * allows external hardware to react to system state changes.
  */
+#ifdef CONFIG_DISCOVERY_SET_APD_ON_IDLE
+_MDREFR:	.long	0xfd000004		@ 0x48000004
+#endif
 	.align	5
 
 ENTRY(cpu_xscale_do_idle)
+#ifdef CONFIG_DISCOVERY_SET_APD_ON_IDLE
+	ldr	r0, _MDREFR
+	ldr	r1, [r0]
+	orr	r1, r1, #0x00100000		@ MDREFR_APD
+	str	r1, [r0]
+#endif
 	mov	r0, #1
 	mcr	p14, 0, r0, c7, c0, 0		@ Go to IDLE
+#ifdef CONFIG_DISCOVERY_SET_APD_ON_IDLE
+	ldr	r0, _MDREFR
+	ldr	r1, [r0]
+	bic	r1, r1, #0x00100000		@ MDREFR_APD
+	str	r1, [r0]
+#endif
 	mov	pc, lr
 
 /* ================================= CACHE ================================ */

@@ -47,6 +47,13 @@ static volatile int hlt_counter;
 
 #include <asm/arch/system.h>
 
+#if defined(CONFIG_APM_CPU_IDLE) && defined(CONFIG_DISCOVERY_PM_IDLE)
+int get_hlt_counter(void)
+{
+	return hlt_counter;
+}
+#endif
+
 void disable_hlt(void)
 {
 	hlt_counter++;
@@ -89,6 +96,11 @@ void cpu_idle(void)
 	init_idle();
 	current->nice = 20;
 	current->counter = -100;
+#if defined(CONFIG_APM_CPU_IDLE) && \
+    defined(CONFIG_DISCOVERY_PM_IDLE) && \
+    defined(CONFIG_OOM_KILL_SURVIVAL)
+	current->oom_kill_survival_level = 1;
+#endif
 
 	while (1) {
 		void (*idle)(void) = pm_idle;

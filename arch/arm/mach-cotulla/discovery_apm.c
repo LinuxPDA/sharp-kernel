@@ -1173,7 +1173,7 @@ static void apm_mainloop(void)
 		 */
 		set_current_state(TASK_INTERRUPTIBLE);
 		apm_event_handler();
-#ifdef CONFIG_APM_CPU_IDLE
+#if defined(CONFIG_APM_CPU_IDLE) && !defined(CONFIG_DISCOVERY_PM_IDLE)
 		if (!system_idle())
 			continue;
 
@@ -1194,6 +1194,23 @@ static void apm_mainloop(void)
 	}
 	remove_wait_queue(&apm_waitqueue, &wait);
 }
+
+#if defined(CONFIG_APM_CPU_IDLE) && defined(CONFIG_DISCOVERY_PM_IDLE)
+/* This is the idle process executed by
+ * arch/arm/kernel/process.c:cpu_idle().
+ */
+static void apm_idle(void)
+{
+	extern int get_hlt_counter(void);
+
+	if (get_hlt_counter())
+		return;
+	if (idleCancel)
+		return;
+
+	cpu_xscale_do_idle(0);
+}
+#endif
 
 static int check_apm_user(struct apm_user *as, const char *func)
 {
@@ -1665,9 +1682,13 @@ static int apm_bp_get_info(char *buf, char **start, off_t fpos, int length)
 static int discovery_key_check(void *unused)
 {
 
+    daemonize();
+    strcpy(current->comm, "kkeychkd");
+    sigfillset(&current->blocked);
+
     while(1) {
 
-      sleep_on(&fl_key);
+      interruptible_sleep_on(&fl_key);
 
       while(1) {
           interruptible_sleep_on_timeout((wait_queue_head_t*)&queue, KEY_TICK );
@@ -1718,7 +1739,11 @@ static int apm_thread(void *unused)
 	atomic_inc(&current->files->count);
 	daemonize();
 	
+#if defined(CONFIG_APM_CPU_IDLE) && !defined(CONFIG_DISCOVERY_PM_IDLE)
 	strcpy(current->comm, "kapm-idled");
+#else
+	strcpy(current->comm, "kapm");
+#endif
 	sigfillset(&current->blocked);
 	current->tty = NULL;	/* get rid of controlling tty */
 
@@ -1817,6 +1842,10 @@ static struct miscdevice apm_device = {
 };
 
 
+#if defined(CONFIG_APM_CPU_IDLE) && defined(CONFIG_DISCOVERY_PM_IDLE)
+extern void (*pm_idle)(void);
+void (*pm_idle_save)(void);
+#endif
 /*
  * Just start the APM thread. We do NOT want to do APM BIOS
  * calls from anything but the APM thread, if for no other reason
@@ -1914,12 +1943,21 @@ static int __init apm_init(void)
 
 	misc_register(&apm_device);
 
+#if defined(CONFIG_APM_CPU_IDLE) && defined(CONFIG_DISCOVERY_PM_IDLE)
+	pm_idle_save = pm_idle;
+	pm_idle = apm_idle;
+#endif
+
 	return 0;
 }
 
 static void __exit apm_exit(void)
 {
 	int	error;
+
+#if defined(CONFIG_APM_CPU_IDLE) && defined(CONFIG_DISCOVERY_PM_IDLE)
+	pm_idle = pm_idle_save;
+#endif
 
 	if (((apm_info.bios.flags & APM_BIOS_DISENGAGED) == 0)
 	    && (apm_info.connection_version > 0x0100)) {

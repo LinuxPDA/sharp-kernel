@@ -648,6 +648,9 @@ fb_mmap(struct file *file, struct vm_area_struct * vma)
 	pgprot_val(vma->vm_page_prot) |= _CACHE_UNCACHED;
 #elif defined(__arm__)
 	vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
+#ifdef CONFIG_DISCOVERY_CONSISTENT_ALLOC
+	vma->vm_page_prot = __pgprot(pgprot_val(vma->vm_page_prot) | L_PTE_CACHEABLE);
+#endif
 	/* This is an IO map - tell maydump to skip this VMA */
 	vma->vm_flags |= VM_IO;
 #elif defined(__sh__)

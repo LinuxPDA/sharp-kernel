@@ -210,7 +210,7 @@ static DECLARE_WAIT_QUEUE_HEAD(open_queue);
 #define WAKE_UP(queue)  (wake_up_interruptible((wait_queue_head_t*)&queue))
 #endif
 
-#define TRACE 1
+#define TRACE 0
 #if TRACE
 #define TRACE_ON    1
 #define TRACE_SEM   0
@@ -471,7 +471,6 @@ unsigned char VOLUME_TABLE[VOLUME_SCALES] =
 	0xD4,			// -53dB			//0x36,			// -53dB
 	0xFF,			// -maxdB			//0x3F,			// -maxdB		0x00000000
 };
-    
     
 static inline void ResetDelayAll(void)
 {   
@@ -821,6 +820,31 @@ void dmasound_setup(char *str, int *ints);
  *
  * ++geert: split in even more functions (one per format)
  */
+
+
+static ssize_t discovery_ct_law(const u_char *userPtr, size_t userCount,
+			     u_char frame[], ssize_t *frameUsed,
+			     ssize_t frameLeft)
+{
+	short *table = (sound.soft.format == AFMT_MU_LAW) ? ulaw2dma16: alaw2dma16;
+	ssize_t count, used;
+	short *p = (short *) &frame[*frameUsed];
+	short val;
+	u_char data;
+
+	used = count = userCount;
+	while (count > 0) {
+	  if (get_user(data, userPtr++)) {
+	    return -EFAULT;
+	  }
+	  val = table[data];
+	  *p++ = val;		/* Left Ch. */
+	  *p++ = val;		/* Right Ch. */
+	  count--;
+	}
+	*frameUsed += used * 4;
+	return used;
+}
 
 static ssize_t collie_ct_law(const u_char *userPtr, size_t userCount,
                  u_char frame[], ssize_t *frameUsed,
@@ -2705,16 +2729,28 @@ static ssize_t sq_write(struct file *file, const char *src, size_t uLeft,
         	//printk("b->size: %x\n",b->size);
 		dest = b->start + b->size;
 		bLeft =  s->fragsize >>2;
-		if ( uLeft < bLeft ) 	bLeft = uLeft;
 		//printk("bLeft: %x\n",bLeft);
-
-		if (copy_from_user(dest, src, bLeft)) {
+		
+		if (sound.soft.format==AFMT_MU_LAW || 
+		    sound.soft.format==AFMT_A_LAW) {
+		    if ( uLeft*4 < bLeft ) bLeft = uLeft*4;
+		    uUsed = bLeft >>2;
+		    bUsed=0;
+		    if (discovery_ct_law(src, uUsed, dest,&bUsed,uUsed)<0) {
 			up(&b->sem);
 			return -EFAULT;
+		    }
+		} else {
+		    if ( uLeft < bLeft ) bLeft = uLeft;
+		    uUsed = bLeft;
+		    if (copy_from_user(dest, src, bLeft)) {
+			up(&b->sem);
+			return -EFAULT;
+		    }
 		}
 
-		src +=  bLeft;
-		uLeft -= bLeft;
+		src +=  uUsed;
+		uLeft -= uUsed;
         cotulla_dma_queue_buffer(COTULLA_SOUND_DMA_CHANNEL,(void *) b, b->dma_addr, bLeft);
 
         NEXT_BUF(s, buf);
@@ -2828,15 +2864,16 @@ static int sq_open(struct inode *inode, struct file *file)
         sound.hard = sound.dsp;
         
 	cotulla_op_plv_on = 0;
-	
-        if ((MINOR(inode->i_rdev) & 0x0f) == SND_DEV_AUDIO
-             /*|| (MINOR(inode->i_rdev) & 0x0f) == SND_DEV_DSP*/ ) {
-            sound_set_speed(8000);
-            sound_set_stereo(0);
-            sound_set_format(AFMT_S16_LE);
-        }
+
         Cotulla_audio_play_power_on();
 	CODEC_SetVolume(sound.volume_left);
+
+        if ((MINOR(inode->i_rdev) & 0x0f) == SND_DEV_AUDIO ) {
+            sound_set_speed(8000);
+            sound_set_stereo(0);
+            sound_set_format(AFMT_MU_LAW);
+        }
+
  	cotulla_under_playing = 1;
     }
 

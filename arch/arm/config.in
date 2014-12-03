@@ -553,6 +553,12 @@ dep_tristate 'Device hardware specific information support' CONFIG_DEVICEINFO $C
 if [ "$CONFIG_DEVICEINFO" = "m" -a "$CONFIG_SABINAL_DISCOVERY" = "y" ]; then
    define_tristate CONFIG_DISCOVERY_DEVICEINFO m
 fi
+if [ "$CONFIG_SABINAL_DISCOVERY" = "y" ]; then
+   dep_bool 'Set APD while idle' CONFIG_DISCOVERY_SET_APD_ON_IDLE $CONFIG_SABINAL_DISCOVERY
+fi
+if [ "$CONFIG_APM_CPU_IDLE" = "y" -a "$CONFIG_SABINAL_DISCOVERY" = "y" ]; then
+   dep_bool 'Use kernel PM idle' CONFIG_DISCOVERY_PM_IDLE $CONFIG_APM_CPU_IDLE
+fi
 endmenu
 
 source drivers/parport/Config.in
