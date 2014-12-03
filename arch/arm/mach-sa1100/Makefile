@@ -36,6 +36,8 @@ obj-$(CONFIG_SA1100_PT_SYSTEM3) += cpu-sa1110.o
 obj-$(CONFIG_SA1100_LART) += cpu-sa1100.o
 endif
 
+obj-$(CONFIG_SA1100_COLLIE) += collie.o m62332.o collie_battery.o collie_led.o collie_buzzer.o
+
 # Next, the SA1111 stuff.
 obj-$(CONFIG_SA1111) += sa1111.o dma-sa1111.o
 obj-$(CONFIG_USB_OHCI_SA1111) += sa1111-pcibuf.o pcipool.o
@@ -98,10 +100,26 @@ obj-$(CONFIG_SA1100_USB_NETLINK) += usb-eth.o
 obj-$(CONFIG_SA1100_USB_CHAR) += usb-char.o
 
 # Miscelaneous functions
+ifeq ($(CONFIG_SA1100_COLLIE),y)
+obj-$(CONFIG_APM) += collie_apm.o
+obj-$(CONFIG_PM) += collie_power.o collie_suspend.o
+export-objs += collie_apm.o collie_power.o
+else
+#obj-$(CONFIG_APM) += apm.o
 obj-$(CONFIG_PM) += pm.o sleep.o
+endif
+obj-m += gpio.o registers.o
+
+ifeq ($(CONFIG_DEVICEINFO),m)
+  obj-$(CONFIG_DEVICEINFO) += devinfo.o
+  devinfo-objs-m += deviceinfo.o
+  devinfo-objs-$(CONFIG_COLLIE_DEVICEINFO) += collie_deviceinfo.o
+endif
 
 include $(TOPDIR)/Rules.make
 
 sa1100usb_core.o: $(sa1100usb_core-objs)
 	$(LD) -r -o $@ $(sa1100usb_core-objs)
 
+devinfo.o: $(devinfo-objs-m)
+	$(LD) -r -o $@ $(devinfo-objs-m)

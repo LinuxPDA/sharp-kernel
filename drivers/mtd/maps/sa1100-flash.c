@@ -985,9 +985,7 @@ int __init sa1100_mtd_init(void)
 	 * specific machine settings might have been set above.
 	 */
 	printk(KERN_NOTICE "SA1100 flash: probing %d-bit flash bus\n", sa1100_map.buswidth*8);
-	mymtd = do_map_probe("jedec_probe", &sa1100_map);
-	if (!mymtd)
-		mymtd = do_map_probe("cfi_probe", &sa1100_map);
+	mymtd = do_map_probe("cfi_probe", &sa1100_map);
 	ret = -ENXIO;
 	if (!mymtd)
 		goto out_err;

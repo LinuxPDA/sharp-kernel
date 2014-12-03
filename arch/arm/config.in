@@ -88,6 +88,13 @@ if [ "$CONFIG_SA1100_CERF" = "y" ]; then
          32MB   CONFIG_SA1100_CERF_FLASH_32MB" CerfFlash
    bool 'Cerf w/CPLD support (CerfPDA)' CONFIG_SA1100_CERF_CPLD
 fi
+dep_bool '  Collie' CONFIG_SA1100_COLLIE $CONFIG_ARCH_SA1100
+dep_bool '    Using LoCoMo'  CONFIG_LOCOMO $CONFIG_SA1100_COLLIE
+dep_bool '    Using Test Sample'  CONFIG_COLLIE_TS $CONFIG_SA1100_COLLIE
+dep_bool '    Using Trial 0'  CONFIG_COLLIE_TR0 $CONFIG_SA1100_COLLIE
+dep_bool '    Using Trial 1'  CONFIG_COLLIE_TR1 $CONFIG_SA1100_COLLIE
+dep_bool '    Using Developer Unit'  CONFIG_COLLIE_DEV $CONFIG_SA1100_COLLIE
+dep_bool '    Using SL-5500G Unit'  CONFIG_COLLIE_G $CONFIG_SA1100_COLLIE
 dep_bool '  Compaq iPAQ H3100' CONFIG_SA1100_H3100 $CONFIG_ARCH_SA1100
 dep_bool '  Compaq iPAQ H3600/H3700' CONFIG_SA1100_H3600 $CONFIG_ARCH_SA1100
 dep_bool '  Compaq iPAQ H3800' CONFIG_SA1100_H3800 $CONFIG_ARCH_SA1100
@@ -171,6 +178,43 @@ if [ "$CONFIG_ARCH_PXA_CERF" = "y" ]; then
        16MB  CONFIG_PXA_CERF_FLASH_16MB \
         8MB  CONFIG_PXA_CERF_FLASH_8MB" 32MB
 fi
+
+dep_bool '  Support Cotulla DMA (EXPERIMENTAL)' CONFIG_COTULLA_DMA $CONFIG_ARCH_PXA
+dep_bool '  SHARP Discovery' CONFIG_SABINAL_DISCOVERY $CONFIG_ARCH_PXA
+if [ "$CONFIG_SABINAL_DISCOVERY" = "y" ]; then
+   comment 'Discovery H/W type'
+   choice 'Discovery Default H/W type' \
+	"DVT	CONFIG_SABINAL_DISCOVERY_DVT    \
+	 DVT2	CONFIG_SABINAL_DISCOVERY_DVT2    \
+	 PreMV	CONFIG_SABINAL_DISCOVERY_PreMV"    \
+	 DVT2
+fi
+	 
+   bool     '  Sabinal' CONFIG_ARCH_SABINAL
+
+dep_bool '  SHARP Poodle' CONFIG_ARCH_PXA_POODLE $CONFIG_ARCH_PXA
+dep_bool '    Using Trial 0'  CONFIG_POODLE_TR0 $CONFIG_ARCH_PXA_POODLE
+dep_bool '  SHARP Corgi' CONFIG_ARCH_PXA_CORGI $CONFIG_ARCH_PXA
+dep_bool '    Using Trial 0'  CONFIG_CORGI_TR0 $CONFIG_ARCH_PXA_CORGI
+
+if [ "$CONFIG_SA1100_COLLIE" = "y" -o "$CONFIG_SABINAL_DISCOVERY" = "y" -o \
+     "$CONFIG_ARCH_PXA_POODLE" = "y" -o "$CONFIG_ARCH_PXA_CORGI" = "y" ]; then
+   define_bool CONFIG_ARCH_SHARP_SL y
+fi
+
+if [ "$CONFIG_ARCH_PXA_POODLE" = "y" -o "$CONFIG_ARCH_PXA_CORGI" = "y" ]; then
+   comment 'Language type'
+   choice 'Language type' \
+	"English	CONFIG_ARCH_SHARP_SL_E    \
+	 English(V)	CONFIG_ARCH_SHARP_SL_V    \
+	 German		CONFIG_ARCH_SHARP_SL_G    \
+	 Japanese	CONFIG_ARCH_SHARP_SL_J    \
+	 Spanish	CONFIG_ARCH_SHARP_SL_S    \
+	 Italy		CONFIG_ARCH_SHARP_SL_I"    \
+	 English
+fi
+
+
 
 if [ "$CONFIG_ARCH_LUBBOCK" = "y" ]; then
    define_bool CONFIG_SA1111 y
@@ -406,6 +450,9 @@ fi
 if [ "$CONFIG_ARCH_PXA" = "y" ]; then
    define_bool CONFIG_CPU_32v5 y
    define_bool CONFIG_CPU_XSCALE y
+   if [ "$CONFIG_ARCH_SHARP_SL" = "y" ]; then
+      define_bool CONFIG_BATT y
+   fi
    bool 'Workaround for XScale cache errata (see help)' CONFIG_XSCALE_CACHE_ERRATA
 fi
 
@@ -491,6 +538,15 @@ tristate 'Kernel support for a.out binaries' CONFIG_BINFMT_AOUT
 tristate 'Kernel support for ELF binaries' CONFIG_BINFMT_ELF
 tristate 'Kernel support for MISC binaries' CONFIG_BINFMT_MISC
 dep_bool 'Power Management support (experimental)' CONFIG_PM $CONFIG_EXPERIMENTAL
+if [ "$CONFIG_ARCH_SHARP_SL" = "y" ]; then
+   dep_tristate 'Advanced power management support' CONFIG_APM $CONFIG_PM
+   if [ "$CONFIG_APM" != "n" ]; then
+      bool '    Ignore USER SUSPEND' CONFIG_APM_IGNORE_USER_SUSPEND
+      bool '    Make CPU Idle calls when idle' CONFIG_APM_CPU_IDLE
+      bool '    Enable console blanking using APM' CONFIG_APM_DISPLAY_BLANK
+      bool '    RTC stores time in GMT' CONFIG_APM_RTC_IS_GMT
+   fi
+fi
 dep_tristate 'RISC OS personality' CONFIG_ARTHUR $CONFIG_CPU_32
 
 if [ "$CONFIG_ARCH_EBSA110" = "y" -o         \
@@ -505,6 +561,9 @@ if [ "$CONFIG_ARCH_EBSA110" = "y" -o         \
      "$CONFIG_ARCH_ANAKIN" = "y"  -o         \
      "$CONFIG_ARCH_MX1ADS" = "y" ]; then
    string 'Default kernel command string' CONFIG_CMDLINE ""
+fi
+if [ "$CONFIG_ARCH_SHARP_SL" = "y" ]; then
+   bool 'Use Sharp SL series bootloader parameter' CONFIG_SHARPSL_BOOTLDR_PARAMS
 fi
 if [ "$CONFIG_ARCH_NETWINDER" = "y" -o  \
      "$CONFIG_ARCH_EBSA110" = "y" -o    \
@@ -548,6 +607,21 @@ else
    else
       define_bool CONFIG_ALIGNMENT_TRAP n
    fi
+fi
+bool 'kswapd freepages signaling support' CONFIG_FREEPG_SIGNAL
+bool 'oom_kill survival support' CONFIG_OOM_KILL_SURVIVAL
+dep_tristate 'Device hardware specific information support' CONFIG_DEVICEINFO $CONFIG_MODULES
+if [ "$CONFIG_DEVICEINFO" = "m" -a "$CONFIG_SA1100_COLLIE" = "y" ]; then
+   define_tristate CONFIG_COLLIE_DEVICEINFO m
+fi
+if [ "$CONFIG_DEVICEINFO" = "m" -a "$CONFIG_SABINAL_DISCOVERY" = "y" ]; then
+   define_tristate CONFIG_DISCOVERY_DEVICEINFO m
+fi
+if [ "$CONFIG_DEVICEINFO" = "m" -a "$CONFIG_ARCH_PXA_POODLE" = "y" ]; then
+   define_tristate CONFIG_POODLE_DEVICEINFO m
+fi
+if [ "$CONFIG_DEVICEINFO" = "m" -a "$CONFIG_ARCH_PXA_CORGI" = "y" ]; then
+   define_tristate CONFIG_CORGI_DEVICEINFO m
 fi
 endmenu
 
@@ -714,6 +788,7 @@ comment 'Kernel hacking'
 # will have to kill you ;).
 define_bool CONFIG_FRAME_POINTER y
 bool 'Verbose user fault messages' CONFIG_DEBUG_USER
+bool 'Dump registers with abnormal signal' CONFIG_DEBUG_COREDUMP_SIGNAL
 bool 'Include debugging information in kernel binary' CONFIG_DEBUG_INFO
 dep_bool 'Disable pgtable cache' CONFIG_NO_PGT_CACHE $CONFIG_CPU_26
 

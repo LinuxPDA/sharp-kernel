@@ -15,7 +15,7 @@ export-objs    := fbmem.o fbcmap.o fbcon.o fbmon.o modedb.o \
 		  fbcon-iplan2p8.o fbcon-vga-planes.o fbcon-cfb16.o \
 		  fbcon-cfb2.o fbcon-cfb24.o fbcon-cfb32.o fbcon-cfb4.o \
 		  fbcon-cfb8.o fbcon-mac.o fbcon-mfb.o \
-		  cyber2000fb.o sa1100fb.o fbcon-hga.o pxafb.o
+		  cyber2000fb.o sa1100fb.o fbcon-hga.o pxafb.o cotulla_fb.o discovery_frontlight.o
 
 # Each configuration option enables a list of files.
 
@@ -87,6 +87,10 @@ obj-$(CONFIG_FB_PMAG_BA)          += pmag-ba-fb.o
 obj-$(CONFIG_FB_PMAGB_B)          += pmagb-b-fb.o
 obj-$(CONFIG_FB_MAXINE)           += maxinefb.o
 obj-$(CONFIG_FB_TX3912)           += tx3912fb.o
+obj-$(CONFIG_FB_COLLIE)           += colliefb.o collie_frontlight.o
+obj-$(CONFIG_FB_COTULLA)          += cotulla_fb.o discovery_frontlight.o
+obj-$(CONFIG_FB_POODLE)           += cotulla_fb.o poodle_frontlight.o
+obj-$(CONFIG_FB_CORGI)            += w100fb.o fbgen.o corgi_backlight.o
 
 
 subdir-$(CONFIG_FB_MATROX)	  += matrox

@@ -27,6 +27,10 @@
     and other provisions required by the GPL.  If you do not delete
     the provisions above, a recipient may use your version of this
     file under either the MPL or the GPL.
+
+    Change Log
+	12-Nov-2001 Lineo Japan, Inc.
+	30-Jul-2002 Lineo Japan, Inc.  for 2.4.18
     
 ======================================================================*/
 /*
@@ -67,6 +71,10 @@
 static int pc_debug;
 #endif
 
+#ifdef CONFIG_SA1100_COLLIE
+#define	MECR_UDELAY	100
+#endif
+
 /* This structure maintains housekeeping state for each socket, such
  * as the last known values of the card detect pins, or the Card Services
  * callback value associated with the socket:
@@ -96,9 +104,14 @@ sa1100_pcmcia_state_to_config(unsigned int sock, socket_state_t *state)
   conf.sock    = sock;
   conf.vcc     = state->Vcc;
   conf.vpp     = state->Vpp;
+#ifdef CONFIG_SA1100_COLLIE
+  conf.masks   = state->csc_mask;
+  conf.flags   = state->flags;
+#else
   conf.output  = state->flags & SS_OUTPUT_ENA ? 1 : 0;
   conf.speaker = state->flags & SS_SPKR_ENA ? 1 : 0;
   conf.reset   = state->flags & SS_RESET ? 1 : 0;
+#endif
   conf.irq     = state->io_irq != 0;
 
   return conf;
@@ -120,6 +133,17 @@ static int sa1100_pcmcia_init(unsigned int sock)
 
   DEBUG(2, "%s(): initializing socket %u\n", __FUNCTION__, sock);
 
+#ifdef CONFIG_SA1100_COLLIE
+  printk("sa1100_pcmcia_init(%d)\n",sock);
+  if(1){
+  socket_state_t state;
+  sa1100_pcmcia_get_socket(sock, &state);
+  state.flags &= ~SS_OUTPUT_ENA;
+  state.Vcc = state.Vpp = 0;
+  sa1100_pcmcia_set_socket(sock, &state);
+  }
+  return 0;
+#else
   skt->cs_state = dead_socket;
 
   conf = sa1100_pcmcia_state_to_config(sock, &dead_socket);
@@ -127,6 +151,7 @@ static int sa1100_pcmcia_init(unsigned int sock)
   pcmcia_low_level->configure_socket(&conf);
 
   return pcmcia_low_level->socket_init(sock);
+#endif
 }
 
 
@@ -147,6 +172,18 @@ static int sa1100_pcmcia_suspend(unsigned int sock)
 
   DEBUG(2, "%s(): suspending socket %u\n", __FUNCTION__, sock);
 
+#ifdef CONFIG_SA1100_COLLIE
+  printk("sa1100_pcmcia_suspend(%d)\n",sock);
+  __set_current_state(TASK_UNINTERRUPTIBLE);
+  schedule_timeout(HZ / 2);
+  if(1){
+  socket_state_t state; 
+  sa1100_pcmcia_get_socket(sock, &state);
+  state.flags &= ~SS_OUTPUT_ENA;
+  state.Vcc = state.Vpp = 0;
+  sa1100_pcmcia_set_socket(sock, &state);
+  }
+#else
   conf = sa1100_pcmcia_state_to_config(sock, &dead_socket);
 
   ret = pcmcia_low_level->configure_socket(&conf);
@@ -157,6 +194,7 @@ static int sa1100_pcmcia_suspend(unsigned int sock)
   }
 
   return ret;
+#endif
 }
 
 
@@ -606,6 +644,9 @@ sa1100_pcmcia_set_io_map(unsigned int sock, struct pccard_io_map *map)
 	  sock, MECR_BSIO_GET(mecr, sock));
 
     MECR = mecr;
+#ifdef CONFIG_SA1100_COLLIE
+    udelay(MECR_UDELAY);
+#endif
   }
 
   if (map->stop == 1)
@@ -716,6 +757,16 @@ sa1100_pcmcia_set_mem_map(unsigned int sock, struct pccard_mem_map *map)
 	  sock, MECR_BSIO_GET(mecr, sock));
 
     MECR = mecr;
+
+#ifdef CONFIG_SA1100_COLLIE
+//  udelay(MECR_UDELAY);
+      {
+	  int i;
+	  for (i = 0; i < 100000; i++)
+	      ;
+      }
+#endif
+
   }
 
   start = (map->flags & MAP_ATTRIB) ? skt->phys_attr : skt->phys_mem;
@@ -873,6 +924,9 @@ static void sa1100_pcmcia_update_mecr(unsigned int clock)
   }
 
   MECR = mecr;
+#ifdef CONFIG_SA1100_COLLIE
+  udelay(MECR_UDELAY);
+#endif
 
 }
 
@@ -936,6 +990,10 @@ static int __init sa1100_pcmcia_machine_init(void)
     } else
       pcmcia_low_level = &assabet_pcmcia_ops;
   }
+#endif
+#ifdef CONFIG_SA1100_COLLIE
+  if (machine_is_collie())
+    pcmcia_low_level = &collie_pcmcia_ops;
 #endif
 #ifdef CONFIG_SA1100_BADGE4
   if (machine_is_badge4())
@@ -1087,6 +1145,9 @@ static int __init sa1100_pcmcia_driver_init(void)
     if (ret < 0)
       printk(KERN_ERR "Unable to get IRQ for socket %u (%d)\n", i, ret);
 
+#ifdef CONFIG_SA1100_COLLIE
+    skt->cs_state.csc_mask = SS_DETECT;
+#endif
     skt->irq        = irq_info.irq;
     skt->k_state    = state[i];
     skt->speed_io   = SA1100_PCMCIA_IO_ACCESS;
@@ -1108,6 +1169,9 @@ static int __init sa1100_pcmcia_driver_init(void)
   }
 
   MECR = mecr;
+#ifdef CONFIG_SA1100_COLLIE
+  udelay(MECR_UDELAY);
+#endif
 
 #ifdef CONFIG_CPU_FREQ
   ret = cpufreq_register_notifier(&sa1100_pcmcia_notifier_block);

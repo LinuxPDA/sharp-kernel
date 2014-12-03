@@ -8,6 +8,10 @@
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
+ *
+ * Change Log
+ *   08-19-2002 Sharp	add I2S defines
+ *
  */
 #ifndef _PXA_REGS_H_
 #define _PXA_REGS_H_
@@ -112,6 +116,7 @@ typedef void            (*ExcpHndlr) (void) ;
 
 #define DINT		__REG(0x400000f0)  /* DMA Interrupt Register */
 
+#define DRCMR(Nb)	__REG(0x40000100 + (Nb)*4)
 #define DRCMR0		__REG(0x40000100)  /* Request to Channel Map Register for DREQ 0 */
 #define DRCMR1		__REG(0x40000104)  /* Request to Channel Map Register for DREQ 1 */
 #define DRCMR2		__REG(0x40000108)  /* Request to Channel Map Register for I2S receive Request */
@@ -468,6 +473,91 @@ typedef void            (*ExcpHndlr) (void) ;
 //#define SAICR		__REG(0x40400018)  /* Serial Audio Interrupt Clear Register */
 //#define SADIV		__REG(0x40400060)  /* Audio Clock Divider Register. */
 //#define SADR		__REG(0x40400080)  /* Serial Audio Data Register (TX and RX FIFO access Register). */
+
+
+/*
+ * I2S controller for SOUND Driver
+ */
+#define _I2C_IBMR	0x40301680
+#define _I2C_IDBR	0x40301688
+#define _I2C_ICR	0x40301690
+#define _I2C_ISR	0x40301698
+#define _I2S_ISAR	0x403016A0
+
+#define I2C_IBMR    __REG(_I2C_IBMR)
+#define I2C_IDBR    __REG(_I2C_IDBR)
+#define I2C_ICR		__REG(_I2C_ICR)
+#define I2C_ISR		__REG(_I2C_ISR)
+#define I2C_ISAR    __REG(_I2S_ISAR)
+                    
+#define _I2S_SACR0	0x40400000
+#define _I2S_SACR1	0x40400004
+#define _I2S_SASR0	0x4040000C
+#define _I2S_SADIV	0x40400060
+#define _I2S_SAICR	0x40400018
+#define _I2S_SAIMR	0x40400014
+#define _I2S_SADR	0x40400080
+
+#define I2S_SACR0	__REG(_I2S_SACR0)	
+#define I2S_SACR1	__REG(_I2S_SACR1)	
+#define I2S_SASR0	__REG(_I2S_SASR0)	
+#define I2S_SADIV	__REG(_I2S_SADIV)	
+#define I2S_SAICR	__REG(_I2S_SAICR)	
+#define I2S_SAIMR	__REG(_I2S_SAIMR)	
+#define I2S_SADR	__REG(_I2S_SADR)
+
+#define _I2S_SACR0	0x40400000
+#define _I2S_SACR1	0x40400004
+#define _I2S_SASR0	0x4040000C
+#define _I2S_SADIV	0x40400060
+#define _I2S_SAICR	0x40400018
+#define _I2S_SAIMR	0x40400014
+#define _I2S_SADR	0x40400080
+
+#define I2S_SACR0	__REG(_I2S_SACR0)	
+#define I2S_SACR1	__REG(_I2S_SACR1)	
+#define I2S_SASR0	__REG(_I2S_SASR0)	
+#define I2S_SADIV	__REG(_I2S_SADIV)	
+#define I2S_SAICR	__REG(_I2S_SAICR)	
+#define I2S_SAIMR	__REG(_I2S_SAIMR)	
+#define I2S_SADR	__REG(_I2S_SADR)
+
+#define SACR0_RFTH	( 1 << 12 )		/* Recieve FIFO interrupt or DMA threshhold */
+#define SACR0_RFTH_MASK	( 0xf << 12 )
+#define SACR0_TFTH	( 1 << 8 )		/* Transmit FIFO interrupt or DMA threshhold */
+#define SACR0_TFTH_MASK	( 0xf << 8 )
+#define SACR0_STRF	( 1 << 5 )		/* Select Transmit or Recieve FIFO */
+#define SACR0_EFWR	( 1 << 4 )		/* Special purpose FIFO Write/Read */
+#define SACR0_RST	( 1 << 3 )		/* Resets FIFO logic and all registers */
+#define SACR0_BCKD	( 1 << 2 )		/* direction of BITCLK */
+#define SACR0_ENB	( 1 << 0 )		/* Enable I2S function */
+
+#define SACR1_ENLBF	( 1 << 5 )		/* Enable MSB Interface Loop Back */
+#define SACR1_DRPL	( 1 << 4 )		/* Disable Replaying Function */
+#define SACR1_DREC	( 1 << 3 )		/* Disable Recording Function */
+#define SACR1_AMSL	( 1 << 0 )		/* Specify Alternate Mode */
+
+#define SASR0_RFL	( 1 << 12 )		/* Recieve FIFO level */
+#define SASR0_RFL_MASK	( 0xf << 12 )
+#define SASR0_TFL	( 1 << 8 )		/* Transmit FIFO level */
+#define SASR0_TFL_MASK	( 0xf << 8 )
+#define SASR0_ROR	( 1 << 6 )		/* Recieve FIFO Overrun */ 
+#define SASR0_TUR	( 1 << 5 )		/* Transmit FIFO Under-run */
+#define SASR0_RFS	( 1 << 4 )		/* Recieve FIFO Service Request */
+#define SASR0_TFS	( 1 << 3 )		/* Transmit FIFO Service Request */
+#define SASR0_BSY	( 1 << 2 )		/* BUSY */
+#define SASR0_RNE	( 1 << 1 )		/* Recieve FIFO not Empty */
+#define SASR0_TNF	( 1 << 0 )		/* Transmit FIFO not Full */
+
+#define SADIV_MASK	( 0x7f )
+
+#define SAICR_ROR	( 1 << 6 )		/* Clear Recieve FIFO overrun interrupt */
+#define SAICR_TUR	( 1 << 5 )		/* Clear Transmit FIFO under-run interrupt */
+
+#define SAIMR_ROR	( 1 << 6 )		/* Enable Recieve FIFO Overrun Interrupt */
+#define SAIMR_TUR	( 1 << 5 )		/* Enable FIFO Under-run Interrupt */
+#define SAIMR_RFS	( 1 << 4 )		/* Enable Recieve FIFO Service Request */
+#define SAIMR_TFS	( 1 << 3 )		/* Enable Transmit FIFO Serveice Request */
 
 
 /*
@@ -854,6 +944,7 @@ typedef void            (*ExcpHndlr) (void) ;
 #define GPIO18_RDY		18	/* Ext. Bus Ready */
 #define GPIO19_DREQ1		19	/* External DMA Request */
 #define GPIO20_DREQ0		20	/* External DMA Request */
+#define GPIO21_TEMP		21	/* External DMA Request */
 #define GPIO23_SCLK		23	/* SSP clock */
 #define GPIO24_SFRM		24	/* SSP Frame */
 #define GPIO25_STXD		25	/* SSP transmit */
@@ -1072,6 +1163,29 @@ typedef void            (*ExcpHndlr) (void) ;
 /*
  * SSP Serial Port Registers
  */
+#define SSCR0_DSS	0
+#define SSCR0_FRF	4
+#define SSCR0_ECS	6
+#define SSCR0_SSE	7
+#define SSCR0_SCR	8
+
+#define SSCR1_RIE	0
+#define SSCR1_TIE	1
+#define SSCR1_LBM	2
+#define SSCR1_SPO	3
+#define SSCR1_SPH	4
+#define SSCR1_MWDS	5
+#define SSCR1_TFT	6
+#define SSCR1_RFT	10
+
+#define SSSR_TNF_MSK	(1u << 2)
+#define SSSR_RNE_MSK	(1u << 3)
+#define SSSR_BSY_MSK	(1u << 4)
+#define SSSR_TFS_MSK	(1u << 5)
+#define SSSR_RFS_MSK	(1u << 6)
+#define SSSR_ROR_MSK	(1u << 7)
+#define SSSR_TFL_MSK	(0xfu << 8)
+#define SSSR_RFL_MSK	(0xfu << 12)
 
 #define SSCR0		__REG(0x41000000)  /* SSP Control Register 0 */
 #define SSCR1		__REG(0x41000004)  /* SSP Control Register 1 */
@@ -1138,6 +1252,7 @@ typedef void            (*ExcpHndlr) (void) ;
  * LCD
  */
 
+#define LCCR(Nb)	__REG(0x44000000 + (Nb)*4)
 #define LCCR0		__REG(0x44000000)  /* LCD Controller Control Register 0 */
 #define LCCR1		__REG(0x44000004)  /* LCD Controller Control Register 1 */
 #define LCCR2		__REG(0x44000008)  /* LCD Controller Control Register 2 */

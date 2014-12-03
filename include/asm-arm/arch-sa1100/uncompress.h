@@ -4,9 +4,16 @@
  * (C) 1999 Nicolas Pitre <nico@cam.org>
  *
  * Reorganised to be machine independent.
+ *
+ * ChangLog:
+ *	30-Jul-2002 Lineo Japan, Inc.  for 2.4.18
  */
 
 #include "hardware.h"
+
+/* sa1100_setup() will perform any special initialization for UART, etc. */
+extern void sa1100_setup( int arch_id );
+#define arch_decomp_setup()	sa1100_setup(arch_id)
 
 /*
  * The following code assumes the serial port has already been
@@ -51,5 +58,7 @@ static void puts( const char *s )
 /*
  * Nothing to do for these
  */
+#ifndef CONFIG_SA1100_COLLIE
 #define arch_decomp_setup()
+#endif
 #define arch_decomp_wdog()

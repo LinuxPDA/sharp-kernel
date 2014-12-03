@@ -11,6 +11,8 @@
  *
  * Originally based upon linux/drivers/pcmcia/sa1100_generic.h
  *
+ * ChangLog:
+ *	12-Dec-2002 Lineo Japan, Inc.
  */
 
 /*======================================================================
@@ -216,5 +218,6 @@ struct pxa_pcmcia_socket {
 extern struct pcmcia_low_level lubbock_pcmcia_ops;
 extern struct pcmcia_low_level pxa_idp_pcmcia_ops;
 extern struct pcmcia_low_level cerf_pcmcia_ops;
+extern struct pcmcia_low_level sharpsl_pcmcia_ops;
 
 #endif  /* !defined(_PCMCIA_PXA_H) */

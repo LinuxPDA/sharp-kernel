@@ -51,6 +51,9 @@
  *		as published by the Free Software Foundation; either version
  *		2 of the License, or (at your option) any later version.
  *
+ * Change Log
+ *     12-Nov-2001 Lineo Japan, Inc.
+ *
  *
  *	This module is effectively the top level interface to the BSD socket
  *	paradigm. 
@@ -105,6 +108,10 @@ static ssize_t sock_writev(struct file *file, const struct iovec *vector,
 			  unsigned long count, loff_t *ppos);
 static ssize_t sock_sendpage(struct file *file, struct page *page,
 			     int offset, size_t size, loff_t *ppos, int more);
+
+#if defined(CONFIG_ARCH_SHARP_SL) && defined(CONFIG_APM)
+  extern int autoPowerCancel;
+#endif
 
 
 /*
@@ -509,6 +516,10 @@ int sock_sendmsg(struct socket *sock, struct msghdr *msg, int size)
 		err = sock->ops->sendmsg(sock, msg, size, &scm);
 		scm_destroy(&scm);
 	}
+#if defined(CONFIG_ARCH_SHARP_SL) && defined(CONFIG_APM)
+	if (sock->sk->daddr != 0 && sock->sk->daddr != 0x0100007f)
+		autoPowerCancel = 0;
+#endif
 	return err;
 }
 
@@ -522,6 +533,10 @@ int sock_recvmsg(struct socket *sock, struct msghdr *msg, int size, int flags)
 	if (size >= 0)
 		scm_recv(sock, msg, &scm, flags);
 
+#if defined(CONFIG_ARCH_SHARP_SL) && defined(CONFIG_APM)
+	if (sock->sk->daddr != 0 && sock->sk->daddr != 0x0100007f)
+		autoPowerCancel = 0;
+#endif
 	return size;
 }
 

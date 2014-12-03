@@ -18,6 +18,7 @@
 
 unsigned int __machine_arch_type;
 
+#include <linux/config.h>
 #include <linux/kernel.h>
 
 #include <asm/uaccess.h>

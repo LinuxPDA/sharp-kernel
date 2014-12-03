@@ -1,9 +1,17 @@
 /*
  *  drivers/mtd/nand.c
  *
+ *  Overview:
+ *   This is the generic MTD driver for NAND flash devices. It should be
+ *   capable of working with almost all NAND chips currently available.
+ *   
+ *	Additional technical information is available on
+ *	http://www.linux-mtd.infradead.org/tech/nand.html
+ *	
  *  Copyright (C) 2000 Steven J. Hill (sjhill@cotw.com)
+ * 		  2002 Thomas Gleixner (tglx@linutronix.de)
  *
- *  10-29-2001  Thomas Gleixner (gleixner@autronix.de)
+ *  10-29-2001  Thomas Gleixner (tglx@linutronix.de)
  * 		- Changed nand_chip structure for controlline function to
  *		support different hardware structures (Access to
  *		controllines ALE,CLE,NCE via hardware specific function. 
@@ -11,10 +19,10 @@
  *		driver hangup
  *		- init_waitqueue_head added in function nand_scan !!
  *
- *  01-30-2002  Thomas Gleixner (gleixner@autronix.de)
+ *  01-30-2002  Thomas Gleixner (tglx@linutronix.de)
  *		change in nand_writev to block invalid vecs entries
  *
- *  02-11-2002  Thomas Gleixner (gleixner@autronix.de)
+ *  02-11-2002  Thomas Gleixner (tglx@linutronix.de)
  *		- major rewrite to avoid duplicated code
  *		  common nand_write_page function  
  *		  common get_chip function 
@@ -26,36 +34,93 @@
  *		- support for device ready/busy line
  *		- read oob for more than one page enabled
  *
- *  02-27-2002	Thomas Gleixner (gleixner@autronix.de)
+ *  02-27-2002	Thomas Gleixner (tglx@linutronix.de)
  *		- command-delay can be programmed
  *		- fixed exit from erase with callback-function enabled
  *
- *  03-21-2002  Thomas Gleixner (gleixner@autronix.de)
+ *  03-21-2002  Thomas Gleixner (tglx@linutronix.de)
  *		- DEBUG improvements provided by Elizabeth Clarke 
  *		(eclarke@aminocom.com)
  *		- added zero check for this->chip_delay
  *
- *  04-03-2002  Thomas Gleixner (gleixner@autronix.de)
+ *  04-03-2002  Thomas Gleixner (tglx@linutronix.de)
  *		- added added hw-driver supplied command and wait functions
  *		- changed blocking for erase (erase suspend enabled)
  *		- check pointers before accessing flash provided by
  *		John Hall (john.hall@optionexist.co.uk)
  *
- *  04-09-2002  Thomas Gleixner (gleixner@autronix.de)
+ *  04-09-2002  Thomas Gleixner (tglx@linutronix.de)
  *		- nand_wait repaired
  *
- *  04-28-2002  Thomas Gleixner (gleixner@autronix.de)	
+ *  04-28-2002  Thomas Gleixner (tglx@linutronix.de)	
  *		- OOB config defines moved to nand.h 
  *
- * $Id: nand.c,v 1.24 2002/04/28 13:39:48 gleixner Exp $
+ *  08-01-2002  Thomas Gleixner (tglx@linutronix.de)	
+ *		- changed my mailaddress, added pointer to tech/nand.html
+ *
+ *  08-07-2002 	Thomas Gleixner (tglx@linutronix.de)
+ *		forced bad block location to byte 5 of OOB, even if
+ *		CONFIG_MTD_NAND_ECC_JFFS2 is not set, to prevent
+ *		erase /dev/mtdX from erasing bad blocks and destroying
+ *		bad block info
+ *
+ *  08-10-2002 	Thomas Gleixner (tglx@linutronix.de)
+ *		Fixed writing tail of data. Thanks to Alice Hennessy
+ *		<ahennessy@mvista.com>.
+ *
+ *  08-10-2002 	Thomas Gleixner (tglx@linutronix.de)
+ *		nand_read_ecc and nand_write_page restructured to support
+ *		hardware ECC. Thanks to Steven Hein (ssh@sgi.com)
+ *		for basic implementation and suggestions.
+ *		3 new pointers in nand_chip structure:
+ *		calculate_ecc, correct_data, enabled_hwecc 					 
+ *		forcing all hw-drivers to support page cache
+ *		eccvalid_pos is now mandatory
+ *
+ *  08-17-2002	tglx: fixed signed/unsigned missmatch in write.c
+ *		Thanks to Ken Offer <koffer@arlut.utexas.edu> 	
+ *
+ *  08-29-2002  tglx: use buffered read/write only for non pagealigned 
+ *		access, speed up the aligned path by using the fs-buffer
+ *		reset chip removed from nand_select(), implicit done
+ *		only, when erase is interrupted
+ *		waitfuntion use yield, instead of schedule_timeout
+ *		support for 6byte/512byte hardware ECC
+ *		read_ecc, write_ecc extended for different oob-layout
+ *		selections: Implemented NAND_NONE_OOB, NAND_JFFS2_OOB,
+ *		NAND_YAFFS_OOB. fs-driver gives one of these constants
+ *		to select the oob-layout fitting the filesystem.
+ *		oobdata can be read together with the raw data, when
+ *		the fs-driver supplies a big enough buffer.
+ *		size = 12 * number of pages to read (256B pagesize)
+ *		       24 * number of pages to read (512B pagesize)
+ *		the buffer contains 8/16 byte oobdata and 4/8 byte
+ *		returncode from calculate_ecc
+ *		oobdata can be given from filesystem to program them
+ *		in one go together with the raw data. ECC codes are
+ *		filled in at the place selected by oobsel.
+ *
+ *  09-04-2002  tglx: fixed write_verify (John Hall (john.hall@optionexist.co.uk))
+ *
+ * $Id: nand.c,v 1.31 2002/09/04 11:19:33 gleixner Exp $
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
  *
- *  Overview:
- *   This is the generic MTD driver for NAND flash devices. It should be
- *   capable of working with almost all NAND chips currently available.
+ * ChangLog:
+ *     09-Nov-2002 Lineo Japan, Inc.  add NAND page read cache
+ *     01-Nov-2002 Lineo Japan, Inc.  retry NAND_CMD_SEQIN at calculate_ecc() error
+ *     29-Oct-2002 Lineo Japan, Inc.  modify calculate_ecc return type
+ *				      emit NAND_CMD_RESET command at I/O error
+ *     27-Sep-2002 Lineo Japan, Inc.  modify local variable declarations
+ *     26-Sep-2002 Lineo Japan, Inc.  take hamming distance into consideration
+ *     20-Sep-2002 Lineo Japan, Inc.  modify error message
+ *				      FL_ERASING waits until FL_READY
+ *     19-Sep-2002 Lineo Japan, Inc.  modify nand_command() return type
+ *				      add erase-by-force mode
+ *     18-Sep-2002 Lineo Japan, Inc.  add dev_ready() call after read
+ *     17-Sep-2002 Lineo Japan, Inc.  add code for post-badblock
  */
 
 #include <linux/delay.h>
@@ -65,61 +130,63 @@
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/nand.h>
 #include <linux/mtd/nand_ids.h>
+#include <linux/mtd/nand_ecc.h>
 #include <linux/interrupt.h>
 #include <asm/io.h>
 
-#ifdef CONFIG_MTD_NAND_ECC
-#include <linux/mtd/nand_ecc.h>
-#endif
+#undef DEBUG_PROC
+#include "measure.h"
+
 
 /*
  * Macros for low-level register control
  */
-#define nand_select()	this->hwcontrol(NAND_CTL_SETNCE); \
-			this->cmdfunc(mtd, NAND_CMD_RESET, -1, -1);
+#define nand_select()	this->hwcontrol(NAND_CTL_SETNCE);
 
 #define nand_deselect() this->hwcontrol(NAND_CTL_CLRNCE);
 
 /*
- * Definition of the out of band configuration structure
+ * out of band configuration for different filesystems
  */
-struct nand_oob_config {
-	int ecc_pos[6];		/* position of ECC bytes inside oob */
-	int badblock_pos;	/* position of bad block flag inside oob -1 = inactive */
-	int eccvalid_pos;	/* position of ECC valid flag inside oob -1 = inactive */
+static int oobconfigs[][6] = {
+	{ 0,0,0,0,0,0},
+
+	{ NAND_JFFS2_OOB_ECCPOS0, NAND_JFFS2_OOB_ECCPOS1, NAND_JFFS2_OOB_ECCPOS2,
+	NAND_JFFS2_OOB_ECCPOS3, NAND_JFFS2_OOB_ECCPOS4, NAND_JFFS2_OOB_ECCPOS5 },
+
+	{ NAND_YAFFS_OOB_ECCPOS0, NAND_YAFFS_OOB_ECCPOS1, NAND_YAFFS_OOB_ECCPOS2,
+	NAND_YAFFS_OOB_ECCPOS3, NAND_YAFFS_OOB_ECCPOS4, NAND_YAFFS_OOB_ECCPOS5 }	
 };
 
-
-static struct nand_oob_config oob_config;
 /*
  * NAND low-level MTD interface functions
  */
 static int nand_read (struct mtd_info *mtd, loff_t from, size_t len, size_t * retlen, u_char * buf);
 static int nand_read_ecc (struct mtd_info *mtd, loff_t from, size_t len,
-			  size_t * retlen, u_char * buf, u_char * ecc_code);
+			  size_t * retlen, u_char * buf, u_char * eccbuf, int oobsel);
 static int nand_read_oob (struct mtd_info *mtd, loff_t from, size_t len, size_t * retlen, u_char * buf);
 static int nand_write (struct mtd_info *mtd, loff_t to, size_t len, size_t * retlen, const u_char * buf);
 static int nand_write_ecc (struct mtd_info *mtd, loff_t to, size_t len,
-			   size_t * retlen, const u_char * buf, u_char * ecc_code);
-static int nand_write_oob (struct mtd_info *mtd, loff_t to, size_t len, size_t * retlen, const u_char * buf);
+			   size_t * retlen, const u_char * buf, u_char * eccbuf, int oobsel);
+static int nand_write_oob (struct mtd_info *mtd, loff_t to, size_t len, size_t * retlen, const u_char *buf);
 static int nand_writev (struct mtd_info *mtd, const struct iovec *vecs,
 			unsigned long count, loff_t to, size_t * retlen);
+static int nand_writev_ecc (struct mtd_info *mtd, const struct iovec *vecs,
+			unsigned long count, loff_t to, size_t * retlen, u_char *eccbuf, int oobsel);
 static int nand_erase (struct mtd_info *mtd, struct erase_info *instr);
 static void nand_sync (struct mtd_info *mtd);
-static int nand_write_page (struct mtd_info *mtd, struct nand_chip *this,
-			    int page, int col, int last, u_char * ecc_code);
-
+static int nand_write_page (struct mtd_info *mtd, struct nand_chip *this, int page, int col, 
+			int last, u_char *oob_buf, int oobsel);
 /*
  * Send command to NAND device
  */
-static void nand_command (struct mtd_info *mtd, unsigned command, int column, int page_addr)
+static int nand_command (struct mtd_info *mtd, unsigned command, int column, int page_addr)
 {
 	register struct nand_chip *this = mtd->priv;
 	register unsigned long NAND_IO_ADDR = this->IO_ADDR_W;
 
 	/* Begin command latch cycle */
 	this->hwcontrol (NAND_CTL_SETCLE);
-
 	/*
 	 * Write out the command to the device.
 	 */
@@ -128,7 +195,6 @@ static void nand_command (struct mtd_info *mtd, unsigned command, int column, in
 	else {
 		if (mtd->oobblock == 256 && column >= 256) {
 			column -= 256;
-			writeb (NAND_CMD_RESET, NAND_IO_ADDR);
 			writeb (NAND_CMD_READOOB, NAND_IO_ADDR);
 			writeb (NAND_CMD_SEQIN, NAND_IO_ADDR);
 		} else if (mtd->oobblock == 512 && column >= 256) {
@@ -150,49 +216,67 @@ static void nand_command (struct mtd_info *mtd, unsigned command, int column, in
 	/* Set ALE and clear CLE to start address cycle */
 	this->hwcontrol (NAND_CTL_CLRCLE);
 
-	if (column != -1 || page_addr != -1)
+	if (column != -1 || page_addr != -1) {
 		this->hwcontrol (NAND_CTL_SETALE);
 
-	/* Serially input address */
-	if (column != -1)
-		writeb (column, NAND_IO_ADDR);
-	if (page_addr != -1) {
-		writeb ((unsigned char) (page_addr & 0xff), NAND_IO_ADDR);
-		writeb ((unsigned char) ((page_addr >> 8) & 0xff), NAND_IO_ADDR);
-		/* One more address cycle for higher density devices */
-		if (mtd->size & 0x0c000000) {
-			writeb ((unsigned char) ((page_addr >> 16) & 0x0f), NAND_IO_ADDR);
+		/* Serially input address */
+		if (column != -1)
+			writeb (column, NAND_IO_ADDR);
+		if (page_addr != -1) {
+			writeb ((unsigned char) (page_addr & 0xff), NAND_IO_ADDR);
+			writeb ((unsigned char) ((page_addr >> 8) & 0xff), NAND_IO_ADDR);
+			/* One more address cycle for higher density devices */
+			if (mtd->size & 0x0c000000) 
+				writeb ((unsigned char) ((page_addr >> 16) & 0x0f), NAND_IO_ADDR);
 		}
-	}
-	/* Latch in address */
-	if (column != -1 || page_addr != -1)
+		/* Latch in address */
 		this->hwcontrol (NAND_CTL_CLRALE);
-
-	/* 
-	 * If we don't have access to the busy pin, we apply the given
-	 * command delay
-	*/
-	if (!this->dev_ready) {
-		udelay (this->chip_delay);
-		return;
 	}
 	
-	/* program and erase have their own busy handlers */
+	/* 
+	 * program and erase have their own busy handlers 
+	 * status and sequential in needs no delay
+	*/
 	switch (command) {
+			
 	case NAND_CMD_PAGEPROG:
 	case NAND_CMD_ERASE1:
 	case NAND_CMD_ERASE2:
-		udelay (this->chip_delay);
-		return;
+	case NAND_CMD_SEQIN:
+	case NAND_CMD_STATUS:
+		return 0;
+
+	case NAND_CMD_RESET:
+		if (this->dev_ready)	
+			break;
+		this->hwcontrol (NAND_CTL_SETCLE);
+		writeb (NAND_CMD_STATUS, NAND_IO_ADDR);
+		this->hwcontrol (NAND_CTL_CLRCLE);
+		while ( !(readb (this->IO_ADDR_R) & 0x40));
+		return 0;
+
+	/* This applies to read commands */	
+	default:
+		/* 
+		 * If we don't have access to the busy pin, we apply the given
+		 * command delay
+		*/
+		if (!this->dev_ready) {
+			udelay (this->chip_delay);
+			return 0;
+		}	
 	}
+	
 	/* wait until command is processed */
 	while (!this->dev_ready());	
+
+	return 0;
 }
 
 /*
  *	Get chip for selected access
  */
-static inline void nand_get_chip (struct nand_chip *this, int new_state, int *erase_state)
+static inline void nand_get_chip (struct nand_chip *this, struct mtd_info *mtd, int new_state, int *erase_state)
 {
 
 	DECLARE_WAITQUEUE (wait, current);
@@ -202,7 +286,6 @@ static inline void nand_get_chip (struct nand_chip *this, int new_state, int *er
 	 * For erasing, we keep the spinlock until the
 	 * erase command is written. 
 	*/
-	
 retry:
 	spin_lock_bh (&this->chip_lock);
 
@@ -213,13 +296,17 @@ retry:
 		return;
 	}
 
+#if 0
 	if (this->state == FL_ERASING) {
 		if (new_state != FL_ERASING) {
 			this->state = new_state;
 			spin_unlock_bh (&this->chip_lock);
+			nand_select ();	/* select in any case */
+			this->cmdfunc(mtd, NAND_CMD_RESET, -1, -1);
 			return;
 		}
 	}
+#endif
 
 	set_current_state (TASK_UNINTERRUPTIBLE);
 	add_wait_queue (&this->wq, &wait);
@@ -238,7 +325,6 @@ retry:
 static int nand_wait(struct mtd_info *mtd, struct nand_chip *this, int state)
 {
 
-	DECLARE_WAITQUEUE (wait, current);
 	unsigned long	timeo = jiffies;
 	int	status;
 	
@@ -248,6 +334,8 @@ static int nand_wait(struct mtd_info *mtd, struct nand_chip *this, int state)
 		 timeo += (HZ * 20) / 1000;
 
 	spin_lock_bh (&this->chip_lock);
+	this->cmdfunc (mtd, NAND_CMD_STATUS, -1, -1);
+
 	while (time_before(jiffies, timeo)) {		
 		/* Check, if we were interrupted */
 		if (this->state != state) {
@@ -258,18 +346,13 @@ static int nand_wait(struct mtd_info *mtd, struct nand_chip *this, int state)
 			if (this->dev_ready ())
 				break;
 		}
-		this->cmdfunc (mtd, NAND_CMD_STATUS, -1, -1);
 		if (readb (this->IO_ADDR_R) & 0x40)
 			break;
 						
-		set_current_state (TASK_UNINTERRUPTIBLE);
-		add_wait_queue (&this->wq, &wait);
 		spin_unlock_bh (&this->chip_lock);
-		schedule_timeout (1);
-		remove_wait_queue (&this->wq, &wait);
+		yield ();
 		spin_lock_bh (&this->chip_lock);
 	}
-	this->cmdfunc (mtd, NAND_CMD_STATUS, -1, -1);
 	status = (int) readb (this->IO_ADDR_R);
 	spin_unlock_bh (&this->chip_lock);
 
@@ -280,63 +363,128 @@ static int nand_wait(struct mtd_info *mtd, struct nand_chip *this, int state)
  *	Nand_page_program function is used for write and writev !
  */
 static int nand_write_page (struct mtd_info *mtd, struct nand_chip *this,
-			    int page, int col, int last, u_char * ecc_code)
+			    const int page, int col, int last, u_char *oob_buf, int oobsel)
 {
+	int 	i, status;
+	u_char	ecc_code[6], *oob_data;
+	int	eccmode = oobsel ? this->eccmode : NAND_ECC_NONE;
+	int  	*oob_config = oobconfigs[oobsel];
+	int	ecc_ret = 0;
 
-	int i, status;
-#ifdef CONFIG_MTD_NAND_VERIFY_WRITE
-#ifdef CONFIG_MTD_NAND_ECC
-	int ecc_bytes = (mtd->oobblock == 512) ? 6 : 3;
-#endif
-#endif
-	/* pad oob area */
-	for (i = mtd->oobblock; i < mtd->oobblock + mtd->oobsize; i++)
-		this->data_buf[i] = 0xff;
+	START_MEASUREMENT(nand_write_page);
+	COUNTER_INC(nand_write_nr_pages);
 
-#ifdef CONFIG_MTD_NAND_ECC
-	/* Zero out the ECC array */
-	for (i = 0; i < 6; i++)
-		ecc_code[i] = 0x00;
+	if (this->cache_page == page)
+		this->cache_page = -1;
 
-	/* Read back previous written data, if col > 0 */
-	if (col) {
-		this->cmdfunc (mtd, NAND_CMD_READ0, col, page);
-		for (i = 0; i < col; i++)
-			this->data_buf[i] = readb (this->IO_ADDR_R);
-	}
+	/* pad oob area, if we have no oob buffer from fs-driver */
+	if (!oob_buf) {
+		oob_data = &this->data_buf[mtd->oobblock];
+		for (i = 0; i < mtd->oobsize; i++)
+			oob_data[i] = 0xff;
+	} else 
+		oob_data = oob_buf;
+	
+	/* software ecc 3 Bytes ECC / 256 Byte Data ? */
+	if (eccmode == NAND_ECC_SOFT) {
+		/* Read back previous written data, if col > 0 */
+		if (col) {
+			this->cmdfunc (mtd, NAND_CMD_READ0, 0, page);
+			for (i = 0; i < col; i++)
+				this->data_poi[i] = readb (this->IO_ADDR_R);
+		}
+		if ((col < this->eccsize) && (last >= this->eccsize)) {
+			this->calculate_ecc (&this->data_poi[0], &(ecc_code[0]));
+			for (i = 0; i < 3; i++)
+				oob_data[oob_config[i]] = ecc_code[i];
+		}
+		/* Calculate and write the second ECC if we have enough data */
+		if ((mtd->oobblock == 512) && (last == 512)) {
+			this->calculate_ecc (&this->data_poi[256], &(ecc_code[3]));
+			for (i = 3; i < 6; i++)
+				oob_data[oob_config[i]] = ecc_code[i];
+		} 
+	} else {
+		/* For hardware ECC skip ECC, if we have no full page write */
+		if (eccmode != NAND_ECC_NONE && (col || last != mtd->oobblock))
+			eccmode = NAND_ECC_NONE;
+	}			
 
-	/* Calculate and write the ECC if we have enough data */
-	if ((col < mtd->eccsize) && (last >= mtd->eccsize)) {
-		nand_calculate_ecc (&this->data_buf[0], &(ecc_code[0]));
-		for (i = 0; i < 3; i++)
-			this->data_buf[(mtd->oobblock + oob_config.ecc_pos[i])] = ecc_code[i];
-		if (oob_config.eccvalid_pos != -1)
-			this->data_buf[mtd->oobblock + oob_config.eccvalid_pos] = 0xf0;
-	}
-
-	/* Calculate and write the second ECC if we have enough data */
-	if ((mtd->oobblock == 512) && (last == mtd->oobblock)) {
-		nand_calculate_ecc (&this->data_buf[256], &(ecc_code[3]));
-		for (i = 3; i < 6; i++)
-			this->data_buf[(mtd->oobblock + oob_config.ecc_pos[i])] = ecc_code[i];
-		if (oob_config.eccvalid_pos != -1)
-			this->data_buf[mtd->oobblock + oob_config.eccvalid_pos] &= 0x0f;
-	}
-#endif
 	/* Prepad for partial page programming !!! */
 	for (i = 0; i < col; i++)
-		this->data_buf[i] = 0xff;
+		this->data_poi[i] = 0xff;
 
 	/* Postpad for partial page programming !!! oob is already padded */
 	for (i = last; i < mtd->oobblock; i++)
-		this->data_buf[i] = 0xff;
+		this->data_poi[i] = 0xff;
 
+  ecc_calc_retry:
 	/* Send command to begin auto page programming */
 	this->cmdfunc (mtd, NAND_CMD_SEQIN, 0x00, page);
 
-	/* Write out complete page of data */
-	for (i = 0; i < (mtd->oobblock + mtd->oobsize); i++)
-		writeb (this->data_buf[i], this->IO_ADDR_W);
+	/* Write out complete page of data, take care of eccmode */
+	switch (this->eccmode) {
+	/* No ecc and software ecc 3/256, write all */
+	case NAND_ECC_NONE:
+	case NAND_ECC_SOFT:
+		for (i = 0; i < mtd->oobblock; i++) 
+			writeb ( this->data_poi[i] , this->IO_ADDR_W);
+		break;
+		
+	/* Hardware ecc 3 byte / 256 data, write first half, get ecc, then second, if 512 byte pagesize */	
+	case NAND_ECC_HW3_256:		
+		this->enable_hwecc (NAND_ECC_WRITE);	/* enable hardware ecc logic for write */
+		for (i = 0; i < mtd->eccsize; i++) 
+			writeb ( this->data_poi[i] , this->IO_ADDR_W);
+		
+		ecc_ret = this->calculate_ecc (NULL, &(ecc_code[0]));
+		for (i = 0; i < 3; i++)
+			oob_data[oob_config[i]] = ecc_code[i];
+			
+		if (mtd->oobblock == 512) {
+			this->enable_hwecc (NAND_ECC_WRITE);	/* enable hardware ecc logic for write*/
+			for (i = mtd->eccsize; i < mtd->oobblock; i++) 
+				writeb ( this->data_poi[i] , this->IO_ADDR_W);
+			ecc_ret |= this->calculate_ecc (NULL, &(ecc_code[3]));
+			for (i = 3; i < 6; i++)
+				oob_data[oob_config[i]] = ecc_code[i];
+		}
+		break;
+				
+	/* Hardware ecc 3 byte / 512 byte data, write full page */	
+	case NAND_ECC_HW3_512:	
+		this->enable_hwecc (NAND_ECC_WRITE);	/* enable hardware ecc logic */
+		for (i = 0; i < mtd->oobblock; i++) 
+			writeb ( this->data_poi[i] , this->IO_ADDR_W);
+		ecc_ret = this->calculate_ecc (NULL, &(ecc_code[0]));
+		for (i = 0; i < 3; i++)
+			oob_data[oob_config[i]] = ecc_code[i];
+		break;
+
+	/* Hardware ecc 6 byte / 512 byte data, write full page */	
+	case NAND_ECC_HW6_512:	
+		this->enable_hwecc (NAND_ECC_WRITE);	/* enable hardware ecc logic */
+		for (i = 0; i < mtd->oobblock; i++) 
+			writeb ( this->data_poi[i] , this->IO_ADDR_W);
+		ecc_ret = this->calculate_ecc (NULL, &(ecc_code[0]));
+		for (i = 0; i < 6; i++)
+			oob_data[oob_config[i]] = ecc_code[i];
+		break;
+		
+	default:
+		printk (KERN_WARNING "Invalid NAND_ECC_MODE %d\n", this->eccmode);
+		BUG();	
+	}
+
+	if (ecc_ret) {
+		DEBUG(MTD_DEBUG_LEVEL0, "%s: Failed write ECC, page 0x%08x, ", __func__, page);
+		ecc_ret = 0;
+		goto ecc_calc_retry;
+	}
+	
+	/* Write out OOB data */
+	for (i = 0; i <  mtd->oobsize; i++)
+		writeb ( oob_data[i] , this->IO_ADDR_W);
 
 	/* Send command to actually program the data */
 	this->cmdfunc (mtd, NAND_CMD_PAGEPROG, -1, -1);
@@ -347,8 +495,10 @@ static int nand_write_page (struct mtd_info *mtd, struct nand_chip *this,
 	/* See if device thinks it succeeded */
 	if (status & 0x01) {
 		DEBUG (MTD_DEBUG_LEVEL0, "nand_write_ecc: " "Failed write, page 0x%08x, ", page);
+		ACCUMULATE_ELAPSED_TIME(nand_write_page);
 		return -EIO;
 	}
+
 #ifdef CONFIG_MTD_NAND_VERIFY_WRITE
 	/*
 	 * The NAND device assumes that it is always writing to
@@ -363,70 +513,96 @@ static int nand_write_page (struct mtd_info *mtd, struct nand_chip *this,
 	 * no data than invalid data.
 	 */
 
-	/* Send command to read back the page */
-	if (col < mtd->eccsize)
-		this->cmdfunc (mtd, NAND_CMD_READ0, col, page);
-	else
-		this->cmdfunc (mtd, NAND_CMD_READ1, col - 256, page);
+	START_MEASUREMENT(nand_write_verify);
 
+	/* Send command to read back the page */
+	if (this->cmdfunc (mtd, NAND_CMD_READ0, col, page)) {
+		printk(KERN_WARNING "%s: Failed in NAND_CMD_READ0 command, page 0x%08x\n",
+		       __func__, page);
+		ACCUMULATE_ELAPSED_TIME(nand_write_verify);
+		ACCUMULATE_ELAPSED_TIME(nand_write_page);
+		return -EIO;
+	}
 	/* Loop through and verify the data */
 	for (i = col; i < last; i++) {
-		if (this->data_buf[i] != readb (this->IO_ADDR_R)) {
-			DEBUG (MTD_DEBUG_LEVEL0, "nand_write_ecc: " "Failed write verify, page 0x%08x ", page);
+		if (this->data_poi[i] != readb (this->IO_ADDR_R)) {
+			printk (KERN_WARNING "%s: Failed write verify, %d at page 0x%08x, col=%d last=%d\n", __func__, i, page, col, last);
+			ACCUMULATE_ELAPSED_TIME(nand_write_verify);
+			ACCUMULATE_ELAPSED_TIME(nand_write_page);
 			return -EIO;
 		}
 	}
 
-#ifdef CONFIG_MTD_NAND_ECC
-	/*
-	 * We also want to check that the ECC bytes wrote
-	 * correctly for the same reasons stated above.
-	 */
-	this->cmdfunc (mtd, NAND_CMD_READOOB, 0x00, page);
-	for (i = 0; i < mtd->oobsize; i++)
-		this->data_buf[i] = readb (this->IO_ADDR_R);
-	for (i = 0; i < ecc_bytes; i++) {
-		if ((this->data_buf[(oob_config.ecc_pos[i])] != ecc_code[i]) && ecc_code[i]) {
-			DEBUG (MTD_DEBUG_LEVEL0,
-			       "nand_write_ecc: Failed ECC write "
-			       "verify, page 0x%08x, " "%6i bytes were succesful\n", page, i);
-			return -EIO;
+	/* check, if we have a fs-supplied oob-buffer */
+	if (oob_buf) {
+		for (i = 0; i < mtd->oobsize; i++) {
+			if (oob_data[i] != readb (this->IO_ADDR_R)) {
+				printk (KERN_WARNING "%s: Failed write verify, oob %d of page 0x%08x\n", __func__, i, page);
+				ACCUMULATE_ELAPSED_TIME(nand_write_verify);
+				ACCUMULATE_ELAPSED_TIME(nand_write_page);
+				return -EIO;
+			}
+		}
+	} else {
+		if (eccmode != NAND_ECC_NONE && !col && last == mtd->oobblock) {
+			int ecc_bytes = 0;
+
+			switch (this->eccmode) {
+			case NAND_ECC_SOFT:
+			case NAND_ECC_HW3_256: ecc_bytes = (mtd->oobblock == 512) ? 6 : 3; break;
+			case NAND_ECC_HW3_512: ecc_bytes = 3; break;
+			case NAND_ECC_HW6_512: ecc_bytes = 6; break;
+			}
+
+			for (i = 0; i < mtd->oobsize; i++)
+				oob_data[i] = readb (this->IO_ADDR_R);
+
+			for (i = 0; i < ecc_bytes; i++) {
+				if (oob_data[oob_config[i]] != ecc_code[i]) {
+					printk (KERN_WARNING
+						"%s: Failed ECC write "
+						"verify, page 0x%08x, "
+						"%6i bytes were succesful\n",
+						__func__, page, i);
+					ACCUMULATE_ELAPSED_TIME(nand_write_verify);
+					ACCUMULATE_ELAPSED_TIME(nand_write_page);
+					return -EIO;
+				}
+			}
 		}
 	}
+	ACCUMULATE_ELAPSED_TIME(nand_write_verify);
 #endif
-#endif
+	ACCUMULATE_ELAPSED_TIME(nand_write_page);
 	return 0;
 }
 
 /*
- * NAND read
- */
+*	Use NAND read ECC
+*/
 static int nand_read (struct mtd_info *mtd, loff_t from, size_t len, size_t * retlen, u_char * buf)
 {
-#ifdef CONFIG_MTD_NAND_ECC
-	struct nand_chip *this = mtd->priv;
+	return (nand_read_ecc (mtd, from, len, retlen, buf, NULL, NAND_JFFS2_OOB));
+}			   
 
-	return nand_read_ecc (mtd, from, len, retlen, buf, this->ecc_code_buf);
-#else
-	return nand_read_ecc (mtd, from, len, retlen, buf, NULL);
-#endif
-}
 
 /*
  * NAND read with ECC
  */
 static int nand_read_ecc (struct mtd_info *mtd, loff_t from, size_t len,
-			  size_t * retlen, u_char * buf, u_char * ecc_code)
+			  size_t * retlen, u_char * buf, u_char * oob_buf, int oobsel)
 {
-	int j, col, page;
+	int j, col, page, end, ecc;
 	int erase_state = 0;
-	int ecc_status = 0, ecc_failed = 0;
+	int read = 0, oob = 0, ecc_status = 0, ecc_failed = 0;
 	struct nand_chip *this = mtd->priv;
-	u_char *data_poi;
-#ifdef CONFIG_MTD_NAND_ECC
+	u_char *data_poi, *oob_data = oob_buf;
 	u_char ecc_calc[6];
-#endif
+	u_char ecc_code[6];
+	int	eccmode = oobsel ? this->eccmode : NAND_ECC_NONE;
 
+	int *oob_config = oobconfigs[oobsel];
+	
 	DEBUG (MTD_DEBUG_LEVEL3, "nand_read_ecc: from = 0x%08x, len = %i\n", (unsigned int) from, (int) len);
 
 	/* Do not allow reads past end of device */
@@ -437,7 +613,10 @@ static int nand_read_ecc (struct mtd_info *mtd, loff_t from, size_t len,
 	}
 
 	/* Grab the lock and see if the device is available */
-	nand_get_chip (this, FL_READING, &erase_state);
+	nand_get_chip (this, mtd ,FL_READING, &erase_state);
+
+	/* Select the NAND device */
+	nand_select ();
 
 	/* First we calculate the starting page */
 	page = from >> this->page_shift;
@@ -445,106 +624,141 @@ static int nand_read_ecc (struct mtd_info *mtd, loff_t from, size_t len,
 	/* Get raw starting column */
 	col = from & (mtd->oobblock - 1);
 
-	/* Initialize return value */
-	*retlen = 0;
+	end = mtd->oobblock;
+	ecc = mtd->eccsize;
 
-	/* Select the NAND device */
-	nand_select ();
-
+	/* Send the read command */
+	if (this->cmdfunc (mtd, NAND_CMD_READ0, 0x00, page)) {
+		printk(KERN_WARNING "%s: Failed in NAND_CMD_READ0 command, page 0x%08x\n",
+		       __func__, page);
+		ecc_failed = 1;
+		goto nand_read_ecc_exit;
+	}
+	
 	/* Loop until all data read */
-	while (*retlen < len) {
+	while (read < len) {
+		/* 
+		 * If the read is not page aligned, we have to read into data buffer
+		 * due to ecc, else we read into return buffer direct
+		 */
+		if (!col && (len - read) >= end)  
+			data_poi = &buf[read];
+		else 
+			data_poi = this->data_buf;
 
-#ifdef CONFIG_MTD_NAND_ECC
+		/* get oob area, if we have no oob buffer from fs-driver */
+		if (!oob_buf) {
+			oob_data = &this->data_buf[end];
+			oob = 0;
+		} 	
+			
+		j = 0;
+		switch (eccmode) {
+		case NAND_ECC_NONE:	/* No ECC, Read in a page */		
+			while (j < end)
+				data_poi[j++] = readb (this->IO_ADDR_R);
+			break;
+			
+		case NAND_ECC_SOFT:	/* Software ECC 3/256: Read in a page + oob data */
+			while (j < end)
+				data_poi[j++] = readb (this->IO_ADDR_R);
+			this->calculate_ecc (&data_poi[0], &ecc_calc[0]);
+			if (mtd->oobblock == 512)
+				this->calculate_ecc (&data_poi[256], &ecc_calc[3]);
+			break;	
+			
+		case NAND_ECC_HW3_256: /* Hardware ECC 3 byte /256 byte data: Read in first 256 byte, get ecc, */
+			this->enable_hwecc (NAND_ECC_READ);	
+			while (j < ecc)
+				data_poi[j++] = readb (this->IO_ADDR_R);
+			this->calculate_ecc (&data_poi[0], &ecc_calc[0]);	/* read from hardware */
+			
+			if (mtd->oobblock == 512) { /* read second, if pagesize = 512 */
+				this->enable_hwecc (NAND_ECC_READ);	
+				while (j < end)
+					data_poi[j++] = readb (this->IO_ADDR_R);
+				this->calculate_ecc (&data_poi[256], &ecc_calc[3]); /* read from hardware */
+			}					
+			break;						
+				
+		case NAND_ECC_HW3_512:	
+		case NAND_ECC_HW6_512: /* Hardware ECC 3/6 byte / 512 byte data : Read in a page  */
+			this->enable_hwecc (NAND_ECC_READ);	
+			while (j < end)
+				data_poi[j++] = readb (this->IO_ADDR_R);
+			this->calculate_ecc (&data_poi[0], &ecc_calc[0]);	/* read from hardware */
+			break;
 
-		/* Do we have this page in cache ? */
-		if (this->cache_page == page)
-			goto readdata;
-
-		/* Send the read command */
-		this->cmdfunc (mtd, NAND_CMD_READ0, 0x00, page);
-		/* Read in a page + oob data */
-		for (j = 0; j < mtd->oobblock + mtd->oobsize; j++)
-			this->data_buf[j] = readb (this->IO_ADDR_R);
-		this->cmdfunc (mtd, NAND_CMD_READ0, 0x00, page);
-
-		/* copy data into cache, for read out of cache and if ecc fails */
-		if (this->data_cache)
-			memcpy (this->data_cache, this->data_buf, mtd->oobblock + mtd->oobsize);
-
-		/* Pick the ECC bytes out of the oob data */
-		for (j = 0; j < 6; j++)
-			ecc_code[j] = this->data_buf[(mtd->oobblock + oob_config.ecc_pos[j])];
-
-		/* Calculate the ECC and verify it */
-		/* If block was not written with ECC, skip ECC */
-		if (oob_config.eccvalid_pos != -1 &&
-		    (this->data_buf[mtd->oobblock + oob_config.eccvalid_pos] & 0x0f) != 0x0f) {
-
-			nand_calculate_ecc (&this->data_buf[0], &ecc_calc[0]);
-			switch (nand_correct_data (&this->data_buf[0], &ecc_code[0], &ecc_calc[0])) {
-			case -1:
-				DEBUG (MTD_DEBUG_LEVEL0, "nand_read_ecc: " "Failed ECC read, page 0x%08x\n", page);
-				ecc_failed++;
-				break;
-			case 1:
-			case 2:	/* transfer ECC corrected data to cache */
-				memcpy (this->data_cache, this->data_buf, 256);
-				break;
-			}
+		default:
+			printk (KERN_WARNING "Invalid NAND_ECC_MODE %d\n", this->eccmode);
+			BUG();	
 		}
 
-		if (oob_config.eccvalid_pos != -1 &&
-		    mtd->oobblock == 512 && (this->data_buf[mtd->oobblock + oob_config.eccvalid_pos] & 0xf0) != 0xf0) {
+		/* read oobdata */
+		for (j = 0; j <  mtd->oobsize; j++) 
+			oob_data[oob + j] = readb (this->IO_ADDR_R);
+		
+		/* Skip ECC, if not active */
+		if (eccmode == NAND_ECC_NONE)
+			goto readdata;	
+		
+		/* Pick the ECC bytes out of the oob data */
+		for (j = 0; j < 6; j++)
+			ecc_code[j] = oob_data[oob + oob_config[j]];
 
-			nand_calculate_ecc (&this->data_buf[256], &ecc_calc[3]);
-			switch (nand_correct_data (&this->data_buf[256], &ecc_code[3], &ecc_calc[3])) {
-			case -1:
-				DEBUG (MTD_DEBUG_LEVEL0, "nand_read_ecc: " "Failed ECC read, page 0x%08x\n", page);
+		/* correct data, if neccecary */
+		ecc_status = this->correct_data (&data_poi[0], &ecc_code[0], &ecc_calc[0]);
+		/* check, if we have a fs supplied oob-buffer */
+		if (oob_buf) { 
+			oob += mtd->oobsize;
+			*((int *)&oob_data[oob]) = ecc_status;
+			oob += sizeof(int);
+		}
+		if (ecc_status == -1) {	
+			printk (KERN_WARNING "%s: Failed ECC read, page 0x%08x\n", __func__, page);
+			ecc_failed++;
+		}
+		
+		if (mtd->oobblock == 512 && eccmode != NAND_ECC_HW3_512) {
+			ecc_status = this->correct_data (&data_poi[256], &ecc_code[3], &ecc_calc[3]);
+			if (oob_buf) {
+				*((int *)&oob_data[oob]) = ecc_status;
+				oob += sizeof(int);
+			}
+			if (ecc_status == -1) {
+				printk (KERN_WARNING "%s: Failed ECC read, page 0x%08x\n", __func__, page);
 				ecc_failed++;
-				break;
-			case 1:
-			case 2:	/* transfer ECC corrected data to cache */
-				if (this->data_cache)
-					memcpy (&this->data_cache[256], &this->data_buf[256], 256);
-				break;
 			}
 		}
 readdata:
-		/* Read the data from ECC data buffer into return buffer */
-		data_poi = (this->data_cache) ? this->data_cache : this->data_buf;
-		data_poi += col;
-		if ((*retlen + (mtd->oobblock - col)) >= len) {
-			while (*retlen < len)
-				buf[(*retlen)++] = *data_poi++;
-		} else {
-			for (j = col; j < mtd->oobblock; j++)
-				buf[(*retlen)++] = *data_poi++;
+		/* If we have consequent page reads, apply delay or wait for ready/busy pin */
+		if (!this->dev_ready) 
+			udelay (this->chip_delay);
+		else {
+			int i;
+			for (i = 0; i < NAND_BUSY_TIMEOUT; i++)
+				if (this->dev_ready())
+					break;
+			if (i == NAND_BUSY_TIMEOUT) {
+				ecc_failed++;
+				goto nand_read_ecc_exit;
+			}
 		}
-		/* Set cache page address, invalidate, if ecc_failed */
-		this->cache_page = (this->data_cache && !ecc_failed) ? page : -1;
 
-		ecc_status += ecc_failed;
-		ecc_failed = 0;
-
-#else
-		/* Send the read command */
-		this->cmdfunc (mtd, NAND_CMD_READ0, col, page);
-
-		/* Read the data directly into the return buffer */
-		if ((*retlen + (mtd->oobblock - col)) >= len) {
-			while (*retlen < len)
-				buf[(*retlen)++] = readb (this->IO_ADDR_R);
-			/* We're done */
-			continue;
-		} else
-			for (j = col; j < mtd->oobblock; j++)
-				buf[(*retlen)++] = readb (this->IO_ADDR_R);
-#endif
+		if (col || (len - read) < end) { 
+			for (j = col; j < end && read < len; j++)
+				buf[read++] = data_poi[j];
+		} else		
+			read += mtd->oobblock;
 		/* For subsequent reads align to page boundary. */
 		col = 0;
 		/* Increment page address */
 		page++;
 	}
+
+  nand_read_ecc_exit:
+	if (ecc_failed)
+		this->cmdfunc(mtd, NAND_CMD_RESET, -1, -1);
 
 	/* De-select the NAND device */
 	nand_deselect ();
@@ -560,7 +774,8 @@ readdata:
 	 * fs driver will take care of that, because
 	 * retlen == desired len and result == -EIO
 	 */
-	return ecc_status ? -EIO : 0;
+	*retlen = read;
+	return ecc_failed ? -EIO : 0;
 }
 
 /*
@@ -568,7 +783,7 @@ readdata:
  */
 static int nand_read_oob (struct mtd_info *mtd, loff_t from, size_t len, size_t * retlen, u_char * buf)
 {
-	int i, col, page;
+	int col, page;
 	int erase_state = 0;
 	struct nand_chip *this = mtd->priv;
 
@@ -580,9 +795,6 @@ static int nand_read_oob (struct mtd_info *mtd, loff_t from, size_t len, size_t 
 	/* Mask to get column */
 	col = from & 0x0f;
 
-	/* Initialize return length value */
-	*retlen = 0;
-
 	/* Do not allow reads past end of device */
 	if ((from + len) > mtd->size) {
 		DEBUG (MTD_DEBUG_LEVEL0, "nand_read_oob: Attempt read beyond end of device\n");
@@ -590,17 +802,18 @@ static int nand_read_oob (struct mtd_info *mtd, loff_t from, size_t len, size_t 
 		return -EINVAL;
 	}
 
+	/* Initialize return length value */
+	*retlen = 0;
+
 	/* Grab the lock and see if the device is available */
-	nand_get_chip (this, FL_READING, &erase_state);
+	nand_get_chip (this, mtd , FL_READING, &erase_state);
 
-	/* can we read out of cache ? */
-	if (this->cache_page == page && (col + len <= mtd->oobsize)) {
-		/* Read the data */
-		memcpy (buf, &this->data_cache[mtd->oobblock + col], len);
-	} else {
+	/* Select the NAND device */
+	nand_select ();
 
-		/* Select the NAND device */
-		nand_select ();
+	while (len) {
+		int tmp_len = min(len, mtd->oobsize - col);
+		int i;
 
 		/* Send the read command */
 		this->cmdfunc (mtd, NAND_CMD_READOOB, col, page);
@@ -608,14 +821,21 @@ static int nand_read_oob (struct mtd_info *mtd, loff_t from, size_t len, size_t 
 		 * Read the data, if we read more than one page
 		 * oob data, let the device transfer the data !
 		 */
-		for (i = 0; i < len; i++) {
+		for (i = 0; i < tmp_len; i++) {
 			buf[i] = readb (this->IO_ADDR_R);
 			if ((col++ & (mtd->oobsize - 1)) == (mtd->oobsize - 1))
 				udelay (this->chip_delay);
 		}
-		/* De-select the NAND device */
-		nand_deselect ();
+
+		col = 0;
+		page++;
+		len -= tmp_len;
+		*retlen += tmp_len;
+		buf += tmp_len;
 	}
+
+	/* De-select the NAND device */
+	nand_deselect ();
 
 	/* Wake up anyone waiting on the device */
 	spin_lock_bh (&this->chip_lock);
@@ -624,31 +844,24 @@ static int nand_read_oob (struct mtd_info *mtd, loff_t from, size_t len, size_t 
 	spin_unlock_bh (&this->chip_lock);
 
 	/* Return happy */
-	*retlen = len;
 	return 0;
 }
 
 /*
- * NAND write
- */
+*	Use NAND write ECC
+*/
 static int nand_write (struct mtd_info *mtd, loff_t to, size_t len, size_t * retlen, const u_char * buf)
 {
-#ifdef CONFIG_MTD_NAND_ECC
-	struct nand_chip *this = mtd->priv;
-
-	return nand_write_ecc (mtd, to, len, retlen, buf, this->ecc_code_buf);
-#else
-	return nand_write_ecc (mtd, to, len, retlen, buf, NULL);
-#endif
-}
+	return (nand_write_ecc (mtd, to, len, retlen, buf, NULL, NAND_JFFS2_OOB));
+}			   
 
 /*
  * NAND write with ECC
  */
 static int nand_write_ecc (struct mtd_info *mtd, loff_t to, size_t len,
-			   size_t * retlen, const u_char * buf, u_char * ecc_code)
+			   size_t * retlen, const u_char * buf, u_char * eccbuf, int oobsel)
 {
-	int i, page, col, cnt, ret = 0;
+	int page, col, cnt, ret = 0, oob = 0, written = 0;
 	struct nand_chip *this = mtd->priv;
 
 	DEBUG (MTD_DEBUG_LEVEL3, "nand_write_ecc: to = 0x%08x, len = %i\n", (unsigned int) to, (int) len);
@@ -659,17 +872,14 @@ static int nand_write_ecc (struct mtd_info *mtd, loff_t to, size_t len,
 		return -EINVAL;
 	}
 
-	/* Grab the lock and see if the device is available */
-	nand_get_chip (this, FL_WRITING, NULL);
-
 	/* Shift to get page */
 	page = ((int) to) >> this->page_shift;
 
 	/* Get the starting column */
 	col = to & (mtd->oobblock - 1);
 
-	/* Initialize return length value */
-	*retlen = 0;
+	/* Grab the lock and see if the device is available */
+	nand_get_chip (this, mtd, FL_WRITING, NULL);
 
 	/* Select the NAND device */
 	nand_select ();
@@ -683,38 +893,41 @@ static int nand_write_ecc (struct mtd_info *mtd, loff_t to, size_t len,
 	}
 
 	/* Loop until all data is written */
-	while (*retlen < len) {
-		/* Invalidate cache, if we write to this page */
-		if (this->cache_page == page)
-			this->cache_page = -1;
-
-		/* Write data into buffer */
-		if ((col + len) >= mtd->oobblock)
-			for (i = col, cnt = 0; i < mtd->oobblock; i++, cnt++)
-				this->data_buf[i] = buf[(*retlen + cnt)];
-		else
-			for (i = col, cnt = 0; cnt < (len - *retlen); i++, cnt++)
-				this->data_buf[i] = buf[(*retlen + cnt)];
-
+	while (written < len) {
+		/* 
+		 * Check, if we have a full page write, then we can
+		 * use the given buffer, else we have to copy
+		 */
+		if (!col && (len - written) >= mtd->oobblock) {   
+			this->data_poi = (u_char*) &buf[written];
+			cnt = mtd->oobblock;
+		} else {
+			cnt = min(len - written, mtd->oobblock);
+			memcpy(&this->data_buf[col], &buf[written + col], cnt);
+			this->data_poi = this->data_buf;		
+		}
 		/* We use the same function for write and writev !) */
-		ret = nand_write_page (mtd, this, page, col, i, ecc_code);
+		if (eccbuf) {
+			ret = nand_write_page (mtd, this, page, col, cnt ,&eccbuf[oob], oobsel);
+			oob += mtd->oobsize;
+		} else 
+			ret = nand_write_page (mtd, this, page, col, cnt, NULL, oobsel);	
+		
 		if (ret)
 			goto out;
 
-		/* Next data start at page boundary */
-		col = 0;
-
 		/* Update written bytes count */
-		*retlen += cnt;
-
+		written += cnt;
+		/* Next write is aligned */
+		col = 0;
 		/* Increment page address */
 		page++;
 	}
 
-	/* Return happy */
-	*retlen = len;
-
 out:
+	if (ret == -EIO)
+		this->cmdfunc(mtd, NAND_CMD_RESET, -1, -1);
+
 	/* De-select the NAND device */
 	nand_deselect ();
 
@@ -724,6 +937,7 @@ out:
 	wake_up (&this->wq);
 	spin_unlock_bh (&this->chip_lock);
 
+	*retlen = written;
 	return ret;
 }
 
@@ -741,7 +955,7 @@ static int nand_write_oob (struct mtd_info *mtd, loff_t to, size_t len, size_t *
 	page = ((int) to) >> this->page_shift;
 
 	/* Mask to get column */
-	column = to & 0x1f;
+	column = to & 0x0f;
 
 	/* Initialize return length value */
 	*retlen = 0;
@@ -753,7 +967,7 @@ static int nand_write_oob (struct mtd_info *mtd, loff_t to, size_t len, size_t *
 	}
 
 	/* Grab the lock and see if the device is available */
-	nand_get_chip (this, FL_WRITING, NULL);
+	nand_get_chip (this, mtd, FL_WRITING, NULL);
 
 	/* Select the NAND device */
 	nand_select ();
@@ -770,18 +984,17 @@ static int nand_write_oob (struct mtd_info *mtd, loff_t to, size_t len, size_t *
 	if (this->cache_page == page)
 		this->cache_page = -1;
 
-	/* Write ones for partial page programming */
-	for (i = mtd->oobblock; i < (mtd->oobblock + mtd->oobsize); i++)
-		this->data_buf[i] = 0xff;
-
-	/* Transfer data */
-	for (i = 0; i < len; i++)
-		this->data_buf[i + mtd->oobblock + column] = buf[i];
-
 	/* Write out desired data */
 	this->cmdfunc (mtd, NAND_CMD_SEQIN, mtd->oobblock, page);
-	for (i = 0; i < mtd->oobsize; i++)
-		writeb (this->data_buf[i + mtd->oobblock], this->IO_ADDR_W);
+	/* prepad 0xff for partial programming */
+	for (i = 0; i < column; i++)
+		writeb (0xff, this->IO_ADDR_W);
+	/* write data */
+	for (i = 0; i < len; i++)
+		writeb (buf[i], this->IO_ADDR_W);	
+	/* postpad 0xff for partial programming */
+	for (i = len + column; i < mtd->oobsize; i++)
+		writeb (0xff, this->IO_ADDR_W);
 
 	/* Send command to program the OOB data */
 	this->cmdfunc (mtd, NAND_CMD_PAGEPROG, -1, -1);
@@ -794,6 +1007,9 @@ static int nand_write_oob (struct mtd_info *mtd, loff_t to, size_t len, size_t *
 		ret = -EIO;
 		goto out;
 	}
+	/* Return happy */
+	*retlen = len;
+
 #ifdef CONFIG_MTD_NAND_VERIFY_WRITE
 	/* Send command to read back the data */
 	this->cmdfunc (mtd, NAND_CMD_READOOB, column, page);
@@ -807,10 +1023,11 @@ static int nand_write_oob (struct mtd_info *mtd, loff_t to, size_t len, size_t *
 		}
 	}
 #endif
-	/* Return happy */
-	*retlen = len;
 
 out:
+	if (ret == -EIO)
+		this->cmdfunc(mtd, NAND_CMD_RESET, -1, -1);
+
 	/* De-select the NAND device */
 	nand_deselect ();
 
@@ -823,12 +1040,20 @@ out:
 	return ret;
 }
 
+
 /*
  * NAND write with iovec
  */
-static int nand_writev (struct mtd_info *mtd, const struct iovec *vecs, unsigned long count, loff_t to, size_t * retlen)
+static int nand_writev (struct mtd_info *mtd, const struct iovec *vecs, unsigned long count, 
+		loff_t to, size_t * retlen)
 {
-	int i, page, col, cnt, len, total_len, ret = 0;
+	return (nand_writev_ecc (mtd, vecs, count, to, retlen, NULL, NAND_JFFS2_OOB));
+}
+
+static int nand_writev_ecc (struct mtd_info *mtd, const struct iovec *vecs, unsigned long count, 
+		loff_t to, size_t * retlen, u_char *eccbuf, int oobsel)
+{
+	int i, page, col, cnt, len, total_len, ret = 0, written = 0;
 	struct nand_chip *this = mtd->priv;
 
 	/* Calculate total length of data */
@@ -845,17 +1070,14 @@ static int nand_writev (struct mtd_info *mtd, const struct iovec *vecs, unsigned
 		return -EINVAL;
 	}
 
-	/* Grab the lock and see if the device is available */
-	nand_get_chip (this, FL_WRITING, NULL);
-
 	/* Shift to get page */
 	page = ((int) to) >> this->page_shift;
 
 	/* Get the starting column */
 	col = to & (mtd->oobblock - 1);
 
-	/* Initialize return length value */
-	*retlen = 0;
+	/* Grab the lock and see if the device is available */
+	nand_get_chip (this, mtd, FL_WRITING, NULL);
 
 	/* Select the NAND device */
 	nand_select ();
@@ -871,38 +1093,51 @@ static int nand_writev (struct mtd_info *mtd, const struct iovec *vecs, unsigned
 	/* Loop until all iovecs' data has been written */
 	cnt = col;
 	len = 0;
+	
 	while (count) {
-		/* Invalidate cache, if we write to this page */
-		if (this->cache_page == page)
-			this->cache_page = -1;
-
-		/* Do any need pre-fill for partial page programming */
-		for (i = 0; i < cnt; i++)
-			this->data_buf[i] = 0xff;
-
-		/*
-		 * Read data out of each tuple until we have a full page
-		 * to write or we've read all the tuples.
+		/* 
+		 *  Check, if we write from offset 0 and if the tuple
+		 *  gives us not enough data for a full page write. Then we
+		 *  can use the iov direct, else we have to copy into
+		 *  data_buf.		
 		 */
-
-		while ((cnt < mtd->oobblock) && count) {
-			if (vecs->iov_base != NULL && vecs->iov_len) {
-				this->data_buf[cnt++] = ((u_char *) vecs->iov_base)[len++];
-			}
+		if (!cnt && (vecs->iov_len - len) >= mtd->oobblock) {
+			cnt = mtd->oobblock;
+			this->data_poi = (u_char *) vecs->iov_base;
+			this->data_poi += len;
+			len += mtd->oobblock; 
+			/* Check, if we have to switch to the next tuple */
 			if (len >= (int) vecs->iov_len) {
 				vecs++;
 				len = 0;
 				count--;
 			}
+		} else {
+			/*
+			 * Read data out of each tuple until we have a full page
+			 * to write or we've read all the tuples.
+		 	*/
+			while ((cnt < mtd->oobblock) && count) {
+				if (vecs->iov_base != NULL && vecs->iov_len) {
+					this->data_buf[cnt++] = ((u_char *) vecs->iov_base)[len++];
+				}
+				/* Check, if we have to switch to the next tuple */
+				if (len >= (int) vecs->iov_len) {
+					vecs++;
+					len = 0;
+					count--;
+				}
+			}	
+			this->data_poi = this->data_buf;	
 		}
-
+		
 		/* We use the same function for write and writev !) */
-		ret = nand_write_page (mtd, this, page, col, cnt, this->ecc_code_buf);
+		ret = nand_write_page (mtd, this, page, col, cnt, NULL, oobsel);
 		if (ret)
 			goto out;
 
 		/* Update written bytes count */
-		*retlen += (cnt - col);
+		written += (cnt - col);
 
 		/* Reset written byte counter and column */
 		col = cnt = 0;
@@ -912,6 +1147,9 @@ static int nand_writev (struct mtd_info *mtd, const struct iovec *vecs, unsigned
 	}
 
 out:
+	if (ret == -EIO)
+		this->cmdfunc(mtd, NAND_CMD_RESET, -1, -1);
+
 	/* De-select the NAND device */
 	nand_deselect ();
 
@@ -921,8 +1159,32 @@ out:
 	wake_up (&this->wq);
 	spin_unlock_bh (&this->chip_lock);
 
-	/* Return happy */
+	*retlen = written;
 	return ret;
+}
+
+/*
+ * return true if hamming distance between a and 0xff is <= 1.
+ *
+ * [NOTE]
+ *	assume that higher 3 bytes are zero
+ */
+static inline int nand_hamming_distance(unsigned int a)
+{
+#ifdef __ARM_ARCH_5TE__
+	unsigned int n;
+	a ^= 0xff;
+	asm (
+		"clz	%0, %1\n"
+		: "=r" (n)
+		: "r" (a)
+	);
+	return (a << (n + 1)) == 0;
+#else
+	return (a == 0xff ||
+		a == 0x7f || a == 0xbf || a == 0xdf || a == 0xef ||
+		a == 0xf7 || a == 0xfb || a == 0xfd || a == 0xfe);
+#endif
 }
 
 /*
@@ -956,7 +1218,7 @@ static int nand_erase (struct mtd_info *mtd, struct erase_info *instr)
 	}
 
 	/* Grab the lock and see if the device is available */
-	nand_get_chip (this, FL_ERASING, NULL);
+	nand_get_chip (this, mtd, FL_ERASING, NULL);
 
 	/* Shift to get first page */
 	page = (int) (instr->addr >> this->page_shift);
@@ -981,15 +1243,30 @@ static int nand_erase (struct mtd_info *mtd, struct erase_info *instr)
 	instr->state = MTD_ERASING;
 
 	while (len) {
-		if (oob_config.badblock_pos != -1) {
-			/* Check if we have a bad block, we do not erase bad blocks ! */
-			this->cmdfunc (mtd, NAND_CMD_READOOB, oob_config.badblock_pos, page);
-			if (readb (this->IO_ADDR_R) != 0xff) {
-				printk (KERN_WARNING "nand_erase: attempt to erase a bad block at page 0x%08x\n", page);
-				instr->state = MTD_ERASE_FAILED;
-				goto erase_exit;
-			}
+		/* Check if we have a bad block, we do not erase bad blocks ! */
+#ifdef CONFIG_MTD_NAND_ERASE_BY_FORCE
+		if (instr->by_force)
+			goto skip_badblock_check;
+#endif
+
+		this->cmdfunc (mtd, NAND_CMD_READOOB, NAND_BADBLOCK_POS, page);
+		if (! nand_hamming_distance(readb (this->IO_ADDR_R))) {
+			printk (KERN_WARNING "%s: attempt to erase a bad block at addr 0x%08x\n", __func__, page << this->page_shift);
+			instr->state = MTD_ERASE_FAILED;
+			goto erase_exit;
 		}
+#ifdef CONFIG_MTD_NAND_POST_BADBLOCK
+		this->cmdfunc (mtd, NAND_CMD_READOOB, NAND_POSTBADBLOCK_POS, page);
+		if (! nand_hamming_distance(readb (this->IO_ADDR_R))) {
+			printk (KERN_WARNING "%s: attempt to erase a post bad block at addr 0x%08x\n", __func__, page << this->page_shift);
+			instr->state = MTD_ERASE_FAILED;
+			goto erase_exit;
+		}
+#endif
+
+#ifdef CONFIG_MTD_NAND_ERASE_BY_FORCE
+	  skip_badblock_check:
+#endif
 
 		/* Send commands to erase a page */
 		this->cmdfunc (mtd, NAND_CMD_ERASE1, -1, page);
@@ -1039,11 +1316,14 @@ erase_retry:
 	instr->state = MTD_ERASE_DONE;
 
 erase_exit:
+	ret = instr->state == MTD_ERASE_DONE ? 0 : -EIO;
+	if (ret == -EIO)
+		this->cmdfunc(mtd, NAND_CMD_RESET, -1, -1);
+
 	/* De-select the NAND device */
 	nand_deselect ();
 	spin_unlock_bh (&this->chip_lock);
 
-	ret = instr->state == MTD_ERASE_DONE ? 0 : -EIO;;
 	/* Do call back function */
 	if (!ret && instr->callback)
 		instr->callback (instr);
@@ -1051,6 +1331,7 @@ erase_exit:
 	/* The device is ready */
 	spin_lock_bh (&this->chip_lock);
 	this->state = FL_READY;
+	wake_up (&this->wq);
 	spin_unlock_bh (&this->chip_lock);
 
 	/* Return more or less happy */
@@ -1122,6 +1403,9 @@ int nand_scan (struct mtd_info *mtd)
 	if (this->waitfunc == NULL)
 		this->waitfunc = nand_wait;
 
+	/* make sure, that cache page is invalid */
+	this->cache_page = -1;
+
 	/* Select the device */
 	nand_select ();
 
@@ -1156,6 +1440,49 @@ int nand_scan (struct mtd_info *mtd)
 		}
 	}
 
+	/* 
+	 * check ECC mode, default to software
+	 * if 3byte/512byte hardware ECC is selected and we have 256 byte pagesize
+	 * fallback to software ECC 
+	*/
+#ifdef CONFIG_MTD_NAND_ECC	
+	this->eccsize = 256;	/* set default eccsize */	
+
+	switch (this->eccmode) {
+
+	case NAND_ECC_HW3_512: 
+		if (mtd->oobblock == 256) {
+			printk (KERN_WARNING "512 byte HW ECC not possible on 256 Byte pagesize, fallback to SW ECC \n");
+			this->eccmode = NAND_ECC_SOFT;
+			this->calculate_ecc = nand_calculate_ecc;
+			this->correct_data = nand_correct_data;
+			break;		
+		} else 
+			this->eccsize = 512; /* set eccsize to 512 and fall through for function check */
+
+	case NAND_ECC_HW3_256:
+		if (this->calculate_ecc && this->correct_data && this->enable_hwecc)
+			break;
+		printk (KERN_WARNING "No ECC functions supplied, Hardware ECC not possible\n");
+		BUG();	
+
+	case NAND_ECC_NONE: 
+		this->eccmode = NAND_ECC_NONE;
+		break;
+
+	case NAND_ECC_SOFT:	
+		this->calculate_ecc = nand_calculate_ecc;
+		this->correct_data = nand_correct_data;
+		break;
+
+	default:
+		printk (KERN_WARNING "Invalid NAND_ECC_MODE %d\n", this->eccmode);
+		BUG();	
+	}	
+#else
+	this->eccmode = NAND_ECC_NONE;
+#endif
+
 	/* Initialize state, waitqueue and spinlock */
 	this->state = FL_READY;
 	init_waitqueue_head (&this->wq);
@@ -1163,28 +1490,6 @@ int nand_scan (struct mtd_info *mtd)
 
 	/* De-select the device */
 	nand_deselect ();
-	/* 
-	 * Preset out of band configuration
-	 */
-#ifdef CONFIG_MTD_NAND_ECC_JFFS2
-	oob_config.ecc_pos[0] = NAND_JFFS2_OOB_ECCPOS0;
-	oob_config.ecc_pos[1] = NAND_JFFS2_OOB_ECCPOS1;
-	oob_config.ecc_pos[2] = NAND_JFFS2_OOB_ECCPOS2;
-	oob_config.ecc_pos[3] = NAND_JFFS2_OOB_ECCPOS3;
-	oob_config.ecc_pos[4] = NAND_JFFS2_OOB_ECCPOS4;
-	oob_config.ecc_pos[5] = NAND_JFFS2_OOB_ECCPOS5;
-	oob_config.badblock_pos = 5;
-	oob_config.eccvalid_pos = 4;
-#else
-	oob_config.ecc_pos[0] = NAND_NOOB_ECCPOS0;
-	oob_config.ecc_pos[1] = NAND_NOOB_ECCPOS1;
-	oob_config.ecc_pos[2] = NAND_NOOB_ECCPOS2;
-	oob_config.ecc_pos[3] = NAND_NOOB_ECCPOS3;
-	oob_config.ecc_pos[4] = NAND_NOOB_ECCPOS4;
-	oob_config.ecc_pos[5] = NAND_NOOB_ECCPOS5;
-	oob_config.badblock_pos = NAND_NOOB_BADBPOS;
-	oob_config.eccvalid_pos = NAND_NOOB_ECCVPOS;
-#endif
 
 	/* Print warning message for no device */
 	if (!mtd->size) {
@@ -1208,6 +1513,7 @@ int nand_scan (struct mtd_info *mtd)
 	mtd->write_oob = nand_write_oob;
 	mtd->readv = NULL;
 	mtd->writev = nand_writev;
+	mtd->writev_ecc = nand_writev_ecc;
 	mtd->sync = nand_sync;
 	mtd->lock = NULL;
 	mtd->unlock = NULL;
@@ -1221,5 +1527,11 @@ int nand_scan (struct mtd_info *mtd)
 EXPORT_SYMBOL (nand_scan);
 
 MODULE_LICENSE ("GPL");
-MODULE_AUTHOR ("Steven J. Hill <sjhill@cotw.com");
+MODULE_AUTHOR ("Steven J. Hill <sjhill@cotw.com>, Thomas Gleixner <tglx@linutronix.de>");
 MODULE_DESCRIPTION ("Generic NAND flash driver code");
+
+/*
+ * Local variables:
+ *   c-basic-offset: 8
+ * End:
+ */

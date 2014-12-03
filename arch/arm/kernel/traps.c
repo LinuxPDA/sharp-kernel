@@ -11,6 +11,10 @@
  *  'traps.c' handles hardware exceptions after we have saved some state in
  *  'linux/arch/arm/lib/traps.S'.  Mostly a debugging aid, but will probably
  *  kill the offending process.
+ *
+ * Change Log
+ *  12-Dec-2002 Sharp Corporation for Poodle and Corgi
+ *
  */
 #include <linux/config.h>
 #include <linux/types.h>
@@ -29,6 +33,16 @@
 #include <asm/system.h>
 #include <asm/uaccess.h>
 #include <asm/unistd.h>
+
+
+#if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
+#include <asm/mach-types.h>
+#include <asm/hardware.h>
+#include <asm/memory.h>
+#include <asm/system.h>
+#include <asm/proc-fns.h>
+#endif
+
 
 #include "ptrace.h"
 
@@ -276,6 +290,12 @@ asmlinkage void bad_mode(struct pt_regs *regs, int reason, int proc_mode)
 {
 	unsigned int vectors = vectors_base();
 	mm_segment_t fs;
+
+
+#if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
+	extern sharpsl_fataloff(void);
+	sharpsl_fataloff();
+#endif
 
 	console_verbose();
 

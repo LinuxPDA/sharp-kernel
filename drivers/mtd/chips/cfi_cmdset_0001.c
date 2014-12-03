@@ -4,7 +4,7 @@
  *
  * (C) 2000 Red Hat. GPL'd
  *
- * $Id: cfi_cmdset_0001.c,v 1.99 2002/06/19 09:19:57 jocke Exp $
+ * $Id: cfi_cmdset_0001.c,v 1.101 2002/09/05 20:30:47 jocke Exp $
  *
  * 
  * 10/10/2000	Nicolas Pitre <nico@cam.org>
@@ -51,6 +51,10 @@ static void cfi_intelext_destroy(struct mtd_info *);
 struct mtd_info *cfi_cmdset_0001(struct map_info *, int);
 
 static struct mtd_info *cfi_intelext_setup (struct map_info *);
+
+static int do_point (struct mtd_info *mtd, loff_t from, size_t len,
+		     size_t *retlen, u_char **mtdbuf);
+static void do_unpoint (struct mtd_info *mtd, u_char *addr);
 
 static struct mtd_chip_driver cfi_intelext_chipdrv = {
 	probe: NULL, /* Not usable directly */
@@ -170,9 +174,9 @@ struct mtd_info *cfi_cmdset_0001(struct map_info *map, int primary)
 	}
 
 	for (i=0; i< cfi->numchips; i++) {
-		cfi->chips[i].word_write_time = 128;
-		cfi->chips[i].buffer_write_time = 128;
-		cfi->chips[i].erase_time = 1024;
+		cfi->chips[i].word_write_time = 1<<cfi->cfiq->WordWriteTimeoutTyp;
+		cfi->chips[i].buffer_write_time = 1<<cfi->cfiq->BufWriteTimeoutTyp;
+		cfi->chips[i].erase_time = 1<<cfi->cfiq->BlockEraseTimeoutTyp;
 	}		
 
 	map->fldrv = &cfi_intelext_chipdrv;
@@ -248,6 +252,12 @@ static struct mtd_info *cfi_intelext_setup(struct map_info *map)
 	/* Also select the correct geometry setup too */ 
 		mtd->erase = cfi_intelext_erase_varsize;
 	mtd->read = cfi_intelext_read;
+
+	if(map->point && map->unpoint){
+		mtd->point = do_point;
+		mtd->unpoint = do_unpoint;
+	}
+
 #ifndef FORCE_WORD_WRITE
 	if ( cfi->cfiq->BufWriteTimeoutTyp ) {
 		printk("Using buffer write method\n" );
@@ -273,6 +283,24 @@ static struct mtd_info *cfi_intelext_setup(struct map_info *map)
 	return mtd;
 }
 
+static int do_point (struct mtd_info *mtd, loff_t from, size_t len, size_t *retlen, u_char **mtdbuf)
+{
+	struct map_info *map = mtd->priv;
+	
+	if (from + len > mtd->size)
+		return -EINVAL;
+	
+	*mtdbuf = map->point(map, from, len);	
+	*retlen = len;
+	return 0;
+}
+
+static void do_unpoint (struct mtd_info *mtd, u_char *addr)
+{
+	struct map_info *map = mtd->priv;
+
+	map->unpoint(map, addr);
+}
 
 static inline int do_read_onechip(struct map_info *map, struct flchip *chip, loff_t adr, size_t len, u_char *buf)
 {
@@ -1227,7 +1255,8 @@ retry:
 	chip->oldstate = 0;
 
 	spin_unlock_bh(chip->mutex);
-	schedule_timeout(HZ);
+	set_current_state(TASK_UNINTERRUPTIBLE);
+	schedule_timeout((chip->erase_time*HZ)/(2*1000));
 	spin_lock_bh(chip->mutex);
 
 	/* FIXME. Use a timer to check this, and return immediately. */
@@ -1272,7 +1301,8 @@ retry:
 		
 		/* Latency issues. Drop the lock, wait a while and retry */
 		spin_unlock_bh(chip->mutex);
-		cfi_udelay(1);
+		set_current_state(TASK_UNINTERRUPTIBLE);
+		schedule_timeout(1);
 		spin_lock_bh(chip->mutex);
 	}
 	

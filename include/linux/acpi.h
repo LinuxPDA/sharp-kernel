@@ -16,6 +16,9 @@
  *  You should have received a copy of the GNU General Public License
  *  along with this program; if not, write to the Free Software
  *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *
+ * ChangLog:
+ *	12-Dec-2002 Lineo Japan, Inc.
  */
 
 #ifndef _LINUX_ACPI_H
@@ -130,6 +133,45 @@ typedef enum {
  *
  * CTL_ACPI was 10, which is now reserved for the cpufreq code.
  */
+#ifdef CONFIG_ARCH_SHARP_SL
+/*
+ * Sysctl declarations
+ */
+
+enum
+{
+	CTL_ACPI = 10
+};
+
+enum
+{
+	ACPI_FADT = 1,
+	ACPI_DSDT,
+	ACPI_PM1_ENABLE,
+	ACPI_GPE_ENABLE,
+	ACPI_GPE_LEVEL,
+	ACPI_EVENT,
+	ACPI_P_BLK,
+	ACPI_ENTER_LVL2_LAT,
+	ACPI_ENTER_LVL3_LAT,
+	ACPI_P_LVL2_LAT,
+	ACPI_P_LVL3_LAT,
+	ACPI_C1_TIME,
+	ACPI_C2_TIME,
+	ACPI_C3_TIME,
+	ACPI_C1_COUNT,
+	ACPI_C2_COUNT,
+	ACPI_C3_COUNT,
+	ACPI_S0_SLP_TYP,
+	ACPI_S1_SLP_TYP,
+	ACPI_S5_SLP_TYP,
+	ACPI_SLEEP,
+	ACPI_FACS,
+	ACPI_XSDT,
+	ACPI_PMTIMER,
+	ACPI_BATT,
+};
+#endif
 
 #define ACPI_SLP_TYP_DISABLED	(~0UL)
 

@@ -30,7 +30,7 @@ obj-edb7211	:= io-acorn.o
 
 obj-y		+= $(obj-$(MACHINE))
 
-ifeq ($(CONFIG_CPU_32v4),y)
+ifneq ($(CONFIG_CPU_32v3),y)
   v3		:= n
   v4		:= y
 else

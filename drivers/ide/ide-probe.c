@@ -27,6 +27,9 @@
  * Version 1.06		stream line request queue and prep for cascade project.
  * Version 1.07		max_sect <= 255; slower disks would get behind and
  * 			then fall over when they get to 256.	Paul G.
+ *
+ * ChangLog:
+ *	12-Dec-2002 Lineo Japan, Inc.
  */
 
 #undef REALLY_SLOW_IO		/* most systems can safely undef this */
@@ -680,11 +683,15 @@ static int init_irq (ide_hwif_t *hwif)
 	 * Allocate the irq, if not already obtained for another hwif
 	 */
 	if (!match || match->irq != hwif->irq) {
+#ifdef CONFIG_ARCH_SHARP_SL
+		int sa = SA_INTERRUPT|SA_SHIRQ;
+#else
 #ifdef CONFIG_IDEPCI_SHARE_IRQ
 		int sa = IDE_CHIPSET_IS_PCI(hwif->chipset) ? SA_SHIRQ : SA_INTERRUPT;
 #else /* !CONFIG_IDEPCI_SHARE_IRQ */
 		int sa = IDE_CHIPSET_IS_PCI(hwif->chipset) ? SA_INTERRUPT|SA_SHIRQ : SA_INTERRUPT;
 #endif /* CONFIG_IDEPCI_SHARE_IRQ */
+#endif
 		if (ide_request_irq(hwif->irq, &ide_intr, sa, hwif->name, hwgroup)) {
 			if (!match)
 				kfree(hwgroup);

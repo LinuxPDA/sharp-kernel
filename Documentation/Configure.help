@@ -12422,6 +12422,11 @@ CONFIG_MTD_NAND_VERIFY_WRITE
   flipped accidentaly due to device wear, gamma rays, whatever.
   Enable this if you are really paranoid.
 
+Support for logical address accessing to NAND
+CONFIG_MTD_NAND_LOGICAL_ADDRESS_ACCESS
+  This enables support for accessing to NAND via logical address
+  if the NAND partition is corresponded to logical address accessing.
+
 Support for the SPIA board
 CONFIG_MTD_NAND_SPIA
   If you had to ask, you don't have one. Say 'N'.

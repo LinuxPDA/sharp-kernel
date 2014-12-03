@@ -1,5 +1,12 @@
 
-/* $Id: mtd.h,v 1.34 2001/11/27 14:55:12 cdavies Exp $ */
+/* $Id: mtd.h,v 1.35 2002/08/29 21:41:42 gleixner Exp $ */
+
+/*
+ * ChangeLog:
+ *     19-Sep-2002 Lineo Japan, Inc.  add erase-by-force mode
+ *     23-Oct-2002 SHARP  add definitions for CONFIG_MTD_NAND_LOGICAL_ADDRESS_ACCESS
+ *
+ */
 
 #ifndef __MTD_MTD_H__
 #define __MTD_MTD_H__
@@ -85,6 +92,20 @@ struct region_info_user {
 	u_int32_t regionindex;
 };
 
+#ifdef CONFIG_MTD_NAND_LOGICAL_ADDRESS_ACCESS
+struct read_laddr_info_user {
+	loff_t from;
+	size_t len;
+	u_char* buf;
+};
+
+struct write_laddr_info_user {
+	loff_t to;
+	size_t len;
+	u_char* buf;
+};    
+#endif
+
 #define MEMGETINFO              _IOR('M', 1, struct mtd_info_user)
 #define MEMERASE                _IOW('M', 2, struct erase_info_user)
 #define MEMWRITEOOB             _IOWR('M', 3, struct mtd_oob_buf)
@@ -93,6 +114,20 @@ struct region_info_user {
 #define MEMUNLOCK               _IOW('M', 6, struct erase_info_user)
 #define MEMGETREGIONCOUNT	_IOR('M', 7, int)
 #define MEMGETREGIONINFO	_IOWR('M', 8, struct region_info_user)
+#ifdef CONFIG_MTD_NAND_ERASE_BY_FORCE
+#define MEMERASEBYFORCE         _IOW('M', 9, struct erase_info_user)
+#else
+#define MEMIOCTLRSV9            _IO('M', 9)
+#endif
+#ifdef CONFIG_MTD_NAND_LOGICAL_ADDRESS_ACCESS
+#define MEMCLEANUPLADDR         _IO('M', 10)
+#define MEMREADLADDR            _IOR('M', 11, struct read_laddr_info_user)
+#define MEMWRITELADDR           _IOW('M', 12, struct write_laddr_info_user)
+#else
+#define MEMIOCTLRSV10           _IO('M', 10)
+#define MEMIOCTLRSV11           _IO('M', 11)
+#define MEMIOCTLRSV12           _IO('M', 12)
+#endif
 
 #ifndef __KERNEL__
 
@@ -124,6 +159,9 @@ struct erase_info {
 	u_long priv;
 	u_char state;
 	struct erase_info *next;
+#ifdef CONFIG_MTD_NAND_ERASE_BY_FORCE
+	int by_force;
+#endif
 };
 
 struct mtd_erase_region_info {
@@ -174,8 +212,8 @@ struct mtd_info {
 	int (*read) (struct mtd_info *mtd, loff_t from, size_t len, size_t *retlen, u_char *buf);
 	int (*write) (struct mtd_info *mtd, loff_t to, size_t len, size_t *retlen, const u_char *buf);
 
-	int (*read_ecc) (struct mtd_info *mtd, loff_t from, size_t len, size_t *retlen, u_char *buf, u_char *eccbuf);
-	int (*write_ecc) (struct mtd_info *mtd, loff_t to, size_t len, size_t *retlen, const u_char *buf, u_char *eccbuf);
+	int (*read_ecc) (struct mtd_info *mtd, loff_t from, size_t len, size_t *retlen, u_char *buf, u_char *eccbuf, int oobsel);
+	int (*write_ecc) (struct mtd_info *mtd, loff_t to, size_t len, size_t *retlen, const u_char *buf, u_char *eccbuf, int oobsel);
 
 	int (*read_oob) (struct mtd_info *mtd, loff_t from, size_t len, size_t *retlen, u_char *buf);
 	int (*write_oob) (struct mtd_info *mtd, loff_t to, size_t len, size_t *retlen, const u_char *buf);
@@ -198,7 +236,11 @@ struct mtd_info {
 	   which contains an (ofs, len) tuple.
 	*/
 	int (*readv) (struct mtd_info *mtd, struct iovec *vecs, unsigned long count, loff_t from, size_t *retlen);
+	int (*readv_ecc) (struct mtd_info *mtd, struct iovec *vecs, unsigned long count, loff_t from, 
+		size_t *retlen, u_char *eccbuf, int oobsel);
 	int (*writev) (struct mtd_info *mtd, const struct iovec *vecs, unsigned long count, loff_t to, size_t *retlen);
+	int (*writev_ecc) (struct mtd_info *mtd, const struct iovec *vecs, unsigned long count, loff_t to, 
+		size_t *retlen, u_char *eccbuf, int oobsel);
 
 	/* Sync */
 	void (*sync) (struct mtd_info *mtd);
@@ -210,6 +252,13 @@ struct mtd_info {
 	/* Power Management functions */
 	int (*suspend) (struct mtd_info *mtd);
 	void (*resume) (struct mtd_info *mtd);
+
+#ifdef CONFIG_MTD_NAND_LOGICAL_ADDRESS_ACCESS
+	/* Logical Address Access functions */
+	int (*cleanup_laddr)(struct mtd_info *mtd);
+	int (*read_laddr)(struct mtd_info *mtd, loff_t from, size_t len, u_char *buf);
+	int (*write_laddr)(struct mtd_info *mtd, loff_t to, size_t len, u_char *buf, int (*eraseproc)(struct mtd_info *mtd, u_int32_t addr));
+#endif
 
 	void *priv;
 };

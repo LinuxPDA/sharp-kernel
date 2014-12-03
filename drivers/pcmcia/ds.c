@@ -29,6 +29,9 @@
     the provisions above, a recipient may use your version of this
     file under either the MPL or the GPL.
     
+    Change Log
+       11-Jul-2002 Lineo Japan, Inc.
+
 ======================================================================*/
 
 #include <linux/config.h>
@@ -836,6 +839,14 @@ static int ds_ioctl(struct inode * inode, struct file * file,
 	if (!suser()) return -EPERM;
 	err = bind_mtd(i, &buf.mtd_info);
 	break;
+#ifdef CONFIG_ARCH_SHARP_SL
+    case DS_SERIAL_CARD_POWER_ON:
+	ret = pcmcia_resume_card(s->handle, NULL);
+	break;
+    case DS_SERIAL_CARD_POWER_OFF:
+	ret = pcmcia_serial_power_off(s->handle);
+	break;
+#endif
     default:
 	err = -EINVAL;
     }

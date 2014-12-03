@@ -1,7 +1,7 @@
 /* 
  * Direct MTD block device access
  *
- * $Id: mtdblock.c,v 1.54 2002/05/03 16:46:24 dwmw2 Exp $
+ * $Id: mtdblock.c,v 1.56 2002/07/30 18:19:58 spse Exp $
  *
  * 02-nov-2000	Nicolas Pitre		Added read-modify-write with cache
  */
@@ -280,11 +280,13 @@ static int mtdblock_open(struct inode *inode, struct file *file)
 	if (dev >= MAX_MTD_DEVICES)
 		return -EINVAL;
 
-	MOD_INC_USE_COUNT;
+	BLK_INC_USE_COUNT;
 
 	mtd = get_mtd_device(NULL, dev);
-	if (!mtd)
+	if (!mtd) {
+		BLK_DEC_USE_COUNT;
 		return -ENODEV;
+	}
 	if (MTD_ABSENT == mtd->type) {
 		put_mtd_device(mtd);
 		BLK_DEC_USE_COUNT;
@@ -297,6 +299,7 @@ static int mtdblock_open(struct inode *inode, struct file *file)
 	if (mtdblks[dev]) {
 		mtdblks[dev]->count++;
 		spin_unlock(&mtdblks_lock);
+		put_mtd_device(mtd);
 		return 0;
 	}
 	
@@ -326,7 +329,7 @@ static int mtdblock_open(struct inode *inode, struct file *file)
 		if (!mtdblk->cache_data) {
 			put_mtd_device(mtdblk->mtd);
 			kfree(mtdblk);
-			MOD_DEC_USE_COUNT;
+			BLK_DEC_USE_COUNT;
 			return -ENOMEM;
 		}
 	}

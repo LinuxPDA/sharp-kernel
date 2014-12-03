@@ -12,6 +12,8 @@
  *
  * Originally based upon linux/include/asm-arm/arch-sa1100/pcmcia.h
  *
+ * ChangLog:
+ *	12-Dec-2002 Lineo Japan, Inc.
  */
 
 #ifndef _ASM_ARCH_PCMCIA
@@ -52,6 +54,10 @@ struct pcmcia_configure {
          output: 1,
         speaker: 1,
           reset: 1;
+#ifdef CONFIG_ARCH_SHARP_SL
+	u_int	flags;
+	u_int	masks;
+#endif
 };
 
 struct pcmcia_irq_info {

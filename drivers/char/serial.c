@@ -19,7 +19,7 @@
  *
  *  rs_set_termios fixed to look also for changes of the input
  *      flags INPCK, BRKINT, PARMRK, IGNPAR and IGNBRK.
- *                                            Bernd Anhäupl 05/17/96.
+ *                                            Bernd Anh.AŽäupl 05/17/96.
  *
  *  1/97:  Extended dumb serial ports are a config option now.  
  *         Saves 4k.   Michael A. Griffith <grif@acm.org>
@@ -57,6 +57,10 @@
  * 10/00: add in optional software flow control for serial console.
  *	  Kanoj Sarcar <kanoj@sgi.com>  (Modified by Theodore Ts'o)
  *
+ * Change Log
+ *	30-Jul-2002 Lineo Japan, Inc.  for 2.4.18
+ *	31-Jul-2002 Lineo Japan, Inc.  for ARCH_PXA
+ *      12-Dec-2002 Sharp Corporation  for Poodle and Corgi
  */
 
 static char *serial_version = "5.05c";
@@ -94,6 +98,14 @@ static char *serial_revdate = "2001-07-08";
 
 #include <linux/config.h>
 #include <linux/version.h>
+#if defined(CONFIG_SABINAL_DISCOVERY) || \
+    defined(CONFIG_ARCH_PXA_POODLE) || \
+    defined(CONFIG_ARCH_PXA_CORGI)
+#undef CONFIG_SERIAL_CONSOLE
+#endif
+#if defined(CONFIG_SABINAL_DISCOVERY)
+#define CONFIG_REDEFINE_IO8BIT
+#endif
 
 #undef SERIAL_PARANOIA_CHECK
 #define CONFIG_SERIAL_NOPAUSE_IO
@@ -240,9 +252,15 @@ static char *serial_revdate = "2001-07-08";
 #include <asm/io.h>
 #include <asm/irq.h>
 #include <asm/bitops.h>
+#include <asm/sharp_apm.h>
 
 #if defined(CONFIG_MAC_SERIAL)
 #define SERIAL_DEV_OFFSET	((_machine == _MACH_prep || _machine == _MACH_chrp) ? 0 : 2)
+#elif defined(CONFIG_SA1100_COLLIE) || \
+      defined(CONFIG_SABINAL_DISCOVERY) || \
+      defined(CONFIG_ARCH_PXA_POODLE) || \
+      defined(CONFIG_ARCH_PXA_CORGI)
+#define SERIAL_DEV_OFFSET	3
 #else
 #define SERIAL_DEV_OFFSET	0
 #endif
@@ -1314,9 +1332,15 @@ static int startup(struct async_struct * info)
 #ifdef CONFIG_ARCH_PXA
 	if (state->type == PORT_PXA) {
 		switch ((long)state->iomem_base) {
+#if defined(CONFIG_ARCH_SHARP_SL) && !defined(CONFIG_SABINAL_DISCOVERY)
+			case (long)&FFUART: lock_FCS(LOCK_FCS_FFUART, 1); CKEN |= CKEN6_FFUART; break;
+			case (long)&BTUART: lock_FCS(LOCK_FCS_BTUART, 1); CKEN |= CKEN7_BTUART; break;
+			case (long)&STUART: lock_FCS(LOCK_FCS_STUART, 1); CKEN |= CKEN5_STUART; break;
+#else
 			case (long)&FFUART: CKEN |= CKEN6_FFUART; break;
 			case (long)&BTUART: CKEN |= CKEN7_BTUART; break;
 			case (long)&STUART: CKEN |= CKEN5_STUART; break;
+#endif
 		}
 	}
 #endif
@@ -1591,9 +1615,15 @@ static void shutdown(struct async_struct * info)
 #ifdef CONFIG_ARCH_PXA
 	if (state->type == PORT_PXA) {
 		switch ((long)state->iomem_base) {
+#if defined(CONFIG_ARCH_SHARP_SL) && !defined(CONFIG_SABINAL_DISCOVERY)
+			case (long)&FFUART: CKEN &= ~CKEN6_FFUART; lock_FCS(LOCK_FCS_FFUART, 0); break;
+			case (long)&BTUART: CKEN &= ~CKEN7_BTUART; lock_FCS(LOCK_FCS_BTUART, 0); break;
+			case (long)&STUART: CKEN &= ~CKEN5_STUART; lock_FCS(LOCK_FCS_STUART, 0); break;
+#else
 			case (long)&FFUART: CKEN &= ~CKEN6_FFUART; break;
 			case (long)&BTUART: CKEN &= ~CKEN7_BTUART; break;
 			case (long)&STUART: CKEN &= ~CKEN5_STUART; break;
+#endif
 		}
 	}
 #endif
@@ -3111,10 +3141,15 @@ static int block_til_ready(struct tty_struct *tty, struct file * filp,
 #endif
 			break;
 		}
+#if defined(CONFIG_SABINAL_DISCOVERY)
+		if (!(info->flags & ASYNC_CALLOUT_ACTIVE) &&
+		    !(info->flags & ASYNC_CLOSING))
+#else
 		if (!(info->flags & ASYNC_CALLOUT_ACTIVE) &&
 		    !(info->flags & ASYNC_CLOSING) &&
 		    (do_clocal || (serial_in(info, UART_MSR) &
 				   UART_MSR_DCD)))
+#endif
 			break;
 		if (signal_pending(current)) {
 			retval = -ERESTARTSYS;
@@ -3790,6 +3825,7 @@ static void autoconfig(struct serial_state * state)
 		}
 	}
 	if (state->type == PORT_16550A) {
+#if 0 /* @@@@ for P-in Memory By SHARP */
 		/* Check for TI 16750 */
 		serial_outp(info, UART_LCR, save_lcr | UART_LCR_DLAB);
 		serial_outp(info, UART_FCR,
@@ -3811,6 +3847,7 @@ static void autoconfig(struct serial_state * state)
 				state->type = PORT_16750;
 		}
 		serial_outp(info, UART_FCR, UART_FCR_ENABLE_FIFO);
+#endif
 	}
 #if defined(CONFIG_SERIAL_RSA) && defined(MODULE)
 	if (state->type == PORT_16550A) {
@@ -5711,13 +5748,13 @@ int register_serial(struct serial_struct *req)
 void unregister_serial(int line)
 {
 	unsigned long flags;
-	struct serial_state *state = &rs_table[line];
+	struct serial_state *state = &rs_table[line - SERIAL_DEV_OFFSET];
 
 	save_flags(flags); cli();
 	if (state->info && state->info->tty)
 		tty_hangup(state->info->tty);
 	state->type = PORT_UNKNOWN;
-	printk(KERN_INFO "tty%02d unloaded\n", state->line);
+	printk(KERN_INFO "tty%02d unloaded\n", state->line + SERIAL_DEV_OFFSET);
 	/* These will be hidden, because they are devices that will no longer
 	 * be available to the system. (ie, PCMCIA modems, once ejected)
 	 */

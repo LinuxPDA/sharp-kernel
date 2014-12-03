@@ -26,6 +26,9 @@
  *     Foundation, Inc., 59 Temple Place, Suite 330, Boston, 
  *     MA 02111-1307 USA
  *     
+ * ChangeLog:
+ *	06-21-2002 SHARP	add rx-buffer and delayed disconnection control
+ *	11-20-2002 SHARP	apply patch (fix transmit before ready in ircomm)
  ********************************************************************/
 
 #ifndef IRCOMM_TTY_H
@@ -44,6 +47,21 @@
 #define IRCOMM_TTY_MAJOR 161
 #define IRCOMM_TTY_MINOR 0
 
+/* This is used as an initial value to max_header_size before the proper
+ * value is filled in (5 for ttp, 4 for lmp). This allow us to detect
+ * the state of the underlying connection. - Jean II */
+#define IRCOMM_TTY_HDR_UNITIALISED	32
+
+/*
+ * TTP disconnect pending state
+ */
+typedef enum {
+  IRCOMM_DISC_NONE,
+  IRCOMM_DISC_PENDING,
+  IRCOMM_DISC_INSPECT,
+  IRCOMM_DISC_DONE,
+} IRCOMM_DISC_STATE;
+
 /*
  * IrCOMM TTY driver state
  */
@@ -58,6 +76,7 @@ struct ircomm_tty_cb {
 
 	struct sk_buff *tx_skb;   /* Transmit buffer */
 	struct sk_buff *ctrl_skb; /* Control data buffer */
+	struct sk_buff_head rx_queue; /* Received frames */
 
 	/* Parameters */
 	struct ircomm_params settings;
@@ -68,6 +87,8 @@ struct ircomm_tty_cb {
 
 	int line;
 	__u32 flags;
+    int	ldisc_max_buffer;				/* Max buffer size */
+	IRCOMM_DISC_STATE disc_stat; 		/* Disconnect pending status */
 
 	__u8 dlsap_sel;
 	__u8 slsap_sel;
@@ -89,6 +110,8 @@ struct ircomm_tty_cb {
 	wait_queue_head_t open_wait;
 	wait_queue_head_t close_wait;
 	struct timer_list watchdog_timer;
+	struct timer_list discon_timer;
+	struct timer_list flow_timer;
 	struct tq_struct  tqueue;
 
         unsigned short    close_delay;

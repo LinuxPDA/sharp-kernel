@@ -6,7 +6,7 @@
  *  Derived from drivers/mtd/spia.c
  * 	 Copyright (C) 2000 Steven J. Hill (sjhill@cotw.com)
  * 
- * $Id: autcpu12.c,v 1.3 2002/02/26 17:58:24 gleixner Exp $
+ * $Id: autcpu12.c,v 1.5 2002/08/29 21:44:14 gleixner Exp $
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -79,9 +79,9 @@ static struct mtd_partition partition_info16k[] = {
 static struct mtd_partition partition_info32k[] = {
 	{ name: "AUTCPU12 flash partition 1",
 	  offset:  0,
-	  size:   16 * SZ_1M },
+	  size:    8 * SZ_1M },
 	{ name: "AUTCPU12 flash partition 2",
-	  offset: 16 * SZ_1M,
+	  offset:  8 * SZ_1M,
 	  size:   24 * SZ_1M },
 };
 
@@ -95,8 +95,8 @@ static struct mtd_partition partition_info64k[] = {
 };
 
 #define NUM_PARTITIONS16K 2
-#define NUM_PARTITIONS32K 3
-#define NUM_PARTITIONS64K 4
+#define NUM_PARTITIONS32K 2
+#define NUM_PARTITIONS64K 2
 
 /* 
  *	hardware specific access to control-lines
@@ -168,6 +168,7 @@ int __init autcpu12_init (void)
 	this->dev_ready = autcpu12_device_ready;
 	/* 20 us command delay time */
 	this->chip_delay = 20;		
+	this->eccmode = NAND_ECC_SOFT;
 
 	/* Scan to find existance of the device */
 	if (nand_scan (autcpu12_mtd)) {

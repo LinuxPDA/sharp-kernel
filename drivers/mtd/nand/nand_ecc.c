@@ -12,6 +12,9 @@
  *
  * This file contains an ECC algorithm from Toshiba that detects and
  * corrects 1 bit errors in a 256 byte block of data.
+ *
+ * ChangeLog:
+ *     29-Oct-2002 Lineo Japan, Inc.  modify calculate_ecc() return type
  */
 
 #include <linux/types.h>
@@ -84,7 +87,7 @@ static void nand_trans_result(u_char reg2, u_char reg3,
 /*
  * Calculate 3 byte ECC code for 256 byte block
  */
-void nand_calculate_ecc (const u_char *dat, u_char *ecc_code)
+int nand_calculate_ecc (const u_char *dat, u_char *ecc_code)
 {
 	u_char idx, reg1, reg2, reg3;
 	int j;
@@ -114,6 +117,7 @@ void nand_calculate_ecc (const u_char *dat, u_char *ecc_code)
 	ecc_code[0] = ~ecc_code[0];
 	ecc_code[1] = ~ecc_code[1];
 	ecc_code[2] = ((~reg1) << 2) | 0x03;
+	return 0;
 }
 
 /*

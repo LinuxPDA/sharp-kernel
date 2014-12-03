@@ -16,6 +16,9 @@
  *  Wendling.
  * The list_for_each() macro wasn't appropriate for the sysctl loop.
  *  Removed it and replaced it with older style, 03/23/00, Bill Wendling
+ *
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
  */
 
 #include <linux/config.h>
@@ -36,6 +39,8 @@
 #ifdef CONFIG_ROOT_NFS
 #include <linux/nfs_fs.h>
 #endif
+
+#include <linux/freepg_signal.h>
 
 #if defined(CONFIG_SYSCTL)
 
@@ -275,6 +280,10 @@ static ctl_table vm_table[] = {
 	&vm_min_readahead,sizeof(int), 0644, NULL, &proc_dointvec},
 	{VM_MAX_READAHEAD, "max-readahead",
 	&vm_max_readahead,sizeof(int), 0644, NULL, &proc_dointvec},
+#ifdef CONFIG_FREEPG_SIGNAL
+	{VM_FREEPG_SIGNAL_PROC, "freepg_signal_proc", freepg_signal_proc,
+	 sizeof freepg_signal_proc, 0644, NULL, &proc_dostring},
+#endif
 	{0}
 };
 

@@ -1,7 +1,8 @@
 VERSION = 2
 PATCHLEVEL = 4
 SUBLEVEL = 18
-EXTRAVERSION = -rmk7-pxa3
+EXTRAVERSION = -rmk7-pxa3-embedix
+EMBEDIXRELEASE =-021129
 
 KERNELRELEASE=$(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
 
@@ -309,7 +310,7 @@ include/linux/compile.h: $(CONFIGURATION) include/linux/version.h newversion
 	@echo -n \#define UTS_VERSION \"\#`cat .version` > .ver
 	@if [ -n "$(CONFIG_SMP)" ] ; then echo -n " SMP" >> .ver; fi
 	@if [ -f .name ]; then  echo -n \-`cat .name` >> .ver; fi
-	@echo ' '`date`'"' >> .ver
+	@echo ' '`date --rfc-822`'"' >> .ver
 	@echo \#define LINUX_COMPILE_TIME \"`date +%T`\" >> .ver
 	@echo \#define LINUX_COMPILE_BY \"`whoami`\" >> .ver
 	@echo \#define LINUX_COMPILE_HOST \"`hostname`\" >> .ver
@@ -327,6 +328,7 @@ include/linux/version.h: ./Makefile
 	@echo \#define UTS_RELEASE \"$(KERNELRELEASE)\" > .ver
 	@echo \#define LINUX_VERSION_CODE `expr $(VERSION) \\* 65536 + $(PATCHLEVEL) \\* 256 + $(SUBLEVEL)` >> .ver
 	@echo '#define KERNEL_VERSION(a,b,c) (((a) << 16) + ((b) << 8) + (c))' >>.ver
+	@echo \#define EMBEDIX_RELEASE \"$(EMBEDIXRELEASE)\" >> .ver
 	@mv -f .ver $@
 
 comma	:= ,

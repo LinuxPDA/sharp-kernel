@@ -13,6 +13,10 @@
  *  machine) this file will double as a 'coding guide' and a signpost
  *  for newbie kernel hackers. It features several pointers to major
  *  kernel subsystems and hints as to where to find out what things do.
+ *
+ * Change Log
+ *     12-Nov-2001 Lineo Japan, Inc.
+ *     13-Nov-2002 SHARP
  */
 
 #include <linux/mm.h>
@@ -20,6 +24,9 @@
 #include <linux/swap.h>
 #include <linux/swapctl.h>
 #include <linux/timex.h>
+#ifdef CONFIG_FREEPG_SIGNAL
+#include <linux/freepg_signal.h>
+#endif
 
 /* #define DEBUG */
 
@@ -118,6 +125,7 @@ static int badness(struct task_struct *p)
 static struct task_struct * select_bad_process(void)
 {
 	int maxpoints = 0;
+	short level = 0;
 	struct task_struct *p = NULL;
 	struct task_struct *chosen = NULL;
 
@@ -125,9 +133,24 @@ static struct task_struct * select_bad_process(void)
 	for_each_task(p) {
 		if (p->pid) {
 			int points = badness(p);
-			if (points > maxpoints) {
+			if (is_oom_kill_survival_process(p)) {
+				if (oom_kill_survival_get(p) > level)
+					level = oom_kill_survival_get(p);
+			}
+			else if (points > maxpoints) {
 				chosen = p;
 				maxpoints = points;
+			}
+		}
+	}
+	if (level > 0 && chosen == NULL) {
+		for_each_task(p) {
+			if (oom_kill_survival_get(p) == level) {
+				int points = badness(p);
+				if (points > maxpoints) {
+					chosen = p;
+					maxpoints = points;
+				}
 			}
 		}
 	}
@@ -193,12 +216,133 @@ static void oom_kill(void)
 	return;
 }
 
+#ifndef CONFIG_FREEPG_SIGNAL
+#define DO_OOM_KILL_COUNT		10
+#else
+//#define FREEPG_DEBUG
+#if 1
+#define DO_RESET_CONDITION_COUNT	2
+#define DO_OOM_KILL_COUNT		30
+#define HIGH_THRESHOLD			14
+#define LOW_THRESHOLD			4
+#else
+#define DO_RESET_CONDITION_COUNT	2
+#define DO_OOM_KILL_COUNT		10
+#define HIGH_THRESHOLD			5
+#define LOW_THRESHOLD			1
+#endif
+
+#if defined(CONFIG_ARCH_SHARP_SL)
+#define MIN_KILL_INTERVAL (60*HZ)
+#define OOM_KILL_PG_CACHE_SIZE	(384)
+#define MIN_SIGNAL_PG_CACHE_SIZE	(512)
+#define LOW_SIGNAL_PG_CACHE_SIZE	(768)
+#endif
+
+static unsigned long first, last, count, good_count, retry_count;
+
+void reset_out_of_memory_condition(void)
+{
+	if (++good_count >= DO_RESET_CONDITION_COUNT) {
+		unsigned long now = jiffies;
+		first = now;
+		last = now;
+		count = 0;
+		retry_count = 0;
+	}
+}
+
+#define K(x) ((x) << (PAGE_SHIFT-10))
+
+static inline int is_memory_low(void)
+{
+	int buffer_cache;
+	struct sysinfo meminfo;
+
+	if (retry_count > 10)
+		return 1;
+
+	si_meminfo(&meminfo);
+	buffer_cache = atomic_read(&page_cache_size) - swapper_space.nrpages;
+
+#if 0
+	/* 32M : 512K */
+	if (meminfo.freeram > meminfo.totalram / 64)
+		goto retry_shrink_cache;
+#endif
+
+	/* 32M : 6.4M(20%) */
+	if (buffer_cache > meminfo.totalram / 5)
+		goto retry_shrink_cache;
+
+	return 1;	// low
+
+retry_shrink_cache:
+#ifdef FREEPG_DEBUG
+	printk("Good(%d) : Total %luKB  Free %luKB  Buffers %luKB  Cached %luKB\n",
+		retry_count, 
+		K(meminfo.totalram),K(meminfo.freeram),K(meminfo.bufferram),
+		K(atomic_read(&page_cache_size) 
+				- meminfo.bufferram - swapper_space.nrpages) );
+#endif
+	retry_count++;
+	return 0;
+}
+#endif
+
+#if defined(CONFIG_ARCH_SHARP_SL)
+void check_out_of_memory(void)
+{
+	int pgsize = atomic_read(&page_cache_size);
+	static unsigned long prev_level, prev_action;
+	unsigned long now;
+	now = jiffies;
+	if (pgsize > LOW_SIGNAL_PG_CACHE_SIZE) {
+		if ((prev_level != 1) || (now - prev_action > MIN_KILL_INTERVAL)) {
+			prev_level = 0;
+//			printk("oom_reset()! %d\n", pgsize);
+			freepg_signal_reset();
+			return;
+		}
+	}
+	if (now - prev_action > MIN_KILL_INTERVAL) {
+		if (pgsize < OOM_KILL_PG_CACHE_SIZE) {
+//			printk("oom_kill()! %d\n", pgsize);
+			prev_level = 3;
+			prev_action = now;
+			oom_kill();
+			freepg_signal_reset();
+			return;
+		}
+		else {
+//			printk("oom_kill_timeout()! %d\n", pgsize);
+			prev_level = 0;
+		}
+	}
+	if ((prev_level < 2) && (pgsize < MIN_SIGNAL_PG_CACHE_SIZE)) {
+//		printk("oom_min()! %d\n", pgsize);
+		prev_level = 2;
+		prev_action = now;
+		freepg_signal_min();
+		return;
+	}
+	else if ((prev_level < 1) && (pgsize < LOW_SIGNAL_PG_CACHE_SIZE)) {
+//		printk("oom_low()! %d\n", pgsize);
+		prev_level = 1;
+		prev_action = now;
+		freepg_signal_low();
+		return;
+	}
+}
+#else
 /**
  * out_of_memory - is the system out of memory?
  */
 void out_of_memory(void)
 {
+#ifndef CONFIG_FREEPG_SIGNAL
 	static unsigned long first, last, count;
+#endif
 	unsigned long now, since;
 
 	/*
@@ -207,6 +351,9 @@ void out_of_memory(void)
 	if (nr_swap_pages > 0)
 		return;
 
+#ifdef CONFIG_FREEPG_SIGNAL
+        good_count = 0;
+#endif
 	now = jiffies;
 	since = now - last;
 	last = now;
@@ -227,19 +374,114 @@ void out_of_memory(void)
 	if (since < HZ)
 		return;
 
+#ifdef CONFIG_FREEPG_SIGNAL
+	if (!is_memory_low())
+		return;
+#ifdef FREEPG_DEBUG
+	printk("XX oom_kill (%d)\n", count+1);
+#endif
+	if (count >= DO_OOM_KILL_COUNT) {
+		return;
+	} else if (count >= HIGH_THRESHOLD) {
+		freepg_signal_min();
+#ifdef FREEPG_DEBUG
+		if (count == HIGH_THRESHOLD) print_meminfo();
+#endif
+	} else if (count >= LOW_THRESHOLD) {
+		freepg_signal_low();
+#ifdef FREEPG_DEBUG
+		if (count == LOW_THRESHOLD) print_meminfo();
+#endif
+	}
+#endif
+
 	/*
 	 * If we have gotten only a few failures,
 	 * we're not really oom. 
 	 */
-	if (++count < 10)
+	if (++count < DO_OOM_KILL_COUNT)
 		return;
 
 	/*
 	 * Ok, really out of memory. Kill something.
 	 */
+#ifdef FREEPG_DEBUG
+	print_meminfo();
+#endif
 	oom_kill();
+#ifdef CONFIG_FREEPG_SIGNAL
+	freepg_signal_reset();
+#endif
 
 reset:
 	first = now;
 	count = 0;
+#ifdef CONFIG_FREEPG_SIGNAL
+	retry_count = 0;
+#endif
 }
+#endif
+
+
+#ifdef FREEPG_DEBUG
+#define memlist_next(x) ((x)->next)
+
+static void print_meminfo()
+{
+	struct sysinfo meminfo;
+
+#if 0
+ 	unsigned int order;
+	unsigned type;
+
+	for (type = 0; type < MAX_NR_ZONES; type++) {
+		struct list_head *head, *curr;
+		zone_t *zone = pgdat_list->node_zones + type;
+ 		unsigned long nr, total, flags;
+
+		total = 0;
+		if (zone->size) {
+			spin_lock_irqsave(&zone->lock, flags);
+		 	for (order = 0; order < MAX_ORDER; order++) {
+				head = &(zone->free_area + order)->free_list;
+				curr = head;
+				nr = 0;
+				for (;;) {
+					curr = memlist_next(curr);
+					if (curr == head)
+						break;
+					nr++;
+				}
+				total += nr * (1 << order);
+				printk("%lu*%lukB ", nr, K(1UL) << order);
+			}
+			spin_unlock_irqrestore(&zone->lock, flags);
+			printk("= %lukB)\n", K(total));
+
+		}
+	}
+#endif
+
+	si_meminfo(&meminfo);
+	//si_swapinfo(&meminfo);
+
+	printk("Total %luKB  Free %luKB  Buffers %luKB  Cached %luKB\n",
+		K(meminfo.totalram),K(meminfo.freeram),K(meminfo.bufferram),
+		K(atomic_read(&page_cache_size) - meminfo.bufferram - swapper_space.nrpages));
+	printk("( Active: %d, inactive: %d, free: %d )\n",
+	       nr_active_pages,
+	       nr_inactive_pages,
+	       nr_free_pages());
+
+#if 0
+	printk("active %d% / inactive %d% / free %d% "
+		" :: active %d / inactive %d\n",
+		nr_active_pages*100/meminfo.totalram,
+		nr_inactive_pages*100/meminfo.totalram,
+		meminfo.freeram*100/meminfo.totalram,
+		nr_active_pages*100/(nr_active_pages+nr_inactive_pages),
+		nr_inactive_pages*100/(nr_active_pages+nr_inactive_pages));
+
+#endif
+}
+#endif

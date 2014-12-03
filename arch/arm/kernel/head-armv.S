@@ -8,6 +8,11 @@
  * published by the Free Software Foundation.
  *
  *  32-bit kernel startup code for all architectures
+ *
+ * Change Log
+ *   12-Nov-2001 Lineo Japan, Inc.
+ *   30-Jul-2002 Lineo Japan, Inc.  for 2.4.18
+ *   31-Jul-2002 Lineo Japan, Inc.  for ARCH_PXA
  */
 #include <linux/config.h>
 #include <linux/linkage.h>
@@ -124,6 +129,10 @@ __entry:
  * FIXME - No bootloader, so manually set 'r1' with our architecture number.
  */
 		mov	r1, #MACH_TYPE_L7200
+#elif defined(CONFIG_SA1100_COLLIE)
+		mov	r1, #MACH_TYPE_COLLIE
+#elif defined(CONFIG_SABINAL_DISCOVERY)
+		mov	r1, #MACH_TYPE_DISCOVERY
 #endif
 
 		mov	r0, #F_BIT | I_BIT | MODE_SVC	@ make sure svc mode

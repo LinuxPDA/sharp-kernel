@@ -2,6 +2,9 @@
  *  linux/include/asm-arm/arch-sa1100/keyboard.h
  *  Created 16 Dec 1999 by Nicolas Pitre <nico@cam.org>
  *  This file contains the SA1100 architecture specific keyboard definitions
+ *
+ * ChangLog:
+ *	12-Dec-2002 Lineo Japan, Inc.
  */
 #ifndef _SA1100_KEYBOARD_H
 #define _SA1100_KEYBOARD_H
@@ -9,6 +12,10 @@
 #include <linux/config.h>
 #include <asm/mach-types.h>
 #include <asm/arch/assabet.h>
+
+#if defined(CONFIG_SA1100_COLLIE)
+#include <asm/arch/keyboard_collie.h>
+#else
 
 #define kbd_disable_irq()	do { } while(0);
 #define kbd_enable_irq()	do { } while(0);
@@ -37,5 +44,7 @@ static inline void kbd_init_hw(void)
 		sa1111_kbd_init_hw();
 #endif
 }
+
+#endif
 
 #endif  /* _SA1100_KEYBOARD_H */

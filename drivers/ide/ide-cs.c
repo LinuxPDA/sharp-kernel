@@ -28,6 +28,10 @@
     and other provisions required by the GPL.  If you do not delete
     the provisions above, a recipient may use your version of this
     file under either the MPL or the GPL.
+
+     Change Log
+	12-Nov-2001 Lineo Japan, Inc.
+	30-Jul-2002 Lineo Japan, Inc.  for 2.4.18
     
 ======================================================================*/
 
@@ -42,6 +46,9 @@
 #include <linux/ioport.h>
 #include <linux/hdreg.h>
 #include <linux/major.h>
+#ifdef CONFIG_ARCH_SHARP_SL
+#include <linux/interrupt.h>
+#endif
 
 #include <asm/io.h>
 #include <asm/system.h>
@@ -53,6 +60,7 @@
 #include <pcmcia/ds.h>
 #include <pcmcia/cisreg.h>
 
+#define PCMCIA_DEBUG 1
 #ifdef PCMCIA_DEBUG
 static int pc_debug = PCMCIA_DEBUG;
 MODULE_PARM(pc_debug, "i");
@@ -61,6 +69,10 @@ static char *version =
 "ide_cs.c 1.26 1999/11/16 02:10:49 (David Hinds)";
 #else
 #define DEBUG(n, args...)
+#endif
+
+#ifdef CONFIG_ARCH_SHARP_SL
+extern int ide_resume_handling;
 #endif
 
 /*====================================================================*/
@@ -98,7 +110,7 @@ static void ide_release(u_long arg);
 static int ide_event(event_t event, int priority,
 		     event_callback_args_t *args);
 
-static dev_info_t dev_info = "ide-cs";
+static dev_info_t dev_info = "ide_cs";
 
 static dev_link_t *ide_attach(void);
 static void ide_detach(dev_link_t *);
@@ -226,7 +238,7 @@ while ((last_ret=CardServices(last_fn=(fn), args))!=0) goto cs_failed
 #define CFG_CHECK(fn, args...) \
 if (CardServices(fn, args) != 0) goto next_entry
 
-void ide_config(dev_link_t *link)
+static void ide_config(dev_link_t *link)
 {
     client_handle_t handle = link->handle;
     ide_info_t *info = link->priv;
@@ -379,21 +391,27 @@ failed:
     
 ======================================================================*/
 
-void ide_release(u_long arg)
+static void ide_release(u_long arg)
 {
     dev_link_t *link = (dev_link_t *)arg;
     ide_info_t *info = link->priv;
     
     DEBUG(0, "ide_release(0x%p)\n", link);
+#ifdef CONFIG_ARCH_SHARP_SL
+    if (in_interrupt()) {
+	DEBUG(0, "in_interrupt\n");
+	return;
+    }
+#endif
 
     if (info->ndev) {
 	ide_unregister(info->hd);
 	MOD_DEC_USE_COUNT;
     }
 
-    request_region(link->io.BasePort1, link->io.NumPorts1,"ide-cs");
+    request_region(link->io.BasePort1, link->io.NumPorts1,"ide_cs");
     if (link->io.NumPorts2)
-	request_region(link->io.BasePort2, link->io.NumPorts2,"ide-cs");
+	request_region(link->io.BasePort2, link->io.NumPorts2,"ide_cs");
     
     info->ndev = 0;
     link->dev = NULL;
@@ -406,6 +424,27 @@ void ide_release(u_long arg)
 
 } /* ide_release */
 
+#ifdef CONFIG_ARCH_SHARP_SL
+static void
+ide_invalidate_devices(int major, int minor)
+{
+    int i;
+
+    for (i = minor; i < minor + 10; i++) {
+	kdev_t dev = MKDEV(major, i);
+// Richard modify for kernel 2.4.x, fixing get_super() races
+//	struct super_block* sb = get_super(dev);
+
+//	if (sb) {
+//	    shrink_dcache_sb(sb);
+//	    drop_super(sb);
+//	}
+// Richard End
+	invalidate_device(dev, 1);
+    }
+}
+#endif
+
 /*======================================================================
 
     The card status event handler.  Mostly, this schedules other
@@ -415,8 +454,8 @@ void ide_release(u_long arg)
     
 ======================================================================*/
 
-int ide_event(event_t event, int priority,
-	      event_callback_args_t *args)
+static int ide_event(event_t event, int priority,
+		     event_callback_args_t *args)
 {
     dev_link_t *link = args->client_data;
 
@@ -429,11 +468,18 @@ int ide_event(event_t event, int priority,
 	    mod_timer(&link->release, jiffies + HZ/20);
 	break;
     case CS_EVENT_CARD_INSERTION:
+#ifdef CONFIG_ARCH_SHARP_SL
+	ide_resume_handling = 0;
+#endif
 	link->state |= DEV_PRESENT | DEV_CONFIG_PENDING;
 	ide_config(link);
 	break;
     case CS_EVENT_PM_SUSPEND:
 	link->state |= DEV_SUSPEND;
+#ifdef CONFIG_ARCH_SHARP_SL
+	if (link->dev)
+	    ide_invalidate_devices(link->dev->major, link->dev->minor);
+#endif
 	/* Fall through... */
     case CS_EVENT_RESET_PHYSICAL:
 	if (link->state & DEV_CONFIG)
@@ -441,6 +487,10 @@ int ide_event(event_t event, int priority,
 	break;
     case CS_EVENT_PM_RESUME:
 	link->state &= ~DEV_SUSPEND;
+#ifdef CONFIG_ARCH_SHARP_SL
+	if (link->dev)
+	    ide_invalidate_devices(link->dev->major, link->dev->minor);
+#endif
 	/* Fall through... */
     case CS_EVENT_CARD_RESET:
 	if (DEV_OK(link))

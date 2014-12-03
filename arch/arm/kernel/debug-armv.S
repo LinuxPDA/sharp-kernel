@@ -8,6 +8,9 @@
  * published by the Free Software Foundation.
  *
  *  32-bit debugging code
+ *
+ *  Change Log
+ *	31-Jul-2002 Lineo Japan, Inc.
  */
 #include <linux/config.h>
 #include <linux/linkage.h>
@@ -217,7 +220,11 @@
 		tst	\rx, #1			@ MMU enabled?
 		moveq	\rx, #0x40000000		@ physical
 		movne	\rx, #io_p2v(0x40000000)	@ virtual
+#ifdef CONFIG_SABINAL_DISCOVERY
+		orr	\rx, \rx, #0x00200000		@ BTUART
+#else
 		orr	\rx, \rx, #0x00100000		@ FFUART
+#endif
 		.endm
 
 		.macro	senduart,rd,rx

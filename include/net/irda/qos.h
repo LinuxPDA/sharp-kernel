@@ -26,6 +26,8 @@
  *     Foundation, Inc., 59 Temple Place, Suite 330, Boston, 
  *     MA 02111-1307 USA
  *     
+ * ChangeLog:
+ *	07-02-2002 SHARP	add peer device list to limit some negotiation parameters
  ********************************************************************/
 
 #ifndef IRDA_QOS_H
@@ -35,6 +37,7 @@
 #include <linux/skbuff.h>
 
 #include <net/irda/parameters.h>
+#include <net/irda/irqueue.h>
 
 #define PI_BAUD_RATE     0x01
 #define PI_MAX_TURN_TIME 0x82
@@ -80,6 +83,13 @@ struct qos_info {
 	qos_value_t power;
 };
 
+typedef struct irda_devlist_t {
+	irda_queue_t queue;
+	int        name_len;     /* Length of nickname */
+	struct qos_info	qos;
+} irda_devlist_t;
+
+
 extern int sysctl_max_baud_rate;
 extern int sysctl_max_inactive_time;
 
@@ -107,6 +117,12 @@ void irda_qos_bits_to_value(struct qos_info *qos);
 #define irlap_xbofs_in_usec(speed, xbofs) (			\
 	xbofs * 10000000 / speed				\
 )
+
+
+int irda_make_appropriate_qos(__u32 daddr, struct qos_info *qos);
+int irda_device_list_new(char *line);
+void irda_device_list_delete(void);
+struct irda_devlist_t *irda_specific_device_new(char *nickname, struct qos_info *qos);
 
 #endif
 

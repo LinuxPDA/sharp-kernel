@@ -2,6 +2,9 @@
  *  linux/fs/open.c
  *
  *  Copyright (C) 1991, 1992  Linus Torvalds
+ *
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
  */
 
 #include <linux/string.h>
@@ -94,6 +97,9 @@ static inline long do_sys_truncate(const char * path, loff_t length)
 	struct nameidata nd;
 	struct inode * inode;
 	int error;
+#ifdef CONFIG_FS_SYNC
+	dev_t i_dev = 0;
+#endif
 
 	error = -EINVAL;
 	if (length < 0)	/* sorry, but loff_t says... */
@@ -103,6 +109,9 @@ static inline long do_sys_truncate(const char * path, loff_t length)
 	if (error)
 		goto out;
 	inode = nd.dentry->d_inode;
+#ifdef CONFIG_FS_SYNC
+	i_dev = inode->i_dev;
+#endif
 
 	/* For directories it's -EISDIR, for other non-regulars - -EINVAL */
 	error = -EISDIR;
@@ -145,6 +154,9 @@ static inline long do_sys_truncate(const char * path, loff_t length)
 
 dput_and_out:
 	path_release(&nd);
+#ifdef CONFIG_FS_SYNC
+	sync_card(i_dev);
+#endif
 out:
 	return error;
 }
@@ -235,11 +247,17 @@ asmlinkage long sys_utime(char * filename, struct utimbuf * times)
 	struct nameidata nd;
 	struct inode * inode;
 	struct iattr newattrs;
+#ifdef CONFIG_FS_SYNC
+	dev_t i_dev = 0;
+#endif
 
 	error = user_path_walk(filename, &nd);
 	if (error)
 		goto out;
 	inode = nd.dentry->d_inode;
+#ifdef CONFIG_FS_SYNC
+	i_dev = inode->i_dev;
+#endif
 
 	error = -EROFS;
 	if (IS_RDONLY(inode))
@@ -263,6 +281,9 @@ asmlinkage long sys_utime(char * filename, struct utimbuf * times)
 	error = notify_change(nd.dentry, &newattrs);
 dput_and_out:
 	path_release(&nd);
+#ifdef CONFIG_FS_SYNC
+	sync_card(i_dev);
+#endif
 out:
 	return error;
 }
@@ -490,11 +511,17 @@ asmlinkage long sys_chmod(const char * filename, mode_t mode)
 	struct inode * inode;
 	int error;
 	struct iattr newattrs;
+#ifdef CONFIG_FS_SYNC
+	dev_t i_dev = 0;
+#endif
 
 	error = user_path_walk(filename, &nd);
 	if (error)
 		goto out;
 	inode = nd.dentry->d_inode;
+#ifdef CONFIG_FS_SYNC
+	i_dev = inode->i_dev;
+#endif
 
 	error = -EROFS;
 	if (IS_RDONLY(inode))
@@ -512,6 +539,9 @@ asmlinkage long sys_chmod(const char * filename, mode_t mode)
 
 dput_and_out:
 	path_release(&nd);
+#ifdef CONFIG_FS_SYNC
+	sync_card(i_dev);
+#endif
 out:
 	return error;
 }
@@ -580,11 +610,20 @@ asmlinkage long sys_chown(const char * filename, uid_t user, gid_t group)
 {
 	struct nameidata nd;
 	int error;
+#ifdef CONFIG_FS_SYNC
+	dev_t i_dev = 0;
+#endif
 
 	error = user_path_walk(filename, &nd);
 	if (!error) {
+#ifdef CONFIG_FS_SYNC
+		i_dev = nd.dentry->d_inode->i_dev;
+#endif
 		error = chown_common(nd.dentry, user, group);
 		path_release(&nd);
+#ifdef CONFIG_FS_SYNC
+		sync_card(i_dev);
+#endif
 	}
 	return error;
 }
@@ -593,11 +632,20 @@ asmlinkage long sys_lchown(const char * filename, uid_t user, gid_t group)
 {
 	struct nameidata nd;
 	int error;
+#ifdef CONFIG_FS_SYNC
+	dev_t i_dev = 0;
+#endif
 
 	error = user_path_walk_link(filename, &nd);
 	if (!error) {
+#ifdef CONFIG_FS_SYNC
+		i_dev = nd.dentry->d_inode->i_dev;
+#endif
 		error = chown_common(nd.dentry, user, group);
 		path_release(&nd);
+#ifdef CONFIG_FS_SYNC
+		sync_card(i_dev);
+#endif
 	}
 	return error;
 }
@@ -848,6 +896,11 @@ asmlinkage long sys_close(unsigned int fd)
 {
 	struct file * filp;
 	struct files_struct *files = current->files;
+	int retval;
+#ifdef CONFIG_FS_SYNC
+	int f_flags;
+	dev_t i_dev = 0;
+#endif
 
 	write_lock(&files->file_lock);
 	if (fd >= files->max_fds)
@@ -855,11 +908,20 @@ asmlinkage long sys_close(unsigned int fd)
 	filp = files->fd[fd];
 	if (!filp)
 		goto out_unlock;
+#ifdef CONFIG_FS_SYNC
+	f_flags = filp->f_flags;
+	i_dev = filp->f_dentry->d_inode->i_dev;
+#endif
 	files->fd[fd] = NULL;
 	FD_CLR(fd, files->close_on_exec);
 	__put_unused_fd(files, fd);
 	write_unlock(&files->file_lock);
-	return filp_close(filp, files);
+	retval = filp_close(filp, files);
+#ifdef CONFIG_FS_SYNC
+	if ((f_flags & O_ACCMODE) != O_RDONLY)
+		sync_card(i_dev);
+#endif
+	return retval;
 
 out_unlock:
 	write_unlock(&files->file_lock);

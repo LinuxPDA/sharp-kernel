@@ -1,6 +1,6 @@
 
 /* Overhauled routines for dealing with different mmap regions of flash */
-/* $Id: map.h,v 1.27 2002/02/21 08:26:59 dwmw2 Exp $ */
+/* $Id: map.h,v 1.28 2002/09/05 20:23:19 jocke Exp $ */
 
 #ifndef __LINUX_MTD_MAP_H__
 #define __LINUX_MTD_MAP_H__
@@ -45,6 +45,9 @@ struct map_info {
 	void (*write32)(struct map_info *, __u32, unsigned long);
 	void (*write64)(struct map_info *, __u64, unsigned long);
 	void (*copy_to)(struct map_info *, unsigned long, const void *, ssize_t);
+
+	u_char * (*point) (struct map_info *, loff_t, size_t);
+	void (*unpoint) (struct map_info *, u_char *);
 
 	void (*set_vpp)(struct map_info *, int);
 	/* We put these two here rather than a single void *map_priv, 

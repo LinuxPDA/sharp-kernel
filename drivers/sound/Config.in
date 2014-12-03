@@ -7,6 +7,13 @@
 # Prompt user for primary drivers.
 
 dep_tristate '  BT878 audio dma' CONFIG_SOUND_BT878 $CONFIG_SOUND
+dep_tristate '  Collie sound support' CONFIG_SOUND_COLLIE_SSP $CONFIG_SOUND $CONFIG_SA1100_COLLIE
+if [ "$CONFIG_SOUND_COLLIE_SSP" = "y" -o "$CONFIG_SOUND_COLLIE_SSP" = "m" ]; then
+    choice 'Collie D/A Converter Type' \
+      "PCM1741       CONFIG_COLLIE_PCM1741 \
+       PCM1717       CONFIG_COLLIE_PCM1717" PCM1741
+fi
+dep_tristate '  Collie TC35143 sound support' CONFIG_SOUND_COLLIE_TC35143 $CONFIG_SOUND $CONFIG_SA1100_COLLIE
 dep_tristate '  C-Media PCI (CMI8338/8738)' CONFIG_SOUND_CMPCI $CONFIG_SOUND $CONFIG_PCI
 if [ "$CONFIG_SOUND_CMPCI" = "y" -o "$CONFIG_SOUND_CMPCI" = "m" ]; then
     bool '    Enable legacy FM' CONFIG_SOUND_CMPCI_FM
@@ -115,6 +122,9 @@ if [ "$CONFIG_ARCH_SA1100" = "y" ]; then
    dep_tristate '      SA1111 audio support' CONFIG_SOUND_SA1111_UDA1341 $CONFIG_SA1111 $CONFIG_SOUND_UDA1341
    dep_tristate '    Generic DAC on the SA11x0 SSP port' CONFIG_SOUND_SA1100SSP $CONFIG_SOUND_SA1100
 fi
+if [ "$CONFIG_SABINAL_DISCOVERY" = "y" ]; then
+   dep_bool '  Discovery Sound Drivers' CONFIG_SOUND_DISCOVERY $CONFIG_COTULLA_DMA $CONFIG_SOUND
+fi
 
 dep_tristate '  OSS sound modules' CONFIG_SOUND_OSS $CONFIG_SOUND
 
@@ -212,6 +222,8 @@ if [ "$CONFIG_ARM" = "y" ]; then
    fi
    dep_tristate '    Netwinder WaveArtist' CONFIG_SOUND_WAVEARTIST $CONFIG_SOUND_OSS $CONFIG_ARCH_NETWINDER
    dep_tristate '  Intel PXA250/210 AC97 audio' CONFIG_SOUND_PXA_AC97 $CONFIG_ARCH_PXA $CONFIG_SOUND
+   dep_tristate '  Poodle audio support' CONFIG_SOUND_POODLE $CONFIG_ARCH_PXA $CONFIG_SOUND
+   dep_tristate '  Corgi audio support' CONFIG_SOUND_CORGI $CONFIG_ARCH_PXA $CONFIG_SOUND
 fi
 
 dep_tristate '  TV card (bt848) mixer support' CONFIG_SOUND_TVMIXER $CONFIG_SOUND $CONFIG_I2C

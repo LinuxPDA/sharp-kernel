@@ -3,6 +3,8 @@
  * 
  * XScale specific tweaks.  This is merged into head.S by the linker.
  *
+ * ChangLog:
+ *	12-Dec-2002 Lineo Japan, Inc.
  */
 
 #include <linux/config.h>
@@ -42,4 +44,10 @@ __XScale_start:
 		mov	r7, #MACH_TYPE_PXA_IDP
 #endif
 
+#ifdef CONFIG_ARCH_PXA_POODLE
+		mov	r7, #MACH_TYPE_POODLE
+#endif
 
+#ifdef CONFIG_ARCH_PXA_CORGI
+		mov	r7, #MACH_TYPE_CORGI
+#endif

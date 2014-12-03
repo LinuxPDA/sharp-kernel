@@ -2,7 +2,7 @@
 /*
  * mtd/include/compatmac.h
  *
- * $Id: compatmac.h,v 1.37 2002/03/17 10:16:44 dwmw2 Exp $
+ * $Id: compatmac.h,v 1.40 2002/09/04 22:14:32 dwmw2 Exp $
  *
  * Extensions and omissions from the normal 'linux/compatmac.h'
  * files. hopefully this will end up empty as the 'real' one 
@@ -489,6 +489,7 @@ static inline void __recalc_sigpending(void)
 {
 	recalc_sigpending(current);
 }
+#undef recalc_sigpending
 #define recalc_sigpending() __recalc_sigpending ()
 #endif
 
@@ -502,11 +503,17 @@ static inline void __recalc_sigpending(void)
 #endif
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,4,19)
-#define yield() do { current->policy |= SCHED_YIELD; schedule(); } while(0)
+#ifndef yield
+#define yield() do { set_current_state(TASK_RUNNING); current->policy |= SCHED_YIELD; schedule(); } while(0)
+#endif
+#ifndef minor
 #define major(d) (MAJOR(to_kdev_t(d)))
 #define minor(d) (MINOR(to_kdev_t(d)))
+#endif
+#ifndef mk_kdev
 #define mk_kdev(ma,mi) MKDEV(ma,mi)
 #define kdev_t_to_nr(x)	(x)
+#endif
 #endif
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,4,0)
@@ -555,6 +562,10 @@ static inline void __recalc_sigpending(void)
 #else
 #define BLK_INC_USE_COUNT do {} while(0)
 #define BLK_DEC_USE_COUNT do {} while(0)
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,5,12)
+#define PageUptodate(x) Page_Uptodate(x)
 #endif
 
 #endif /* __LINUX_MTD_COMPATMAC_H__ */

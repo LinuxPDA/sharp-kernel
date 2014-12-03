@@ -27,6 +27,10 @@
  * Version 1.09		added increment of rq->sector in ide_multwrite
  *			added UDMA 3/4 reporting
  * Version 1.10		request queue changes, Ultra DMA 100
+ *
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
+ *	30-Jul-2002 Lineo Japan, Inc.  for 2.4.18
  */
 
 #define IDEDISK_VERSION	"1.10"
@@ -367,6 +371,13 @@ static ide_startstop_t recal_intr (ide_drive_t *drive)
  */
 static ide_startstop_t do_rw_disk (ide_drive_t *drive, struct request *rq, unsigned long block)
 {
+#if defined(CONFIG_ARCH_SHARP_SL) && defined(CONFIG_PCMCIA)
+	if (!is_pcmcia_card_present(0)) {
+		ide_end_request(0, HWGROUP(drive));
+		return ide_stopped;
+	}
+#endif
+
 	if (IDE_CONTROL_REG)
 		OUT_BYTE(drive->ctl,IDE_CONTROL_REG);
 	OUT_BYTE(0x00, IDE_FEATURE_REG);

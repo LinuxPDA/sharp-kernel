@@ -1,3 +1,8 @@
+/*
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
+ */
+
 #ifndef _LINUX_SWAPCTL_H
 #define _LINUX_SWAPCTL_H
 

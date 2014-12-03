@@ -59,7 +59,7 @@ OBJS		+= head-sa1100.o
 endif
 
 ifeq ($(CONFIG_ARCH_SA1100),y)
-OBJS		+= head-sa1100.o
+OBJS		+= head-sa1100.o setup-sa1100.o
 endif
 
 ifeq ($(CONFIG_CPU_XSCALE),y)

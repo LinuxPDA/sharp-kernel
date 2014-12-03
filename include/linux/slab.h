@@ -2,6 +2,9 @@
  * linux/mm/slab.h
  * Written by Mark Hemment, 1996.
  * (markhe@nextd.demon.co.uk)
+ *
+ * ChangLog:
+ *	12-Dec-2002 Lineo Japan, Inc.
  */
 
 #if	!defined(_LINUX_SLAB_H)
@@ -66,6 +69,10 @@ extern int slabinfo_read_proc(char *page, char **start, off_t off,
 				 int count, int *eof, void *data);
 extern int slabinfo_write_proc(struct file *file, const char *buffer,
 			   unsigned long count, void *data);
+#if defined(CONFIG_ARCH_SHARP_SL)
+extern int kmem_cache_active_page(kmem_cache_t *cachep);
+extern int _kmem_cache_active_page(const char *name);
+#endif
 
 /* System wide caches */
 extern kmem_cache_t	*vm_area_cachep;

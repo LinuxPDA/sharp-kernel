@@ -15,16 +15,24 @@ obj-n :=
 obj-  :=
 
 export-objs := generic.o irq.o dma.o sa1111.o \
-               usb_ctl.o usb_recv.o usb_send.o
+               usb_ctl.o usb_recv.o usb_send.o \
+	       discovery.o cotulla_dma.o pxa_ssp.o
 
 # Common support (must be linked before board specific support)
-obj-y += generic.o irq.o dma.o
+obj-y += generic.o irq.o
+ifneq ($(CONFIG_COTULLA_DMA),y)
+obj-y += dma.o
+endif
 obj-$(CONFIG_SA1111) += sa1111.o
 
 # Specific board support
 obj-$(CONFIG_ARCH_LUBBOCK) += lubbock.o
 obj-$(CONFIG_ARCH_PXA_IDP) += idp.o
 obj-$(CONFIG_ARCH_PXA_CERF) += cerf.o
+obj-$(CONFIG_COTULLA_DMA) += cotulla_dma.o
+obj-$(CONFIG_SABINAL_DISCOVERY) += discovery.o discovery_arch.o pxa_ssp.o
+obj-$(CONFIG_ARCH_PXA_POODLE) += poodle.o m62332.o pxa_ssp.o poodle_buzzer.o
+obj-$(CONFIG_ARCH_PXA_CORGI) += corgi.o pxa_ssp.o poodle_buzzer.o
 
 # Support for blinky lights
 leds-y := leds.o
@@ -42,9 +50,46 @@ obj-$(CONFIG_PXA_USB_NETLINK) += usb-eth.o
 obj-$(CONFIG_PXA_USB_CHAR) += usb-char.o
 
 # Misc features
-obj-$(CONFIG_PM) += pm.o sleep.o
+ifeq ($(CONFIG_ARCH_SHARP_SL),y)
+  obj-$(CONFIG_APM) += sharpsl_apm.o
+  obj-$(CONFIG_PM) += sharpsl_power.o sharpsl_suspend.o
+  export-objs += sharpsl_apm.o sharpsl_power.o
+  ifeq ($(CONFIG_SABINAL_DISCOVERY),y)
+    obj-$(CONFIG_BATT) += discovery_battery.o
+    export-objs += discovery_battery.o
+  endif
+  ifeq ($(CONFIG_ARCH_PXA_POODLE),y)
+    obj-$(CONFIG_BATT) += sharpsl_battery.o sharpsl_param.o
+    export-objs += sharpsl_battery.o
+  endif
+  ifeq ($(CONFIG_ARCH_PXA_CORGI),y)
+    obj-$(CONFIG_BATT) += sharpsl_battery.o sharpsl_param.o
+    export-objs += sharpsl_battery.o
+  endif
+else
+  obj-$(CONFIG_PM) += pm.o sleep.o
+endif
+
+ifeq ($(CONFIG_DEVICEINFO),y)
+  obj-$(CONFIG_DEVICEINFO) += devinfo.o
+  ifeq ($(CONFIG_SABINAL_DISCOVERY),y)
+    devinfo-objs-m += deviceinfo.o
+    devinfo-objs-$(CONFIG_DISCOVERY_DEVICEINFO) += discovery_deviceinfo.o
+  endif
+  ifeq ($(CONFIG_ARCH_PXA_POODLE),y)
+    devinfo-objs-m += sharpsl_deviceinfo.o
+  endif
+  ifeq ($(CONFIG_ARCH_PXA_CORGI),y)
+    devinfo-objs-m += sharpsl_deviceinfo.o
+  endif
+endif
+
+obj-m += registers.o
 
 include $(TOPDIR)/Rules.make
 
 pxausb_core.o: $(pxausb_core-objs)
 	$(LD) -r -o $@ $(pxausb_core-objs)
+
+devinfo.o: $(devinfo-objs-m)
+	$(LD) -r -o $@ $(devinfo-objs-m)

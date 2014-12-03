@@ -21,5 +21,9 @@ obj-$(CONFIG_MTD_PMC551)	+= pmc551.o
 obj-$(CONFIG_MTD_MTDRAM)	+= mtdram.o
 obj-$(CONFIG_MTD_LART)		+= lart.o
 obj-$(CONFIG_MTD_BLKMTD)	+= blkmtd.o
+obj-$(CONFIG_MTD_MTDROM_SA1100) += sa1100_mtdrom.o
+obj-$(CONFIG_MTD_MTDRAM_SA1100) += sa1100_mtdram.o
+obj-$(CONFIG_MTD_MTDRAM_SABINAL)	+= sabinal_mtdram.o
+obj-$(CONFIG_MTD_MTDRAM_SHARP_SL)	+= sharpsl_mtdram.o
 
 include $(TOPDIR)/Rules.make

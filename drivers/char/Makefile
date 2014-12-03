@@ -23,7 +23,8 @@ obj-y	 += mem.o tty_io.o n_tty.o tty_ioctl.o raw.o pty.o misc.o random.o
 
 export-objs     :=	busmouse.o console.o keyboard.o sysrq.o \
 			misc.o pty.o random.o selection.o serial.o \
-			sonypi.o tty_io.o tty_ioctl.o generic_serial.o
+			sonypi.o tty_io.o tty_ioctl.o generic_serial.o \
+			sharp_kbdctl.o serial_pxa200.o
 
 mod-subdirs	:=	joystick ftape drm drm-4.0 pcmcia
 
@@ -95,6 +96,24 @@ ifeq ($(ARCH),arm)
   ifeq ($(CONFIG_ARCH_FORTUNET),y)
     KEYMAP   := defkeymap.o
   endif
+  ifeq ($(CONFIG_SA1100_COLLIE),y)
+     KEYBD   := collie_keyb.o collie_logkey.o
+     KEYMAP  := collie_keymap.o
+  endif
+  ifeq ($(CONFIG_SABINAL_DISCOVERY),y)
+    KEYBD    := discovery_keyb.o sharp_logkey.o
+    SERIAL   =
+  endif
+  ifeq ($(CONFIG_ARCH_PXA_POODLE),y)
+     KEYBD   := poodle_keyb.o poodle_logkey.o
+     KEYMAP  := poodle_keymap.o
+#     SERIAL   =
+  endif
+  ifeq ($(CONFIG_ARCH_PXA_CORGI),y)
+     KEYBD   := corgi_keyb.o corgi_logkey.o
+     KEYMAP  := corgi_keymap.o
+#     SERIAL   =
+  endif
 endif
 
 ifeq ($(ARCH),sh)
@@ -152,7 +171,16 @@ endif
 obj-$(CONFIG_VT) += vt.o vc_screen.o consolemap.o consolemap_deftbl.o $(CONSOLE) selection.o
 obj-$(CONFIG_SERIAL) += $(SERIAL)
 obj-$(CONFIG_SERIAL_ACPI) += acpi_serial.o
+obj-$(CONFIG_SERIAL_COLLIE) += serial_collie.o
 obj-$(CONFIG_TOUCHSCREEN_ANAKIN) += anakin_ts.o
+
+list-multi += ucb1200_core.o
+ucb1200_core-objs := collie_ucb1200_generic.o collie_ucb1200_sa1100.o collie_ucb1200_adc_exc.o
+export-objs += collie_ucb1200_generic.o collie_ucb1200_sa1100.o collie_ucb1200_adc_exc.o
+obj-$(CONFIG_UCB1200) += ucb1200_core.o
+obj-$(CONFIG_TOUCHSCREEN_UCB1200) += collie_ucb1200_ts.o
+obj-$(CONFIG_ADC_UCB1200) += collie_ucb1200_adc.o
+obj-$(CONFIG_AUDIO_UCB1200) += collie_ucb1200_audio.o
 
 ifndef CONFIG_SUN_KEYBOARD
   obj-$(CONFIG_VT) += keyboard.o $(KEYMAP) $(KEYBD)
@@ -187,6 +215,7 @@ obj-$(CONFIG_MVME147_SCC) += generic_serial.o vme_scc.o
 obj-$(CONFIG_MVME162_SCC) += generic_serial.o vme_scc.o
 obj-$(CONFIG_BVME6000_SCC) += generic_serial.o vme_scc.o
 obj-$(CONFIG_SERIAL_TX3912) += generic_serial.o serial_tx3912.o
+obj-$(CONFIG_SERIAL_SL_SERIES) += serial_pxa200.o
 
 subdir-$(CONFIG_RIO) += rio
 subdir-$(CONFIG_INPUT) += joystick
@@ -199,6 +228,10 @@ ifeq ($(CONFIG_INPUT),y)
 obj-y += joystick/js.o
 endif
 
+obj-$(CONFIG_SA1100_COLLIE) += sharp_led.o sharp_kbdctl.o sharp_buzzer.o
+obj-$(CONFIG_DISCOVERY_LED) += sharp_led.o discovery_led.o
+obj-$(CONFIG_ARCH_PXA_POODLE) += sharp_led.o sharp_kbdctl.o sharpsl_led.o sharp_buzzer.o
+obj-$(CONFIG_ARCH_PXA_CORGI) += sharp_led.o sharpsl_led.o sharp_kbdctl.o corgi_rc.o sharp_buzzer.o
 obj-$(CONFIG_BUSMOUSE) += busmouse.o
 obj-$(CONFIG_DTLK) += dtlk.o
 obj-$(CONFIG_R3964) += n_r3964.o
@@ -213,6 +246,8 @@ obj-$(CONFIG_PC110_PAD) += pc110pad.o
 obj-$(CONFIG_RTC) += rtc.o
 obj-$(CONFIG_EFI_RTC) += efirtc.o
 obj-$(CONFIG_SA1100_RTC) += sa1100-rtc.o
+obj-$(CONFIG_COTULLA_RTC) += cotulla-rtc.o
+obj-$(CONFIG_ADS7846_TS) += ads7846_ts.o
 ifeq ($(CONFIG_PPC),)
   obj-$(CONFIG_NVRAM) += nvram.o
 endif
@@ -286,10 +321,22 @@ consolemap_deftbl.c: $(FONTMAPFILE) conmakehash
 
 consolemap_deftbl.o: consolemap_deftbl.c $(TOPDIR)/include/linux/types.h
 
+ucb1200_core.o: $(ucb1200_core-objs)
+	$(LD) -r -o $@ $(ucb1200_core-objs)
+
 .DELETE_ON_ERROR:
 
 defkeymap.c: defkeymap.map
 	set -e ; loadkeys --mktable $< | sed -e 's/^static *//' > $@
 
 qtronixmap.c: qtronixmap.map
+	set -e ; loadkeys --mktable $< | sed -e 's/^static *//' > $@
+
+collie_keymap.c: collie_keymap.map
+	set -e ; loadkeys --mktable $< | sed -e 's/^static *//' > $@
+
+poodle_keymap.c: poodle_keymap.map
+	set -e ; loadkeys --mktable $< | sed -e 's/^static *//' > $@
+
+corgi_keymap.c: corgi_keymap.map
 	set -e ; loadkeys --mktable $< | sed -e 's/^static *//' > $@

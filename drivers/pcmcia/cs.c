@@ -28,7 +28,13 @@
     and other provisions required by the GPL.  If you do not delete
     the provisions above, a recipient may use your version of this
     file under either the MPL or the GPL.
-    
+
+    Change Log
+	12-Nov-2001 Lineo Japan, Inc.
+	06-13-2002  Richard Rau
+	30-Jul-2002 Lineo Japan, Inc.  for 2.4.18
+	12-Dec-2002 Sharp Corporation for Poodle and Corgi
+
 ======================================================================*/
 
 #include <linux/module.h>
@@ -60,6 +66,22 @@
 #include <pcmcia/cisreg.h>
 #include <pcmcia/bus_ops.h>
 #include "cs_internal.h"
+
+#ifdef CONFIG_ARCH_SHARP_SL
+#if defined(CONFIG_ARCH_PXA_POODLE)
+#include <asm/arch/keyboard_poodle.h>
+#elif defined(CONFIG_ARCH_PXA_CORGI)
+#include <asm/arch/keyboard_corgi.h>
+#endif
+#include <asm/sharp_char.h>
+#include <asm/sharp_keycode.h>
+#endif
+
+#if defined(CONFIG_SABINAL_DISCOVERY)
+//#include <linux/apm_bios.h>
+extern volatile u_char discovery_second_battery;
+//extern volatile int collie_ac_status; /* EASY-DEBUG */
+#endif
 
 #ifdef CONFIG_PCI
 #define PCI_OPT " [pci]"
@@ -99,11 +121,24 @@ MODULE_LICENSE("Dual MPL/GPL");
 INT_MODULE_PARM(setup_delay,	10);		/* centiseconds */
 INT_MODULE_PARM(resume_delay,	20);		/* centiseconds */
 INT_MODULE_PARM(shutdown_delay,	3);		/* centiseconds */
+#ifdef CONFIG_ARCH_SHARP_SL
+//INT_MODULE_PARM(vcc_settle,	2);	/* SL-5600@2 */
+INT_MODULE_PARM(vcc_settle,	10);	/* SL-C700+GW-CF11H@10 */
+INT_MODULE_PARM(reset_time,	1000);
+INT_MODULE_PARM(unreset_delay,	3);
+INT_MODULE_PARM(unreset_check,	1);
+INT_MODULE_PARM(unreset_limit,	300);
+#else
 INT_MODULE_PARM(vcc_settle,	40);		/* centiseconds */
+#ifdef CONFIG_SABINAL_DISCOVERY
+INT_MODULE_PARM(reset_time,	10000);		/* usecs (for Pin-C) */
+#else
 INT_MODULE_PARM(reset_time,	10);		/* usecs */
+#endif
 INT_MODULE_PARM(unreset_delay,	10);		/* centiseconds */
 INT_MODULE_PARM(unreset_check,	10);		/* centiseconds */
 INT_MODULE_PARM(unreset_limit,	30);		/* unreset_check's */
+#endif
 
 /* Access speed for attribute memory windows */
 INT_MODULE_PARM(cis_speed,	300);		/* ns */
@@ -524,6 +559,49 @@ static int setup_socket(socket_info_t *s)
 		goto out;
 	}
 
+#if defined(CONFIG_SABINAL_DISCOVERY)
+/* If battery is low, then cancel card detect. */
+//	if( collie_ac_status == APM_AC_OFFLINE ) /* EASY-DEBUG */
+//		discovery_second_battery = 2; // APM_BATTERY_STATUS_CRITICAL;
+	switch( discovery_second_battery ){
+	case 0: // APM_BATTERY_STATUS_HIGH:
+	case 1: // APM_BATTERY_STATUS_LOW:
+	case 3: // APM_BATTERY_STATUS_CHARGING:
+	case 0x7F: // very low
+		break;
+	case 2: // APM_BATTERY_STATUS_CRITICAL:
+		printk(KERN_ERR "cs: Backpack battery is critical low."
+			" (%d)\n", discovery_second_battery);
+		ret = 0;
+		goto out;
+	default:
+		printk(KERN_ERR "cs: Backpack battery is unknown status."
+			" (%d)\n", discovery_second_battery);
+	}
+#endif /* CONFIG_SABINAL_DISCOVERY */
+
+
+#if defined (CONFIG_ARCH_PXA_POODLE) || defined (CONFIG_ARCH_PXA_CORGI)
+	{
+	  extern int sharpsl_main_battery;
+	  extern int sharpsl_main_bk_flag;
+
+	  sharpsl_kick_battery_check(0,1,1);	// check battery and wait 10msec
+
+	  if ( ( sharpsl_main_battery == 0x7F ) || ( sharpsl_main_battery == 0x02 ) ) {
+		printk(KERN_ERR "cs: Main battery is critical low."
+		       " (%d)\n", sharpsl_main_battery);
+		if ( sharpsl_main_bk_flag ) {
+		  handle_scancode(SLKEY_OFF|KBDOWN , 1);
+		  mdelay(30);
+		  handle_scancode(SLKEY_OFF|KBUP   , 0);
+		}
+		ret = 0;
+		goto out;
+	  }
+	}
+#endif
+
 	if (val & SS_DETECT) {
 		DEBUG(1, "cs: setup_socket(%p): applying power\n", s);
 		s->state |= SOCKET_PRESENT;
@@ -531,7 +609,29 @@ static int setup_socket(socket_info_t *s)
 		if (val & SS_3VCARD)
 		    s->socket.Vcc = s->socket.Vpp = 33;
 		else if (!(val & SS_XVCARD))
+#if defined (CONFIG_ARCH_PXA_POODLE)
+		{
+		    printk(KERN_NOTICE "cs: 5V card! but only 3.3V\n");
+		    s->socket.Vcc = s->socket.Vpp = 33;
+		}
+#elif defined (CONFIG_ARCH_PXA_CORGI)
 		    s->socket.Vcc = s->socket.Vpp = 50;
+#elif 1
+		  /* 
+		   * Workaround for L*nks*s CF WLAN card
+		   * 	24/03/2002, otokawa@slab.tnr.sharp.co.jp
+		   */
+	  {
+	    printk(KERN_NOTICE "val = %d\n", val);
+	    if (val == 176 || val == 192) {
+	      /* printk("too stupid l*nks*s\n"); */
+	      s->socket.Vcc = s->socket.Vpp = 33;
+	    } else
+	      s->socket.Vcc = s->socket.Vpp = 50;
+	  }
+#else
+		    s->socket.Vcc = s->socket.Vpp = 50;
+#endif
 		else {
 		    printk(KERN_NOTICE "cs: socket %p: unsupported "
 			   "voltage key\n", s);
@@ -546,6 +646,26 @@ static int setup_socket(socket_info_t *s)
 		set_socket(s, &s->socket);
 		cs_sleep(vcc_settle);
 		reset_socket(s);
+
+#if defined (CONFIG_ARCH_PXA_POODLE) || defined (CONFIG_ARCH_PXA_CORGI)
+		{
+		  extern int sharpsl_main_battery;
+		  extern int sharpsl_main_bk_flag;
+
+		  sharpsl_kick_battery_check(0,0,1);	// check battery and wait 10msec
+
+		  if ( sharpsl_main_bk_flag && ( ( sharpsl_main_battery == 0x7F ) || ( sharpsl_main_battery == 0x02 ) ) ) {
+		    s->socket.Vcc = s->socket.Vpp = 0;
+		    s->state &= ~SOCKET_PRESENT;
+		    set_socket(s, &s->socket);
+		    cs_sleep(vcc_settle);
+		    reset_socket(s);
+		    send_event(s, CS_EVENT_CARD_REMOVAL, CS_EVENT_PRI_HIGH);
+		    ret = 0;
+		    goto out;
+		  }
+		}
+#endif
 		ret = 1;
 	} else {
 		DEBUG(0, "cs: setup_socket(%p): no card!\n", s);
@@ -579,6 +699,11 @@ static void reset_socket(socket_info_t *s)
 #define EVENT_MASK \
 (SOCKET_SETUP_PENDING|SOCKET_SUSPEND|SOCKET_RESET_PENDING)
 
+#ifdef CONFIG_ARCH_SHARP_SL
+int ide_resume_handling = 0;
+int pcmcia_resume_handling = 0;
+#endif
+
 static void unreset_socket(socket_info_t *s)
 {
 	int setup_timeout = unreset_limit;
@@ -603,10 +728,35 @@ static void unreset_socket(socket_info_t *s)
 	DEBUG(1, "cs: reset done on socket %p\n", s);
 	if (s->state & SOCKET_SUSPEND) {
 	    s->state &= ~EVENT_MASK;
+#ifdef CONFIG_ARCH_SHARP_SL
+	    if (verify_cis_cache(s) != 0) {
+		if (is_pcmcia_card_present(0))
+		    ide_resume_handling = 2;
+		parse_events(s, SS_DETECT);
+	    } else {
+		cisparse_t parse;
+		send_event(s, CS_EVENT_PM_RESUME, CS_EVENT_PRI_LOW);
+		read_tuple(s->clients, CISTPL_FUNCID, &parse);
+#ifdef CONFIG_IDE
+		ide_resume_handling = 1;
+		if (parse.funcid.func == CISTPL_FUNCID_FIXED &&
+		    proc_ide_verify_identify() != 0) {
+		    ide_resume_handling = 2;
+		    parse_events(s, SS_DETECT);
+		} else {
+		    ide_resume_handling = 0;
+		}
+#endif
+		/* power off serial card */
+		if (pcmcia_resume_handling)
+		    serial_card_power_off(s);
+	    }
+#else
 	    if (verify_cis_cache(s) != 0)
 		parse_events(s, SS_DETECT);
 	    else
 		send_event(s, CS_EVENT_PM_RESUME, CS_EVENT_PRI_LOW);
+#endif
 	} else if (s->state & SOCKET_SETUP_PENDING) {
 #ifdef CONFIG_CARDBUS
 	    if (s->state & SOCKET_CARDBUS)
@@ -701,8 +851,14 @@ static void parse_events(void *info, u_int events)
 	    else
 		cs_sleep(setup_delay);
 	    s->socket.flags |= SS_DEBOUNCED;
-	    if (setup_socket(s) == 0)
+	    if (setup_socket(s) == 0){
 		s->state &= ~SOCKET_SETUP_PENDING;
+#if defined(CONFIG_SABINAL_DISCOVERY) || defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_POODLE)
+/* If power-on failed in resume, then card eject. */
+		if( s->state & SOCKET_SUSPEND )
+			do_shutdown(s);
+#endif
+	    }
 	    s->socket.flags &= ~SS_DEBOUNCED;
 	}
     }
@@ -753,12 +909,25 @@ static int handle_pm_event(struct pm_dev *dev, pm_request_t rqst, void *data)
 {
     int i;
     socket_info_t *s;
+#ifdef CONFIG_SABINAL_DISCOVERY
+    unsigned long backpackptr;
+#endif
 
     /* only for busses that don't suspend/resume slots directly */
 
     switch (rqst) {
     case PM_SUSPEND:
 	DEBUG(1, "cs: received suspend notification\n");
+#ifdef CONFIG_ARCH_SHARP_SL
+	sys_sync();
+#ifdef CONFIG_SABINAL_DISCOVERY
+	disable_irq(IRQ_ASIC3_CF_DETECT);    // Richard 0628
+	backpackptr = ioremap(0x14000000, 4);    // Richard 0702  Output '0' to physical add. 0x14000000 to avoid ..
+	if (NULL != backpackptr) {
+		*((u16*)backpackptr) = 0;		     // Richard 0702
+	}
+#endif
+#endif
 	for (i = 0; i < sockets; i++) {
 	    s = socket_table [i];
 	    if (!s->use_bus_pm)
@@ -767,11 +936,24 @@ static int handle_pm_event(struct pm_dev *dev, pm_request_t rqst, void *data)
 	break;
     case PM_RESUME:
 	DEBUG(1, "cs: received resume notification\n");
+#ifdef CONFIG_ARCH_SHARP_SL
+	pcmcia_resume_handling = 1;
+#endif
 	for (i = 0; i < sockets; i++) {
 	    s = socket_table [i];
 	    if (!s->use_bus_pm)
 		pcmcia_resume_socket (socket_table [i]);
 	}
+#ifdef CONFIG_ARCH_SHARP_SL
+	pcmcia_resume_handling = 0;
+#ifdef CONFIG_SABINAL_DISCOVERY
+	if (NULL != backpackptr) {
+		iounmap(backpackptr);			// Richard 0702
+		backpackptr = NULL;
+	}	
+	enable_irq(IRQ_ASIC3_CF_DETECT);	// Richard 0628
+#endif
+#endif
 	break;
     }
     return 0;
@@ -2089,7 +2271,13 @@ int pcmcia_resume_card(client_handle_t handle, client_req_t *req)
 	return CS_IN_USE;
 
     DEBUG(1, "cs: waking up socket %d\n", i);
+#if defined(CONFIG_SABINAL_DISCOVERY) || defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_POODLE)
+/* If power-on failed, then card eject. */
+    if( setup_socket(s) == 0 )
+	do_shutdown(s);
+#else
     setup_socket(s);
+#endif /* CONFIG_SABINAL_DISCOVERY */
 
     return CS_SUCCESS;
 } /* resume_card */
@@ -2208,6 +2396,54 @@ int pcmcia_report_error(client_handle_t handle, error_info_t *err)
 
     return CS_SUCCESS;
 } /* report_error */
+
+/*====================================================================*/
+
+#ifdef CONFIG_ARCH_SHARP_SL
+void pcmcia_set_detect_interrupt(int sock, int enable, int setting)
+{
+    socket_info_t *s;
+
+    s = socket_table[sock];
+    if (enable)
+	s->socket.csc_mask |= SS_DETECT;
+    else
+	s->socket.csc_mask &= ~SS_DETECT;
+    if (setting)
+	set_socket(s, &s->socket);
+}
+
+/*====================================================================*/
+
+int serial_card_power_off(socket_info_t *s)
+{
+    cisparse_t parse;
+
+    read_tuple(s->clients, CISTPL_FUNCID, &parse);
+    if (parse.funcid.func == CISTPL_FUNCID_SERIAL) {
+	if (read_tuple(s->clients, CISTPL_LONGLINK_MFC, &parse)
+	    != CS_SUCCESS) {	/* for multi-function card */
+	    send_event(s, CS_EVENT_PM_SUSPEND, CS_EVENT_PRI_LOW);
+	    suspend_socket(s);
+	    s->state |= SOCKET_SUSPEND;
+	    return CS_SUCCESS;
+	}
+    }
+    return CS_GENERAL_FAILURE;
+}
+
+int pcmcia_serial_power_off(client_handle_t handle)
+{
+    socket_info_t *s;
+    
+    if (CHECK_HANDLE(handle))
+	return CS_BAD_HANDLE;
+    s = socket_table[handle->Socket];
+    if (!(s->state & SOCKET_PRESENT))
+	return CS_NO_CARD;
+    return serial_card_power_off(s);
+}
+#endif
 
 /*====================================================================*/
 

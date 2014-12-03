@@ -4,6 +4,8 @@
 
 # Subdirs.
 
+subdir-$(CONFIG_USBD)           += device
+
 # The target object and module list name.
 
 O_TARGET	:= usbdrv.o
@@ -39,7 +41,9 @@ obj-	:=
 
 # Each configuration option enables a list of files.
 
+ifneq ($(CONFIG_ARCH_SHARP_SL),y)
 obj-$(CONFIG_USB)		+= usbcore.o
+endif
 obj-$(CONFIG_USB_UHCI)		+= usb-uhci.o
 obj-$(CONFIG_USB_UHCI_ALT)	+= uhci.o
 obj-$(CONFIG_USB_OHCI)		+= usb-ohci.o usb-ohci-pci.o

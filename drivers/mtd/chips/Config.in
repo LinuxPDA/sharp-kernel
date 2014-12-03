@@ -1,6 +1,6 @@
 # drivers/mtd/chips/Config.in
 
-# $Id: Config.in,v 1.15 2002/02/13 16:29:15 dwmw2 Exp $
+# $Id: Config.in,v 1.16 2002/09/03 13:30:43 joern Exp $
 
 mainmenu_option next_comment
 
@@ -44,6 +44,7 @@ if [ "$CONFIG_MTD_GEN_PROBE" = "y" -o "$CONFIG_MTD_GEN_PROBE" = "m" ]; then
 fi
 dep_tristate '  Support for Intel/Sharp flash chips' CONFIG_MTD_CFI_INTELEXT $CONFIG_MTD_GEN_PROBE
 dep_tristate '  Support for AMD/Fujitsu flash chips' CONFIG_MTD_CFI_AMDSTD $CONFIG_MTD_GEN_PROBE
+dep_tristate '  Support for ST (Advanced Architecture) flash chips' CONFIG_MTD_CFI_STAA $CONFIG_MTD_GEN_PROBE
 
 dep_tristate '  Support for RAM chips in bus mapping' CONFIG_MTD_RAM $CONFIG_MTD
 dep_tristate '  Support for ROM chips in bus mapping' CONFIG_MTD_ROM $CONFIG_MTD

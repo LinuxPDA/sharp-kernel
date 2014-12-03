@@ -26,6 +26,9 @@
  *     Foundation, Inc., 59 Temple Place, Suite 330, Boston, 
  *     MA 02111-1307 USA
  *     
+ * ChangeLog:
+ *	06-21-2002 SHARP	add rx-buffer and delayed disconnection control
+ *	07-04-2002 SHARP	change initial line setting (add delta bits)
  ********************************************************************/
 
 #include <linux/sched.h>
@@ -47,11 +50,20 @@
 
 static void ircomm_tty_ias_register(struct ircomm_tty_cb *self);
 static void ircomm_tty_discovery_indication(discovery_t *discovery,
+					    DISCOVERY_MODE mode,
 					    void *priv);
 static void ircomm_tty_getvalue_confirm(int result, __u16 obj_id, 
 					struct ias_value *value, void *priv);
 void ircomm_tty_start_watchdog_timer(struct ircomm_tty_cb *self, int timeout);
 void ircomm_tty_watchdog_timer_expired(void *data);
+
+void ircomm_tty_start_discon_timer(struct ircomm_tty_cb *self, int timeout);
+void ircomm_tty_discon_timer_expired(void *data);
+void ircomm_tty_start_flow_timer(struct ircomm_tty_cb *self, int timeout);
+void ircomm_tty_flow_timer_expired(void *data);
+
+int ircomm_tty_check_disconnect_pend(struct ircomm_tty_cb *self);
+int ircomm_tty_check_flow_start(struct ircomm_tty_cb *self);
 
 static int ircomm_tty_state_idle(struct ircomm_tty_cb *self, 
 				 IRCOMM_TTY_EVENT event, 
@@ -102,6 +114,8 @@ char *ircomm_tty_event[] = {
 	"IRCOMM_TTY_WD_TIMER_EXPIRED",
 	"IRCOMM_TTY_GOT_PARAMETERS",
 	"IRCOMM_TTY_GOT_LSAPSEL",
+	"IRCOMM_TTY_DISCON_TIMER_EXPIRED",
+	"IRCOMM_TTY_FLOW_TIMER_EXPIRED",
 	"*** ERROR ****",
 };
 
@@ -166,6 +180,8 @@ void ircomm_tty_detach_cable(struct ircomm_tty_cb *self)
 	ASSERT(self->magic == IRCOMM_TTY_MAGIC, return;);
 
 	del_timer(&self->watchdog_timer);
+	del_timer(&self->discon_timer);
+	del_timer(&self->flow_timer);
 
 	/* Remove IrCOMM hint bits */
 	irlmp_unregister_client(self->ckey);
@@ -270,8 +286,18 @@ int ircomm_tty_send_initial_parameters(struct ircomm_tty_cb *self)
 		   self->settings.flow_control);
 	/*self->settings.flow_control = IRCOMM_RTS_CTS_IN|IRCOMM_RTS_CTS_OUT;*/
 
+#if 1	/* SHARP modified */
+	/*
+     *	Set delta values for the initial parameters.
+	 *	If not, some devices don't set CTS line high.
+	 *	(I think that they processes the line control information only with delta bits.)
+	 *	This change doesn't have a bad effect on communication with other devices...
+	 */
+	self->settings.dte = IRCOMM_DTR | IRCOMM_RTS | IRCOMM_DELTA_DTR | IRCOMM_DELTA_RTS;
+#else
 	/* Do not set delta values for the initial parameters */
 	self->settings.dte = IRCOMM_DTR | IRCOMM_RTS;
+#endif
 
 	/* Only send service type parameter when we are the client */
 	if (self->client)
@@ -305,12 +331,27 @@ int ircomm_tty_send_initial_parameters(struct ircomm_tty_cb *self)
  *
  */
 static void ircomm_tty_discovery_indication(discovery_t *discovery,
+					    DISCOVERY_MODE mode,
 					    void *priv)
 {
 	struct ircomm_tty_cb *self;
 	struct ircomm_tty_info info;
 
 	IRDA_DEBUG(2, __FUNCTION__"()\n");
+
+	/* Important note :
+	 * We need to drop all passive discoveries.
+	 * The LSAP management of IrComm is deficient and doesn't deal
+	 * with the case of two instance connecting to each other
+	 * simultaneously (it will deadlock in LMP).
+	 * The proper fix would be to use the same technique as in IrNET,
+	 * to have one server socket and separate instances for the
+	 * connecting/connected socket.
+	 * The workaround is to drop passive discovery, which drastically
+	 * reduce the probability of this happening.
+	 * Jean II */
+	if(mode == DISCOVERY_PASSIVE)
+		return;
 
 	info.daddr = discovery->daddr;
 	info.saddr = discovery->saddr;
@@ -324,6 +365,47 @@ static void ircomm_tty_discovery_indication(discovery_t *discovery,
 
 		self = (struct ircomm_tty_cb *) hashbin_get_next(ircomm_tty);
 	}
+}
+
+/*
+ * Function ircomm_tty_check_disconnect_pend (struct ircomm_tty_cb *self)
+ *
+ *    Check disconnect should be pending or not.
+ *
+ */
+int ircomm_tty_check_disconnect_pend(struct ircomm_tty_cb *self)
+{
+  int	r;
+
+  r = self->tty->ldisc.receive_room(self->tty);
+  IRDA_DEBUG(2, "%s() receive_room remains %d bytes\n",__FUNCTION__,r);
+
+  if((r < self->ldisc_max_buffer-1)||(!skb_queue_empty(&self->rx_queue)))	{
+	  IRDA_DEBUG(2, "disconnect pending!\n");
+	  return 1;
+	}
+
+  return 0;
+}
+
+/*
+ * Function ircomm_tty_check_flow_start(struct ircomm_tty_cb *self)
+ *
+ *    Check flow start or not.
+ *
+ */
+int ircomm_tty_check_flow_start(struct ircomm_tty_cb *self)
+{
+  int	r;
+
+  r = self->tty->ldisc.receive_room(self->tty);
+  IRDA_DEBUG(2, "%s() receive_room remains %d bytes\n",__FUNCTION__,r);
+
+  if(r > (self->ldisc_max_buffer/2)) {
+	IRDA_DEBUG(2, "flow start\n" );
+	return 1;
+  }
+  return 0;
 }
 
 /*
@@ -343,9 +425,27 @@ void ircomm_tty_disconnect_indication(void *instance, void *sap,
 	ASSERT(self != NULL, return;);
 	ASSERT(self->magic == IRCOMM_TTY_MAGIC, return;);
 
+    /* Terminate skb here just to make sure. */
+    if (skb)
+	  dev_kfree_skb(skb);
+
 	if (!self->tty)
 		return;
 
+    /*
+     *	Make a disconnection pending, if some received datas remain in rx queue.
+     *	modified by SHARP
+	 */
+    if ((self->service_type != IRCOMM_3_WIRE_RAW)
+		&& (reason==LAP_DISC_INDICATION)
+		&& (ircomm_tty_check_disconnect_pend(self))){
+	  self->disc_stat = IRCOMM_DISC_PENDING;
+	  ircomm_tty_start_discon_timer(self, 3*HZ);
+	  return;
+	}
+    self->disc_stat = IRCOMM_DISC_DONE;
+    ircomm_next_state(self->ircomm, IRCOMM_IDLE);		/* temporary */
+  
 	/* This will stop control data transfers */
 	self->flow = FLOW_STOP;
 
@@ -553,6 +653,77 @@ void ircomm_tty_watchdog_timer_expired(void *data)
 	ASSERT(self->magic == IRCOMM_TTY_MAGIC, return;);
 
 	ircomm_tty_do_event(self, IRCOMM_TTY_WD_TIMER_EXPIRED, NULL, NULL);
+}
+
+/*
+ * Function ircomm_tty_start_discon_timer (self, timeout)
+ *
+ *    Start the disconnect timer. This timer is used to make sure that 
+ *    disconnection can be done, and if not, we will retry after the timeout
+ *	  added by SHARP
+ *
+ */
+void ircomm_tty_start_discon_timer(struct ircomm_tty_cb *self, int timeout)
+{
+	ASSERT(self != NULL, return;);
+	ASSERT(self->magic == IRCOMM_TTY_MAGIC, return;);
+
+	irda_start_timer(&self->discon_timer, timeout, (void *) self,
+			 ircomm_tty_discon_timer_expired);
+}
+
+/*
+ * Function ircomm_tty_discon_timer_expired (data)
+ *
+ *    Interval disconnection check.
+ *	  added by SHARP
+ *
+ */
+void ircomm_tty_discon_timer_expired(void *data)
+{
+	struct ircomm_tty_cb *self = (struct ircomm_tty_cb *) data;
+	
+	IRDA_DEBUG(2, __FUNCTION__ "()\n");
+
+	ASSERT(self != NULL, return;);
+	ASSERT(self->magic == IRCOMM_TTY_MAGIC, return;);
+
+	ircomm_tty_do_event(self, IRCOMM_TTY_DISCON_TIMER_EXPIRED, NULL, NULL);
+}
+/*
+ * Function irlan_start_watchdog_timer (self, timeout)
+ *
+ *    Start the flow control timer. This timer is used to make sure that 
+ *    the buffer of upper layer is available.
+ *	  added by SHARP
+ *
+ */
+void ircomm_tty_start_flow_timer(struct ircomm_tty_cb *self, int timeout)
+{
+	ASSERT(self != NULL, return;);
+	ASSERT(self->magic == IRCOMM_TTY_MAGIC, return;);
+
+	irda_start_timer(&self->flow_timer, timeout, (void *) self,
+			 ircomm_tty_flow_timer_expired);
+}
+
+/*
+ * Function ircomm_tty_flow_timer_expired (data)
+ *
+ *    Interval flow control check.
+ *	  added by SHARP
+ *
+ */
+void ircomm_tty_flow_timer_expired(void *data)
+{
+	struct ircomm_tty_cb *self = (struct ircomm_tty_cb *) data;
+	
+	IRDA_DEBUG(2, __FUNCTION__ "()\n");
+
+	ASSERT(self != NULL, return;);
+	ASSERT(self->magic == IRCOMM_TTY_MAGIC, return;);
+
+	ircomm_tty_do_event(self, IRCOMM_TTY_FLOW_TIMER_EXPIRED, NULL, NULL);
 }
 
 /*
@@ -883,6 +1054,51 @@ static int ircomm_tty_state_ready(struct ircomm_tty_cb *self,
 				tty_hangup(self->tty);
 		}
 		break;
+	case IRCOMM_TTY_DISCON_TIMER_EXPIRED:
+	  /*
+	   *	Disconnection is pending now.
+	   *	Continue the disconnection at this opportunity.
+	   *	modified by SHARP
+	   */
+	  switch(self->disc_stat){
+	  case IRCOMM_DISC_PENDING:
+		if(ircomm_tty_check_disconnect_pend(self)){
+		  ircomm_tty_start_discon_timer(self, 3*HZ);
+		}else{
+		  /*
+		   * 	Deliver the datas that remains in rx queue.
+		   *	After few seconds, make sure again.
+		   *	modified by SHARP
+		   */
+		  del_timer(&self->flow_timer);
+		  ircomm_flow_request(self->ircomm, FLOW_START);
+		  self->disc_stat = IRCOMM_DISC_INSPECT;
+		  ircomm_tty_start_discon_timer(self, 3*HZ);
+		}
+		break;
+	  case IRCOMM_DISC_INSPECT:
+		/*
+		 *	Make sure the disconnection can be done.
+		 *	Execute or retry will be decided in
+         *	ircomm_tty_disconnect_indication().
+		 *	modified by SHARP
+		 */
+		ircomm_tty_disconnect_indication(self,NULL,LAP_DISC_INDICATION,NULL);
+		break;
+	  }
+	  break;
+	case IRCOMM_TTY_FLOW_TIMER_EXPIRED:
+	  /*
+	   *	Data flow is stoped now.
+	   *	Start flow at this opportunity.
+	   *	modified by SHARP
+	   */
+	  if(ircomm_tty_check_flow_start(self)){
+		ircomm_flow_request(self->ircomm, FLOW_START);
+	  }else{
+		ircomm_tty_start_flow_timer(self, 1*HZ);
+	  }
+	  break;
 	default:
 		IRDA_DEBUG(2, __FUNCTION__"(), unknown event: %s\n",
 			   ircomm_tty_event[event]);

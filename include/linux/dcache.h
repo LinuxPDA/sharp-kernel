@@ -13,6 +13,9 @@
  *
  * (C) Copyright 1997 Thomas Schoebel-Theuer,
  * with heavy changes by Linus Torvalds
+ *
+ * ChangLog:
+ *	12-Dec-2002 Lineo Japan, Inc.
  */
 
 #define IS_ROOT(x) ((x) == (x)->d_parent)
@@ -177,6 +180,9 @@ extern void prune_dcache(int);
 /* icache memory management (defined in linux/fs/inode.c) */
 extern int shrink_icache_memory(int, int);
 extern void prune_icache(int);
+#if defined(CONFIG_ARCH_SHARP_SL) && defined(CONFIG_JFFS2_DYNFRAGTREE)
+extern int shrink_jffs2_icache_memory(int, int);
+#endif
 
 /* quota cache memory management (defined in linux/fs/dquot.c) */
 extern int shrink_dqcache_memory(int, unsigned int);

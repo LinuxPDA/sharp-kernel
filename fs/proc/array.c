@@ -50,6 +50,10 @@
  * Al Viro & Jeff Garzik :  moved most of the thing into base.c and
  *			 :  proc_misc.c. The rest may eventually go into
  *			 :  base.c too.
+ *
+ * ChangeLog:
+ *     23-Nov-2002 SHARP  add pmem
+ *
  */
 
 #include <linux/config.h>
@@ -694,3 +698,124 @@ int proc_pid_cpu(struct task_struct *task, char * buffer)
 	return len;
 }
 #endif
+
+#include <asm/tlb.h>
+
+static inline int pmem_pte_range(mmu_gather_t *tlb, pmd_t * pmd, unsigned long address, unsigned long size, struct vm_area_struct *mpnt, unsigned long *mmap, unsigned long *brk, unsigned long *stack, unsigned long *file, unsigned long *shared)
+{
+	unsigned long offset;
+	pte_t * ptep;
+	int freed = 0;
+
+	if (pmd_none(*pmd))
+		return 0;
+	if (pmd_bad(*pmd)) {
+		pmd_ERROR(*pmd);
+		pmd_clear(pmd);
+		return 0;
+	}
+	ptep = pte_offset(pmd, address);
+	offset = address & ~PMD_MASK;
+	if (offset + size > PMD_SIZE)
+		size = PMD_SIZE - offset;
+	size &= PAGE_MASK;
+	for (offset=0; offset < size; ptep++, offset += PAGE_SIZE) {
+		pte_t pte = *ptep;
+		if (pte_none(pte))
+			continue;
+		if (pte_present(pte)) {
+			struct page *page = pte_page(pte);
+			if (VALID_PAGE(page) && !PageReserved(page) && !page->mapping) {
+				freed ++;
+				if (page_count(page) > 1) {
+					(*shared)++;
+				}
+				else if (mpnt->vm_file) {
+					(*file)++;
+				}
+				else if (address < 0x40000000) {
+					(*brk)++;
+				}
+				else if (mpnt->vm_flags & VM_GROWSDOWN) {
+					(*stack)++;
+				}
+				else {
+					(*mmap)++;
+				}
+			}
+		}
+	}
+
+	return freed;
+}
+
+static inline int pmem_pmd_range(mmu_gather_t *tlb, pgd_t * dir, unsigned long address, unsigned long size, struct vm_area_struct *mpnt, unsigned long *mmap, unsigned long *brk, unsigned *stack, unsigned long *file, unsigned long *shared)
+{
+	pmd_t * pmd;
+	unsigned long end;
+	int freed;
+
+	if (pgd_none(*dir))
+		return 0;
+	if (pgd_bad(*dir)) {
+		pgd_ERROR(*dir);
+		pgd_clear(dir);
+		return 0;
+	}
+	pmd = pmd_offset(dir, address);
+	end = address + size;
+	if (end > ((address + PGDIR_SIZE) & PGDIR_MASK))
+		end = ((address + PGDIR_SIZE) & PGDIR_MASK);
+	freed = 0;
+	do {
+		freed += pmem_pte_range(tlb, pmd, address, end - address, mpnt, mmap, brk, stack, file, shared);
+		address = (address + PMD_SIZE) & PMD_MASK; 
+		pmd++;
+	} while (address < end);
+	return freed;
+}
+
+
+int proc_pid_pmem(struct task_struct *task, char * buffer)
+{
+	int len = 0;
+	struct mm_struct *mm = task->mm;
+	struct vm_area_struct *mpnt;
+	pgd_t * dir;
+	int heaps = 0;
+	mmu_gather_t *tlb;
+	unsigned long mmap = 0, brk = 0, stack = 0, file = 0, shared = 0;
+
+	if (mm) {
+		spin_lock(&mm->page_table_lock);
+		tlb = tlb_gather_mmu(mm);
+		mpnt = mm->mmap;
+		while (mpnt) {
+			unsigned long start = mpnt->vm_start;
+			unsigned long end = mpnt->vm_end;
+			dir = pgd_offset(mm, start);
+			do {
+				heaps += pmem_pmd_range(tlb, dir, start, end - start, mpnt, &mmap, &brk, &stack, &file, &shared);
+				start = (start + PGDIR_SIZE) & PGDIR_MASK;
+				dir++;
+			} while (start && (start < end));
+			mpnt = mpnt->vm_next;
+		}
+		spin_unlock(&mm->page_table_lock);
+	}
+
+	len = sprintf(buffer,
+		      "  sbrk %dkB\n"
+		      "  mmap %dkB\n"
+		      " stack %dkB\n"
+		      "  file %dkB\n"
+		      "shared %dkB\n"
+		      " total %dkB\n",
+		      brk << 2,
+		      mmap << 2,
+		      stack << 2,
+		      file << 2,
+		      shared << 2,
+		      heaps << 2);
+	return len;
+}

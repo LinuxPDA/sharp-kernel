@@ -28,6 +28,11 @@
 
 /* async buffer flushing, 1999 Andrea Arcangeli <andrea@suse.de> */
 
+/* 
+ * Change Log
+ *	12-Mar-2002 Lineo Japan, Inc.
+ */
+
 #include <linux/config.h>
 #include <linux/sched.h>
 #include <linux/fs.h>
@@ -366,6 +371,15 @@ asmlinkage long sys_sync(void)
 	fsync_dev(0);
 	return 0;
 }
+
+#ifdef CONFIG_FS_SYNC
+long sync_card(dev_t dev)
+{
+	if (MAJOR(dev) == 3 || MAJOR(dev) == 60)
+		fsync_dev(dev);
+	return 0;
+}
+#endif
 
 /*
  *	filp may be NULL if called via the msync of a vma.

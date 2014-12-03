@@ -5,10 +5,13 @@
  *
  * This code is GPL
  *
- * $Id: mtdpart.c,v 1.27 2002/03/08 16:34:35 rkaiser Exp $
+ * $Id: mtdpart.c,v 1.30 2002/09/05 20:24:46 jocke Exp $
  *
  * 	02-21-2002	Thomas Gleixner <gleixner@autronix.de>
  *			added support for read_oob, write_oob
+ * ChangLog:
+ *     17-Oct-2002 Lineo Japan, Inc.  add methods for CONFIG_MTD_NAND_LOGICAL_ADDRESS
+ *     23-Oct-2002 SHARP  modify functions for CONFIG_MTD_NAND_LOGICAL_ADDRESS
  */	
 
 #include <linux/module.h>
@@ -58,6 +61,37 @@ static int part_read (struct mtd_info *mtd, loff_t from, size_t len,
 					len, retlen, buf);
 }
 
+static int part_point (struct mtd_info *mtd, loff_t from, size_t len, 
+			size_t *retlen, u_char **buf)
+{
+	struct mtd_part *part = PART(mtd);
+	if (from >= mtd->size)
+		len = 0;
+	else if (from + len > mtd->size)
+		len = mtd->size - from;
+	return part->master->point (part->master, from + part->offset, 
+				    len, retlen, buf);
+}
+static void part_unpoint (struct mtd_info *mtd, u_char *addr)
+{
+	struct mtd_part *part = PART(mtd);
+
+	part->master->unpoint (part->master, addr - part->offset);
+}
+
+
+static int part_read_ecc (struct mtd_info *mtd, loff_t from, size_t len, 
+			size_t *retlen, u_char *buf, u_char *eccbuf, int oobsel)
+{
+	struct mtd_part *part = PART(mtd);
+	if (from >= mtd->size)
+		len = 0;
+	else if (from + len > mtd->size)
+		len = mtd->size - from;
+	return part->master->read_ecc (part->master, from + part->offset, 
+					len, retlen, buf, eccbuf, oobsel);
+}
+
 static int part_read_oob (struct mtd_info *mtd, loff_t from, size_t len, 
 			size_t *retlen, u_char *buf)
 {
@@ -67,6 +101,22 @@ static int part_read_oob (struct mtd_info *mtd, loff_t from, size_t len,
 	else if (from + len > mtd->size)
 		len = mtd->size - from;
 	return part->master->read_oob (part->master, from + part->offset, 
+					len, retlen, buf);
+}
+
+static int part_read_user_prot_reg (struct mtd_info *mtd, loff_t from, size_t len, 
+			size_t *retlen, u_char *buf)
+{
+	struct mtd_part *part = PART(mtd);
+	return part->master->read_user_prot_reg (part->master, from, 
+					len, retlen, buf);
+}
+
+static int part_read_fact_prot_reg (struct mtd_info *mtd, loff_t from, size_t len, 
+			size_t *retlen, u_char *buf)
+{
+	struct mtd_part *part = PART(mtd);
+	return part->master->read_user_prot_reg (part->master, from, 
 					len, retlen, buf);
 }
 
@@ -84,6 +134,21 @@ static int part_write (struct mtd_info *mtd, loff_t to, size_t len,
 					len, retlen, buf);
 }
 
+static int part_write_ecc (struct mtd_info *mtd, loff_t to, size_t len,
+			size_t *retlen, const u_char *buf,
+			 u_char *eccbuf, int oobsel)
+{
+	struct mtd_part *part = PART(mtd);
+	if (!(mtd->flags & MTD_WRITEABLE))
+		return -EROFS;
+	if (to >= mtd->size)
+		len = 0;
+	else if (to + len > mtd->size)
+		len = mtd->size - to;
+	return part->master->write_ecc (part->master, to + part->offset, 
+					len, retlen, buf, eccbuf, oobsel);
+}
+
 static int part_write_oob (struct mtd_info *mtd, loff_t to, size_t len,
 			size_t *retlen, const u_char *buf)
 {
@@ -95,6 +160,14 @@ static int part_write_oob (struct mtd_info *mtd, loff_t to, size_t len,
 	else if (to + len > mtd->size)
 		len = mtd->size - to;
 	return part->master->write_oob (part->master, to + part->offset, 
+					len, retlen, buf);
+}
+
+static int part_write_user_prot_reg (struct mtd_info *mtd, loff_t from, size_t len, 
+			size_t *retlen, u_char *buf)
+{
+	struct mtd_part *part = PART(mtd);
+	return part->master->write_user_prot_reg (part->master, from, 
 					len, retlen, buf);
 }
 
@@ -114,6 +187,28 @@ static int part_readv (struct mtd_info *mtd,  struct iovec *vecs,
 	struct mtd_part *part = PART(mtd);
 	return part->master->readv (part->master, vecs, count,
 					from + part->offset, retlen);
+}
+
+static int part_writev_ecc (struct mtd_info *mtd,  const struct iovec *vecs,
+			 unsigned long count, loff_t to, size_t *retlen,
+			 u_char *eccbuf, int oobsel)
+{
+	struct mtd_part *part = PART(mtd);
+	if (!(mtd->flags & MTD_WRITEABLE))
+		return -EROFS;
+	return part->master->writev_ecc (part->master, vecs, count,
+					to + part->offset, retlen,
+					eccbuf, oobsel);
+}
+
+static int part_readv_ecc (struct mtd_info *mtd,  struct iovec *vecs,
+			 unsigned long count, loff_t from, size_t *retlen,
+			 u_char *eccbuf, int oobsel)
+{
+	struct mtd_part *part = PART(mtd);
+	return part->master->readv_ecc (part->master, vecs, count,
+					from + part->offset, retlen, 
+					eccbuf, oobsel);
 }
 
 static int part_erase (struct mtd_info *mtd, struct erase_info *instr)
@@ -160,6 +255,28 @@ static void part_resume(struct mtd_info *mtd)
 	struct mtd_part *part = PART(mtd);
 	part->master->resume(part->master);
 }
+
+#ifdef CONFIG_MTD_NAND_LOGICAL_ADDRESS_ACCESS
+static int part_cleanup_laddr(struct mtd_info *mtd)
+{
+	struct mtd_part *part = PART(mtd);
+	return part->master->cleanup_laddr(mtd);	// not part->master
+}
+
+static int part_read_laddr(struct mtd_info *mtd, loff_t from, size_t len, u_char *buf)
+{
+	struct mtd_part *part = PART(mtd);
+	return part->master->read_laddr(mtd, from , len, buf);	// not part->master
+}
+
+static int part_write_laddr(struct mtd_info *mtd, loff_t to, size_t len, u_char *buf, int (*eraseproc)(struct mtd_info *mtd, u_int32_t addr))
+{
+	struct mtd_part *part = PART(mtd);
+	if (!(mtd->flags & MTD_WRITEABLE))
+		return -EROFS;
+	return part->master->write_laddr(mtd, to, len, buf, eraseproc);	// not part->master
+}
+#endif
 
 /* 
  * This function unregisters and destroy all slave MTD objects which are 
@@ -226,9 +343,6 @@ int add_mtd_partitions(struct mtd_info *master,
 		slave->mtd.oobsize = master->oobsize;
 		slave->mtd.ecctype = master->ecctype;
 		slave->mtd.eccsize = master->eccsize;
-		slave->mtd.read_user_prot_reg = master->read_user_prot_reg;
-		slave->mtd.read_fact_prot_reg = master->read_fact_prot_reg;
-		slave->mtd.write_user_prot_reg = master->write_user_prot_reg;
 
 		slave->mtd.name = parts[i].name;
 		slave->mtd.bank_size = master->bank_size;
@@ -237,10 +351,25 @@ int add_mtd_partitions(struct mtd_info *master,
 		slave->mtd.read = part_read;
 		slave->mtd.write = part_write;
 
+		if(master->point && master->unpoint){
+			slave->mtd.point = part_point;
+			slave->mtd.unpoint = part_unpoint;
+		}
+		
+		if (master->read_ecc)
+			slave->mtd.read_ecc = part_read_ecc;
+		if (master->write_ecc)
+			slave->mtd.write_ecc = part_write_ecc;
 		if (master->read_oob)
 			slave->mtd.read_oob = part_read_oob;
 		if (master->write_oob)
 			slave->mtd.write_oob = part_write_oob;
+		if(master->read_user_prot_reg)
+			slave->mtd.read_user_prot_reg = part_read_user_prot_reg;
+		if(master->read_fact_prot_reg)
+			slave->mtd.read_fact_prot_reg = part_read_fact_prot_reg;
+		if(master->write_user_prot_reg)
+			slave->mtd.write_user_prot_reg = part_write_user_prot_reg;
 		if (master->sync)
 			slave->mtd.sync = part_sync;
 		if (!i && master->suspend && master->resume) {
@@ -251,10 +380,22 @@ int add_mtd_partitions(struct mtd_info *master,
 			slave->mtd.writev = part_writev;
 		if (master->readv)
 			slave->mtd.readv = part_readv;
+		if (master->writev_ecc)
+			slave->mtd.writev_ecc = part_writev_ecc;
+		if (master->readv_ecc)
+			slave->mtd.readv_ecc = part_readv_ecc;
 		if (master->lock)
 			slave->mtd.lock = part_lock;
 		if (master->unlock)
 			slave->mtd.unlock = part_unlock;
+#ifdef CONFIG_MTD_NAND_LOGICAL_ADDRESS_ACCESS
+		if (master->cleanup_laddr)
+			slave->mtd.cleanup_laddr = part_cleanup_laddr;
+		if (master->read_laddr)
+			slave->mtd.read_laddr = part_read_laddr;
+		if (master->write_laddr)
+			slave->mtd.write_laddr = part_write_laddr;
+#endif
 		slave->mtd.erase = part_erase;
 		slave->master = master;
 		slave->offset = parts[i].offset;
@@ -349,3 +490,8 @@ MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Nicolas Pitre <nico@cam.org>");
 MODULE_DESCRIPTION("Generic support for partitioning of MTD devices");
 
+/*
+ * Local variables:
+ *   c-basic-offset: 8
+ * End:
+ */

@@ -18,10 +18,12 @@
  *     published by the Free Software Foundation; either version 2 of 
  *     the License, or (at your option) any later version.
  *
- *     Neither Dag Brattli nor University of Tromsø admit liability nor
+ *     Neither Dag Brattli nor University of Troms.ANx admit liability nor
  *     provide warranty for any of this software. This material is 
  *     provided "AS-IS" and at no charge.
  *
+ * ChangeLog:
+ *	06-21-2002 SHARP	make sure the callback function exists
  ********************************************************************/
 
 #include <linux/config.h>
@@ -732,7 +734,8 @@ void iriap_connect_request(struct iriap_cb *self)
 				    NULL, NULL);
 	if (ret < 0) {
 		IRDA_DEBUG(0, __FUNCTION__ "(), connect failed!\n");
-		self->confirm(IAS_DISCONNECT, 0, NULL, self->priv);
+	    if (self->confirm)
+		  self->confirm(IAS_DISCONNECT, 0, NULL, self->priv);
 	}
 }
 

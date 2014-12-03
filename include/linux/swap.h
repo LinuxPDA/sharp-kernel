@@ -1,3 +1,8 @@
+/*
+ * ChangLog:
+ *	12-Dec-2002 Lineo Japan, Inc.
+ */
+
 #ifndef _LINUX_SWAP_H
 #define _LINUX_SWAP_H
 
@@ -133,6 +138,9 @@ extern struct page * read_swap_cache_async(swp_entry_t);
 
 /* linux/mm/oom_kill.c */
 extern void out_of_memory(void);
+#ifdef CONFIG_FREEPG_SIGNAL
+extern void reset_out_of_memory_condition(void);
+#endif
 
 /* linux/mm/swapfile.c */
 extern int total_swap_pages;

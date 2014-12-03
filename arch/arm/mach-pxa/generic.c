@@ -15,6 +15,9 @@
  * the __initcall() here will be executed first.  This serves as default
  * initialization stuff for PXA machines which can be overriden later if
  * need be.
+ *
+ * ChangLog:
+ *	12-Dec-2002 Lineo Japan, Inc.
  */
 #include <linux/config.h>
 #include <linux/module.h>
@@ -121,8 +124,10 @@ EXPORT_SYMBOL(set_GPIO_mode);
  */
 static struct map_desc standard_io_desc[] __initdata = {
  /* virtual     physical    length      domain     r  w  c  b */
+#ifndef CONFIG_ARCH_SABINAL
   { 0xf6000000, 0x20000000, 0x01000000, DOMAIN_IO, 0, 1, 0, 0 }, /* PCMCIA0 IO */
   { 0xf7000000, 0x30000000, 0x01000000, DOMAIN_IO, 0, 1, 0, 0 }, /* PCMCIA1 IO */
+#endif
   { 0xf8000000, 0x40000000, 0x01400000, DOMAIN_IO, 0, 1, 0, 0 }, /* Devs */
   { 0xfa000000, 0x44000000, 0x00100000, DOMAIN_IO, 0, 1, 0, 0 }, /* LCD */
   { 0xfc000000, 0x48000000, 0x00100000, DOMAIN_IO, 0, 1, 0, 0 }, /* Mem Ctl */

@@ -26,6 +26,10 @@
     CCAE support.  Drivers merged back together, and shared-memory
     Socket EA support added, by Ken Raeburn, September 1995.
 
+    Change Log:
+      12-Mar-2002 Lineo Japan, Inc.
+      30-Jul-2002 Lineo Japan, Inc.  for 2.4.18
+
 ======================================================================*/
 
 #include <linux/kernel.h>
@@ -363,6 +367,9 @@ static void pcnet_detach(dev_link_t *link)
 
     del_timer(&link->release);
     if (link->state & DEV_CONFIG) {
+#ifdef CONFIG_ARCH_SHARP_SL
+	link->state &= ~DEV_STALE_CONFIG;
+#endif
 	pcnet_release((u_long)link);
 	if (link->state & DEV_STALE_CONFIG) {
 	    link->state |= DEV_STALE_LINK;

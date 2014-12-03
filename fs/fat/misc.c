@@ -4,6 +4,9 @@
  *  Written 1992,1993 by Werner Almesberger
  *  22/11/2000 - Fixed fat_date_unix2dos for dates earlier than 01/01/1980
  *		 and date_dos2unix for date==0 by Igor Zhbanov(bsg@uniyar.ac.ru)
+ *
+ * Change Log
+ *     12-Nov-2001 Lineo Japan, Inc.
  */
 
 #include <linux/fs.h>
@@ -335,7 +338,9 @@ int fat__get_entry(struct inode *dir, loff_t *pos,struct buffer_head **bh,
 			return -1; /* beyond EOF */
 		*pos += sizeof(struct msdos_dir_entry);
 		if (!(*bh = fat_bread(sb, sector))) {
+#ifndef CONFIG_ARCH_SHARP_SL
 			printk("Directory sread (sector 0x%x) failed\n",sector);
+#endif
 			continue;
 		}
 		PRINTK (("get_entry apres sread\n"));

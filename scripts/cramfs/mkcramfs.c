@@ -16,6 +16,12 @@
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  
+ * 
+ * ChangeLog:
+ *   06-16-2001 SHARP
+ *      increase MAXENTRIES
+ * 
  */
 
 #include <sys/types.h>
@@ -365,7 +371,7 @@ static void set_data_offset(struct entry *entry, char *base, unsigned long offse
  * entries, using a stack to remember the directories
  * we've seen.
  */
-#define MAXENTRIES (100)
+#define MAXENTRIES (1000)
 static unsigned int write_directory_structure(struct entry *entry, char *base, unsigned int offset)
 {
 	int stack_entries = 0;

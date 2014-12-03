@@ -8,11 +8,40 @@
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
+ *
+ * ChangLog:
+ *	12-Dec-2002 Lineo Japan, Inc.
+ *	12-Dec-2002 Sharp Corporation for Poodle and Corgi
  */
 
+#ifdef CONFIG_SABINAL_DISCOVERY 
+#define RTC_DEF_DIVIDER		32768 - 1
+//#define RTC_DEF_TRIM		0
+#define RTC_DEF_TRIM		0x11b3
+#endif
+#ifdef CONFIG_ARCH_PXA_POODLE
+#define RTC_DEF_DIVIDER		32768 - 1
+#define RTC_DEF_TRIM		0
+#endif
+#ifdef CONFIG_ARCH_PXA_CORGI
+#define RTC_DEF_DIVIDER		32768 - 1
+#define RTC_DEF_TRIM		0
+#endif
+#ifdef CONFIG_ARCH_SHARP_SL
+#define SHARP_SL_DEF_YEAR	2003
+#endif
 
 static inline unsigned long pxa_get_rtc_time(void)
 {
+#ifdef CONFIG_ARCH_SHARP_SL
+	if (RTTR == 0) {
+		RTTR = RTC_DEF_DIVIDER + (RTC_DEF_TRIM << 16);
+		printk(KERN_WARNING "Warning: uninitialized Real Time Clock\n");
+		/* The current RTC value probably doesn't make sense either */
+		RCNR = 0;
+		return 0;
+        }
+#endif
 	return RCNR;
 }
 
@@ -80,5 +109,6 @@ extern inline void setup_timer (void)
 	setup_arm_irq(IRQ_OST0, &timer_irq);
 	OIER |= OIER_E0;	/* enable match on timer 0 to cause interrupts */
 	OSCR = 0;		/* initialize free-running timer, force first match */
+
 }
 

@@ -10,8 +10,12 @@
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
  *  published by the Free Software Foundation.
+ *
+ * ChangLog:
+ *	12-Dec-2002 Lineo Japan, Inc.
  */
 
+#include <linux/config.h>
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/sched.h>
@@ -55,6 +59,17 @@ void set_GPIO_IRQ_edge (int gpio_nr, int edge)
 
 EXPORT_SYMBOL(set_GPIO_IRQ_edge);
 
+void set_GPIO_IRQ_edge2(int gpio_mask, int edge, int gpio_num)
+{
+	if (edge & GPIO_FALLING_EDGE)
+		GPIO_IRQ_falling_edge[gpio_num] |= gpio_mask;
+	else
+		GPIO_IRQ_falling_edge[gpio_num] &= ~gpio_mask;
+	if (edge & GPIO_RISING_EDGE)
+		GPIO_IRQ_rising_edge[gpio_num] |= gpio_mask;
+	else
+		GPIO_IRQ_rising_edge[gpio_num] &= ~gpio_mask;
+}
 
 /*
  * We don't need to ACK IRQs on the PXA unless they're GPIOs
@@ -174,6 +189,7 @@ static struct irqaction GPIO_2_80_irqaction = {
 	flags:		SA_INTERRUPT
 };
 
+
 #define GRER_x(i)	(*(&GRER0 + (i)))
 #define GFER_x(i)	(*(&GFER0 + (i)))
 #define GEDR_x(i)	(*(&GEDR0 + (i)))
@@ -230,6 +246,7 @@ static void pxa_unmask_GPIO_2_80_irq(unsigned int irq)
 }
 
 
+
 void __init pxa_init_irq(void)
 {
 	int irq;
@@ -282,4 +299,5 @@ void __init pxa_init_irq(void)
 		irq_desc[irq].unmask	= pxa_unmask_GPIO_2_80_irq;
 	}
 	setup_arm_irq( IRQ_GPIO_2_80, &GPIO_2_80_irqaction );
+
 }

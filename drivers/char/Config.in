@@ -15,6 +15,18 @@ if [ "$CONFIG_SERIAL" = "y" ]; then
       tristate '   Atomwide serial port support' CONFIG_ATOMWIDE_SERIAL
       tristate '   Dual serial port support' CONFIG_DUALSP_SERIAL
    fi
+   if [ "$CONFIG_SABINAL_DISCOVERY" = "y" -o \
+	"$CONFIG_ARCH_PXA_POODLE" = "y" -o \
+	"$CONFIG_ARCH_PXA_CORGI" = "y" ]; then
+      bool '  SL-series serial port support' CONFIG_SERIAL_SL_SERIES
+   fi
+fi
+if [ "$CONFIG_SA1100_COLLIE" = "y" ]; then
+   bool 'COLLIE serial port support' CONFIG_SERIAL_COLLIE
+   dep_bool '  Console on COLLIE serial port' CONFIG_SERIAL_COLLIE_CONSOLE $CONFIG_SERIAL_COLLIE
+   if [ "$CONFIG_ARCH_SA1100" = "y" ]; then
+      int  '  Default COLLIE serial baudrate' CONFIG_COLLIE_DEFAULT_BAUDRATE 9600
+   fi
 fi
 if [ "$CONFIG_ACPI" = "y" ]; then
    bool '  Support for serial ports defined by ACPI tables' CONFIG_SERIAL_ACPI
@@ -86,6 +98,13 @@ if [ "$CONFIG_EXPERIMENTAL" = "y" -a "$CONFIG_ZORRO" = "y" ]; then
 fi
 
 source drivers/serial/Config.in
+
+if [ "$CONFIG_ARCH_SA1100" = "y" ]; then
+   dep_tristate 'UCB1200 support' CONFIG_UCB1200 $CONFIG_EXPERIMENTAL
+   dep_tristate '   UCB1200 touchscreen support' CONFIG_TOUCHSCREEN_UCB1200 $CONFIG_UCB1200
+   dep_tristate '   UCB1200 audio support' CONFIG_AUDIO_UCB1200 $CONFIG_UCB1200
+   dep_tristate '   UCB1200 ADC support' CONFIG_ADC_UCB1200 $CONFIG_UCB1200
+fi
 
 if [ "$CONFIG_ARCH_ANAKIN" = "y" ]; then
    tristate 'Anakin touchscreen support' CONFIG_TOUCHSCREEN_ANAKIN
@@ -193,6 +212,13 @@ if [ "$CONFIG_OBSOLETE" = "y" -a "$CONFIG_ALPHA_BOOK1" = "y" ]; then
 fi
 if [ "$CONFIG_ARCH_SA1100" = "y" ]; then
    tristate 'SA1100 Real Time Clock' CONFIG_SA1100_RTC
+fi
+if [ "$CONFIG_ARCH_SHARP_SL" = "y" ]; then
+   tristate 'Cotulla Real Time Clock' CONFIG_COTULLA_RTC
+   tristate 'ADS7846 Touch Pannel' CONFIG_ADS7846_TS
+fi
+if [ "$CONFIG_SABINAL_DISCOVERY" = "y" ]; then
+   tristate 'Discovery LED ' CONFIG_DISCOVERY_LED $(CONFIG_SABINAL_DISCOVERY)
 fi
 
 tristate 'Double Talk PC internal speech card support' CONFIG_DTLK

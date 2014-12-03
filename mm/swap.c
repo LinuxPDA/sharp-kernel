@@ -12,6 +12,10 @@
  * Swap aging added 23.2.95, Stephen Tweedie.
  * Buffermem limits added 12.3.98, Rik van Riel.
  */
+/*
+ * ChangLog:
+ *     13-Nov-2002 SHARP  page_cluster = 0 for no read cluster when page cache read
+ */
 
 #include <linux/mm.h>
 #include <linux/kernel_stat.h>
@@ -101,10 +105,14 @@ void __init swap_setup(void)
 	unsigned long megs = num_physpages >> (20 - PAGE_SHIFT);
 
 	/* Use a smaller cluster for small-memory machines */
+#if defined(CONFIG_ARCH_SHARP_SL)
+	page_cluster = 0;
+#else
 	if (megs < 16)
 		page_cluster = 2;
 	else
 		page_cluster = 3;
+#endif
 	/*
 	 * Right now other parts of the system means that we
 	 * _really_ don't want to cluster much more

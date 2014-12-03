@@ -1,7 +1,7 @@
 /* 
    Common Flash Interface probe code.
    (C) 2000 Red Hat. GPL'd.
-   $Id: jedec_probe.c,v 1.16 2002/06/07 11:20:52 spse Exp $
+   $Id: jedec_probe.c,v 1.17 2002/07/02 22:41:18 df Exp $
    See JEDEC (http://www.jedec.org/) standard JESD21C (section 3.5)
    for the standard this probe goes back to.
 */
@@ -42,6 +42,7 @@
 #define AM29F016	0x00AD
 #define AM29F080	0x00D5
 #define AM29F040	0x00A4
+#define AM29LV040B	0x004F
 
 /* Atmel */
 #define AT49BV512	0x0003
@@ -707,6 +708,15 @@ static const struct amd_flash_info jedec_table[] = {
 		mfr_id: MANUFACTURER_AMD,
 		dev_id: AM29F040,
 		name: "AMD AM29F040",
+		DevSize: SIZE_512KiB,
+		CmdSet: P_ID_AMD_STD,
+		NumEraseRegions: 1,
+		regions: {ERASEINFO(0x10000,8),
+		}
+	}, {
+		mfr_id: MANUFACTURER_AMD,
+		dev_id: AM29LV040B,
+		name: "AMD AM29LV040B",
 		DevSize: SIZE_512KiB,
 		CmdSet: P_ID_AMD_STD,
 		NumEraseRegions: 1,

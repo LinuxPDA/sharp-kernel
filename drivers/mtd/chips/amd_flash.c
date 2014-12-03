@@ -3,7 +3,7 @@
  *
  * Author: Jonas Holmberg <jonas.holmberg@axis.com>
  *
- * $Id: amd_flash.c,v 1.17 2002/03/05 17:00:37 jonashg Exp $
+ * $Id: amd_flash.c,v 1.18 2002/08/06 05:27:32 gerg Exp $
  *
  * Copyright (c) 2001 Axis Communications AB
  *
@@ -75,6 +75,7 @@
 /* Fujitsu */
 #define MBM29LV160TE	0x22C4
 #define MBM29LV160BE	0x2249
+#define MBM29LV800BB	0x225B
 
 /* ST - www.st.com */
 #define M29W800T	0x00D7
@@ -558,6 +559,18 @@ static struct mtd_info *amd_flash_probe(struct map_info *map)
 			{ offset: 0x0F0000, erasesize: 0x08000, numblocks:  1 },
 			{ offset: 0x0F8000, erasesize: 0x02000, numblocks:  2 },
 			{ offset: 0x0FC000, erasesize: 0x04000, numblocks:  1 }
+		}
+	}, {
+		mfr_id: MANUFACTURER_FUJITSU,
+		dev_id: MBM29LV800BB,
+		name: "Fujitsu MBM29LV800BB",
+		size: 0x00100000,
+		numeraseregions: 4,
+		regions: {
+			{ offset: 0x000000, erasesize: 0x04000, numblocks:  1 },
+			{ offset: 0x004000, erasesize: 0x02000, numblocks:  2 },
+			{ offset: 0x008000, erasesize: 0x08000, numblocks:  1 },
+			{ offset: 0x010000, erasesize: 0x10000, numblocks: 15 }
 		}
 	}, {
 		mfr_id: MANUFACTURER_ST,

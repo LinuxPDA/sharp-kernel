@@ -8,7 +8,7 @@
  *
  * This code is GPL
  *
- * $Id: cfi_cmdset_0002.c,v 1.55 2002/05/18 07:42:03 dwmw2 Exp $
+ * $Id: cfi_cmdset_0002.c,v 1.57 2002/08/07 11:10:49 dwmw2 Exp $
  *
  */
 
@@ -340,7 +340,8 @@ static int cfi_amdstd_read (struct mtd_info *mtd, loff_t from, size_t len, size_
 static int do_write_oneword(struct map_info *map, struct flchip *chip, unsigned long adr, __u32 datum, int fast)
 {
 	unsigned long timeo = jiffies + HZ;
-	unsigned int Last[4];
+	unsigned int oldstatus, status;
+	unsigned int dq6, dq5;	
 	unsigned long Count = 0;
 	struct cfi_private *cfi = map->fldrv_priv;
 	DECLARE_WAITQUEUE(wait, current);
@@ -349,7 +350,7 @@ static int do_write_oneword(struct map_info *map, struct flchip *chip, unsigned 
  retry:
 	cfi_spin_lock(chip->mutex);
 
-	if (chip->state != FL_READY){
+	if (chip->state != FL_READY) {
 #if 0
 	        printk(KERN_DEBUG "Waiting for chip to write, status = %d\n", chip->state);
 #endif
@@ -389,33 +390,63 @@ static int do_write_oneword(struct map_info *map, struct flchip *chip, unsigned 
 	cfi_udelay(chip->word_write_time);
 	cfi_spin_lock(chip->mutex);
 
-	Last[0] = cfi_read(map, adr);
-	//	printk("Last[0] is %x\n", Last[0]);
-	Last[1] = cfi_read(map, adr);
-	//	printk("Last[1] is %x\n", Last[1]);
-	Last[2] = cfi_read(map, adr);
-	//	printk("Last[2] is %x\n", Last[2]);
-
-	for (Count = 3; Last[(Count - 1) % 4] != Last[(Count - 2) % 4] && Count < 10000; Count++){
-		cfi_spin_unlock(chip->mutex);
-		cfi_udelay(10);
-		cfi_spin_lock(chip->mutex);
+	/* Polling toggle bits instead of reading back many times
+	   This ensures that write operation is really completed,
+	   or tells us why it failed. */        
+	dq6 = CMD(1<<6);
+	dq5 = CMD(1<<5);
+	timeo = jiffies + (HZ/1000); /* setting timeout to 1ms for now */
 		
-	        Last[Count % 4] = cfi_read(map, adr);
-		//		printk("Last[%d%%4] is %x\n", Count, Last[Count%4]);
+	oldstatus = cfi_read(map, adr);
+	status = cfi_read(map, adr);
+
+	while( (status & dq6) != (oldstatus & dq6) && 
+	       (status & dq5) != dq5 &&
+	       !time_after(jiffies, timeo) ) {
+
+		if (need_resched()) {
+			cfi_spin_unlock(chip->mutex);
+			yield();
+			cfi_spin_lock(chip->mutex);
+		} else 
+			udelay(1);
+
+		oldstatus = cfi_read( map, adr );
+		status = cfi_read( map, adr );
 	}
 	
-	if (Last[(Count - 1) % 4] != datum){
-		printk(KERN_WARNING "Last[%ld] is %x, datum is %x\n",(Count - 1) % 4,Last[(Count - 1) % 4],datum);
-	        cfi_send_gen_cmd(0xF0, 0, chip->start, map, cfi, cfi->device_type, NULL);
-		DISABLE_VPP(map);
-		ret = -EIO;
-	}       
+	if( (status & dq6) != (oldstatus & dq6) ) {
+		/* The erasing didn't stop?? */
+		if( (status & dq5) == dq5 ) {
+			/* When DQ5 raises, we must check once again
+			   if DQ6 is toggling.  If not, the erase has been
+			   completed OK.  If not, reset chip. */
+			oldstatus = cfi_read(map, adr);
+			status = cfi_read(map, adr);
+		    
+			if ( (oldstatus & 0x00FF) == (status & 0x00FF) ) {
+				printk(KERN_WARNING "Warning: DQ5 raised while program operation was in progress, however operation completed OK\n" );
+			} else { 
+				/* DQ5 is active so we can do a reset and stop the erase */
+				cfi_write(map, CMD(0xF0), chip->start);
+				printk(KERN_WARNING "Internal flash device timeout occurred or write operation was performed while flash was programming.\n" );
+			}
+		} else {
+			printk(KERN_WARNING "Waiting for write to complete timed out in do_write_oneword.");        
+			
+			chip->state = FL_READY;
+			wake_up(&chip->wq);
+			cfi_spin_unlock(chip->mutex);
+			DISABLE_VPP(map);
+			ret = -EIO;
+		}
+	}
+
 	DISABLE_VPP(map);
 	chip->state = FL_READY;
 	wake_up(&chip->wq);
 	cfi_spin_unlock(chip->mutex);
-	
+
 	return ret;
 }
 
@@ -535,6 +566,7 @@ static int cfi_amdstd_write (struct mtd_info *mtd, loff_t to , size_t len, size_
 		cfi_send_gen_cmd(0x00, 0, chipstart, map, cfi, cfi->device_type, NULL);
 	}
 
+	/* Write the trailing bytes if any */
 	if (len & (CFIDEV_BUSWIDTH-1)) {
 		int i = 0, n = 0;
 		u_char tmp_buf[4];
@@ -686,8 +718,8 @@ static inline int do_erase_chip(struct map_info *map, struct flchip *chip)
 	chip->state = FL_READY;
 	wake_up(&chip->wq);
 	cfi_spin_unlock(chip->mutex);
+
 	return 0;
-	
 }
 
 static inline int do_erase_oneblock(struct map_info *map, struct flchip *chip, unsigned long adr)
@@ -793,19 +825,39 @@ static inline int do_erase_oneblock(struct map_info *map, struct flchip *chip, u
 		oldstatus = cfi_read(map, adr);
 		status = cfi_read(map, adr);
 	}
-	if ((status & dq6) != (oldstatus & dq6)) {
+	if( (status & dq6) != (oldstatus & dq6) ) 
+	{                                       
 		/* The erasing didn't stop?? */
-		if ((status & dq5) == dq5) {
-			/* dq5 is active so we can do a reset and stop the erase */
-			cfi_write(map, CMD(0xF0), chip->start);
+		if( ( status & dq5 ) == dq5 ) 
+		{   			
+			/* When DQ5 raises, we must check once again if DQ6 is toggling.
+               If not, the erase has been completed OK.  If not, reset chip. */
+		    oldstatus   = cfi_read( map, adr );
+		    status      = cfi_read( map, adr );
+		    
+		    if( ( oldstatus & 0x00FF ) == ( status & 0x00FF ) )
+		    {
+                printk( "Warning: DQ5 raised while erase operation was in progress, but erase completed OK\n" ); 		    
+		    } 			
+			else
+            {
+			    /* DQ5 is active so we can do a reset and stop the erase */
+				cfi_write(map, CMD(0xF0), chip->start);
+                printk( KERN_WARNING "Internal flash device timeout occured or write operation was performed while flash was erasing\n" );
+			}
 		}
+        else
+        {
+		    printk( "Waiting for erase to complete timed out in do_erase_oneblock.");        
+		    
 		chip->state = FL_READY;
 		wake_up(&chip->wq);
 		cfi_spin_unlock(chip->mutex);
-		printk("waiting for erase to complete timed out.");
 		DISABLE_VPP(map);
 		return -EIO;
 	}
+	}
+
 	DISABLE_VPP(map);
 	chip->state = FL_READY;
 	wake_up(&chip->wq);
@@ -1040,7 +1092,6 @@ static int cfi_amdstd_suspend(struct mtd_info *mtd)
 	int i;
 	struct flchip *chip;
 	int ret = 0;
-//printk("suspend\n");
 
 	for (i=0; !ret && i<cfi->numchips; i++) {
 		chip = &cfi->chips[i];
@@ -1093,7 +1144,6 @@ static void cfi_amdstd_resume(struct mtd_info *mtd)
 	struct cfi_private *cfi = map->fldrv_priv;
 	int i;
 	struct flchip *chip;
-//printk("resume\n");
 
 	for (i=0; i<cfi->numchips; i++) {
 	
@@ -1140,3 +1190,4 @@ module_exit(cfi_amdstd_exit);
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Crossnet Co. <info@crossnet.co.jp> et al.");
 MODULE_DESCRIPTION("MTD chip driver for AMD/Fujitsu flash chips");
+

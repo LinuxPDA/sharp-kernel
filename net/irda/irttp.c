@@ -18,10 +18,12 @@
  *     published by the Free Software Foundation; either version 2 of 
  *     the License, or (at your option) any later version.
  *
- *     Neither Dag Brattli nor University of Tromsø admit liability nor
+ *     Neither Dag Brattli nor University of Troms,Ax(B admit liability nor
  *     provide warranty for any of this software. This material is 
  *     provided "AS-IS" and at no charge.
  *
+ * ChangeLog:
+ *	06-21-2002 SHARP	modify credit control
  ********************************************************************/
 
 #include <linux/config.h>
@@ -710,6 +712,22 @@ void irttp_flow_request(struct tsap_cb *self, LOCAL_FLOW flow)
 		self->rx_sdu_busy = FALSE;
 		
 		irttp_run_rx_queue(self);
+
+		/*
+		 *	Give avay some credits to peer now.
+		 *	Because...
+         *	When remote_credits and avail_credits value becomes 0, the transmission
+         *	from peer will be stopped. But remote_credits increases at receiving
+         *	an information frame. If peer don't send any information frame, the
+         *	communication stops and into a dead-lock.
+		 *	modified by SHARP
+		 */
+	    if ((skb_queue_empty(&self->tx_queue)) && 
+			(self->remote_credit < TTP_LOW_THRESHOLD) && 
+			(self->avail_credit > 0)) 
+		  {
+			irttp_give_credit(self);
+		  }
 		break;
 	default:
 		IRDA_DEBUG(1, __FUNCTION__ "(), Unknown flow command!\n");

@@ -22,6 +22,8 @@
  *     provide warranty for any of this software. This material is 
  *     provided "AS-IS" and at no charge.
  *     
+ * ChangeLog:
+ *	11-20-2002 SHARP	apply patch (increment irtty tx counter at the right time)
  ********************************************************************/    
 
 #include <linux/module.h>
@@ -714,14 +716,14 @@ static void irtty_write_wakeup(struct tty_struct *tty)
 
 		self->tx_buff.data += actual;
 		self->tx_buff.len  -= actual;
-
-		self->stats.tx_packets++;		      
 	} else {		
 		/* 
 		 *  Now serial buffer is almost free & we can start 
 		 *  transmission of another packet 
 		 */
 		IRDA_DEBUG(5, __FUNCTION__ "(), finished with frame!\n");
+
+		self->stats.tx_packets++;
 		
 		tty->flags &= ~(1 << TTY_DO_WRITE_WAKEUP);
 

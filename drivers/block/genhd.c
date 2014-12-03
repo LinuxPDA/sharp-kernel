@@ -8,6 +8,9 @@
  *
  *  Moved partition checking code to fs/partitions* - Russell King
  *  (linux@arm.uk.linux.org)
+ *
+ * ChangLog:
+ *	12-Dec-2002 Lineo Japan, Inc.
  */
 
 /*
@@ -33,7 +36,7 @@ static rwlock_t gendisk_lock;
  *	the only reason this is exported is source compatiblity.
  */
 /*static*/ struct gendisk *gendisk_head;
-static struct gendisk *gendisk_array[MAX_BLKDEV];
+/*static*/ struct gendisk *gendisk_array[MAX_BLKDEV];
 
 EXPORT_SYMBOL(gendisk_head);
 

@@ -6,6 +6,10 @@
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
+ *
+ * Change Log
+ * 	31-Jul-2002 Lineo Japan, Inc.
+ * 	12-Dec-2002 Lineo Japan, Inc.
  */
 #include <linux/config.h>
 #include <linux/linkage.h>
@@ -325,7 +329,11 @@ __setup_mmu:
 		mov	r8, r0, lsr #18
 		mov	r8, r8, lsl #18		@ start of RAM
 		add	r9, r8, #0x10000000	@ a reasonable RAM size
+#ifdef CONFIG_CPU_XSCALE
+		mov	r1, #0x02
+#else
 		mov	r1, #0x12
+#endif
 		orr	r1, r1, #3 << 10
 		add	r2, r3, #16384
 1:		cmp	r1, r8			@ if virt > start of RAM

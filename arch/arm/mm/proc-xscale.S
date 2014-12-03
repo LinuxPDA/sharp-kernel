@@ -18,6 +18,9 @@
  * 2001 Sep 08:
  *	Completely revisited, many important fixes
  *	Nicolas Pitre <nico@cam.org>
+ *
+ * Change Log
+ *	31-Jul-2002 Lineo Japan, Inc.  for ARCH_PXA
  */
 
 #include <linux/config.h>
@@ -644,6 +647,9 @@ ENTRY(cpu_xscale_tlb_invalidate_all)
 ENTRY(cpu_xscale_tlb_invalidate_range)
 	bic	r0, r0, #(PAGESIZE - 1) & 0x00ff
 	bic	r0, r0, #(PAGESIZE - 1) & 0xff00
+	sub	r3, r1, r0
+	cmp	r3, #256 * PAGESIZE		@ arbitary, should be tuned
+	bhi	cpu_xscale_tlb_invalidate_all
 	mcr	p15, 0, ip, c7, c10, 4		@ Drain Write (& Fill) Buffer
 1:	mcr	p15, 0, r0, c8, c6, 1		@ invalidate D TLB entry
 	mcr	p15, 0, r0, c8, c5, 1		@ invalidate I TLB entry
@@ -897,6 +903,9 @@ cpu_80200_name:
 cpu_pxa250_name:
 	.asciz	"XScale-PXA250"
 
+cpu_pxa210_name:
+	.asciz	"XScale-PXA210"
+
 	.align
 
 	.section ".text.init", #alloc, #execinstr
@@ -922,7 +931,11 @@ __xscale_setup:
 	bic	r0, r0, #0x0200			@ ......R.........
 	bic	r0, r0, #0x0082			@ ........B.....A.
 	orr	r0, r0, #0x0005			@ .............C.M
+#ifdef CONFIG_ARCH_SHARP_SL
+	orr	r0, r0, #0x1900			@ ...IZ..S........
+#else
 	orr	r0, r0, #0x3900			@ ..VIZ..S........
+#endif
 #ifdef CONFIG_XSCALE_CACHE_ERRATA
 	bic	r0, r0, #0x0004			@ see cpu_xscale_proc_init
 #endif
@@ -982,6 +995,12 @@ cpu_pxa250_info:
 	.long	cpu_pxa250_name
 	.size	cpu_pxa250_info, . - cpu_pxa250_info
 
+	.type	cpu_pxa210_info, #object
+cpu_pxa210_info:
+	.long	cpu_manu_name
+	.long	cpu_pxa210_name
+	.size	cpu_pxa210_info, . - cpu_pxa210_info
+
 	.type	cpu_arch_name, #object
 cpu_arch_name:
 	.asciz	"armv5"
@@ -1028,4 +1047,21 @@ __pxa250_proc_info:
 	.long	cpu_pxa250_info
 	.long	xscale_processor_functions
 	.size	__pxa250_proc_info, . - __pxa250_proc_info
+
+	.type	__pxa210_proc_info,#object
+__pxa210_proc_info:
+	.long	0x69052900
+	.long	0xffffff00
+#if CACHE_WRITE_THROUGH
+	.long	0x00000c0a
+#else
+	.long	0x00000c0e
+#endif
+	b	__xscale_setup
+	.long	cpu_arch_name
+	.long	cpu_elf_name
+	.long	HWCAP_SWP|HWCAP_HALF|HWCAP_THUMB|HWCAP_FAST_MULT|HWCAP_EDSP
+	.long	cpu_pxa210_info
+	.long	xscale_processor_functions
+	.size	__pxa210_proc_info, . - __pxa210_proc_info
 

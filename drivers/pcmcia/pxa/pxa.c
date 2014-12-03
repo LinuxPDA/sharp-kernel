@@ -11,6 +11,9 @@
  *
  * Originally based upon linux/drivers/pcmcia/sa1100_generic.c
  *
+ * ChangLog:
+ *	12-Dec-2002 Lineo Japan, Inc.
+ *	12-Dec-2002 Sharp Corporation for Poodle and Corgi
  */
 
 /*======================================================================
@@ -166,6 +169,10 @@ static struct pccard_operations pxa_pcmcia_operations = {
 static struct notifier_block pxa_pcmcia_notifier_block;
 #endif
 
+#ifdef CONFIG_ARCH_SHARP_SL
+  u8 first = 1;
+  u8 force_8bit_access_check_done = 0;
+#endif
 
 /* pxa_pcmcia_driver_init()
  * ^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -240,6 +247,12 @@ static int __init pxa_pcmcia_driver_init(void){
     pcmcia_low_level=&pxa_idp_pcmcia_ops;
   } else if( machine_is_pxa_cerf()){
     pcmcia_low_level=&cerf_pcmcia_ops;
+  } else if( machine_is_discovery()){
+    pcmcia_low_level=&sharpsl_pcmcia_ops;
+  } else if( machine_is_poodle()){
+    pcmcia_low_level=&sharpsl_pcmcia_ops;
+  } else if( machine_is_corgi()){
+    pcmcia_low_level=&sharpsl_pcmcia_ops;
   }
 
   if (!pcmcia_low_level) {
@@ -400,6 +413,20 @@ static int pxa_pcmcia_init(unsigned int sock){
   
   DEBUG(2, "%s(): initializing socket %u\n", __FUNCTION__, sock);
 
+#ifdef CONFIG_ARCH_SHARP_SL
+  printk("pxa_pcmcia_init(%d)\n",sock);
+  if(!first){
+    socket_state_t state;
+    pxa_pcmcia_get_socket(sock, &state);
+    state.flags &= ~SS_OUTPUT_ENA;
+    state.Vcc = state.Vpp = 0;
+    pxa_pcmcia_set_socket(sock, &state);
+  } else {
+    first = 0;
+  }
+  set_GPIO_mode(GPIO53_nPCE_2_MD);	// reset force 8bit access.
+  force_8bit_access_check_done = 0;
+#endif
   return 0;
 }
 
@@ -417,6 +444,22 @@ static int pxa_pcmcia_suspend(unsigned int sock)
 
   DEBUG(2, "%s(): suspending socket %u\n", __FUNCTION__, sock);
 
+#ifdef CONFIG_ARCH_SHARP_SL
+  printk("pxa_pcmcia_suspend(%d)\n",sock);
+#if 0
+  __set_current_state(TASK_UNINTERRUPTIBLE);
+  schedule_timeout(HZ / 2);
+#endif
+  if(1){
+  socket_state_t state; 
+  pxa_pcmcia_get_socket(sock, &state);
+  state.flags &= ~SS_OUTPUT_ENA;
+  state.Vcc = state.Vpp = 0;
+  pxa_pcmcia_set_socket(sock, &state);
+  }
+  return 0;
+#else
+
   conf.sock = sock;
   conf.vcc = 0;
   conf.vpp = 0;
@@ -430,6 +473,7 @@ static int pxa_pcmcia_suspend(unsigned int sock)
     pxa_pcmcia_socket[sock].cs_state = dead_socket;
 
   return ret;
+#endif
 }
 
 
@@ -789,9 +833,14 @@ static int pxa_pcmcia_set_socket(unsigned int sock,
   configure.sock=sock;
   configure.vcc=state->Vcc;
   configure.vpp=state->Vpp;
+#ifdef CONFIG_ARCH_SHARP_SL
+  configure.masks=state->csc_mask;
+  configure.flags=state->flags;
+#else
   configure.output=(state->flags&SS_OUTPUT_ENA)?1:0;
   configure.speaker=(state->flags&SS_SPKR_ENA)?1:0;
   configure.reset=(state->flags&SS_RESET)?1:0;
+#endif
 
   if(pcmcia_low_level->configure_socket(&configure)<0){
     printk(KERN_ERR "Unable to configure socket %u\n", sock);

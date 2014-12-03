@@ -165,7 +165,7 @@ int ircomm_ttp_data_indication(void *instance, void *sap,
 	struct ircomm_cb *self = (struct ircomm_cb *) instance;
 
 	IRDA_DEBUG(4, __FUNCTION__"()\n");
-	
+
 	ASSERT(self != NULL, return -1;);
 	ASSERT(self->magic == IRCOMM_MAGIC, return -1;);
 	ASSERT(skb != NULL, return -1;);

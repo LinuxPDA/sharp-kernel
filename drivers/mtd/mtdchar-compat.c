@@ -1,5 +1,5 @@
 /*
- * $Id: mtdchar-compat.c,v 1.2 2001/10/02 15:05:11 dwmw2 Exp $
+ * $Id: mtdchar-compat.c,v 1.3 2002/07/16 16:52:01 spse Exp $
  *
  * Character-device access to raw MTD devices.
  *
@@ -330,7 +330,12 @@ static int mtd_ioctl(struct inode *inode, struct file *file,
 
 	case MEMERASE:
 	{
-		struct erase_info *erase=kmalloc(sizeof(struct erase_info),GFP_KERNEL);
+		struct erase_info *erase;
+
+		if(!(file->f_mode & 2))
+			return -EPERM;
+
+		erase=kmalloc(sizeof(struct erase_info),GFP_KERNEL);
 		if (!erase)
 			ret = -ENOMEM;
 		else {
@@ -381,6 +386,9 @@ static int mtd_ioctl(struct inode *inode, struct file *file,
 		void *databuf;
 		ssize_t retlen;
 		
+		if(!(file->f_mode & 2))
+			return -EPERM;
+
 		if (copy_from_user(&buf, (struct mtd_oob_buf *)arg, sizeof(struct mtd_oob_buf)))
 			return -EFAULT;
 		
@@ -523,7 +531,7 @@ static void mtd_notify_add(struct mtd_info* mtd)
 	sprintf(name, "%dro", mtd->index);
 	devfs_ro_handle[mtd->index] = devfs_register(devfs_dir_handle, name,
 			DEVFS_FL_DEFAULT, MTD_CHAR_MAJOR, mtd->index*2+1,
-			S_IFCHR | S_IRUGO | S_IWUGO,
+			S_IFCHR | S_IRUGO,
 			&mtd_fops, NULL);
 }
 

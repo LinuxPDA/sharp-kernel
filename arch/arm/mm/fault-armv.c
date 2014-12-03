@@ -7,6 +7,9 @@
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
+ *
+ *  12-Dec-2002 Sharp Corporation for Poodle and Corgi
+ *
  */
 #include <linux/config.h>
 #include <linux/signal.h>
@@ -111,6 +114,13 @@ asmlinkage void
 do_DataAbort(unsigned long addr, int error_code, struct pt_regs *regs, int fsr)
 {
 	const struct fsr_info *inf = fsr_info + (fsr & 15);
+
+#if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
+	{
+	  extern sharpsl_fataloff(void);
+	  sharpsl_fataloff();
+	}
+#endif
 
 	if (!inf->fn(addr, error_code, regs))
 		return;

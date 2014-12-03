@@ -1,4 +1,4 @@
-/* orinoco_cs.c 0.09b	- (formerly known as dldwd_cs.c)
+/* orinoco_cs.c 0.12	- (formerly known as dldwd_cs.c)
  *
  * A driver for "Hermes" chipset based PCMCIA wireless adaptors, such
  * as the Lucent WavelanIEEE/Orinoco cards and their OEM (Cabletron/
@@ -11,6 +11,9 @@
  */
 
 #include <linux/config.h>
+#ifdef  __IN_PCMCIA_PACKAGE__
+#include <pcmcia/k_compat.h>
+#endif /* __IN_PCMCIA_PACKAGE__ */
 
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -29,7 +32,6 @@
 #include <linux/if_arp.h>
 #include <linux/etherdevice.h>
 #include <linux/wireless.h>
-#include <linux/list.h>
 
 #include <pcmcia/version.h>
 #include <pcmcia/cs_types.h>
@@ -44,7 +46,7 @@
 
 /*====================================================================*/
 
-static char version[] __initdata = "orinoco_cs.c 0.09b (David Gibson <hermes@gibson.dropbear.id.au> and others)";
+static char version[] __initdata = "orinoco_cs.c 0.12 (David Gibson <hermes@gibson.dropbear.id.au> and others)";
 
 MODULE_AUTHOR("David Gibson <hermes@gibson.dropbear.id.au>");
 MODULE_DESCRIPTION("Driver for PCMCIA Lucent Orinoco, Prism II based and similar wireless cards");
@@ -60,7 +62,7 @@ static uint irq_mask = 0xdeb8;
 /* Newer, simpler way of listing specific interrupts */
 static int irq_list[4] = { -1 };
 /* Do a Pcmcia soft reset (may help some cards) */
-static int reset_cor = 0;
+static int reset_cor = -1;
 /* Some D-Link cards have buggy CIS. They do work at 5v properly, but
  * don't have any CIS entry for it. This workaround it... */
 static int ignore_cis_vcc; /* = 0 */
@@ -74,9 +76,6 @@ MODULE_PARM(ignore_cis_vcc, "i");
 struct orinoco_pccard {
 	dev_link_t link;
 	dev_node_t node;
-
-	/* Common structure (fully included), see orinoco.h */
-	struct orinoco_private  priv;
 };
 
 /*
@@ -101,7 +100,6 @@ static void orinoco_cs_detach(dev_link_t *);
    device driver with appropriate cards, through the card configuration
    database.
 */
-
 static dev_info_t dev_info = "orinoco_cs";
 
 /*
@@ -133,18 +131,15 @@ orinoco_cs_open(struct net_device *dev)
 	dev_link_t *link = &card->link;
 	int err;
 	
-	TRACE_ENTER(priv->ndev.name);
-
+	/* hard reset here */
 	link->open++;
 	netif_device_attach(dev);
 	
-	err = orinoco_reset(priv);
+	err = __orinoco_startup(priv);
 	if (err)
 		orinoco_cs_stop(dev);
 	else
 		netif_start_queue(dev);
-
-	TRACE_EXIT(priv->ndev.name);
 
 	return err;
 }
@@ -156,22 +151,20 @@ orinoco_cs_stop(struct net_device *dev)
 	struct orinoco_pccard* card = (struct orinoco_pccard *)priv->card;
 	dev_link_t *link = &card->link;
 
-	TRACE_ENTER(priv->ndev.name);
-
 	netif_stop_queue(dev);
 
-	orinoco_shutdown(priv);
+	if (link->state & DEV_PRESENT)
+		orinoco_shutdown(priv);
 	
 	link->open--;
 
 	if (link->state & DEV_STALE_CONFIG)
 		mod_timer(&link->release, jiffies + HZ/20);
 	
-	TRACE_EXIT(priv->ndev.name);
-	
 	return 0;
 }
 
+#if 0
 /*
  * Do a soft reset of the Pcmcia card using the Configuration Option Register
  * Can't do any harm, and actually may do some good on some cards...
@@ -180,12 +173,12 @@ orinoco_cs_stop(struct net_device *dev)
 static int
 orinoco_cs_cor_reset(struct orinoco_private *priv)
 {
-	struct orinoco_pccard* card = (struct orinoco_pccard *)priv->card;
+	struct orinoco_pccard *card = (struct orinoco_pccard *)priv->card;
 	dev_link_t *link = &card->link;
 	conf_reg_t reg;
 	u_int default_cor; 
 
-	TRACE_ENTER(priv->ndev.name);
+	TRACE_ENTER(priv->ndev->name);
 
 	/* Doing it if hardware is gone is guaranteed crash */
 	if(! (link->state & DEV_CONFIG) )
@@ -199,8 +192,6 @@ orinoco_cs_cor_reset(struct orinoco_private *priv)
 	CardServices(AccessConfigurationRegister, link->handle, &reg);
 	default_cor = reg.Value;
 
-	DEBUG(2, "orinoco : orinoco_cs_cor_reset() : cor=0x%X\n", default_cor);
-
 	/* Soft-Reset card */
 	reg.Action = CS_WRITE;
 	reg.Offset = CISREG_COR;
@@ -211,7 +202,23 @@ orinoco_cs_cor_reset(struct orinoco_private *priv)
 	/* FIXME: mdelay() is deprecated -dgibson */
 	mdelay(1);
 
+#if 0 /* This seems to help on Symbol cards, but we're not sure why,
+       and we don't know what it will do to other cards */
+	reg.Action = CS_READ;
+	reg.Offset = CISREG_CCSR;
+	CardServices(AccessConfigurationRegister, link->handle, &reg);
+
+	/* Write 7 (RUN) to CCSR, but preserve the original bit 4 */
+	reg.Action = CS_WRITE;
+	reg.Offset = CISREG_CCSR;
+	reg.Value = 7 | (reg.Value & 0x10);
+	CardServices(AccessConfigurationRegister, link->handle, &reg);
+	mdelay(1);
+#endif
+
 	/* Restore original COR configuration index */
+	reg.Action = CS_WRITE;
+	reg.Offset = CISREG_COR;
 	reg.Value = (default_cor & ~COR_SOFT_RESET);
 	CardServices(AccessConfigurationRegister, link->handle, &reg);
 
@@ -219,9 +226,28 @@ orinoco_cs_cor_reset(struct orinoco_private *priv)
 	/* FIXME: mdelay() is deprecated -dgibson */
 	mdelay(1);
 
-	TRACE_EXIT(priv->ndev.name);
+	TRACE_EXIT(priv->ndev->name);
 
 	return 0;
+}
+#endif
+
+static void
+orinoco_cs_reset(struct orinoco_private *priv)
+{
+	struct net_device *dev = priv->ndev;
+	struct orinoco_pccard *card = (struct orinoco_pccard *)priv->card;
+	dev_link_t *link = &card->link;
+	int err;
+
+	err = CardServices(ResetCard, link->handle, NULL);
+	if (err) {
+		printk(KERN_WARNING "%s: ResetCard returned %d.  Not sure what to do.\n",
+		       dev->name, err);
+	}
+
+	/* Does Reset card wait for the reset to fully complete? */
+	return;
 }
 
 /* Remove zombie instances (card removed, detach pending) */
@@ -229,13 +255,12 @@ static void
 flush_stale_links(void)
 {
 	dev_link_t *link, *next;
-	TRACE_ENTER("orinoco");
+
 	for (link = dev_list; link; link = next) {
 		next = link->next;
 		if (link->state & DEV_STALE_LINK)
 			orinoco_cs_detach(link);
 	}
-	TRACE_EXIT("orinoco");
 }
 
 /*======================================================================
@@ -251,30 +276,25 @@ flush_stale_links(void)
 static dev_link_t *
 orinoco_cs_attach(void)
 {
-	struct orinoco_pccard *card;
+	struct net_device *dev;
 	struct orinoco_private *priv;
+	struct orinoco_pccard *card;
 	dev_link_t *link;
-	struct net_device *ndev;
 	client_reg_t client_reg;
 	int ret, i;
 
-	TRACE_ENTER("orinoco");
 	/* A bit of cleanup */
 	flush_stale_links();
 
-	/* Allocate space for private device-specific data */
-	card = kmalloc(sizeof(*card), GFP_KERNEL);
-	if (! card) {
-		link = NULL;
-		goto out;
-	}
-	memset(card, 0, sizeof(*card));
+	dev = alloc_orinocodev(sizeof(*card), orinoco_cs_open, orinoco_cs_stop,
+			       orinoco_cs_reset);
+	if (! dev)
+		return NULL;
+	priv = dev->priv;
+	card = priv->card;
 
-	/* Link both structure together */
-	priv = &(card->priv);
-	priv->card = card;
+	/* Link both structures together */
 	link = &card->link;
-	ndev = &priv->ndev;
 	link->priv = priv;
 
 	/* Initialize the dev_link_t structure */
@@ -291,26 +311,13 @@ orinoco_cs_attach(void)
 			link->irq.IRQInfo2 |= 1 << irq_list[i];
 	link->irq.Handler = NULL;
 
-	/*
-	   General socket configuration defaults can go here.  In this
-	   client, we assume very little, and rely on the CIS for almost
-	   everything.  In most clients, many details (i.e., number, sizes,
-	   and attributes of IO windows) are fixed by the nature of the
-	   device, and can be hard-wired here.
-	 */
+	/* General socket configuration defaults can go here.  In this
+	 * client, we assume very little, and rely on the CIS for
+	 * almost everything.  In most clients, many details (i.e.,
+	 * number, sizes, and attributes of IO windows) are fixed by
+	 * the nature of the device, and can be hard-wired here. */
 	link->conf.Attributes = 0;
 	link->conf.IntType = INT_MEMORY_AND_IO;
-
-	/* Setup the common part */
-	if(orinoco_setup(priv) < 0) {
-		kfree(card);
-		return NULL;
-	}
-
-	/* Overrides */
-	ndev->open = orinoco_cs_open;
-	ndev->stop = orinoco_cs_stop;
-	priv->card_reset_handler = orinoco_cs_cor_reset;
 
 	/* Register with Card Services */
 	link->next = dev_list;
@@ -318,9 +325,9 @@ orinoco_cs_attach(void)
 	client_reg.dev_info = &dev_info;
 	client_reg.Attributes = INFO_IO_CLIENT | INFO_CARD_SHARE;
 	client_reg.EventMask =
-	    CS_EVENT_CARD_INSERTION | CS_EVENT_CARD_REMOVAL |
-	    CS_EVENT_RESET_PHYSICAL | CS_EVENT_CARD_RESET |
-	    CS_EVENT_PM_SUSPEND | CS_EVENT_PM_RESUME;
+		CS_EVENT_CARD_INSERTION | CS_EVENT_CARD_REMOVAL |
+		CS_EVENT_RESET_PHYSICAL | CS_EVENT_CARD_RESET |
+		CS_EVENT_PM_SUSPEND | CS_EVENT_PM_RESUME;
 	client_reg.event_handler = &orinoco_cs_event;
 	client_reg.Version = 0x0210;
 	client_reg.event_callback_args.client_data = link;
@@ -328,36 +335,31 @@ orinoco_cs_attach(void)
 	if (ret != CS_SUCCESS) {
 		cs_error(link->handle, RegisterClient, ret);
 		orinoco_cs_detach(link);
-		link = NULL;
-		goto out;
+		return NULL;
 	}
 
- out:
-	TRACE_EXIT("orinoco");
 	return link;
 }				/* orinoco_cs_attach */
 
-/*======================================================================
-  This deletes a driver "instance".  The device is de-registered
-  with Card Services.  If it has been released, all local data
-  structures are freed.  Otherwise, the structures will be freed
-  when the device is released.
-  ======================================================================*/
-
+/*
+ * This deletes a driver "instance".  The device is de-registered with
+ * Card Services.  If it has been released, all local data structures
+ * are freed.  Otherwise, the structures will be freed when the device
+ * is released.
+ */
 static void
 orinoco_cs_detach(dev_link_t * link)
 {
 	dev_link_t **linkp;
 	struct orinoco_private *priv = link->priv;
-
-	TRACE_ENTER("orinoco");
+	struct net_device *dev = priv->ndev;
 
 	/* Locate device structure */
 	for (linkp = &dev_list; *linkp; linkp = &(*linkp)->next)
 		if (*linkp == link)
 			break;
 	if (*linkp == NULL)
-		goto out;
+		return;
 
 	/*
 	   If the device is currently configured and active, we won't
@@ -366,12 +368,8 @@ orinoco_cs_detach(dev_link_t * link)
 	   detach().
 	 */
 	if (link->state & DEV_CONFIG) {
-#ifdef PCMCIA_DEBUG
-		printk(KERN_DEBUG "orinoco_cs: detach postponed, '%s' "
-		       "still locked\n", link->dev->dev_name);
-#endif
 		link->state |= DEV_STALE_LINK;
-		goto out;
+		return;
 	}
 
 	/* Break the link with Card Services */
@@ -380,17 +378,12 @@ orinoco_cs_detach(dev_link_t * link)
 
 	/* Unlink device structure, and free it */
 	*linkp = link->next;
-	DEBUG(0, "orinoco_cs: detach: link=%p link->dev=%p\n", link, link->dev);
 	if (link->dev) {
-		DEBUG(0, "orinoco_cs: About to unregister net device %p\n",
-		      &priv->ndev);
-		unregister_netdev(&priv->ndev);
+		unregister_netdev(dev);
 	}
-	kfree(priv->card);
 
- out:
-	TRACE_EXIT("orinoco");
-}				/* orinoco_cs_detach */
+	kfree(dev);
+}	/* orinoco_cs_detach */
 
 /*======================================================================
   orinoco_cs_config() is scheduled to run after a CARD_INSERTION event
@@ -411,7 +404,7 @@ orinoco_cs_config(dev_link_t * link)
 	struct orinoco_private *priv = link->priv;
 	struct orinoco_pccard *card = (struct orinoco_pccard *)priv->card;
 	hermes_t *hw = &priv->hw;
-	struct net_device *ndev = &priv->ndev;
+	struct net_device *ndev = priv->ndev;
 	tuple_t tuple;
 	cisparse_t parse;
 	int last_fn, last_ret;
@@ -446,9 +439,6 @@ orinoco_cs_config(dev_link_t * link)
 	CS_CHECK(GetConfigurationInfo, handle, &conf);
 	link->conf.Vcc = conf.Vcc;
 
-	DEBUG(0, "orinoco_cs_config: ConfigBase = 0x%x link->conf.Vcc = %d\n", 
-	      link->conf.ConfigBase, link->conf.Vcc);
-
 	/*
 	   In this loop, we scan the CIS for configuration table entries,
 	   each of which describes a valid card configuration, including
@@ -468,9 +458,6 @@ orinoco_cs_config(dev_link_t * link)
 		CFG_CHECK(GetTupleData, handle, &tuple);
 		CFG_CHECK(ParseTuple, handle, &tuple, &parse);
 
-		DEBUG(0, "orinoco_cs_config: index = 0x%x, flags = 0x%x\n",
-		      cfg->index, cfg->flags);
-
 		if (cfg->flags & CISTPL_CFTABLE_DEFAULT)
 			dflt = *cfg;
 		if (cfg->index == 0)
@@ -486,15 +473,13 @@ orinoco_cs_config(dev_link_t * link)
 		/* Use power settings for Vcc and Vpp if present */
 		/*  Note that the CIS values need to be rescaled */
 		if (cfg->vcc.present & (1 << CISTPL_POWER_VNOM)) {
-			if (conf.Vcc !=
-			    cfg->vcc.param[CISTPL_POWER_VNOM] / 10000) {
+			if (conf.Vcc != cfg->vcc.param[CISTPL_POWER_VNOM] / 10000) {
 				DEBUG(2, "orinoco_cs_config: Vcc mismatch (conf.Vcc = %d, CIS = %d)\n",  conf.Vcc, cfg->vcc.param[CISTPL_POWER_VNOM] / 10000);
-				if(!ignore_cis_vcc)
+				if (!ignore_cis_vcc)
 					goto next_entry;
 			}
 		} else if (dflt.vcc.present & (1 << CISTPL_POWER_VNOM)) {
-			if (conf.Vcc !=
-			    dflt.vcc.param[CISTPL_POWER_VNOM] / 10000) {
+			if (conf.Vcc != dflt.vcc.param[CISTPL_POWER_VNOM] / 10000) {
 				DEBUG(2, "orinoco_cs_config: Vcc mismatch (conf.Vcc = %d, CIS = %d)\n",  conf.Vcc, dflt.vcc.param[CISTPL_POWER_VNOM] / 10000);
 				if(!ignore_cis_vcc)
 					goto next_entry;
@@ -508,8 +493,6 @@ orinoco_cs_config(dev_link_t * link)
 			link->conf.Vpp1 = link->conf.Vpp2 =
 			    dflt.vpp1.param[CISTPL_POWER_VNOM] / 10000;
 		
-		DEBUG(0, "orinoco_cs_config: We seem to have configured Vcc and Vpp\n");
-
 		/* Do we need to allocate an interrupt? */
 		if (cfg->irq.IRQInfo1 || dflt.irq.IRQInfo1)
 			link->conf.Attributes |= CONF_ENABLE_IRQ;
@@ -549,7 +532,12 @@ orinoco_cs_config(dev_link_t * link)
 	next_entry:
 		if (link->io.NumPorts1)
 			CardServices(ReleaseIO, link->handle, &link->io);
-		CS_CHECK(GetNextTuple, handle, &tuple);
+		last_ret = CardServices(GetNextTuple, handle, &tuple);
+		if (last_ret  == CS_NO_MORE_ITEMS) {
+			printk(KERN_ERR "GetNextTuple().  No matching CIS configuration, "
+			       "maybe you need the ignore_cis_vcc=1 parameter.\n");
+			goto cs_failed;
+		}
 	}
 
 	/*
@@ -577,7 +565,8 @@ orinoco_cs_config(dev_link_t * link)
 	/* We initialize the hermes structure before completing PCMCIA
 	   configuration just in case the interrupt handler gets
 	   called. */
-	hermes_struct_init(hw, link->io.BasePort1);
+	hermes_struct_init(hw, link->io.BasePort1,
+				HERMES_IO, HERMES_16BIT_REGSPACING);
 
 	/*
 	   This actually configures the PCMCIA socket -- setting up
@@ -588,12 +577,6 @@ orinoco_cs_config(dev_link_t * link)
 
 	ndev->base_addr = link->io.BasePort1;
 	ndev->irq = link->irq.AssignedIRQ;
-
-	/* Now do a PCMCIA soft reset on the card, to make sure its in
-	   a sane state */
-	/* Optional because it really mess up old Lucent firmwares - Jean II */
-	if (reset_cor)
-		orinoco_cs_cor_reset(priv);
 
 	/* register_netdev will give us an ethX name */
 	ndev->name[0] = '\0';
@@ -622,7 +605,7 @@ orinoco_cs_config(dev_link_t * link)
 	printk("\n");
 
 	/* And give us the proc nodes for debugging */
-	if (orinoco_proc_dev_init(priv) != 0) {
+	if (orinoco_proc_dev_init(priv->ndev) != 0) {
 		printk(KERN_ERR "orinoco_cs: Failed to create /proc node for %s\n",
 		       ndev->name);
 		goto failed;
@@ -631,9 +614,9 @@ orinoco_cs_config(dev_link_t * link)
 	/* Note to myself : this replace MOD_INC_USE_COUNT/MOD_DEC_USE_COUNT */
 	SET_MODULE_OWNER(ndev);
 	
-	/* Do a Pcmcia soft reset of the card (optional) */
-	if (reset_cor)
-		orinoco_cs_cor_reset(priv);
+	/* Let reset_cor parameter override determine_firmware()'s guess */
+	if (reset_cor != -1)
+		priv->broken_cor_reset = ! reset_cor;
 
 	/*
 	   At this point, the dev_node_t structure(s) need to be
@@ -655,19 +638,16 @@ orinoco_cs_config(dev_link_t * link)
 	TRACE_EXIT("orinoco");
 }				/* orinoco_cs_config */
 
-/*======================================================================
-  After a card is removed, orinoco_cs_release() will unregister the
-  device, and release the PCMCIA configuration.  If the device is
-  still open, this will be postponed until it is closed.
-  ======================================================================*/
-
+/*
+ * After a card is removed, orinoco_cs_release() will unregister the
+ * device, and release the PCMCIA configuration.  If the device is
+ * still open, this will be postponed until it is closed.
+ */
 static void
 orinoco_cs_release(u_long arg)
 {
 	dev_link_t *link = (dev_link_t *) arg;
 	struct orinoco_private *priv = link->priv;
-
-	TRACE_ENTER(link->dev->dev_name);
 
 	/*
 	   If the device is currently in use, we won't release until it
@@ -675,14 +655,12 @@ orinoco_cs_release(u_long arg)
 	   no one will try to access the device or its data structures.
 	 */
 	if (link->open) {
-		DEBUG(0, "orinoco_cs: release postponed, '%s' still open\n",
-		      link->dev->dev_name);
 		link->state |= DEV_STALE_CONFIG;
 		return;
 	}
 
 	/* Unregister proc entry */
-	orinoco_proc_dev_cleanup(priv);
+	orinoco_proc_dev_cleanup(priv->ndev);
 
 	/* Don't bother checking to see if these succeed or not */
 	CardServices(ReleaseConfiguration, link->handle);
@@ -691,38 +669,26 @@ orinoco_cs_release(u_long arg)
 	if (link->irq.AssignedIRQ)
 		CardServices(ReleaseIRQ, link->handle, &link->irq);
 	link->state &= ~DEV_CONFIG;
-
-	TRACE_EXIT(link->dev->dev_name);
 }				/* orinoco_cs_release */
 
-/*======================================================================
-  The card status event handler.  Mostly, this schedules other
-  stuff to run after an event is received.
-
-  When a CARD_REMOVAL event is received, we immediately set a
-  private flag to block future accesses to this device.  All the
-  functions that actually access the device should check this flag
-  to make sure the card is still present.
-  ======================================================================*/
-
+/*
+ * The card status event handler.  Mostly, this schedules other stuff
+ * to run after an event is received.
+ */
 static int
 orinoco_cs_event(event_t event, int priority,
 		       event_callback_args_t * args)
 {
 	dev_link_t *link = args->client_data;
 	struct orinoco_private *priv = (struct orinoco_private *)link->priv;
-	struct net_device *dev = &priv->ndev;
-
-	TRACE_ENTER("orinoco");
+	struct net_device *dev = priv->ndev;
+	int err;
 
 	switch (event) {
 	case CS_EVENT_CARD_REMOVAL:
 		link->state &= ~DEV_PRESENT;
 		if (link->state & DEV_CONFIG) {
 			netif_stop_queue(dev);
-		}
-		orinoco_shutdown(priv);
-		if (link->state & DEV_CONFIG) {
 			netif_device_detach(dev);
 			mod_timer(&link->release, jiffies + HZ / 20);
 		}
@@ -741,7 +707,11 @@ orinoco_cs_event(event_t event, int priority,
 
 		if (link->state & DEV_CONFIG) {
 			if (link->open) {
-				netif_stop_queue(dev);
+				err = orinoco_commence_reset(priv);
+				if (err) {
+					printk("%s: signalled during reset?\n", dev->name);
+					return err;
+				}
 				netif_device_detach(dev);
 			}
 			CardServices(ReleaseConfiguration, link->handle);
@@ -754,15 +724,16 @@ orinoco_cs_event(event_t event, int priority,
 		if (link->state & DEV_CONFIG) {
 			CardServices(RequestConfiguration, link->handle,
 				     &link->conf);
-
 			if (link->open) {
-				if (orinoco_reset(priv) == 0) {
-					netif_device_attach(dev);
-					netif_start_queue(dev);
-				} else {
+				netif_device_attach(dev);
+				err = __orinoco_startup(priv);
+				if (err) {
 					printk(KERN_ERR "%s: Error resetting device on PCMCIA event\n",
 					       dev->name);
 					orinoco_cs_stop(dev);
+					return err;
+				} else {
+					netif_start_queue(dev);
 				}
 			}
 		}
@@ -773,8 +744,6 @@ orinoco_cs_event(event_t event, int priority,
 		break;
 	}
 
-	TRACE_EXIT("orinoco");
-
 	return 0;
 }				/* orinoco_cs_event */
 
@@ -782,8 +751,6 @@ static int __init
 init_orinoco_cs(void)
 {
 	servinfo_t serv;
-
-	TRACE_ENTER("orinoco");
 
 	printk(KERN_DEBUG "%s\n", version);
 
@@ -796,28 +763,20 @@ init_orinoco_cs(void)
 
 	register_pccard_driver(&dev_info, &orinoco_cs_attach, &orinoco_cs_detach);
 
-
-	TRACE_EXIT("orinoco");
 	return 0;
 }
 
 static void __exit
 exit_orinoco_cs(void)
 {
-	TRACE_ENTER("orinoco");
-
 	unregister_pccard_driver(&dev_info);
 
-	if (dev_list)
-		DEBUG(0, "orinoco_cs: Removing leftover devices.\n");
 	while (dev_list != NULL) {
 		del_timer(&dev_list->release);
 		if (dev_list->state & DEV_CONFIG)
 			orinoco_cs_release((u_long) dev_list);
 		orinoco_cs_detach(dev_list);
 	}
-
-	TRACE_EXIT("orinoco");
 }
 
 module_init(init_orinoco_cs);

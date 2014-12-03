@@ -8,6 +8,9 @@
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
+ *
+ * ChangLog:
+ *	12-Dec-2002 Lineo Japan, Inc.
  */
 
 #ifndef __ASM_ARCH_HARDWARE_H
@@ -38,6 +41,21 @@
 #define UNCACHED_PHYS_0		0xff000000
 #define UNCACHED_ADDR		UNCACHED_PHYS_0
 
+//#ifdef CONFIG_SABINAL_DISCOVERY
+#if 0
+
+/*
+ * Intel PXA internal I/O mappings:
+ *
+ * 0x40000000 - 0x47ffffff <--> 0xf0000000 - 0xf7ffffff
+ * 0x48000000 - 0x48ffffff <--> 0xfd000000 - 0xfdffffff
+ */
+
+#define io_p2v(PhAdd)   ((PhAdd >= 0x40000000) ? ((PhAdd >= 0x48000000) ? (0xb5000000 + PhAdd ) : (0xb0000000 + PhAdd)) : (0xd0000000 + PhAdd))
+#define io_v2v(PhAdd)   ((PhAdd >= 0xf0000000) ? ((PhAdd >= 0xfd000000) ? (PhAdd - 0xb5000000 ) : (PhAdd - 0xb0000000)) : (PhAdd - 0xd0000000))
+
+#else
+
 /*
  * Intel PXA internal I/O mappings:
  *
@@ -48,6 +66,8 @@
 
 #define io_p2v(x)	( ((x) | 0xbe000000) ^ (~((x) >> 1) & 0x06000000) )
 #define io_v2p( x )	( ((x) & 0x41ffffff) ^ ( ((x) & 0x06000000) << 1) )
+
+#endif
 
 #ifndef __ASSEMBLY__
 
@@ -112,6 +132,8 @@ extern unsigned int get_lclk_frequency_10khz(void);
  * Implementation specifics
  */
 
+#ifndef CONFIG_ARCH_SHARP_SL
+
 //#ifdef CONFIG_ARCH_LUBBOCK
 #include "lubbock.h"
 //#endif
@@ -123,5 +145,21 @@ extern unsigned int get_lclk_frequency_10khz(void);
 //#ifdef CONFIG_ARCH_PXA_CERF
 #include "cerf.h"
 //#endif
+
+#endif
+
+#ifdef CONFIG_SABINAL_DISCOVERY
+#include "discovery_asic.h"
+#include "discovery_asic3.h"
+#include "discovery_gpio.h"
+#endif
+
+#ifdef CONFIG_ARCH_PXA_POODLE
+#include "poodle.h"
+#endif
+
+#ifdef CONFIG_ARCH_PXA_CORGI
+#include "corgi.h"
+#endif
 
 #endif  /* _ASM_ARCH_HARDWARE_H */

@@ -1,7 +1,7 @@
 
 /* Common Flash Interface structures 
  * See http://support.intel.com/design/flash/technote/index.htm
- * $Id: cfi.h,v 1.30 2002/02/21 08:27:43 dwmw2 Exp $
+ * $Id: cfi.h,v 1.32 2002/09/05 05:15:32 acurtis Exp $
  */
 
 #ifndef __MTD_CFI_H__
@@ -71,6 +71,14 @@ typedef __u32 cfi_word;
 /* pick the largest necessary */
 #ifdef CONFIG_MTD_CFI_B8
 typedef __u64 cfi_word;
+
+/* This only works if asm/io.h is included first */
+#ifndef __raw_readll
+#define __raw_readll(addr)	(*(volatile __u64 *)(addr))
+#endif
+#ifndef __raw_writell
+#define __raw_writell(v, addr)	(*(volatile __u64 *)(addr) = (v))
+#endif
 #define CFI_WORD_64
 #else  /* CONFIG_MTD_CFI_B8 */
 /* All others can use 32-bits. It's probably more efficient than
@@ -450,17 +458,17 @@ static inline __u8 cfi_read_query(struct map_info *map, __u32 addr)
 static inline void cfi_udelay(int us)
 {
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,2,0)
-	if (current->need_resched) {
-		unsigned long t = us * HZ / 1000000;
-		if (t < 1)
-			t = 1;
+	unsigned long t = us * HZ / 1000000;
+	if (t) {
 		set_current_state(TASK_UNINTERRUPTIBLE);
 		schedule_timeout(t);
+		return;
 	}
-	else
 #endif
-		udelay(us);
+	udelay(us);
+	cond_resched();
 }
+
 static inline void cfi_spin_lock(spinlock_t *mutex)
 {
 	spin_lock_bh(mutex);

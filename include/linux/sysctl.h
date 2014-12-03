@@ -19,6 +19,9 @@
  **
  ****************************************************************
  ****************************************************************
+ *
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
  */
 
 #ifndef _LINUX_SYSCTL_H
@@ -27,6 +30,7 @@
 #include <linux/kernel.h>
 #include <linux/types.h>
 #include <linux/list.h>
+#include <linux/config.h>
 
 struct file;
 
@@ -142,6 +146,10 @@ enum
 	VM_PAGE_CLUSTER=10,	/* int: set number of pages to swap together */
        VM_MIN_READAHEAD=12,    /* Min file readahead */
        VM_MAX_READAHEAD=13     /* Max file readahead */
+#ifdef CONFIG_FREEPG_SIGNAL
+	,
+	VM_FREEPG_SIGNAL_PROC=14
+#endif
 };
 
 

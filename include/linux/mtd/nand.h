@@ -3,9 +3,9 @@
  *
  *  Copyright (c) 2000 David Woodhouse <dwmw2@mvhi.com>
  *                     Steven J. Hill <sjhill@cotw.com>
- *		       Thomas Gleixner <gleixner@autronix.de>
+ *		       Thomas Gleixner <tglx@linutronix.de>
  *
- * $Id: nand.h,v 1.13 2002/04/28 13:40:41 gleixner Exp $
+ * $Id: nand.h,v 1.16 2002/08/29 21:41:42 gleixner Exp $
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -32,6 +32,24 @@
  *			command delay times for different chips
  *   04-28-2002 TG	OOB config defines moved from nand.c to avoid duplicate
  *			defines in jffs2/wbuf.c
+ *   08-07-2002 TG	forced bad block location to byte 5 of OOB, even if
+ *			CONFIG_MTD_NAND_ECC_JFFS2 is not set
+ *   08-10-2002 TG	extensions to nand_chip structure to support HW-ECC
+ *
+ *   08-29-2002 tglx 	nand_chip structure: data_poi for selecting 
+ *			internal / fs-driver buffer
+ *			support for 6byte/512byte hardware ECC
+ *			read_ecc, write_ecc extended for different oob-layout
+ *			oob layout selections: NAND_NONE_OOB, NAND_JFFS2_OOB,
+ *			NAND_YAFFS_OOB
+ */
+
+/*
+ * ChangeLog:
+ *     29-Oct-2002 Lineo Japan, Inc.  modify return type of struct nand_chip#calculate_ecc
+ *     19-Sep-2002 Lineo Japan, Inc.  modify return type of struct nand_chip#cmdfunc
+ *     17-Sep-2002 Lineo Japan, Inc.  add NAND_POSTBADBLOCK_POS
+ *
  */
 #ifndef __LINUX_MTD_NAND_H
 #define __LINUX_MTD_NAND_H
@@ -68,6 +86,28 @@ extern int nand_scan (struct mtd_info *mtd);
 #define NAND_CMD_ERASE2		0xd0
 #define NAND_CMD_RESET		0xff
 
+/* 
+ * Constants for ECC_MODES
+ *
+ * NONE:	No ECC
+ * SOFT:	Software ECC 3 byte ECC per 256 Byte data
+ * HW3_256:	Hardware ECC 3 byte ECC per 256 Byte data
+ * HW3_512:	Hardware ECC 3 byte ECC per 512 Byte data
+ *
+ *
+*/
+#define NAND_ECC_NONE		0
+#define NAND_ECC_SOFT		1
+#define NAND_ECC_HW3_256	2
+#define NAND_ECC_HW3_512	3
+#define NAND_ECC_HW6_512	4
+
+/*
+ * Constants for Hardware ECC
+*/
+#define NAND_ECC_READ		0
+#define NAND_ECC_WRITE		1
+	
 /*
  * Enumeration for NAND flash chip state
  */
@@ -93,6 +133,20 @@ typedef enum {
  *
  *  dev_ready - hardwarespecific function for accesing device ready/busy line
  *
+ *  waitfunc - hardwarespecific function for wait on ready
+ *
+ *  calculate_ecc - function for ecc calculation or readback from ecc hardware
+ *
+ *  correct_data - function for ecc correction, matching to ecc generator (sw/hw)
+ *
+ *  enable_hwecc - function to enable (reset) hardware ecc generator
+ *
+ *  eccmod - mode of ecc: see constants
+ *
+ *  eccsize - databytes used per ecc-calculation
+ *
+ *  chip_delay - chip dependent delay for transfering data from array to read regs (tR)
+ *
  *  chip_lock - spinlock used to protect access to this structure
  *
  *  wq - wait queue to sleep on if a NAND operation is in progress
@@ -106,31 +160,29 @@ typedef enum {
  *  data_cache - data cache for redundant page access and shadow for
  *		 ECC failure
  *
- *  ecc_code_buf - used only for holding calculated or read ECCs for
- *                 a page read or written when ECC is in use
- *
- *  reserved - padding to make structure fall on word boundary if
- *             when ECC is in use
+ *  cache_page - number of last valid page in page_cache 
  */
 struct nand_chip {
 	unsigned long 	IO_ADDR_R;
 	unsigned long 	IO_ADDR_W;
 	void 		(*hwcontrol)(int cmd);
 	int  		(*dev_ready)(void);
-	void 		(*cmdfunc)(struct mtd_info *mtd, unsigned command, int column, int page_addr);
+	int 		(*cmdfunc)(struct mtd_info *mtd, unsigned command, int column, int page_addr);
 	int 		(*waitfunc)(struct mtd_info *mtd, struct nand_chip *this, int state);
+	int		(*calculate_ecc)(const u_char *dat, u_char *ecc_code);
+	int 		(*correct_data)(u_char *dat, u_char *read_ecc, u_char *calc_ecc);
+	void		(*enable_hwecc)(int mode);
+	int		eccmode;
+	int		eccsize;
 	int 		chip_delay;
 	spinlock_t 	chip_lock;
 	wait_queue_head_t wq;
 	nand_state_t 	state;
 	int 		page_shift;
 	u_char 		*data_buf;
+	u_char		*data_poi;
 	u_char 		*data_cache;
 	int		cache_page;
-#ifdef CONFIG_MTD_NAND_ECC
-	u_char 		ecc_code_buf[6];
-	u_char 		reserved[2];
-#endif
 };
 
 /*
@@ -179,14 +231,21 @@ struct nand_flash_dev {
 /*
 * Constants for oob configuration
 */
+#define NAND_BADBLOCK_POS		5
+#ifdef CONFIG_MTD_NAND_POST_BADBLOCK
+#define NAND_POSTBADBLOCK_POS		4
+#endif
+
+#define NAND_NONE_OOB			0
+#define NAND_JFFS2_OOB			1
+#define NAND_YAFFS_OOB			2
+
 #define NAND_NOOB_ECCPOS0		0
 #define NAND_NOOB_ECCPOS1		1
 #define NAND_NOOB_ECCPOS2		2
 #define NAND_NOOB_ECCPOS3		3
-#define NAND_NOOB_ECCPOS4		4
-#define NAND_NOOB_ECCPOS5		5
-#define NAND_NOOB_BADBPOS		-1
-#define NAND_NOOB_ECCVPOS		-1
+#define NAND_NOOB_ECCPOS4		6
+#define NAND_NOOB_ECCPOS5		7
 
 #define NAND_JFFS2_OOB_ECCPOS0		0
 #define NAND_JFFS2_OOB_ECCPOS1		1
@@ -194,12 +253,19 @@ struct nand_flash_dev {
 #define NAND_JFFS2_OOB_ECCPOS3		3
 #define NAND_JFFS2_OOB_ECCPOS4		6
 #define NAND_JFFS2_OOB_ECCPOS5		7
-#define NAND_JFFS2_OOB_BADBPOS		5
-#define NAND_JFFS2_OOB_ECCVPOS		4
+
+#define NAND_YAFFS_OOB_ECCPOS0		8
+#define NAND_YAFFS_OOB_ECCPOS1		9
+#define NAND_YAFFS_OOB_ECCPOS2		10
+#define NAND_YAFFS_OOB_ECCPOS3		13
+#define NAND_YAFFS_OOB_ECCPOS4		14
+#define NAND_YAFFS_OOB_ECCPOS5		15
 
 #define NAND_JFFS2_OOB8_FSDAPOS		6
 #define NAND_JFFS2_OOB16_FSDAPOS	8
 #define NAND_JFFS2_OOB8_FSDALEN		2
 #define NAND_JFFS2_OOB16_FSDALEN	8
+
+#define NAND_BUSY_TIMEOUT	1000000
 
 #endif /* __LINUX_MTD_NAND_H */

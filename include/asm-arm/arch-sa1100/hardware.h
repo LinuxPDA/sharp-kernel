@@ -7,6 +7,8 @@
  *
  * 2000/05/23 John Dorsey <john+@cs.cmu.edu>
  *      Definitions for SA1111 added.
+ * 2001/11/12 Lineo Japan, Inc.
+ *      Definitions for collie added.
  */
 
 #ifndef __ASM_ARCH_HARDWARE_H
@@ -128,6 +130,10 @@ extern void set_GPIO_IRQ_edge( int gpio_mask, int edge_mask );
 
 #ifdef CONFIG_SA1100_PANGOLIN
 #include "pangolin.h"
+#endif
+
+#ifdef CONFIG_SA1100_COLLIE
+#include "collie.h"
 #endif
 
 #ifdef CONFIG_SA1100_HUW_WEBPANEL

@@ -25,6 +25,10 @@
  * other provisions required by the GPL.  If you do not delete the
  * provisions above, a recipient may use your version of this file
  * under either the MPL or the GPL.
+ *
+ * Change Log
+ *    11-Jul-2002 Lineo Japan, Inc.
+ *
  */
 
 #ifndef _LINUX_DS_H
@@ -104,6 +108,11 @@ typedef union ds_ioctl_arg_t {
 #define DS_GET_NEXT_DEVICE		_IOWR('d', 62, bind_info_t) 
 #define DS_UNBIND_REQUEST		_IOW ('d', 63, bind_info_t)
 #define DS_BIND_MTD			_IOWR('d', 64, mtd_info_t)
+
+#ifdef CONFIG_ARCH_SHARP_SL
+#define	DS_SERIAL_CARD_POWER_ON		_IO  ('d', 80)
+#define	DS_SERIAL_CARD_POWER_OFF	_IO  ('d', 81)
+#endif
 
 #ifdef __KERNEL__
 

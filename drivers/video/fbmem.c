@@ -9,6 +9,13 @@
  * This file is subject to the terms and conditions of the GNU General Public
  * License.  See the file COPYING in the main directory of this archive
  * for more details.
+ *
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
+ *      28-Aug-2002 SHARP
+ *             - Added support for ATI w100 on SHARP SL-C700
+ *      11-Sep-2002 SHARP
+ *             - Allocated frame buffer to cache memory on SHARP SL-B500/5600
  */
 
 #include <linux/config.h>
@@ -134,6 +141,10 @@ extern int pvr2fb_setup(char*);
 extern int sstfb_init(void);
 extern int sstfb_setup(char*);
 extern int anakinfb_init(void);
+extern int colliefb_init(void);
+extern int cotulla_fb_init(void);
+extern int w100fb_init(void);
+extern int w100fb_setup(char*); 
   
 static struct {
 	const char *name;
@@ -302,6 +313,16 @@ static struct {
 #ifdef CONFIG_FB_VOODOO1
 	{ "sst", sstfb_init, sstfb_setup },
 #endif
+#ifdef CONFIG_FB_COLLIE
+	{ "colliefb", colliefb_init, NULL },
+#endif
+#if defined(CONFIG_FB_COTULLA) || defined(CONFIG_FB_POODLE)
+	{ "cotulla_fb", cotulla_fb_init, NULL},
+#endif
+#ifdef CONFIG_FB_CORGI
+	{ "w100fb", w100fb_init, w100fb_setup },
+#endif
+
 	/*
 	 * Generic drivers that don't use resource management (yet)
 	 */
@@ -630,6 +651,9 @@ fb_mmap(struct file *file, struct vm_area_struct * vma)
 	pgprot_val(vma->vm_page_prot) |= _CACHE_UNCACHED;
 #elif defined(__arm__)
 	vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
+#ifdef CONFIG_POODLE_CONSISTENT_ALLOC
+	vma->vm_page_prot = __pgprot(pgprot_val(vma->vm_page_prot) | L_PTE_CACHEABLE);
+#endif
 	/* This is an IO map - tell maydump to skip this VMA */
 	vma->vm_flags |= VM_IO;
 #elif defined(__sh__)

@@ -1587,8 +1587,9 @@ irnet_discovervalue_confirm(int		result,
  * is to messy, so we leave that to user space...
  */
 static void
-irnet_discovery_indication(discovery_t *discovery,
-			   void *	priv)
+irnet_discovery_indication(discovery_t *	discovery,
+			   DISCOVERY_MODE	mode,
+			   void *		priv)
 {
   irnet_socket *	self = &irnet_server.s;
 	
@@ -1626,6 +1627,7 @@ irnet_discovery_indication(discovery_t *discovery,
  */
 static void
 irnet_expiry_indication(discovery_t *	expiry,
+			DISCOVERY_MODE	mode,
 			void *		priv)
 {
   irnet_socket *	self = &irnet_server.s;

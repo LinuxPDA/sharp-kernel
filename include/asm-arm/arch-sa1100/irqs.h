@@ -6,6 +6,9 @@
  * Copyright (C) 1999 Nicolas Pitre (full GPIO irq isolation)
  *
  * 2001/11/14	RMK	Cleaned up and standardised a lot of the IRQs.
+ * 
+ * Change Log:
+ *   12-Nov-2001 Lineo Japan, Inc.
  */
 #include <linux/config.h>
 
@@ -151,3 +154,57 @@
 
 /* PT Digital Board Interrupts (CONFIG_SA1100_PT_SYSTEM3) */
 #define IRQ_SYSTEM3_SMC9196	(IRQ_BOARD_START + 0)
+
+#ifdef CONFIG_SA1100_COLLIE
+
+#define LCM_IRQ(x)		(IRQ_GPIO27 + 1 + (x))
+
+#define LCM_IRQ_KEY_BASE	LCM_IRQ(0)
+#define LCM_IRQ_GPIO_BASE	LCM_IRQ(1)
+#define LCM_IRQ_LT_BASE		LCM_IRQ(2)
+#define LCM_IRQ_SPI_BASE	LCM_IRQ(3)
+
+#define	LCM_IRQ_KEY_OFFSET(x)	(LCM_IRQ(3) + 1 + (x))
+
+#define LCM_IRQ_KEY             LCM_IRQ_KEY_OFFSET(0)
+
+#define	LCM_IRQ_GPIO_OFFSET(x)	(LCM_IRQ_KEY_OFFSET(0) + 1 + (x))
+
+#define LCM_IRQ_GPIO0		LCM_IRQ_GPIO_OFFSET(0)
+#define LCM_IRQ_GPIO1		LCM_IRQ_GPIO_OFFSET(1)
+#define LCM_IRQ_GPIO2		LCM_IRQ_GPIO_OFFSET(2)
+#define LCM_IRQ_GPIO3		LCM_IRQ_GPIO_OFFSET(3)
+#define LCM_IRQ_GPIO4		LCM_IRQ_GPIO_OFFSET(4)
+#define LCM_IRQ_GPIO5		LCM_IRQ_GPIO_OFFSET(5)
+#define LCM_IRQ_GPIO6		LCM_IRQ_GPIO_OFFSET(6)
+#define LCM_IRQ_GPIO7		LCM_IRQ_GPIO_OFFSET(7)
+#define LCM_IRQ_GPIO8		LCM_IRQ_GPIO_OFFSET(8)
+#define LCM_IRQ_GPIO9		LCM_IRQ_GPIO_OFFSET(9)
+#define LCM_IRQ_GPIO10		LCM_IRQ_GPIO_OFFSET(10)
+#define LCM_IRQ_GPIO11		LCM_IRQ_GPIO_OFFSET(11)
+#define LCM_IRQ_GPIO12		LCM_IRQ_GPIO_OFFSET(12)
+#define LCM_IRQ_GPIO13		LCM_IRQ_GPIO_OFFSET(13)
+#define LCM_IRQ_GPIO14		LCM_IRQ_GPIO_OFFSET(14)
+#define LCM_IRQ_GPIO15		LCM_IRQ_GPIO_OFFSET(15)
+
+#define	LCM_IRQ_LT_OFFSET(x)	(LCM_IRQ_GPIO_OFFSET(15) + 1 + (x))
+
+#define LCM_IRQ_LT              LCM_IRQ_LT_OFFSET(0)
+
+#define	LCM_IRQ_SPI_OFFSET(x)	(LCM_IRQ_LT_OFFSET(0) + 1 + (x))
+
+#define LCM_IRQ_SPI_RFR		LCM_IRQ_SPI_OFFSET(0)
+#define LCM_IRQ_SPI_RFW		LCM_IRQ_SPI_OFFSET(1)
+#define LCM_IRQ_SPI_OVRN	LCM_IRQ_SPI_OFFSET(2)
+#define LCM_IRQ_SPI_TEND	LCM_IRQ_SPI_OFFSET(3)
+
+#define COLLIE_IRQ_MAX		LCM_IRQ_SPI_OFFSET(3)
+
+#undef  NR_IRQS
+#define NR_IRQS			(COLLIE_IRQ_MAX + 1)
+
+#endif  /* CONFIG_SA1100_COLLIE */
+
+#ifndef NR_IRQS
+#define	NR_IRQS		(IRQ_GPIO27 + 1)
+#endif

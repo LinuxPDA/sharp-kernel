@@ -14,6 +14,7 @@
  *   09-09-1998	PJB	Delete redundant `wp_works_ok'
  *   30-05-1999	PJB	Save sl across context switches
  *   31-07-1999	RMK	Added 'domain' stuff
+ *   12-Dec-2002 	Lineo Japan, Inc.
  */
 #ifndef __ASM_PROC_PROCESSOR_H
 #define __ASM_PROC_PROCESSOR_H
@@ -23,7 +24,7 @@
 #define KERNEL_STACK_SIZE	PAGE_SIZE
 
 struct context_save_struct {
-#ifdef CONFIG_CPU_XSCALE
+#if defined(CONFIG_CPU_XSCALE) && !defined(CONFIG_ARCH_SHARP_SL)
 	long long acc0;
 #endif
 	unsigned long cpsr;
@@ -38,7 +39,7 @@ struct context_save_struct {
 	unsigned long pc;
 };
 
-#ifdef CONFIG_CPU_XSCALE
+#if defined(CONFIG_CPU_XSCALE) && !defined(CONFIG_ARCH_SHARP_SL)
 #define INIT_CSS (struct context_save_struct){ 0, SVC_MODE, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
 #else
 #define INIT_CSS (struct context_save_struct){ SVC_MODE, 0, 0, 0, 0, 0, 0, 0, 0, 0 }

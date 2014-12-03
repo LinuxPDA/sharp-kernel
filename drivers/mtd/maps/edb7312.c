@@ -1,5 +1,5 @@
 /*
- * $Id: edb7312.c,v 1.1 2002/04/30 13:12:04 mag Exp $
+ * $Id: edb7312.c,v 1.2 2002/09/05 05:11:24 acurtis Exp $
  *
  * Handle mapping of the NOR flash on Cogent EDB7312 boards
  *
@@ -50,13 +50,6 @@ __u32 edb7312nor_read32(struct map_info *map, unsigned long ofs)
 	return __raw_readl(map->map_priv_1 + ofs);
 }
 
-#ifdef CFI_WORD_64
-__u64 edb7312nor_read64(struct map_info *map, unsigned long ofs)
-{
-	return __raw_readll(map->map_priv_1 + ofs);
-}
-#endif
-
 void edb7312nor_copy_from(struct map_info *map, void *to, unsigned long from, ssize_t len)
 {
 	memcpy_fromio(to, map->map_priv_1 + from, len);
@@ -80,14 +73,6 @@ void edb7312nor_write32(struct map_info *map, __u32 d, unsigned long adr)
 	mb();
 }
 
-#ifdef CFI_WORD_64
-void edb7312nor_write64(struct map_info *map, __u64 d, unsigned long adr)
-{
-	__raw_writell(d, map->map_priv_1 + adr);
-	mb();
-}
-#endif
-
 void edb7312nor_copy_to(struct map_info *map, unsigned long to, const void *from, ssize_t len)
 {
 	memcpy_toio(map->map_priv_1 + to, from, len);
@@ -100,16 +85,10 @@ struct map_info edb7312nor_map = {
 	read8: edb7312nor_read8,
 	read16: edb7312nor_read16,
 	read32: edb7312nor_read32,
-#ifdef CFI_WORD_64
-	read64: edb7312nor_read64,
-#endif
 	copy_from: edb7312nor_copy_from,
 	write8: edb7312nor_write8,
 	write16: edb7312nor_write16,
 	write32: edb7312nor_write32,
-#ifdef CFI_WORD_64
-	write64: edb7312nor_write64,
-#endif
 	copy_to: edb7312nor_copy_to
 };
 

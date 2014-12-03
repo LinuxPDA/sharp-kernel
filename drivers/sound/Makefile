@@ -77,12 +77,17 @@ obj-$(CONFIG_SOUND_PANGOLIN_UDA1341) += pangolin-uda1341.o
 obj-$(CONFIG_SOUND_H3600_UDA1341) += h3600-uda1341.o
 obj-$(CONFIG_SOUND_SA1111_UDA1341) += sa1111-uda1341.o
 obj-$(CONFIG_SOUND_SA1100SSP)	+= sa1100ssp.o
+obj-$(CONFIG_SOUND_COLLIE_SSP)	+= collie_ssp.o
+obj-$(CONFIG_SOUND_COLLIE_TC35143) += collie-tc35143.o
 obj-$(CONFIG_SOUND_PXA_AC97)+= pxa-ac97.o pxa-audio.o ac97_codec.o
 obj-$(CONFIG_SOUND_EMU10K1)	+= ac97_codec.o
 obj-$(CONFIG_SOUND_RME96XX)     += rme96xx.o
 obj-$(CONFIG_SOUND_BT878)	+= btaudio.o
 obj-$(CONFIG_SOUND_EMU10K1)	+= ac97_codec.o
 obj-$(CONFIG_SOUND_IT8172)     += ite8172.o ac97_codec.o
+obj-$(CONFIG_SOUND_DISCOVERY)	+= discovery_audio.o i2sc.o
+obj-$(CONFIG_SOUND_POODLE) += pxa-i2s.o poodle_i2sc.o poodle_wm8731.o
+obj-$(CONFIG_SOUND_CORGI) += pxa-i2s_corgi.o poodle_i2sc.o poodle_wm8731.o
 
 ifeq ($(CONFIG_MIDI_EMU10K1),y)
   obj-$(CONFIG_SOUND_EMU10K1)	+= sound.o

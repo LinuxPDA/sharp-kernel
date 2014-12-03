@@ -1,4 +1,10 @@
-/* interrupt.h */
+/*
+ * interrupt.h
+ *
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
+ */
+
 #ifndef _LINUX_INTERRUPT_H
 #define _LINUX_INTERRUPT_H
 
@@ -40,6 +46,9 @@ enum {
 	JS_BH,
 	MACSERIAL_BH,
 	ISICOM_BH
+#ifdef CONFIG_SA1100_COLLIE
+	, SERIAL_COLLIE_BH
+#endif
 };
 
 #include <asm/hardirq.h>

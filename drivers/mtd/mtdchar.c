@@ -1,9 +1,12 @@
 /*
- * $Id: mtdchar.c,v 1.44 2001/10/02 15:05:11 dwmw2 Exp $
+ * $Id: mtdchar.c,v 1.45 2002/07/16 16:28:45 spse Exp $
  *
  * Character-device access to raw MTD devices.
  * Pure 2.4 version - compatibility cruft removed to mtdchar-compat.c
  *
+ * ChangLog:
+ *     19-Sep-2002 Lineo Japan, Inc.  add erase-by-force mode
+ *     23-Oct-2002 SHARP  add functions for CONFIG_MTD_NAND_LOGICAL_ADDRESS_ACCESS
  */
 
 #include <linux/config.h>
@@ -235,6 +238,48 @@ static void mtd_erase_callback (struct erase_info *instr)
 	wake_up((wait_queue_head_t *)instr->priv);
 }
 
+#ifdef CONFIG_MTD_NAND_LOGICAL_ADDRESS_ACCESS
+static int mtd_eraseproc_for_laddr(struct mtd_info *mtd, u_int32_t addr)
+{
+    struct erase_info *erase;
+    wait_queue_head_t waitq;
+    DECLARE_WAITQUEUE(wait, current);
+    int ret;
+
+    erase = kmalloc(sizeof(struct erase_info), GFP_KERNEL);
+    if(!erase){
+	ret = -ENOMEM;
+    }
+
+    init_waitqueue_head(&waitq);
+    memset(erase,0,sizeof(struct erase_info));
+    erase->addr = addr;
+    erase->len = mtd->erasesize;
+    erase->mtd = mtd;
+    erase->callback = mtd_erase_callback;
+    erase->priv = (unsigned long)&waitq;
+#ifdef CONFIG_MTD_NAND_ERASE_BY_FORCE
+    erase->by_force = 0;
+#endif
+
+    ret = (mtd->erase)(mtd, erase);
+    if(!ret){
+	set_current_state(TASK_UNINTERRUPTIBLE);
+	add_wait_queue(&waitq, &wait);
+	if (erase->state != MTD_ERASE_DONE &&
+	    erase->state != MTD_ERASE_FAILED)
+	    schedule();
+	remove_wait_queue(&waitq, &wait);
+	set_current_state(TASK_RUNNING);
+
+	ret = (erase->state == MTD_ERASE_FAILED)?-EIO:0;
+    }
+    kfree(erase);
+
+    return ret;
+}
+#endif
+
 static int mtd_ioctl(struct inode *inode, struct file *file,
 		     u_int cmd, u_long arg)
 {
@@ -286,8 +331,16 @@ static int mtd_ioctl(struct inode *inode, struct file *file,
 		break;
 
 	case MEMERASE:
+#ifdef CONFIG_MTD_NAND_ERASE_BY_FORCE
+	case MEMERASEBYFORCE:
+#endif
 	{
-		struct erase_info *erase=kmalloc(sizeof(struct erase_info),GFP_KERNEL);
+		struct erase_info *erase;
+
+		if(!(file->f_mode & 2))
+			return -EPERM;
+
+		erase=kmalloc(sizeof(struct erase_info),GFP_KERNEL);
 		if (!erase)
 			ret = -ENOMEM;
 		else {
@@ -305,7 +358,11 @@ static int mtd_ioctl(struct inode *inode, struct file *file,
 			erase->mtd = mtd;
 			erase->callback = mtd_erase_callback;
 			erase->priv = (unsigned long)&waitq;
-			
+
+#ifdef CONFIG_MTD_NAND_ERASE_BY_FORCE
+			erase->by_force = (cmd == MEMERASEBYFORCE);
+#endif
+
 			/*
 			  FIXME: Allow INTERRUPTIBLE. Which means
 			  not having the wait_queue head on the stack.
@@ -338,6 +395,9 @@ static int mtd_ioctl(struct inode *inode, struct file *file,
 		void *databuf;
 		ssize_t retlen;
 		
+		if(!(file->f_mode & 2))
+			return -EPERM;
+
 		if (copy_from_user(&buf, (struct mtd_oob_buf *)arg, sizeof(struct mtd_oob_buf)))
 			return -EFAULT;
 		
@@ -435,6 +495,92 @@ static int mtd_ioctl(struct inode *inode, struct file *file,
 	}
 
 		
+#ifdef CONFIG_MTD_NAND_LOGICAL_ADDRESS_ACCESS
+	case MEMCLEANUPLADDR:
+	{
+	    if(!mtd->cleanup_laddr){
+		return -EOPNOTSUPP;
+	    }
+
+	    ret = (mtd->cleanup_laddr)(mtd);
+	    break;
+	}
+
+	case MEMREADLADDR:
+	{
+	    struct read_laddr_info_user rinfo;
+	    void *databuf;
+
+	    if(copy_from_user(&rinfo,
+			      (struct read_laddr_info_user *)arg,
+			      sizeof(struct read_laddr_info_user))){
+		return -EFAULT;
+	    }
+
+	    if(!mtd->read_laddr){
+		return -EOPNOTSUPP;
+	    }
+
+	    ret = verify_area(VERIFY_WRITE, (char*)rinfo.buf, rinfo.len);
+	    if(ret){
+		return ret;
+	    }
+
+	    databuf = kmalloc(rinfo.len, GFP_KERNEL);
+	    if(!databuf){
+		return -ENOMEM;
+	    }
+
+	    ret = (mtd->read_laddr)(mtd, rinfo.from, rinfo.len, databuf);
+
+	    if(copy_to_user(rinfo.buf, databuf, rinfo.len)){
+		ret = -EFAULT;
+	    }
+
+	    kfree(databuf);
+	    break;
+	}
+
+	case MEMWRITELADDR:
+	{
+	    struct write_laddr_info_user winfo;
+	    void *databuf;
+		
+	    if(!(file->f_mode & 2))
+		return -EPERM;
+
+	    if(copy_from_user(&winfo,
+			      (struct write_laddr_info_user *)arg,
+			      sizeof(struct write_laddr_info_user))){
+		return -EFAULT;
+	    }
+
+	    if(!mtd->write_laddr){
+		return -EOPNOTSUPP;
+	    }
+
+	    ret = verify_area(VERIFY_READ, (char *)winfo.buf, winfo.len);
+	    if(ret){
+		return ret;
+	    }
+
+	    databuf = kmalloc(winfo.len, GFP_KERNEL);
+	    if(!databuf){
+		return -ENOMEM;
+	    }
+
+	    if(copy_from_user(databuf, winfo.buf, winfo.len)){
+		kfree(databuf);
+		return -EFAULT;
+	    }
+
+	    ret = (mtd->write_laddr)(mtd, winfo.to, winfo.len, databuf, mtd_eraseproc_for_laddr);
+
+	    kfree(databuf);
+	    break;
+	}
+#endif
+
 	default:
 		DEBUG(MTD_DEBUG_LEVEL0, "Invalid ioctl %x (MEMGETINFO = %x)\n", cmd, MEMGETINFO);
 		ret = -ENOTTY;
@@ -474,7 +620,7 @@ static void mtd_notify_add(struct mtd_info* mtd)
 	sprintf(name, "%dro", mtd->index);
 	devfs_ro_handle[mtd->index] = devfs_register(devfs_dir_handle, name,
 			DEVFS_FL_DEFAULT, MTD_CHAR_MAJOR, mtd->index*2+1,
-			S_IFCHR | S_IRUGO | S_IWUGO,
+			S_IFCHR | S_IRUGO,
 			&mtd_fops, NULL);
 }
 

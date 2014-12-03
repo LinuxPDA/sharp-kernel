@@ -22,6 +22,8 @@
  *     provide warranty for any of this software. This material is 
  *     provided "AS-IS" and at no charge.
  *
+ * ChangeLog:
+ *	11-20-2002 SHARP	apply patch (fix small bugs in /proc)
  ********************************************************************/
 
 #include <linux/config.h>
@@ -732,7 +734,9 @@ void irlmp_do_expiry()
 	 * On links which are connected, we can't do discovery
 	 * anymore and can't refresh the log, so we freeze the
 	 * discovery log to keep info about the device we are
-	 * connected to. - Jean II
+	 * connected to.
+	 * This info is mandatory if we want irlmp_connect_request()
+	 * to work properly. - Jean II
 	 */
 	lap = (struct lap_cb *) hashbin_get_first(irlmp->links);
 	while (lap != NULL) {
@@ -804,7 +808,7 @@ void irlmp_do_discovery(int nslots)
 void irlmp_discovery_request(int nslots)
 {
 	/* Return current cached discovery log */
-	irlmp_discovery_confirm(irlmp->cachelog);
+	irlmp_discovery_confirm(irlmp->cachelog, DISCOVERY_LOG);
 
 	/* 
 	 * Start a single discovery operation if discovery is not already
@@ -907,7 +911,8 @@ void irlmp_check_services(discovery_t *discovery)
  * partial/selective discovery based on the hints that it passed to IrLMP.
  */
 static inline void
-irlmp_notify_client(irlmp_client_t *client, hashbin_t *log)
+irlmp_notify_client(irlmp_client_t *client,
+		    hashbin_t *log, DISCOVERY_MODE mode)
 {
 	discovery_t *discovery;
 
@@ -930,7 +935,7 @@ irlmp_notify_client(irlmp_client_t *client, hashbin_t *log)
 		 * bits ;-)
 		 */
 		if (client->hint_mask & discovery->hints.word & 0x7f7f)
-			client->disco_callback(discovery, client->priv);
+			client->disco_callback(discovery, mode, client->priv);
 
 		discovery = (discovery_t *) hashbin_get_next(log);
 	}
@@ -943,7 +948,7 @@ irlmp_notify_client(irlmp_client_t *client, hashbin_t *log)
  *    device it is, and give indication to the client(s)
  * 
  */
-void irlmp_discovery_confirm(hashbin_t *log) 
+void irlmp_discovery_confirm(hashbin_t *log, DISCOVERY_MODE mode) 
 {
 	irlmp_client_t *client;
 	
@@ -957,7 +962,7 @@ void irlmp_discovery_confirm(hashbin_t *log)
 	client = (irlmp_client_t *) hashbin_get_first(irlmp->clients);
 	while (client != NULL) {
 		/* Check if we should notify client */
-		irlmp_notify_client(client, log);
+		irlmp_notify_client(client, log, mode);
 			
 		client = (irlmp_client_t *) hashbin_get_next(irlmp->clients);
 	}
@@ -987,7 +992,8 @@ void irlmp_discovery_expiry(discovery_t *expiry)
 		/* Check if we should notify client */
 		if ((client->expir_callback) &&
 		    (client->hint_mask & expiry->hints.word & 0x7f7f))
-			client->expir_callback(expiry, client->priv);
+			client->expir_callback(expiry, EXPIRY_TIMEOUT,
+					       client->priv);
 
 		/* Next client */
 		client = (irlmp_client_t *) hashbin_get_next(irlmp->clients);
@@ -1673,7 +1679,7 @@ int irlmp_proc_read(char *buf, char **start, off_t offset, int len)
 	len += sprintf( buf+len, "Unconnected LSAPs:\n");
 	self = (struct lsap_cb *) hashbin_get_first( irlmp->unconnected_lsaps);
 	while (self != NULL) {
-		ASSERT(self->magic == LMP_LSAP_MAGIC, return 0;);
+		ASSERT(self->magic == LMP_LSAP_MAGIC, break;);
 		len += sprintf(buf+len, "lsap state: %s, ", 
 			       irlsap_state[ self->lsap_state]);
 		len += sprintf(buf+len, 
@@ -1702,7 +1708,7 @@ int irlmp_proc_read(char *buf, char **start, off_t offset, int len)
 		len += sprintf(buf+len, "\n  Connected LSAPs:\n");
 		self = (struct lsap_cb *) hashbin_get_first(lap->lsaps);
 		while (self != NULL) {
-			ASSERT(self->magic == LMP_LSAP_MAGIC, return 0;);
+			ASSERT(self->magic == LMP_LSAP_MAGIC, break;);
 			len += sprintf(buf+len, "  lsap state: %s, ", 
 				       irlsap_state[ self->lsap_state]);
 			len += sprintf(buf+len, 

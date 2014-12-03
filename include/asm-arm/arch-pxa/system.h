@@ -8,8 +8,12 @@
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
+ *
+ * Change Log
+ *     17-Sep-2002 Lineo Japan, Inc.
  */
 
+#include <linux/config.h>
 #include "hardware.h"
 
 static inline void arch_idle(void)
@@ -31,6 +35,9 @@ static inline void arch_reset(char mode)
 		cpu_reset(0);
 	} else {
 		/* Initialize the watchdog and let it fire */
+#ifdef CONFIG_ARCH_SHARP_SL
+		RCSR = 0xf;
+#endif
 		OWER = OWER_WME;
 		OSSR = OSSR_M3;
 		OSMR3 = OSCR + 36864;	/* ... in 10 ms */

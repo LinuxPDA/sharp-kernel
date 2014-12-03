@@ -9,6 +9,10 @@
  *  to bring the system back to freepages.high: 2.4.97, Rik van Riel.
  *  Zone aware kswapd started 02/00, Kanoj Sarcar (kanoj@sgi.com).
  *  Multiqueue VM started 5.8.00, Rik van Riel.
+ *
+ * ChangLog:
+ *     09-Nov-2002 SHARP  reduce active pages
+ *     19-Nov-2002 Lineo Japan, Inc.  shrink JFFS2 inode cache
  */
 
 #include <linux/slab.h>
@@ -21,6 +25,7 @@
 #include <linux/highmem.h>
 #include <linux/file.h>
 #include <linux/compiler.h>
+#include <linux/freepg_signal.h>
 
 #include <asm/pgalloc.h>
 
@@ -564,13 +569,21 @@ static int shrink_caches(zone_t * classzone, int priority, unsigned int gfp_mask
 	int chunk_size = nr_pages;
 	unsigned long ratio;
 
+#if defined(CONFIG_ARCH_SHARP_SL) && defined(CONFIG_JFFS2_DYNFRAGTREE)
+	shrink_jffs2_icache_memory(priority, gfp_mask);
+#endif
+
 	nr_pages -= kmem_cache_reap(gfp_mask);
 	if (nr_pages <= 0)
 		return 0;
 
 	nr_pages = chunk_size;
 	/* try to keep the active list 2/3 of the size of the cache */
+#if defined(CONFIG_ARCH_SHARP_SL)
+	ratio = (unsigned long) nr_pages * nr_active_pages;
+#else
 	ratio = (unsigned long) nr_pages * nr_active_pages / ((nr_inactive_pages + 1) * 2);
+#endif
 	refill_inactive(ratio);
 
 	nr_pages = shrink_cache(nr_pages, classzone, gfp_mask, priority);
@@ -594,15 +607,30 @@ int try_to_free_pages(zone_t *classzone, unsigned int gfp_mask, unsigned int ord
 	gfp_mask = pf_gfp_mask(gfp_mask);
 	do {
 		nr_pages = shrink_caches(classzone, priority, gfp_mask, nr_pages);
+#ifndef CONFIG_FREEPG_SIGNAL
 		if (nr_pages <= 0)
 			return 1;
+#else
+		if (nr_pages <= 0) {
+#if defined(CONFIG_ARCH_SHARP_SL)
+			check_out_of_memory();
+#else
+			reset_out_of_memory_condition();
+#endif
+			return 1;
+		}
+#endif
 	} while (--priority);
 
 	/*
 	 * Hmm.. Cache shrink failed - time to kill something?
 	 * Mhwahahhaha! This is the part I really like. Giggle.
 	 */
+#if defined(CONFIG_ARCH_SHARP_SL)
+	check_out_of_memory();
+#else
 	out_of_memory();
+#endif
 	return 0;
 }
 
@@ -734,8 +762,10 @@ int kswapd(void *unused)
 		add_wait_queue(&kswapd_wait, &wait);
 
 		mb();
-		if (kswapd_can_sleep())
+		if (kswapd_can_sleep()) {
+			freepg_signal_reset();
 			schedule();
+		}
 
 		__set_current_state(TASK_RUNNING);
 		remove_wait_queue(&kswapd_wait, &wait);
@@ -746,6 +776,7 @@ int kswapd(void *unused)
 		 * up on a more timely basis.
 		 */
 		kswapd_balance();
+		freepg_signal_check();
 		run_task_queue(&tq_disk);
 	}
 }

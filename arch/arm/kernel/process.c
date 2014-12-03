@@ -7,6 +7,9 @@
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
+ * 
+ * Change Log
+ *  12-Nov-2001 Lineo Japan, Inc.
  */
 #include <stdarg.h>
 
@@ -140,6 +143,9 @@ void machine_restart(char * __unused)
 	/*
 	 * Now call the architecture specific reboot code.
 	 */
+#if defined(CONFIG_ARCH_SHARP_SL)
+	udelay(1000);
+#endif
 	arch_reset(reboot_mode);
 
 	/*

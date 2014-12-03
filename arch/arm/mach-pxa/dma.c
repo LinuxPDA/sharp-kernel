@@ -10,6 +10,9 @@
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
  *  published by the Free Software Foundation.
+ *
+ * ChangeLog:
+ *	12-Dec-2002 Sharp Corporation for Poodle and Corgi
  */
 
 #include <linux/module.h>
@@ -117,10 +120,23 @@ static void dma_irq_handler(int irq, void *dev_id, struct pt_regs *regs)
 static int __init pxa_dma_init (void)
 {
 	int ret;
+	int i;
+
+    // initialize
+	for (i = 0; i < 16; i++) {
+	  DDADR(i) |= DDADR_STOP;
+	  DCMD(i) = DCMD_BURST8|DCMD_WIDTH1;
+	  DCSR(i) = DCSR_RUN;
+	}
 
 	ret = request_irq (IRQ_DMA, dma_irq_handler, 0, "DMA", NULL);
 	if (ret)
 		printk (KERN_CRIT "Wow!  Can't register IRQ for DMA\n");
+
+	for (i = 0; i < 16; i++) {
+	  dma_channels[i].name = NULL;
+	}
+
 	return ret;
 }
 

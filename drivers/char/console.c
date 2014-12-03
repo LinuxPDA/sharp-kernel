@@ -76,6 +76,9 @@
  * Split out con_write_ctrl_* functions from do_con_write & changed
  * vc_state to function pointer
  * by Russell King <rmk@arm.linux.org.uk>, July 1998
+ *
+ * ChangLog:
+ *	12-Dec-2002 Lineo Japan, Inc.
  */
 
 #define CONSOLE_WIP
@@ -3083,7 +3086,15 @@ static int pm_con_request(struct pm_dev *dev, pm_request_t rqst, void *data)
 	switch (rqst)
 	{
 	case PM_RESUME:
+#ifdef CONFIG_ARCH_SHARP_SL
+		if (vt_cons[fg_console]->vc_mode == KD_TEXT) {
+			unblank_screen();
+		} else {
+			console_blanked = 0;
+		}
+#else
 		unblank_screen();
+#endif
 		break;
 	case PM_SUSPEND:
 		do_blank_screen(0);

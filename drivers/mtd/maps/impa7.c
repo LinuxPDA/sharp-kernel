@@ -1,5 +1,5 @@
 /*
- * $Id: impa7.c,v 1.1 2002/04/30 15:11:47 mag Exp $
+ * $Id: impa7.c,v 1.2 2002/09/05 05:11:24 acurtis Exp $
  *
  * Handle mapping of the NOR flash on implementa A7 boards
  *
@@ -52,13 +52,6 @@ __u32 impa7_read32(struct map_info *map, unsigned long ofs)
 	return __raw_readl(map->map_priv_1 + ofs);
 }
 
-#ifdef CFI_WORD_64
-__u64 impa7_read64(struct map_info *map, unsigned long ofs)
-{
-	return __raw_readll(map->map_priv_1 + ofs);
-}
-#endif
-
 void impa7_copy_from(struct map_info *map, void *to, unsigned long from, ssize_t len)
 {
 	memcpy_fromio(to, map->map_priv_1 + from, len);
@@ -82,14 +75,6 @@ void impa7_write32(struct map_info *map, __u32 d, unsigned long adr)
 	mb();
 }
 
-#ifdef CFI_WORD_64
-void impa7_write64(struct map_info *map, __u64 d, unsigned long adr)
-{
-	__raw_writell(d, map->map_priv_1 + adr);
-	mb();
-}
-#endif
-
 void impa7_copy_to(struct map_info *map, unsigned long to, const void *from, ssize_t len)
 {
 	memcpy_toio(map->map_priv_1 + to, from, len);
@@ -103,16 +88,10 @@ static struct map_info impa7_map[NUM_FLASHBANKS] = {
 	read8: impa7_read8,
 	read16: impa7_read16,
 	read32: impa7_read32,
-#ifdef CFI_WORD_64
-	read64: impa7_read64,
-#endif
 	copy_from: impa7_copy_from,
 	write8: impa7_write8,
 	write16: impa7_write16,
 	write32: impa7_write32,
-#ifdef CFI_WORD_64
-	write64: impa7_write64,
-#endif
 	copy_to: impa7_copy_to
 	},
 	{
@@ -122,16 +101,10 @@ static struct map_info impa7_map[NUM_FLASHBANKS] = {
 	read8: impa7_read8,
 	read16: impa7_read16,
 	read32: impa7_read32,
-#ifdef CFI_WORD_64
-	read64: impa7_read64,
-#endif
 	copy_from: impa7_copy_from,
 	write8: impa7_write8,
 	write16: impa7_write16,
 	write32: impa7_write32,
-#ifdef CFI_WORD_64
-	write64: impa7_write64,
-#endif
 	copy_to: impa7_copy_to
 	},
 };

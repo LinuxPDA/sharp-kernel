@@ -7,11 +7,23 @@
  * 2000/03/29 (C) Nicolas Pitre <nico@cam.org>
  *	Rewritten: big cleanup, much simpler, better HZ accuracy.
  *
+ * 2001/11/14  SHARP Corporation    modify for SL-5000D
  */
 
 
+#ifdef CONFIG_SA1100_COLLIE
+#if defined(CONFIG_COLLIE_TS) || defined(CONFIG_COLLIE_TR0) || \
+    defined(CONFIG_COLLIE_TR1) || defined(CONFIG_COLLIE_DEV)
+#define RTC_DEF_DIVIDER		32770
+#define RTC_DEF_TRIM            810
+#else
+#define RTC_DEF_DIVIDER		32770
+#define RTC_DEF_TRIM            810
+#endif
+#else
 #define RTC_DEF_DIVIDER		(32768 - 1)
 #define RTC_DEF_TRIM            0
+#endif
 
 static unsigned long __init sa1100_get_rtc_time(void)
 {
@@ -82,6 +94,12 @@ static void sa1100_timer_interrupt(int irq, void *dev_id, struct pt_regs *regs)
 		OSSR = OSSR_M0;  /* Clear match on timer 0 */
 		next_match = (OSMR0 += LATCH);
 		restore_flags( flags );
+#ifdef CONFIG_SA1100_COLLIE
+		OSMR3 = OSMR0+(LATCH*100);
+		if ( !OWER ) {
+		  OWER  = OWER_WME;
+		}
+#endif
 	} while( (signed long)(next_match - OSCR) <= 0 );
 
 	do_profile(regs);
@@ -89,14 +107,44 @@ static void sa1100_timer_interrupt(int irq, void *dev_id, struct pt_regs *regs)
 
 static inline void setup_timer (void)
 {
+#ifdef CONFIG_SA1100_COLLIE
+	int timeout = 0;
+#endif
+
 	gettimeoffset = sa1100_gettimeoffset;
 	set_rtc = sa1100_set_rtc;
+
+#ifdef CONFIG_SA1100_COLLIE
+	if ( RCSR == 0x1 ) {
+	  timeout = 0;
+	  while(1) {
+	    if ( POSR )  break;
+	    if( timeout++ > 0x08000000 ) break; // fail safe
+	  }
+	  RTTR = RTC_DEF_DIVIDER + (RTC_DEF_TRIM << 16);
+#ifdef CONFIG_COLLIE_G
+	  RCNR = ( mktime(2002,1,1,0,0,0) - ( 1*60*60 ) );
+	  xtime.tv_sec = ( mktime(2002,1,1,0,0,0) - ( 1*60*60 ) );
+#else
+	  RCNR = ( mktime(2002,1,1,0,0,0) + ( 5*60*60 ) );
+	  xtime.tv_sec = ( mktime(2002,1,1,0,0,0) + ( 5*60*60 ) );
+#endif
+	} else {
+	  xtime.tv_sec = sa1100_get_rtc_time();
+	}
+#else
 	xtime.tv_sec = sa1100_get_rtc_time();
+#endif
 	timer_irq.handler = sa1100_timer_interrupt;
 	OSMR0 = 0;		/* set initial match at 0 */
 	OSSR = 0xf;		/* clear status on all timers */
 	setup_arm_irq(IRQ_OST0, &timer_irq);
 	OIER |= OIER_E0;	/* enable match on timer 0 to cause interrupts */
 	OSCR = 0;		/* initialize free-running timer, force first match */
+
+#ifdef CONFIG_SA1100_COLLIE
+	OSMR3 = LATCH*100;
+	OWER  = OWER_WME;
+#endif
 }
 

@@ -5,6 +5,9 @@
  *
  * This file contains definitions for the low-level SA-1100 kernel PCMCIA
  * interface. Please see linux/Documentation/arm/SA1100/PCMCIA for details.
+ *
+ * Change Log
+ *	30-Jul-2002 Lineo Japan, Inc.  for 2.4.18
  */
 #ifndef _ASM_ARCH_PCMCIA
 #define _ASM_ARCH_PCMCIA
@@ -44,6 +47,10 @@ struct pcmcia_configure {
         speaker: 1,
           reset: 1,
             irq: 1;
+#ifdef CONFIG_SA1100_COLLIE         
+	u_int	flags;
+	u_int	masks;
+#endif
 };
 
 struct pcmcia_irq_info {

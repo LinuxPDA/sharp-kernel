@@ -27,6 +27,9 @@
  *     Foundation, Inc., 59 Temple Place, Suite 330, Boston, 
  *     MA 02111-1307 USA
  *     
+ * ChangeLog:
+ *	07-03-2002 SHARP	add peer device list to limit some negotiation parameters
+ *	11-20-2002 SHARP	apply patch (fix small bugs in /proc)
  ********************************************************************/
 
 #include <linux/config.h>
@@ -190,6 +193,12 @@ static void __irlap_close(struct irlap_cb *self)
 	self->magic = 0;
 	
 	kfree(self);
+
+	/*
+	 * Delete all specific device lists here.
+	 *	modified by SHARP
+	 */
+	irda_device_list_delete();
 }
 
 /*
@@ -229,12 +238,22 @@ void irlap_close(struct irlap_cb *self)
  */
 void irlap_connect_indication(struct irlap_cb *self, struct sk_buff *skb) 
 {
+	struct qos_info qos;
+
 	IRDA_DEBUG(4, __FUNCTION__ "()\n");
 
 	ASSERT(self != NULL, return;);
 	ASSERT(self->magic == LAP_MAGIC, return;);
 
-	irlap_init_qos_capabilities(self, NULL); /* No user QoS! */
+	/*
+	 * Check the specific device list. If peer device exists in the list,
+	 * set the specified QoS.
+	 *	modified by SHARP
+	 */
+	if (irda_make_appropriate_qos(self->daddr, &qos) != 0) {
+		irlap_init_qos_capabilities(self, &qos); /* use QoS */
+	}else
+		irlap_init_qos_capabilities(self, NULL); /* No user QoS! */
 
 	skb_get(skb); /*LEVEL4*/
 	irlmp_link_connect_indication(self->notify.instance, self->saddr, 
@@ -265,6 +284,8 @@ void irlap_connect_response(struct irlap_cb *self, struct sk_buff *skb)
 void irlap_connect_request(struct irlap_cb *self, __u32 daddr, 
 			   struct qos_info *qos_user, int sniff) 
 {
+	struct qos_info qos;
+
 	IRDA_DEBUG(3, __FUNCTION__ "(), daddr=0x%08x\n", daddr);
 
 	ASSERT(self != NULL, return;);
@@ -276,7 +297,16 @@ void irlap_connect_request(struct irlap_cb *self, __u32 daddr,
 	 *  If the service user specifies QoS values for this connection, 
 	 *  then use them
 	 */
-	irlap_init_qos_capabilities(self, qos_user);
+	if ((qos_user == NULL)&&(irda_make_appropriate_qos(daddr, &qos) != 0)){
+		/*
+		 *	If the servie user doesn't specify QoS value, and QoS value
+         *	for the peer device exists, use the registered value.
+		 *	modified by SHARP
+		 */
+		irlap_init_qos_capabilities(self, &qos);
+	}else{
+		irlap_init_qos_capabilities(self, qos_user);
+	}
 	
 	if ((self->state == LAP_NDM) && !self->media_busy)
 		irlap_do_event(self, CONNECT_REQUEST, NULL, NULL);
@@ -1120,8 +1150,8 @@ int irlap_proc_read(char *buf, char **start, off_t offset, int len)
 
 	self = (struct irlap_cb *) hashbin_get_first(irlap);
 	while (self != NULL) {
-		ASSERT(self != NULL, return -ENODEV;);
-		ASSERT(self->magic == LAP_MAGIC, return -EBADR;);
+		ASSERT(self != NULL, break;);
+		ASSERT(self->magic == LAP_MAGIC, break;);
 
 		len += sprintf(buf+len, "irlap%d ", i++);
 		len += sprintf(buf+len, "state: %s\n", 

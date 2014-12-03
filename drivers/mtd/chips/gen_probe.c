@@ -2,7 +2,7 @@
  * Routines common to all CFI-type probes.
  * (C) 2001, 2001 Red Hat, Inc.
  * GPL'd
- * $Id: gen_probe.c,v 1.7 2002/01/30 09:08:31 rkaiser Exp $
+ * $Id: gen_probe.c,v 1.9 2002/09/05 05:15:32 acurtis Exp $
  */
 
 #include <linux/kernel.h>
@@ -230,6 +230,41 @@ static int genprobe_new_chip(struct map_info *map, struct chip_probe *cp,
 		break;
 #endif /* CFIDEV_BUSWIDTH_4 */
 
+#ifdef CFIDEV_BUSWIDTH_8
+	case CFIDEV_BUSWIDTH_8:
+#if defined(CFIDEV_INTERLEAVE_2) && defined(SOMEONE_ACTUALLY_MAKES_THESE)
+                cfi->interleave = CFIDEV_INTERLEAVE_2;
+
+                cfi->device_type = CFI_DEVICETYPE_X32;
+		if (cp->probe_chip(map, 0, NULL, cfi))
+			return 1;
+#endif /* CFIDEV_INTERLEAVE_2 */
+#ifdef CFIDEV_INTERLEAVE_4
+		cfi->interleave = CFIDEV_INTERLEAVE_4;
+
+#ifdef SOMEONE_ACTUALLY_MAKES_THESE
+		cfi->device_type = CFI_DEVICETYPE_X32;
+		if (cp->probe_chip(map, 0, NULL, cfi))
+			return 1;
+#endif
+		cfi->device_type = CFI_DEVICETYPE_X16;
+		if (cp->probe_chip(map, 0, NULL, cfi))
+			return 1;
+#endif /* CFIDEV_INTERLEAVE_4 */
+#ifdef CFIDEV_INTERLEAVE_8
+		cfi->interleave = CFIDEV_INTERLEAVE_8;
+
+		cfi->device_type = CFI_DEVICETYPE_X16;
+		if (cp->probe_chip(map, 0, NULL, cfi))
+			return 1;
+
+		cfi->device_type = CFI_DEVICETYPE_X8;
+		if (cp->probe_chip(map, 0, NULL, cfi))
+			return 1;
+#endif /* CFIDEV_INTERLEAVE_8 */
+		break;
+#endif /* CFIDEV_BUSWIDTH_8 */
+
 	default:
 		printk(KERN_WARNING "genprobe_new_chip called with unsupported buswidth %d\n", map->buswidth);
 		return 0;
@@ -294,6 +329,10 @@ static struct mtd_info *check_cmd_set(struct map_info *map, int primary)
 #ifdef CONFIG_MTD_CFI_AMDSTD
 	case 0x0002:
 		return cfi_cmdset_0002(map, primary);
+#endif
+#ifdef CONFIG_MTD_CFI_STAA
+        case 0x0020:
+		return cfi_cmdset_0020(map, primary);
 #endif
 	}
 
