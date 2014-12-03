@@ -27,6 +27,7 @@
  *
  * ChangLog:
  *     23-Oct-2002 SHARP  add functions for CONFIG_MTD_NAND_LOGICAL_ADDRESS_ACCESS
+ *     14-Mar-2003 Sharp wait for ready
  */
 
 #include <linux/slab.h>
@@ -150,6 +151,17 @@ sharp_sl_nand_command_1(struct mtd_info* mtd,
     register struct nand_chip *this = mtd->priv;
     register unsigned long NAND_IO_ADDR = this->IO_ADDR_W;
     int i;
+
+#ifdef CONFIG_ARCH_SHARP_SL
+	if (command != NAND_CMD_RESET &&
+		command != NAND_CMD_STATUS) {
+		for (i = 0; i < NAND_BUSY_TIMEOUT; i++)
+			if (!sharp_sl_nand_flash_busy())
+				break;
+		if (i == NAND_BUSY_TIMEOUT)
+			return -EIO;
+	}
+#endif
 
     /* Begin command latch cycle */
     this->hwcontrol (NAND_CTL_SETCLE);

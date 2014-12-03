@@ -25,6 +25,7 @@
  *   04-16-2001 Lineo Japan, Inc.
  *   30-Jul-2002 Lineo Japan, Inc.  for 2.4.18
  *   12-Dec-2002 Sharp Corporation
+ *   12-Mar-2003 Sharp for Shepherd
  */
 #include <linux/config.h>
 #include <linux/init.h>
@@ -1323,6 +1324,111 @@ int sharppda_kbd_is_wakeup(void)
     return 1;
 }
 
+#if defined(CONFIG_ARCH_PXA_SHEPHERD)
+#define MAX_RESET_KEY_COMBINATION 3
+
+#define RESET_KEY_NONE	(0)
+#define RESET_KEY_FUNC	(KEYCODE(5, 11))
+#define RESET_KEY_HOME	(KEYCODE(6, 0))
+#define RESET_KEY_A		(KEYCODE(4, 1))
+#define RESET_KEY_B		(KEYCODE(4, 4))
+#define RESET_KEY_C		(KEYCODE(4, 3))
+#define RESET_KEY_D		(KEYCODE(4, 2))
+#define RESET_KEY_K		(KEYCODE(2, 7))
+#define RESET_KEY_M		(KEYCODE(3, 6))
+#define RESET_KEY_P		(KEYCODE(1, 8))
+#define RESET_KEY_Q		(KEYCODE(2, 1))
+#define RESET_KEY_R		(KEYCODE(1, 3))
+#define RESET_KEY_T		(KEYCODE(2, 3))
+#define RESET_KEY_Z		(KEYCODE(5, 1))
+
+static int reset_key_combination[][MAX_RESET_KEY_COMBINATION] = {
+	{RESET_KEY_FUNC,	RESET_KEY_HOME,	RESET_KEY_NONE},	/* Fn + Home */
+	{RESET_KEY_P,		RESET_KEY_D,	RESET_KEY_NONE},	/* P + D */
+	{RESET_KEY_M,		RESET_KEY_D,	RESET_KEY_NONE},	/* M + D */
+	{RESET_KEY_R,		RESET_KEY_D,	RESET_KEY_NONE},	/* R + D */
+	{RESET_KEY_FUNC,	RESET_KEY_P,	RESET_KEY_D},		/* Fn + P + D */
+	{RESET_KEY_FUNC,	RESET_KEY_M,	RESET_KEY_D},		/* Fn + M + D */
+	{RESET_KEY_Q,		RESET_KEY_T,	RESET_KEY_NONE},	/* Q + T */
+	{RESET_KEY_C,		RESET_KEY_D,	RESET_KEY_NONE},	/* C + D */
+	{RESET_KEY_Z,		RESET_KEY_D,	RESET_KEY_NONE},	/* Z + D */
+	{RESET_KEY_K,		RESET_KEY_D,	RESET_KEY_NONE},	/* K + D */
+	{RESET_KEY_A,		RESET_KEY_B,	RESET_KEY_NONE},	/* A + B */
+	{RESET_KEY_B,		RESET_KEY_D,	RESET_KEY_NONE},	/* B + D */
+	{RESET_KEY_A,		RESET_KEY_D,	RESET_KEY_NONE},	/* A + D */
+	{RESET_KEY_NONE,	RESET_KEY_NONE,	RESET_KEY_NONE}		/* End Mark */
+};
+
+static int sharppda_kbd_resetcheck_one(void)
+{
+    unsigned long flags;
+    int row, col, rowd, real_col, i, j, k, press_num = 0, pressed, set_num;
+	int press_key[MAX_RESET_KEY_COMBINATION] = {0, 0, 0};
+
+    WAIT_CHATTERING_DELAY;
+    spin_lock_irqsave(&kbd_spinlock,flags);
+    CHARGE_ALL;
+    for (col = 0; col < KB_COLS; col++) {
+		real_col = (GET_REAL_COL_FROM_COL(col));
+		DISCHARGE_ALL;
+		WAIT_DISCHARGE_DELAY;
+		ACTIVATE_COL(real_col);
+		WAIT_ACTIVATE_DELAY;
+		rowd = GET_ROWS_STATUS(real_col);
+		for (row = 0; row < KB_ROWS; row++) {
+			if (rowd & KB_ROWMASK(row)) {
+				if (press_num >= MAX_RESET_KEY_COMBINATION) {
+					return 0;	/* too many keys are pressed */
+				}
+				press_key[press_num++] = KEYCODE(row, col);
+			}
+		}
+		RESET_COL(real_col);
+    }
+
+#ifdef USE_KBD_IRQ
+    DRIVE_ALL_COLS;
+#endif
+
+    spin_unlock_irqrestore(&kbd_spinlock,flags);
+
+	for (i = 0; reset_key_combination[i][0] != 0; i++) {
+		set_num = 0;
+		for (j = 0; j < MAX_RESET_KEY_COMBINATION; j++) {
+			if (reset_key_combination[i][j] == RESET_KEY_NONE) continue;
+			set_num++;
+			pressed = 0;
+			for (k = 0; k < press_num; k++) {
+				if (press_key[k] == reset_key_combination[i][j]) {
+					pressed = 1;
+					break;
+				}
+			}
+			if (!pressed) break;
+		}
+		if ((j == MAX_RESET_KEY_COMBINATION) && (set_num == press_num)) {
+			return i + 1;
+		}
+	}
+
+    return 0;
+}
+
+int sharppda_kbd_resetcheck(void)
+{
+	int state, i;
+
+	state = sharppda_kbd_resetcheck_one();
+#if CHECK_CHUTTER_BOUNCE
+	if (!state) return 0;
+	for (i = 0; i < CHECK_CHUTTER; i++) {
+		mdelay(5);
+		if (sharppda_kbd_resetcheck_one() != state) return 0;
+	}
+#endif
+	return state;
+}
+#endif
 /*
  *   end of source
  */

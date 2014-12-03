@@ -23,6 +23,10 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  *
+ * ChangeLog:
+ *      14-Apr-2003 Sharp Corporation  modified ID
+ *      28-Apr-2003 Sharp Corporation  modified ID
+ *
  */
 
 /*
@@ -425,6 +429,22 @@
 	#define CONFIG_USBD_SELFPOWERED		1
 	#define	CONFIG_USBD_MANUFACTURER	"Sharp"
 	#define CONFIG_USBD_PRODUCT_NAME	"SL-C700"
+#ifdef CONFIG_ARCH_PXA_SHEPHERD
+	#undef CONFIG_USBD_SERIAL_PRODUCT ID
+	#define CONFIG_USBD_SERIAL_PRODUCT ID	0x9031
+	#undef CONFIG_USBD_NET_PRODUCTID
+	#define CONFIG_USBD_NET_PRODUCTID	0x9031
+	#undef CONFIG_USBD_PRODUCT_NAME
+#ifdef CONFIG_ARCH_PXA_HUSKY
+	#define CONFIG_USBD_PRODUCT_NAME	"SL-C760"
+#else
+#ifdef CONFIG_ARCH_SHARP_SL_J
+	#define CONFIG_USBD_PRODUCT_NAME	"SL-C750"
+#else
+	#define CONFIG_USBD_PRODUCT_NAME	"SL-7500"
+#endif
+#endif
+#endif
 
 	#undef CONFIG_USBD_NET_CDC
 	#undef CONFIG_USBD_NET_MDLM

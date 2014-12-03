@@ -295,7 +295,13 @@ int jffs2_do_mount_fs(struct jffs2_sb_info *c)
 
 	c->free_size = c->flash_size;
 	c->nr_blocks = c->flash_size / c->sector_size;
+#ifdef CONFIG_ARCH_PXA_HUSKY
+	c->blocks = consistent_alloc(GFP_KERNEL,
+				     sizeof(struct jffs2_eraseblock) * c->nr_blocks,
+				     &c->blocks_phys);
+#else
 	c->blocks = kmalloc(sizeof(struct jffs2_eraseblock) * c->nr_blocks, GFP_KERNEL);
+#endif
 	if (!c->blocks)
 		return -ENOMEM;
 	for (i=0; i<c->nr_blocks; i++) {
@@ -335,7 +341,13 @@ int jffs2_do_mount_fs(struct jffs2_sb_info *c)
 		D1(printk(KERN_DEBUG "build_fs failed\n"));
 		jffs2_free_ino_caches(c);
 		jffs2_free_raw_node_refs(c);
+#ifdef CONFIG_ARCH_PXA_HUSKY
+		consistent_free( c->blocks,
+				 sizeof(struct jffs2_eraseblock) * c->nr_blocks,
+				 c->blocks_phys );
+#else
 		kfree(c->blocks);
+#endif
 		return -EIO;
 	}
 	return 0;

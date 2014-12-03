@@ -6,6 +6,9 @@
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
+ *
+ * ChangeLog:
+ *     04-Apr-2003 Sharp for ARM FCSE
  */
 #ifndef _ASMARM_PGALLOC_H
 #define _ASMARM_PGALLOC_H
@@ -123,6 +126,31 @@ static inline void free_pte_fast(pte_t *pte)
 extern pgd_t *get_pgd_slow(struct mm_struct *mm);
 extern void free_pgd_slow(pgd_t *pgd);
 
+#ifdef CONFIG_ARM_FCSE
+extern pgd_t *pgd_shared_fcse_process;
+
+static inline pgd_t *pgd_alloc(struct mm_struct *mm)
+{
+	pgd_t *pgd;
+
+	pgd = get_pgd_fast();
+	if (!pgd)
+		pgd = get_pgd_slow(mm);
+
+	if (current->mm->context.cpu_pid && pgd_shared_fcse_process == NULL) {
+		pgd_shared_fcse_process = pgd;
+	}
+
+	return pgd;
+}
+
+static inline void pgd_free(pgd_t *pgd)
+{
+	/* never free pgd_shared_fcse_process */
+	if (pgd_shared_fcse_process == pgd) return;
+	free_pgd_fast(pgd);
+}
+#else
 static inline pgd_t *pgd_alloc(struct mm_struct *mm)
 {
 	pgd_t *pgd;
@@ -135,6 +163,7 @@ static inline pgd_t *pgd_alloc(struct mm_struct *mm)
 }
 
 #define pgd_free(pgd)			free_pgd_fast(pgd)
+#endif
 
 extern int do_check_pgt_cache(int, int);
 

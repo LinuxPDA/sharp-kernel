@@ -33,6 +33,7 @@
  *	12-Dec-2002 Lineo Japan, Inc.
  *      12-Dec-2002 Sharp Corporation for Poodle and Corgi
  *	16-Jan-2003 SHARP sleep_on -> interruptible_sleep_on
+ *	09-Apr-2003 SHARP for Shaphard (software reset)
  *
  */
 
@@ -128,7 +129,11 @@ void pxa_ssp_init(void);
 			  PWER_RTC | GPIO_bit(GPIO_WAKEUP) | GPIO_bit(GPIO_GA_INT) )
 #elif defined(CONFIG_ARCH_PXA_CORGI)
 #define PWER_RTC	0x80000000
+#if defined(CONFIG_ARCH_PXA_SHEPHERD)
+#define R_WAKEUP_SRC	(GPIO_bit(GPIO_AC_IN) | GPIO_bit(GPIO_AK_INT) | GPIO_bit(GPIO_MAIN_BAT_LOW))
+#else
 #define R_WAKEUP_SRC	(GPIO_bit(GPIO_AC_IN) | GPIO_bit(GPIO_AK_INT))
+#endif
 #define F_WAKEUP_SRC	(GPIO_bit(GPIO_KEY_INT) | GPIO_bit(GPIO_WAKEUP) | \
 			 GPIO_bit(GPIO_AC_IN) | GPIO_bit(GPIO_MAIN_BAT_LOW))
 #define WAKEUP_SRC	( R_WAKEUP_SRC | F_WAKEUP_SRC | PWER_RTC )
@@ -163,6 +168,41 @@ void PrintParamTable(void);
 static u32 alarm_enable=0;
 #endif
 
+#ifdef CONFIG_ARCH_PXA_SHEPHERD
+int sharpsl_restart(void)
+{
+	return sharpsl_restart_core(0);
+}
+
+int sharpsl_restart_nonstop(void)
+{
+	return sharpsl_restart_core(1);
+}
+
+int sharpsl_restart_core(int nonstop_flag)
+{
+	int flag = 1;
+
+	if (nonstop_flag) {
+		SCP_REG_GPWR |= SCP_LED_GREEN;
+	}
+	else {
+		SCP_REG_GPWR &= ~SCP_LED_GREEN;
+	}
+
+	RCSR = 0xf;
+
+	OSMR3 = OSCR+0x100;
+	OWER = 0x01;
+	OIER |= 0x08;
+
+	while(1) {
+		if ( flag++ > 0x20000000 ) break;
+	}
+
+	return 0;
+}
+#else
 int sharpsl_restart(void)
 {
 	int flag = 1;
@@ -179,7 +219,7 @@ int sharpsl_restart(void)
 
 	return 0;
 }
-
+#endif
 
 #ifdef CONFIG_SABINAL_DISCOVERY
 static int discovery_wakeup_hook(void)
@@ -310,8 +350,33 @@ static int sharpsl_wakeup_hook(void)
 		if (sharppda_kbd_is_wakeup())
 			is_resume |= GPIO_bit(GPIO_KEY_INT);
 	}
+#if defined(CONFIG_ARCH_PXA_SHEPHERD)
+	if ((apm_wakeup_factor & GPIO_bit(GPIO_MAIN_BAT_LOW)) &&
+		(GPLR(GPIO_MAIN_BAT_LOW) & GPIO_bit(GPIO_MAIN_BAT_LOW)) &&
+		sharppda_kbd_resetcheck()) {
+		/* apm_wakeup_src_mask = 0; */
+		sharpsl_off_mode = 1;
+		is_resume |= GPIO_bit(GPIO_MAIN_BAT_LOW);
+	}
+
+	// lock
+	if ((apm_wakeup_factor & GPIO_bit(GPIO_MAIN_BAT_LOW)) &&
+	    (GPLR(GPIO_MAIN_BAT_LOW) & GPIO_bit(GPIO_MAIN_BAT_LOW)) &&
+	    ( sharpsl_battery_charge_hook )) {
+	  sharpsl_battery_charge_hook(2);	/* charge on */
+	}
+
+	// unlock
+	if ((apm_wakeup_factor & GPIO_bit(GPIO_MAIN_BAT_LOW)) &&
+		!(GPLR(GPIO_MAIN_BAT_LOW) & GPIO_bit(GPIO_MAIN_BAT_LOW)) &&
+	    ( sharpsl_battery_charge_hook )) {
+	  sharpsl_battery_charge_hook(1);	/* charge off */
+	}
+
+#else
 	if ( apm_wakeup_factor & GPIO_bit(GPIO_MAIN_BAT_LOW) )
 		apm_wakeup_src_mask = 0;
+#endif
 #endif
 	if ( apm_wakeup_factor & GPIO_bit(GPIO_WAKEUP) )
 		is_resume |= GPIO_bit(GPIO_WAKEUP);
@@ -393,11 +458,22 @@ int pxa_suspend(void)
 		cpu_xscale_sl_change_speed_145_without_lcd();
 	    cccr_reg = CCCR;
 	    break;
+#if defined(CONFIG_ARCH_PXA_SHEPHERD)
+	  case 0x161:
+	    if ( CCCR == 0x0161 ) break;
+		cpu_xscale_sl_change_speed_161();
+	    cccr_reg = CCCR;
+	    break;
+#endif
 	  }
 	  sharpsl_chg_freq &= 0x0000ffff;
 	  mdelay(500);
 	  return 0;
 	}
+#endif
+
+#if defined(CONFIG_ARCH_PXA_SHEPHERD)
+	if (sharpsl_off_mode == 2) sharpsl_restart();	/* off in maintenance */
 #endif
 
 	/* set up pointer to sleep parameters */
@@ -789,11 +865,19 @@ DO_SUSPEND:
 	}
 
 #if !defined(CONFIG_POODLE_TR0) && !defined(CONFIG_CORGI_TR0)
+#if defined(CONFIG_ARCH_PXA_SHEPHERD)
+	if ( ( (GPLR(GPIO_MAIN_BAT_LOW) & GPIO_bit(GPIO_MAIN_BAT_LOW)) == 0 )
+	     || ( !sharpsl_off_mode && chkFatalBatt() == 0 ) ) {
+	        printk("return to suspend (fatal) ....\n");
+		goto DO_SUSPEND;
+	}
+#else
 	if ( ( (GPLR(GPIO_MAIN_BAT_LOW) & GPIO_bit(GPIO_MAIN_BAT_LOW)) == 0 )
 	     || ( chkFatalBatt() == 0 ) ) {
 	        printk("return to suspend (fatal) ....\n");
 		goto DO_SUSPEND;
 	}
+#endif
 #endif
 #endif
 
@@ -810,6 +894,11 @@ DO_SUSPEND:
 	if ( sharpsl_chg_freq == 0x0145 ) {
 	  cpu_xscale_sl_change_speed_145_without_lcd();
 	}
+#if defined(CONFIG_ARCH_PXA_SHEPHERD)
+	else if ( sharpsl_chg_freq == 0x0161 ) {
+	  cpu_xscale_sl_change_speed_161();
+	}
+#endif
 	cccr_reg = CCCR;
 	printk("FCS : CCCR = %x\n",cccr_reg);
 
@@ -1207,12 +1296,15 @@ static int sharpsl_off_thread(void* unused)
 		interruptible_sleep_on(&wq_off);
 		DPRINTK("start off sequence ! \n");
 
+#if !defined(CONFIG_ARCH_PXA_SHEPHERD)
 		sharpsl_off_mode = 1;
+#endif
 
 		handle_scancode(SLKEY_OFF|KBDOWN , 1);
 		mdelay(10);
 		handle_scancode(SLKEY_OFF|KBUP   , 0);
 
+#if !defined(CONFIG_ARCH_PXA_SHEPHERD)
 		// wait off signal
 		// if can not recieve off siganl , so force off.
 		time_cnt = jiffies;
@@ -1224,10 +1316,21 @@ static int sharpsl_off_thread(void* unused)
 		// maybe apps is dead, so we have to restart.
 		pm_do_suspend();
 		sharpsl_restart();
+#endif
 	}
 	return 0;
 }
 
+#if defined(CONFIG_ARCH_PXA_SHEPHERD)
+static struct timer_list bat_switch_timer;
+
+void sharpsl_emerge_restart(void)
+{
+	unsigned long   flags;
+	save_flags_cli(flags);
+	sharpsl_restart();
+}
+#endif
 
 void sharpsl_emerge_off(int irq, void *dev_id, struct pt_regs *regs)
 {
@@ -1236,11 +1339,20 @@ void sharpsl_emerge_off(int irq, void *dev_id, struct pt_regs *regs)
   mdelay(10);
   if ( 0x1234ABCD != regs &&
        GPLR(GPIO_MAIN_BAT_LOW) & GPIO_bit(GPIO_MAIN_BAT_LOW) ) {
+#if defined(CONFIG_ARCH_PXA_SHEPHERD)
+	  sharpsl_battery_charge_hook(1);	/* charge off */
+	  if (sharppda_kbd_resetcheck()) {
+		  sharpsl_off_mode = 2;			/* off in maintenance */
+		  mod_timer(&bat_switch_timer, jiffies + HZ * 5);
+		  return;
+	  }
+#else
     printk("cancel emergency off\n");
+#endif
     return;
   }
 
-#if defined(CONFIG_ARCH_PXA_CORGI)
+#if defined(CONFIG_ARCH_PXA_CORGI) && !defined(CONFIG_ARCH_PXA_SHEPHERD)
   if (!(GPLR(GPIO_MAIN_BAT_LOW) & GPIO_bit(GPIO_MAIN_BAT_LOW)))
     apm_wakeup_src_mask = 0;
 #endif
@@ -1260,7 +1372,11 @@ static int __init pm_init(void)
 
 #ifndef CONFIG_SABINAL_DISCOVERY
 	/* Set transition detect */
+#ifdef CONFIG_ARCH_PXA_SHEPHERD
+	set_GPIO_IRQ_edge( GPIO_MAIN_BAT_LOW  , GPIO_BOTH_EDGES );
+#else
 	set_GPIO_IRQ_edge( GPIO_MAIN_BAT_LOW  , GPIO_FALLING_EDGE );
+#endif
 
 
 	/* this registration can be done in init/main.c. */
@@ -1276,6 +1392,10 @@ static int __init pm_init(void)
 	}
 
 	kernel_thread(sharpsl_off_thread,  NULL, CLONE_FS | CLONE_FILES | CLONE_SIGHAND | SIGCHLD);
+#if defined(CONFIG_ARCH_PXA_SHEPHERD)
+	init_timer(&bat_switch_timer);
+	bat_switch_timer.function = sharpsl_emerge_restart;
+#endif
 #endif
 	return 0;
 }

@@ -48,6 +48,7 @@
  *	07-Aug-2002 Lineo Japan, Inc.  for Poodle
  *	12-Dec-2002 Sharp Corporation for Poodle and Corgi
  *	16-Jan-2003 SHARP sleep_on -> interruptible_sleep_on
+ *	13-Mar-2003 SHARP for PXA255
  */
 
 #include <linux/config.h>
@@ -1099,11 +1100,22 @@ static void apm_do_busy(void)
 		}
 #endif
 		MDREFR &= ~MDREFR_APD;
+#if defined(CONFIG_ARCH_PXA_SHEPHERD)
+		if ( cccr_reg == 0x161 ) {
+			cpu_xscale_sl_change_speed_161();
+		}
+		else if ( cccr_reg == 0x145 ) {
+			cpu_xscale_sl_change_speed_145();
+		} else {
+			cpu_xscale_change_speed_241();
+		}
+#else
 		if ( cccr_reg == 0x145 ) {
 			cpu_xscale_sl_change_speed_145();
 		} else {
 			cpu_xscale_change_speed_241();
 		}
+#endif
 	} else {
 		MDREFR &= ~MDREFR_APD;
 	}
@@ -2171,7 +2183,11 @@ static int do_ioctl(struct inode * inode, struct file *filp,
 		sharpsl_off_mode = 1;
 #endif
 		save_flags_cli(flags);
+#if defined(CONFIG_ARCH_PXA_SHEPHERD)
+		sharpsl_restart_nonstop();
+#else
 		sharpsl_restart();
+#endif
 	} break;
 #if defined(CONFIG_ARCH_PXA_CORGI)
 	case APM_IOC_GET_HINGE_STATE: {
@@ -2625,10 +2641,15 @@ static int __init apm_init(void)
 
 
 #if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
+#if defined(CONFIG_ARCH_PXA_SHEPHERD)
+	sharpsl_chg_freq = (unsigned int)0x00000161;
+	cpu_xscale_sl_change_speed_161();
+#else
 #if 1	// default 400MHz
 	sharpsl_chg_freq = (unsigned int)0x00000241;
 #else
 	cpu_xscale_sl_change_speed_145_without_lcd();
+#endif
 #endif
 	cccr_reg = CCCR;
 	printk("FCS : CCCR = %x\n",cccr_reg);

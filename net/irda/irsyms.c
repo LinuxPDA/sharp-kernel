@@ -21,6 +21,8 @@
  *     provide warranty for any of this software. This material is 
  *     provided "AS-IS" and at no charge.
  *     
+ * ChangeLog:
+ *	03-06-2003 SHARP	support suspend/resume
  ********************************************************************/
 
 #include <linux/config.h>

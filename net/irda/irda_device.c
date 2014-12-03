@@ -27,6 +27,8 @@
  *     Foundation, Inc., 59 Temple Place, Suite 330, Boston, 
  *     MA 02111-1307 USA
  *     
+ * ChangeLog:
+ *	03-06-2003 SHARP	support suspend/resume
  ********************************************************************/
 
 #include <linux/config.h>

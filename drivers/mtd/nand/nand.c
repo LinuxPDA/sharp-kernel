@@ -121,6 +121,7 @@
  *				      add erase-by-force mode
  *     18-Sep-2002 Lineo Japan, Inc.  add dev_ready() call after read
  *     17-Sep-2002 Lineo Japan, Inc.  add code for post-badblock
+ *     14-Mar-2003 Sharp wait for ready in read_oob()
  */
 
 #include <linux/delay.h>
@@ -786,6 +787,9 @@ static int nand_read_oob (struct mtd_info *mtd, loff_t from, size_t len, size_t 
 	int col, page;
 	int erase_state = 0;
 	struct nand_chip *this = mtd->priv;
+#ifdef CONFIG_ARCH_SHARP_SL
+	int retval = 0;
+#endif
 
 	DEBUG (MTD_DEBUG_LEVEL3, "nand_read_oob: from = 0x%08x, len = %i\n", (unsigned int) from, (int) len);
 
@@ -827,6 +831,22 @@ static int nand_read_oob (struct mtd_info *mtd, loff_t from, size_t len, size_t 
 				udelay (this->chip_delay);
 		}
 
+#ifdef CONFIG_ARCH_SHARP_SL
+		if (!this->dev_ready) 
+			udelay (this->chip_delay);
+		else {
+			int i;
+			for (i = 0; i < NAND_BUSY_TIMEOUT; i++)
+				if (this->dev_ready())
+					break;
+			if (i == NAND_BUSY_TIMEOUT) {
+				retval = -EIO;
+				break;
+			}
+			
+		}
+#endif
+
 		col = 0;
 		page++;
 		len -= tmp_len;
@@ -844,7 +864,11 @@ static int nand_read_oob (struct mtd_info *mtd, loff_t from, size_t len, size_t 
 	spin_unlock_bh (&this->chip_lock);
 
 	/* Return happy */
+#ifdef CONFIG_ARCH_SHARP_SL
+	return retval;
+#else
 	return 0;
+#endif
 }
 
 /*

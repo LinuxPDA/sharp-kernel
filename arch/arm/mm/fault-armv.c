@@ -8,7 +8,9 @@
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
  *
+ * Change Log
  *  12-Dec-2002 Sharp Corporation for Poodle and Corgi
+ *	04-Apr-2003 Sharp for ARM FCSE
  *
  */
 #include <linux/config.h>
@@ -115,6 +117,15 @@ do_DataAbort(unsigned long addr, int error_code, struct pt_regs *regs, int fsr)
 {
 	const struct fsr_info *inf = fsr_info + (fsr & 15);
 
+#ifdef CONFIG_ARM_FCSE
+	if (current->mm->context.cpu_pid != 0) {
+		if (CPU_PID_MASK(addr) < CPU_PID_MAX_ADDR) {
+			/* translate MVA to VA */
+			addr = CPU_PID_OFFSET(addr);
+		}
+	}
+#endif
+
 #if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
 	{
 	  extern sharpsl_fataloff(void);
@@ -135,6 +146,14 @@ do_DataAbort(unsigned long addr, int error_code, struct pt_regs *regs, int fsr)
 asmlinkage void
 do_PrefetchAbort(unsigned long addr, struct pt_regs *regs)
 {
+#ifdef CONFIG_ARM_FCSE
+	if (current->mm->context.cpu_pid != 0) {
+		if (CPU_PID_MASK(addr) < CPU_PID_MAX_ADDR) {
+			/* translate MVA to VA */
+			addr = CPU_PID_OFFSET(addr);
+		}
+	}
+#endif
 	do_translation_fault(addr, 0, regs);
 }
 

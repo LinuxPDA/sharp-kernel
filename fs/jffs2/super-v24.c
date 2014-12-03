@@ -106,7 +106,13 @@ void jffs2_put_super (struct super_block *sb)
 	up(&c->alloc_sem);
 	jffs2_free_ino_caches(c);
 	jffs2_free_raw_node_refs(c);
+#ifdef CONFIG_ARCH_PXA_HUSKY
+	consistent_free( c->blocks,
+			 sizeof(struct jffs2_eraseblock) * c->nr_blocks,
+			 c->blocks_phys );
+#else
 	kfree(c->blocks);
+#endif
 	if (c->mtd->sync)
 		c->mtd->sync(c->mtd);
 	put_mtd_device(c->mtd);

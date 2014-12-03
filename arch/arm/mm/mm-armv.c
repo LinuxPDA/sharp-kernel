@@ -8,6 +8,9 @@
  * published by the Free Software Foundation.
  *
  *  Page table sludge for ARM v3 and v4 processor architectures.
+ *
+ * Change Log
+ *	04-Apr-2003 Sharp for ARM FCSE
  */
 #include <linux/sched.h>
 #include <linux/mm.h>
@@ -496,3 +499,154 @@ void __init pgtable_cache_init(void)
 	if (!pte_cache)
 		BUG();
 }
+
+#ifdef CONFIG_ARM_FCSE
+static int mapped_exception_table_mva = 0;
+
+void map_exception_table_mva(struct mm_struct *mm)
+{
+	pgd_t *new_pgd, *init_pgd;
+	pmd_t *new_pmd, *init_pmd;
+	pte_t *new_pte, *init_pte;
+	unsigned long mva;
+	int i;
+
+	if (mapped_exception_table_mva) return;
+	mapped_exception_table_mva = 1;
+	init_pgd = pgd_offset_k(0);
+	if (vectors_base() == 0) {
+		init_pmd = pmd_offset(init_pgd, 0);
+		init_pte = pte_offset(init_pmd, 0);
+		spin_lock(mm->page_table_lock);
+		for (i = 0; i < CPU_PID_MAX_SIZE; i++) {
+			mva = CPU_PID_MVA(i);
+			new_pgd = pgd_offset(mm, mva);
+			new_pmd = pmd_alloc(mm, new_pgd, mva);
+			if (!new_pmd) continue;
+			new_pte = pte_alloc(mm, new_pmd, mva);
+			if (!new_pte) {
+				pmd_free(new_pmd);
+				continue;
+			}
+			set_pte(new_pte, *init_pte);
+		}
+		spin_unlock(mm->page_table_lock);
+	}
+	clean_cache_area(mm->pgd, PTRS_PER_PGD * sizeof(pgd_t));
+	return;
+}
+
+int get_cpu_pid(struct mm_struct *p)
+{
+	int i;
+	for (i = prev_cpu_pid + 1; i < CPU_PID_MAX_SIZE; i++) {
+		if (cpu_pid_table[i] == NULL) {
+			p->context.cpu_pid = i;
+			cpu_pid_table[i] = p;
+			prev_cpu_pid = i;
+			return i;
+		}
+	}
+	for (i = CPU_PID_SPECIAL+1; i <= prev_cpu_pid; i++) {
+		if (cpu_pid_table[i] == NULL) {
+			p->context.cpu_pid = i;
+			cpu_pid_table[i] = p;
+			prev_cpu_pid = i;
+			return i;
+		}
+	}
+	return 0;
+}
+
+void release_cpu_pid(struct mm_struct *p)
+{
+	if ((p->context.cpu_pid > 0) && (p->context.cpu_pid < CPU_PID_MAX_SIZE)) {
+		cpu_pid_table[p->context.cpu_pid] = NULL;
+	}
+	p->context.cpu_pid = 0;
+}
+
+void copy_page_table_mva(struct mm_struct *mm, int old_pid)
+{
+	unsigned long from_mva;
+	unsigned long to_mva;
+	int i;
+	pgd_t *from_pgd, *to_pgd, *tmp_pgd;
+	pmd_t *from_pmd, *to_pmd;
+	pgd_t *new_pgd, *init_pgd;
+	pmd_t *new_pmd, *init_pmd;
+	pte_t *new_pte, *init_pte;
+	unsigned long mva;
+
+	flush_cache_all();
+	flush_tlb_all();
+
+	if (!pgd_shared_fcse_process) {
+		pgd_shared_fcse_process = pgd_alloc(mm);
+		map_exception_table_mva(mm);
+	}
+
+	spin_lock(mm->page_table_lock);
+
+	init_pgd = pgd_offset_k(0);
+	init_pmd = pmd_offset(init_pgd, 0);
+	init_pte = pte_offset(init_pmd, 0);
+	mva = CPU_PID_MVA(old_pid);
+	new_pgd = pgd_offset(mm, mva);
+	new_pmd = pmd_alloc(mm, new_pgd, mva);
+	if (new_pmd) {
+		new_pte = pte_alloc(mm, new_pmd, mva);
+		if (new_pte) {
+			set_pte(new_pte, *init_pte);
+		}
+	}
+
+	for (from_mva = CPU_PID_MVA(old_pid), to_mva = CPU_PID_MVA(mm->context.cpu_pid), i = 0;
+	     i < CPU_PID_SIZE / PMD_SIZE;
+	     from_mva += PMD_SIZE, to_mva += PMD_SIZE, i++) {
+		from_pgd = pgd_offset(mm, from_mva);
+		from_pmd = pmd_alloc(mm, from_pgd, from_mva);
+		tmp_pgd = mm->pgd;
+		mm->pgd = pgd_shared_fcse_process;
+		to_pgd = pgd_offset(mm, to_mva);
+		to_pmd = pmd_alloc(mm, to_pgd, to_mva);
+		mm->pgd = tmp_pgd;
+		if (!from_pmd || !to_pmd) continue;
+		set_pmd(to_pmd, *from_pmd);
+	}
+
+	for (mva = FIRST_USER_PGD_NR << PGDIR_SHIFT;
+		 mva < 0xc0000000UL;
+		 mva += PGDIR_SIZE) {
+		new_pgd = pgd_offset(mm, mva);
+		new_pmd = pmd_offset(new_pgd, mva);
+		pmd_clear(new_pmd);
+	}
+
+	spin_unlock(mm->page_table_lock);
+
+	pgd_free(mm->pgd);
+	mm->pgd = pgd_shared_fcse_process;
+	cpu_xscale_set_pgd_without_invalidation(__virt_to_phys((unsigned long)(mm->pgd)));
+}
+
+void unmap_shared_page_table(struct mm_struct *mm, int pid)
+{
+	unsigned long mva;
+	pgd_t *pgd;
+	pmd_t *pmd;
+	pte_t *pte;
+
+	spin_lock(mm->page_table_lock);
+	for (mva = CPU_PID_MVA(pid) + PAGE_SIZE; mva < CPU_PID_MVA(pid+1); mva += PMD_SIZE) {
+		pgd = pgd_offset(mm, mva);
+		pmd = pmd_offset(pgd, mva);
+		if (pmd_none(*pmd)) continue;
+		pte = pte_offset(pmd, mva);
+		if (pte_none(*pte)) continue;
+		pte_free(pte);
+		pmd_clear(pmd);
+	}
+	spin_unlock(mm->page_table_lock);
+}
+#endif

@@ -21,6 +21,7 @@
  * ChangeLog:
  *  28-02-2003 SHARP supported VRAM image cache for ver.1.3
  *  19-03-2003 SHARP disabled VRAM image cache for ver.1.3
+ *  16-04-2003 SHARP for Shepherd
  */
 
 // define this here because unistd.h needs it
@@ -663,6 +664,35 @@ static int w100_blank(int blank_mode, struct fb_info_gen *info)
 #include "vgaLogoScreen.c"
 #define SHOW_WAIT_MSG
 #ifdef SHOW_WAIT_MSG
+
+#ifdef CONFIG_ARCH_PXA_SHEPHERD
+
+// Shepherd
+#ifdef CONFIG_ARCH_SHARP_SL_J // Japanese message
+#include "shepherdLogoMsgJ.c"
+#if defined(CONFIG_FBCON_ROTATE_R) || defined(CONFIG_FBCON_ROTATE_L)
+static int	logo_msg_xoff __initdata = 400;
+static int	logo_msg_yoff __initdata = 100;
+#else
+static int	logo_msg_xoff __initdata = 120;
+static int	logo_msg_yoff __initdata = 500;
+#endif
+#endif
+
+#ifdef CONFIG_ARCH_SHARP_SL_E // English message
+#include "shepherdLogoMsg.c"
+#if defined(CONFIG_FBCON_ROTATE_R) || defined(CONFIG_FBCON_ROTATE_L)
+static int	logo_msg_xoff __initdata = 400;
+static int	logo_msg_yoff __initdata = 100;
+#else
+static int	logo_msg_xoff __initdata = 120;
+static int	logo_msg_yoff __initdata = 500;
+#endif
+#endif
+
+#else // CONFIG_ARCH_PXA_SHEPHERD
+
+// Corgi
 #ifdef CONFIG_ARCH_SHARP_SL_J // Japanese message
 #include "corgiLogoMsgJ.c"
 #if defined(CONFIG_FBCON_ROTATE_R) || defined(CONFIG_FBCON_ROTATE_L)
@@ -673,6 +703,9 @@ static int	logo_msg_xoff __initdata = 120;
 static int	logo_msg_yoff __initdata = 500;
 #endif
 #endif
+
+#endif // CONFIG_ARCH_PXA_SHEPHERD
+
 #endif
 static void __init draw_img( int sx, int sy, int w, int h, unsigned short* data )
 {

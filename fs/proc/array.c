@@ -53,6 +53,7 @@
  *
  * ChangeLog:
  *     23-Nov-2002 SHARP  add pmem
+ *     04-Apr-2003 Sharp for ARM FCSE
  *
  */
 
@@ -160,11 +161,21 @@ static inline char * task_state(struct task_struct *p, char *buffer)
 		"PPid:\t%d\n"
 		"TracerPid:\t%d\n"
 		"Uid:\t%d\t%d\t%d\t%d\n"
+#ifdef CONFIG_ARM_FCSE
+		"Gid:\t%d\t%d\t%d\t%d\n"
+		"CPU_Pid:\t%d\n"
+		"Pgd:\t%08x\n",
+#else
 		"Gid:\t%d\t%d\t%d\t%d\n",
+#endif
 		get_task_state(p), p->tgid,
 		p->pid, p->pid ? p->p_opptr->pid : 0, 0,
 		p->uid, p->euid, p->suid, p->fsuid,
+#ifdef CONFIG_ARM_FCSE
+		p->gid, p->egid, p->sgid, p->fsgid, p->mm->context.cpu_pid, p->mm->pgd);
+#else
 		p->gid, p->egid, p->sgid, p->fsgid);
+#endif
 	read_unlock(&tasklist_lock);	
 	task_lock(p);
 	buffer += sprintf(buffer,

@@ -402,7 +402,13 @@ int jffs2_do_fill_super(struct super_block *sb, void *data, int silent)
  out_nodes:
 	jffs2_free_ino_caches(c);
 	jffs2_free_raw_node_refs(c);
+#ifdef CONFIG_ARCH_PXA_HUSKY
+	consistent_free( c->blocks,
+			 sizeof(struct jffs2_eraseblock) * c->nr_blocks,
+			 c->blocks_phys );
+#else
 	kfree(c->blocks);
+#endif
  out_inohash:
 	kfree(c->inocache_list);
  out_wbuf:

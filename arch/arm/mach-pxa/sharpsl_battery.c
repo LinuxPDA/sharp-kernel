@@ -23,6 +23,7 @@
  *	21-Aug-2002 Lineo Japan, Inc.  for 2.4.18
  *	12-Dec-2002 Sharp Corporation for Poodle and Corgi
  *	16-Jan-2003 SHARP sleep_on -> interruptible_sleep_on
+ *	19-May-2003 SHARP support for Sheperd
  *
  */
 
@@ -1510,6 +1511,17 @@ int sharpsl_off_charge_battery(void)
     case CHARGE_STEP1:
       {
 	DPRINTK("STEP 1\n");
+
+#if defined(CONFIG_ARCH_PXA_SHEPHERD)
+	if ( !(GPLR(GPIO_MAIN_BAT_LOW) & GPIO_bit(GPIO_MAIN_BAT_LOW)) ) {
+	  // unlock
+	  CHARGE_LED_OFF();
+	  CHARGE_OFF();
+	  sharpsl_charge_state = CHARGE_STEP1;
+	  charge_status = 0;
+	  return 0;
+	}
+#endif
 
 #if defined(CONFIG_ARCH_PXA_CORGI)
 	/* AC Check */

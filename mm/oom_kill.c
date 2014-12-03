@@ -19,6 +19,7 @@
  *     13-Nov-2002 SHARP
  *     16-Jan-2003 SHARP add VM switch
  *     24-Feb-2003 SHARP modify check out of memory function
+ *     18-Apr-2003 Sharp modify threshold
  */
 
 #include <linux/mm.h>
@@ -236,9 +237,15 @@ static void oom_kill(void)
 
 #if defined(CONFIG_ARCH_SHARP_SL)
 #define MIN_KILL_INTERVAL (60*HZ)
-#define OOM_KILL_PG_CACHE_SIZE	(384)
-#define MIN_SIGNAL_PG_CACHE_SIZE	(512)
-#define LOW_SIGNAL_PG_CACHE_SIZE	(768)
+#if defined(CONFIG_ARCH_PXA_SHEPHERD)
+#define OOM_KILL_PG_CACHE_SIZE	(1280)		/* 5MB */
+#define MIN_SIGNAL_PG_CACHE_SIZE	(1536)	/* 6MB */
+#define LOW_SIGNAL_PG_CACHE_SIZE	(2048)	/* 8MB */
+#else
+#define OOM_KILL_PG_CACHE_SIZE	(384)		/* 1.5MB */
+#define MIN_SIGNAL_PG_CACHE_SIZE	(512)	/* 2MB */
+#define LOW_SIGNAL_PG_CACHE_SIZE	(768)	/* 3MB */
+#endif
 #endif
 
 static unsigned long first, last, count, good_count, retry_count;

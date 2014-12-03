@@ -1,6 +1,7 @@
 /*
  * ChangLog:
  *	12-Dec-2002 Lineo Japan, Inc.
+ *	16-Apr-2003 Sharp for SL-Zaurus
  */
 
 #ifndef _LINUX_SWAP_H
@@ -188,12 +189,26 @@ do {						\
 	nr_active_pages++;			\
 } while (0)
 
+#ifdef CONFIG_ARCH_SHARP_SL
+#define add_page_to_inactive_list(page)		\
+do {						\
+	DEBUG_LRU_PAGE(page);			\
+	if (!vm_without_swap || page->mapping) {	\
+		list_add(&(page)->lru, &inactive_list);	\
+		nr_inactive_pages++;			\
+	}	\
+	else {	\
+		clear_bit(PG_lru, &(page)->flags);	\
+	}	\
+} while (0)
+#else
 #define add_page_to_inactive_list(page)		\
 do {						\
 	DEBUG_LRU_PAGE(page);			\
 	list_add(&(page)->lru, &inactive_list);	\
 	nr_inactive_pages++;			\
 } while (0)
+#endif
 
 #define del_page_from_active_list(page)		\
 do {						\

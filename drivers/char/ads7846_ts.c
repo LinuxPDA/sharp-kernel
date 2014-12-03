@@ -12,7 +12,8 @@
  * Change Log
  * 	01-Jul-2002 SHARP Corporation
  *	31-Jul-2002 Lineo Japan, Inc.  for ARCH_PXA
- *      12-Dec-2002 Sharp Corporation for Poodle and Corgi
+ *	12-Dec-2002 Sharp Corporation for Poodle and Corgi
+ *	27-Feb-2003 Sharp modified for Poodle
  *
  */
 

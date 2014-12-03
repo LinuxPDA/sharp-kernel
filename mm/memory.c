@@ -36,6 +36,11 @@
  *		(Gerhard.Wichert@pdb.siemens.de)
  */
 
+/*
+ * ChangeLog:
+ *     04-Apr-2003 Sharp for ARM FCSE
+ */
+
 #include <linux/mm.h>
 #include <linux/mman.h>
 #include <linux/swap.h>
@@ -974,6 +979,10 @@ static int do_wp_page(struct mm_struct *mm, struct vm_area_struct * vma,
 	if (!new_page)
 		goto no_mem;
 	copy_cow_page(old_page,new_page,address);
+#ifdef CONFIG_ARM_FCSE
+	flush_cache_all();
+	flush_tlb_all();
+#endif
 
 	/*
 	 * Re-check the pte - we dropped the lock
@@ -1332,6 +1341,19 @@ static inline int handle_pte_fault(struct mm_struct *mm,
 	int write_access, pte_t * pte)
 {
 	pte_t entry;
+
+#ifdef CONFIG_ARM_FCSE
+	if (mm->context.cpu_pid) {
+		unsigned long pid;
+		__asm__("mrc p15, 0, %0, c13, c0, 0" : "=r"(pid));
+		pid >>= CPU_PID_SHIFT;
+		if (mm->context.cpu_pid != pid) {
+			/* context switched from lazy TLB mode */
+			pid = mm->context.cpu_pid << CPU_PID_SHIFT;
+			__asm__("mcr p15, 0, %0, c13, c0, 0" : : "r"(pid));
+		}
+	}
+#endif
 
 	entry = *pte;
 	if (!pte_present(entry)) {

@@ -196,6 +196,8 @@ dep_bool '  SHARP Poodle' CONFIG_ARCH_PXA_POODLE $CONFIG_ARCH_PXA
 dep_bool '    Using Trial 0'  CONFIG_POODLE_TR0 $CONFIG_ARCH_PXA_POODLE
 dep_bool '  SHARP Corgi' CONFIG_ARCH_PXA_CORGI $CONFIG_ARCH_PXA
 dep_bool '    Using Trial 0'  CONFIG_CORGI_TR0 $CONFIG_ARCH_PXA_CORGI
+dep_bool '    SHARP Shepherd'  CONFIG_ARCH_PXA_SHEPHERD $CONFIG_ARCH_PXA_CORGI
+dep_bool '      SHARP Husky'  CONFIG_ARCH_PXA_HUSKY $CONFIG_ARCH_PXA_SHEPHERD
 
 if [ "$CONFIG_SA1100_COLLIE" = "y" -o "$CONFIG_SABINAL_DISCOVERY" = "y" -o \
      "$CONFIG_ARCH_PXA_POODLE" = "y" -o "$CONFIG_ARCH_PXA_CORGI" = "y" ]; then
@@ -459,6 +461,8 @@ fi
 if [ "$CONFIG_CPU_32" = "y" ]; then
    dep_bool 'Support Thumb instructions (experimental)' CONFIG_ARM_THUMB $CONFIG_EXPERIMENTAL
 fi
+
+dep_bool 'Enable Fast Context Switch Extention' CONFIG_ARM_FCSE $CONFIG_CPU_32
 
 # Select various configuration options depending on the machine type
 if [ "$CONFIG_ARCH_EDB7211" = "y" -o \

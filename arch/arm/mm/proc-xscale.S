@@ -23,6 +23,7 @@
  *	31-Jul-2002 Lineo Japan, Inc.  for ARCH_PXA
  *	16-Jan-2003 SHARP enable non-cached bufferable page
  *	20-Mar-2003 SHARP supported PXA255
+ *	04-Apr-2003 Sharp for ARM FCSE
  */
 
 #include <linux/config.h>
@@ -749,6 +750,19 @@ ENTRY(cpu_xscale_set_pgd)
 	mcr	p15, 0, r0, c2, c0, 0		@ load page table pointer
 	mcr	p15, 0, ip, c8, c7, 0		@ invalidate I & D TLBs
 	cpwait_ret lr, ip
+
+#ifdef CONFIG_ARM_FCSE
+	.align  5
+ENTRY(cpu_xscale_set_pgd_without_invalidation)
+	mcr	p15, 0, r0, c2, c0, 0		@ load page table pointer
+	cpwait_ret lr, ip
+
+	.align	5
+ENTRY(cpu_write_pid_register)
+	mov	r0, r0, lsl #25
+	mcr	p15, 0, r0, c13, c0, 0
+	cpwait_ret lr, ip
+#endif
 
 /*
  * cpu_xscale_set_pmd(pmdp, pmd)

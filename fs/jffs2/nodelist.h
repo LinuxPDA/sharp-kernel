@@ -17,16 +17,8 @@
  *     18-Nov-2002 Lineo Japan, Inc.  add dynamic construction of fragtree
  *     11-Nov-2002 Lineo Japan, Inc.  add JFFS2_RESERVED_BLOCKS_ROOT
  *     29-Oct-2002 Lineo Japan, Inc.  add JFFS2_RESERVED_BLOCKS_BAD and JFFS2_MAX_CONT_GC
- *
- * ChangeLog:
  *     05-Dec-2002 SHARP  adjust REVERVED_BLOCKS values for storage-full
- *     27-Nov-2002 Lineo Japan, Inc.  add effective-gc mode
- *     23-Nov-2002 Lineo Japan, Inc.  add JFFS2_RESERVED_BLOCKS_DIRTY
- *				      add JFFS2_RESERVED_BLOCKS_CLEAN
- *     19-Nov-2002 Lineo Japan, Inc.  add counter of fragtree elements
- *     18-Nov-2002 Lineo Japan, Inc.  add dynamic construction of fragtree
- *     11-Nov-2002 Lineo Japan, Inc.  add JFFS2_RESERVED_BLOCKS_ROOT
- *     29-Oct-2002 Lineo Japan, Inc.  add JFFS2_RESERVED_BLOCKS_BAD and JFFS2_MAX_CONT_GC
+ *     21-May-2003 SHARP modified JFFS2_RESERVED_BLOCKS_BAD
  *
  */
 
@@ -241,7 +233,13 @@ struct jffs2_eraseblock
 #define JFFS2_RESERVED_BLOCKS_GCTRIGGER 39					/* ... wake up the GC thread */
 #define JFFS2_RESERVED_BLOCKS_GCBAD (JFFS2_RESERVED_BLOCKS_BASE + 1)		/* ... pick a block from the bad_list to GC */
 #define JFFS2_RESERVED_BLOCKS_GCMERGE (JFFS2_RESERVED_BLOCKS_BASE)		/* ... merge pages when garbage collecting */
+
+#ifdef CONFIG_ARCH_PXA_HUSKY
+#define JFFS2_RESERVED_BLOCKS_BAD 80
+#else
 #define JFFS2_RESERVED_BLOCKS_BAD 24
+#endif
+
 #define JFFS2_RESERVED_BLOCKS_ROOT 5
 #define JFFS2_RESERVED_BLOCKS_DIRTY 24
 #define JFFS2_RESERVED_BLOCKS_CLEAN 12

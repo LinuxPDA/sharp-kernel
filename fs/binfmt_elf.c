@@ -7,6 +7,9 @@
  * Tools".
  *
  * Copyright 1993, 1994: Eric Youngdale (ericy@cais.com).
+ *
+ * ChangLog:
+ *  04-Apr-2003 Sharp for ARM FCSE
  */
 
 #include <linux/module.h>
@@ -37,6 +40,9 @@
 #include <asm/uaccess.h>
 #include <asm/param.h>
 #include <asm/pgalloc.h>
+#ifdef CONFIG_ARM_FCSE
+#include <asm/mmu_context.h>
+#endif
 
 #define DLINFO_ITEMS 13
 
@@ -243,6 +249,18 @@ static inline unsigned long
 elf_map (struct file *filep, unsigned long addr, struct elf_phdr *eppnt, int prot, int type)
 {
 	unsigned long map_addr;
+
+#ifdef CONFIG_ARM_FCSE
+	if (current->mm->context.cpu_pid != 0 && (ELF_PAGESTART(addr) + eppnt->p_filesz + ELF_PAGEOFFSET(eppnt->p_vaddr)) >= CPU_PID_SIZE) {
+		flush_cache_all();
+		flush_tlb_all();
+		unmap_shared_page_table(current->mm, current->mm->context.cpu_pid);
+		release_cpu_pid(current->mm);
+		current->mm->pgd = pgd_alloc(current->mm);
+		cpu_write_pid_register(0);
+		cpu_xscale_set_pgd_without_invalidation(__virt_to_phys((unsigned long)(current->mm->pgd)));
+	}
+#endif
 
 	down_write(&current->mm->mmap_sem);
 	map_addr = do_mmap(filep, ELF_PAGESTART(addr),
@@ -604,6 +622,7 @@ static int load_elf_binary(struct linux_binprm * bprm, struct pt_regs * regs)
 	/* Do this so that we can load the interpreter, if need be.  We will
 	   change some of these later */
 	current->mm->rss = 0;
+#if !defined(CONFIG_ARM_FCSE)
 	retval = setup_arg_pages(bprm);
 	if (retval < 0) {
 		/* Someone check-me: is this error path enough? */
@@ -612,6 +631,7 @@ static int load_elf_binary(struct linux_binprm * bprm, struct pt_regs * regs)
 	}
 	
 	current->mm->start_stack = bprm->p;
+#endif
 	/* Now we do a little grungy work by mmaping the ELF image into
 	   the correct location in memory.  At this point, we assume that
 	   the image should be loaded at fixed address, not at a variable
@@ -685,6 +705,17 @@ static int load_elf_binary(struct linux_binprm * bprm, struct pt_regs * regs)
 		if (k > elf_brk)
 			elf_brk = k;
 	}
+
+#ifdef CONFIG_ARM_FCSE
+	retval = setup_arg_pages(bprm);
+	if (retval < 0) {
+		/* Someone check-me: is this error path enough? */
+		send_sig(SIGKILL, current, 0);
+		return retval;
+	}
+	
+	current->mm->start_stack = bprm->p;
+#endif
 
 	elf_entry += load_bias;
 	elf_bss += load_bias;

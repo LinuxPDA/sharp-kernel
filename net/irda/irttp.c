@@ -24,6 +24,7 @@
  *
  * ChangeLog:
  *	06-21-2002 SHARP	modify credit control
+ *	03-06-2003 SHARP	support suspend/resume
  ********************************************************************/
 
 #include <linux/config.h>
