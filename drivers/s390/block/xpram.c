@@ -74,7 +74,7 @@ char kernel_version [] = UTS_RELEASE;
 #endif /* V24 */
 #include <linux/sched.h>
 #include <linux/kernel.h> /* printk() */
-#include <linux/malloc.h> /* kmalloc() */
+#include <linux/slab.h> /* kmalloc() */
 #if (XPRAM_VERSION == 24)
 #  include <linux/devfs_fs_kernel.h>
 #endif /* V24 */
@@ -92,6 +92,7 @@ char kernel_version [] = UTS_RELEASE;
 #if (XPRAM_VERSION == 24)
 #define MAJOR_NR xpram_major /* force definitions on in blk.h */
 int xpram_major;   /* must be declared before including blk.h */
+devfs_handle_t xpram_devfs_handle;
 
 #define DEVICE_NR(device) MINOR(device)   /* xpram has no partition bits */
 #define DEVICE_NAME "xpram"               /* name for messaging */
@@ -170,7 +171,7 @@ static int hardsect = XPRAM_HARDSECT;
 int xpram_devs, xpram_rahead;
 int xpram_blksize, xpram_hardsect;
 int xpram_mem_avail = 0;
-int xpram_sizes[XPRAM_MAX_DEVS];
+unsigned long xpram_sizes[XPRAM_MAX_DEVS];
 
 
 MODULE_PARM(devs,"i");
@@ -624,8 +625,7 @@ int xpram_release (struct inode *inode, struct file *filp)
 	 */
 	if (!atomic_dec_return(&(dev->usage))) {
 		/* but flush it right now */
-		fsync_dev(inode->i_rdev);
-		invalidate_buffers(inode->i_rdev);
+		/* Everything is already flushed by caller -- AV */
 	}
 	MOD_DEC_USE_COUNT;
 	return(0);
@@ -647,14 +647,14 @@ int xpram_ioctl (struct inode *inode, struct file *filp,
 
 	case BLKGETSIZE:  /* 0x1260 */
 		/* Return the device size, expressed in sectors */
-		if (!arg) return -EINVAL; /* NULL pointer: not valid */
-		err= 0; /* verify_area_20(VERIFY_WRITE, (long *) arg, sizeof(long)); 
-			 *  if (err) return err;
-			 */
-		put_user ( 1024* xpram_sizes[MINOR(inode->i_rdev)]
+		return put_user( 1024* xpram_sizes[MINOR(inode->i_rdev)]
                            / XPRAM_SOFTSECT,
-			   (long *) arg);
-		return 0;
+			   (unsigned long *) arg);
+
+	case BLKGETSIZE64:
+		return put_user( (u64)(1024* xpram_sizes[MINOR(inode->i_rdev)]
+                           / XPRAM_SOFTSECT) << 9,
+			   (u64 *) arg);
 
 	case BLKFLSBUF: /* flush, 0x1261 */
 		fsync_dev(inode->i_rdev);
@@ -999,12 +999,18 @@ int xpram_init(void)
 #elif (XPRAM_VERSION == 24)
 	result = devfs_register_blkdev(xpram_major, "xpram", &xpram_devops);
 #endif /* V22/V24 */
-	
 	if (result < 0) {
 		PRINT_ERR("Can't get major %d\n",xpram_major);
                 PRINT_ERR("Giving up xpram\n");
 		return result;
 	}
+#if (XPRAM_VERSION == 24)
+	xpram_devfs_handle = devfs_mk_dir (NULL, "slram", NULL);
+	devfs_register_series (xpram_devfs_handle, "%u", XPRAM_MAX_DEVS,
+			       DEVFS_FL_DEFAULT, XPRAM_MAJOR, 0,
+			       S_IFBLK | S_IRUSR | S_IWUSR,
+			       &xpram_devops, NULL);
+#endif /* V22/V24 */
 	if (xpram_major == 0) xpram_major = result; /* dynamic */
 	major = xpram_major; /* Use `major' later on to save typing */
 
@@ -1226,6 +1232,12 @@ void cleanup_module(void)
 	kfree(xpram_offsets);
 
 				/* finally, the usual cleanup */
+#if (XPRAM_VERSION == 22)
 	unregister_blkdev(major, "xpram");
+#elif (XPRAM_VERSION == 24)
+	devfs_unregister(xpram_devfs_handle);
+	if (devfs_unregister_blkdev(MAJOR_NR, "xpram"))
+		printk(KERN_WARNING "xpram: cannot unregister blkdev\n");
+#endif /* V22/V24 */
 	kfree(xpram_devices);
 }

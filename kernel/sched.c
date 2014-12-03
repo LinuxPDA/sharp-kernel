@@ -23,8 +23,11 @@
 #include <linux/mm.h>
 #include <linux/init.h>
 #include <linux/smp_lock.h>
+#include <linux/nmi.h>
 #include <linux/interrupt.h>
 #include <linux/kernel_stat.h>
+#include <linux/completion.h>
+#include <linux/prefetch.h>
 
 #include <asm/uaccess.h>
 #include <asm/mmu_context.h>
@@ -106,6 +109,7 @@ static union {
 #define last_schedule(cpu) aligned_data[(cpu)].schedule_data.last_schedule
 
 struct kernel_stat kstat;
+extern struct task_struct *child_reaper;
 
 #ifdef CONFIG_SMP
 
@@ -244,7 +248,7 @@ send_now_idle:
 	 */
 	oldest_idle = (cycles_t) -1;
 	target_tsk = NULL;
-	max_prio = 1;
+	max_prio = 0;
 
 	for (i = 0; i < smp_num_cpus; i++) {
 		cpu = cpu_logical_map(i);
@@ -290,7 +294,7 @@ send_now_idle:
 	struct task_struct *tsk;
 
 	tsk = cpu_curr(this_cpu);
-	if (preemption_goodness(tsk, p, this_cpu) > 1)
+	if (preemption_goodness(tsk, p, this_cpu) > 0)
 		tsk->need_resched = 1;
 #endif
 }
@@ -533,6 +537,9 @@ asmlinkage void schedule(void)
 	struct list_head *tmp;
 	int this_cpu, c;
 
+
+	spin_lock_prefetch(&runqueue_lock);
+
 	if (!current->active_mm) BUG();
 need_resched_back:
 	prev = current;
@@ -542,11 +549,6 @@ need_resched_back:
 		goto scheduling_in_interrupt;
 
 	release_kernel_lock(prev, this_cpu);
-
-	/* Do "administrative" work here while we don't hold any locks */
-	if (softirq_pending(this_cpu))
-		goto handle_softirq;
-handle_softirq_back:
 
 	/*
 	 * 'sched_data' is protected by the fact that we can run
@@ -611,8 +613,11 @@ still_running_back:
 #endif
 	spin_unlock_irq(&runqueue_lock);
 
-	if (prev == next)
+	if (prev == next) {
+		/* We won't go through the normal tail, so do this by hand */
+		prev->policy &= ~SCHED_YIELD;
 		goto same_process;
+	}
 
 #ifdef CONFIG_SMP
  	/*
@@ -689,13 +694,11 @@ recalculate:
 	goto repeat_schedule;
 
 still_running:
+	if (!(prev->cpus_allowed & (1UL << this_cpu)))
+		goto still_running_back;
 	c = goodness(prev, this_cpu, prev->active_mm);
 	next = prev;
 	goto still_running_back;
-
-handle_softirq:
-	do_softirq();
-	goto handle_softirq_back;
 
 move_rr_last:
 	if (!prev->counter) {
@@ -722,18 +725,16 @@ scheduling_in_interrupt:
 static inline void __wake_up_common (wait_queue_head_t *q, unsigned int mode,
 			 	     int nr_exclusive, const int sync)
 {
-	struct list_head *tmp, *head;
+	struct list_head *tmp;
 	struct task_struct *p;
 
 	CHECK_MAGIC_WQHEAD(q);
-	head = &q->task_list;
-	WQ_CHECK_LIST_HEAD(head);
-	tmp = head->next;
-	while (tmp != head) {
+	WQ_CHECK_LIST_HEAD(&q->task_list);
+	
+	list_for_each(tmp,&q->task_list) {
 		unsigned int state;
                 wait_queue_t *curr = list_entry(tmp, wait_queue_t, task_list);
 
-		tmp = tmp->next;
 		CHECK_MAGIC(curr->__magic);
 		p = curr->task;
 		state = p->state;
@@ -763,6 +764,36 @@ void __wake_up_sync(wait_queue_head_t *q, unsigned int mode, int nr)
 		__wake_up_common(q, mode, nr, 1);
 		wq_read_unlock_irqrestore(&q->lock, flags);
 	}
+}
+
+void complete(struct completion *x)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&x->wait.lock, flags);
+	x->done++;
+	__wake_up_common(&x->wait, TASK_UNINTERRUPTIBLE | TASK_INTERRUPTIBLE, 1, 0);
+	spin_unlock_irqrestore(&x->wait.lock, flags);
+}
+
+void wait_for_completion(struct completion *x)
+{
+	spin_lock_irq(&x->wait.lock);
+	if (!x->done) {
+		DECLARE_WAITQUEUE(wait, current);
+
+		wait.flags |= WQ_FLAG_EXCLUSIVE;
+		__add_wait_queue_tail(&x->wait, &wait);
+		do {
+			__set_current_state(TASK_UNINTERRUPTIBLE);
+			spin_unlock_irq(&x->wait.lock);
+			schedule();
+			spin_lock_irq(&x->wait.lock);
+		} while (!x->done);
+		__remove_wait_queue(&x->wait, &wait);
+	}
+	x->done--;
+	spin_unlock_irq(&x->wait.lock);
 }
 
 #define	SLEEP_ON_VAR				\
@@ -1023,7 +1054,7 @@ asmlinkage long sys_sched_yield(void)
 #if CONFIG_SMP
 	int i;
 
-	// Substract non-idle processes running on other CPUs.
+	// Subtract non-idle processes running on other CPUs.
 	for (i = 0; i < smp_num_cpus; i++) {
 		int cpu = cpu_logical_map(i);
 		if (aligned_data[cpu].schedule_data.curr != idle_task(cpu))
@@ -1145,7 +1176,7 @@ static void show_task(struct task_struct * p)
 	else
 		printk(" (NOTLB)\n");
 
-#if defined(CONFIG_X86) || defined(CONFIG_SPARC64) || defined(CONFIG_ARM)
+#if defined(CONFIG_X86) || defined(CONFIG_SPARC64) || defined(CONFIG_ARM) || defined(CONFIG_ALPHA)
 /* This is very useful, but only works on ARM, x86 and sparc64 right now */
 	{
 		extern void show_trace_task(struct task_struct *tsk);
@@ -1183,9 +1214,68 @@ void show_state(void)
 	printk("  task                 PC        stack   pid father child younger older\n");
 #endif
 	read_lock(&tasklist_lock);
-	for_each_task(p)
+	for_each_task(p) {
+		/*
+		 * reset the NMI-timeout, listing all files on a slow
+		 * console might take alot of time:
+		 */
+		touch_nmi_watchdog();
 		show_task(p);
+	}
 	read_unlock(&tasklist_lock);
+}
+
+/**
+ * reparent_to_init() - Reparent the calling kernel thread to the init task.
+ *
+ * If a kernel thread is launched as a result of a system call, or if
+ * it ever exits, it should generally reparent itself to init so that
+ * it is correctly cleaned up on exit.
+ *
+ * The various task state such as scheduling policy and priority may have
+ * been inherited fro a user process, so we reset them to sane values here.
+ *
+ * NOTE that reparent_to_init() gives the caller full capabilities.
+ */
+void reparent_to_init(void)
+{
+	struct task_struct *this_task = current;
+
+	write_lock_irq(&tasklist_lock);
+
+	/* Reparent to init */
+	REMOVE_LINKS(this_task);
+	this_task->p_pptr = child_reaper;
+	this_task->p_opptr = child_reaper;
+	SET_LINKS(this_task);
+
+	/* Set the exit signal to SIGCHLD so we signal init on exit */
+	if (this_task->exit_signal != 0) {
+		printk(KERN_ERR "task `%s' exit_signal %d in "
+				__FUNCTION__ "\n",
+			this_task->comm, this_task->exit_signal);
+	}
+	this_task->exit_signal = SIGCHLD;
+
+	/* We also take the runqueue_lock while altering task fields
+	 * which affect scheduling decisions */
+	spin_lock(&runqueue_lock);
+
+	this_task->ptrace = 0;
+	this_task->nice = DEF_NICE;
+	this_task->policy = SCHED_OTHER;
+	/* cpus_allowed? */
+	/* rt_priority? */
+	/* signals? */
+	this_task->cap_effective = CAP_INIT_EFF_SET;
+	this_task->cap_inheritable = CAP_INIT_INH_SET;
+	this_task->cap_permitted = CAP_FULL_SET;
+	this_task->keep_capabilities = 0;
+	memcpy(this_task->rlim, init_task.rlim, sizeof(*(this_task->rlim)));
+	this_task->user = INIT_USER;
+
+	spin_unlock(&runqueue_lock);
+	write_unlock_irq(&tasklist_lock);
 }
 
 /*
@@ -1207,6 +1297,7 @@ void daemonize(void)
 
 	current->session = 1;
 	current->pgrp = 1;
+	current->tty = NULL;
 
 	/* Become as one with the init task */
 
@@ -1218,6 +1309,8 @@ void daemonize(void)
 	current->files = init_task.files;
 	atomic_inc(&current->files->count);
 }
+
+extern unsigned long wait_init_idle;
 
 void __init init_idle(void)
 {
@@ -1231,6 +1324,7 @@ void __init init_idle(void)
 	}
 	sched_data->curr = current;
 	sched_data->last_schedule = get_cycles();
+	clear_bit(current->processor, &wait_init_idle);
 }
 
 extern void init_timervecs (void);

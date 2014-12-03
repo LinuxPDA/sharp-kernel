@@ -18,7 +18,7 @@
 
 #define NVRAM_SIZE	8192
 
-static long long nvram_llseek(struct file *file, loff_t offset, int origin)
+static loff_t nvram_llseek(struct file *file, loff_t offset, int origin)
 {
 	switch (origin) {
 	case 1:
@@ -124,3 +124,4 @@ void __exit nvram_cleanup(void)
 
 module_init(nvram_init);
 module_exit(nvram_cleanup);
+MODULE_LICENSE("GPL");

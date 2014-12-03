@@ -1,4 +1,4 @@
-/* $Id: sunhme.c,v 1.120 2001/06/14 17:37:23 jgarzik Exp $
+/* $Id: sunhme.c,v 1.123 2001/10/02 02:22:30 davem Exp $
  * sunhme.c: Sparc HME/BigMac 10/100baseT half/full duplex auto switching,
  *           auto carrier detecting ethernet driver.  Also known as the
  *           "Happy Meal Ethernet" found on SunSwift SBUS cards.
@@ -32,6 +32,7 @@ static char version[] =
 #include <linux/delay.h>
 #include <linux/init.h>
 #include <linux/ethtool.h>
+#include <linux/mii.h>
 #include <asm/system.h>
 #include <asm/bitops.h>
 #include <asm/io.h>
@@ -189,6 +190,8 @@ struct pci_device_id happymeal_pci_ids[] __initdata = {
 };
 
 MODULE_DEVICE_TABLE(pci, happymeal_pci_ids);
+MODULE_LICENSE("GPL");
+
 #endif
 
 /* NOTE: In the descriptor writes one _must_ write the address
@@ -569,21 +572,21 @@ static void happy_meal_tcvr_write(struct happy_meal *hp,
  */
 static int try_next_permutation(struct happy_meal *hp, unsigned long tregs)
 {
-	hp->sw_bmcr = happy_meal_tcvr_read(hp, tregs, DP83840_BMCR);
+	hp->sw_bmcr = happy_meal_tcvr_read(hp, tregs, MII_BMCR);
 
 	/* Downgrade from full to half duplex.  Only possible
 	 * via ethtool.
 	 */
 	if (hp->sw_bmcr & BMCR_FULLDPLX) {
 		hp->sw_bmcr &= ~(BMCR_FULLDPLX);
-		happy_meal_tcvr_write(hp, tregs, DP83840_BMCR, hp->sw_bmcr);
+		happy_meal_tcvr_write(hp, tregs, MII_BMCR, hp->sw_bmcr);
 		return 0;
 	}
 
 	/* Downgrade from 100 to 10. */
 	if (hp->sw_bmcr & BMCR_SPEED100) {
 		hp->sw_bmcr &= ~(BMCR_SPEED100);
-		happy_meal_tcvr_write(hp, tregs, DP83840_BMCR, hp->sw_bmcr);
+		happy_meal_tcvr_write(hp, tregs, MII_BMCR, hp->sw_bmcr);
 		return 0;
 	}
 
@@ -599,7 +602,7 @@ static void display_link_mode(struct happy_meal *hp, unsigned long tregs)
 	else
 		printk("internal ");
 	printk("transceiver at ");
-	hp->sw_lpa = happy_meal_tcvr_read(hp, tregs, DP83840_LPA);
+	hp->sw_lpa = happy_meal_tcvr_read(hp, tregs, MII_LPA);
 	if (hp->sw_lpa & (LPA_100HALF | LPA_100FULL)) {
 		if (hp->sw_lpa & LPA_100FULL)
 			printk("100Mb/s, Full Duplex.\n");
@@ -621,7 +624,7 @@ static void display_forced_link_mode(struct happy_meal *hp, unsigned long tregs)
 	else
 		printk("internal ");
 	printk("transceiver at ");
-	hp->sw_bmcr = happy_meal_tcvr_read(hp, tregs, DP83840_BMCR);
+	hp->sw_bmcr = happy_meal_tcvr_read(hp, tregs, MII_BMCR);
 	if (hp->sw_bmcr & BMCR_SPEED100)
 		printk("100Mb/s, ");
 	else
@@ -640,7 +643,7 @@ static int set_happy_link_modes(struct happy_meal *hp, unsigned long tregs)
 	 * proper duplex setting.
 	 */
 	if (hp->timer_state == arbwait) {
-		hp->sw_lpa = happy_meal_tcvr_read(hp, tregs, DP83840_LPA);
+		hp->sw_lpa = happy_meal_tcvr_read(hp, tregs, MII_LPA);
 		if (!(hp->sw_lpa & (LPA_10HALF | LPA_10FULL | LPA_100HALF | LPA_100FULL)))
 			goto no_response;
 		if (hp->sw_lpa & LPA_100FULL)
@@ -653,7 +656,7 @@ static int set_happy_link_modes(struct happy_meal *hp, unsigned long tregs)
 			full = 0;
 	} else {
 		/* Forcing a link mode. */
-		hp->sw_bmcr = happy_meal_tcvr_read(hp, tregs, DP83840_BMCR);
+		hp->sw_bmcr = happy_meal_tcvr_read(hp, tregs, MII_BMCR);
 		if (hp->sw_bmcr & BMCR_FULLDPLX)
 			full = 1;
 		else
@@ -728,11 +731,11 @@ static void happy_meal_timer(unsigned long data)
 		if (hp->timer_ticks >= 10) {
 			/* Enter force mode. */
 	do_force_mode:
-			hp->sw_bmcr = happy_meal_tcvr_read(hp, tregs, DP83840_BMCR);
+			hp->sw_bmcr = happy_meal_tcvr_read(hp, tregs, MII_BMCR);
 			printk(KERN_NOTICE "%s: Auto-Negotiation unsuccessful, trying force link mode\n",
 			       hp->dev->name);
 			hp->sw_bmcr = BMCR_SPEED100;
-			happy_meal_tcvr_write(hp, tregs, DP83840_BMCR, hp->sw_bmcr);
+			happy_meal_tcvr_write(hp, tregs, MII_BMCR, hp->sw_bmcr);
 
 			if (!is_lucent_phy(hp)) {
 				/* OK, seems we need do disable the transceiver for the first
@@ -748,7 +751,7 @@ static void happy_meal_timer(unsigned long data)
 			restart_timer = 1;
 		} else {
 			/* Anything interesting happen? */
-			hp->sw_bmsr = happy_meal_tcvr_read(hp, tregs, DP83840_BMSR);
+			hp->sw_bmsr = happy_meal_tcvr_read(hp, tregs, MII_BMSR);
 			if (hp->sw_bmsr & BMSR_ANEGCOMPLETE) {
 				int ret;
 
@@ -779,7 +782,7 @@ static void happy_meal_timer(unsigned long data)
 		 * forever until some sort of error is signalled, reporting
 		 * a message to the user at 10 second intervals.
 		 */
-		hp->sw_bmsr = happy_meal_tcvr_read(hp, tregs, DP83840_BMSR);
+		hp->sw_bmsr = happy_meal_tcvr_read(hp, tregs, MII_BMSR);
 		if (hp->sw_bmsr & BMSR_LSTATUS) {
 			/* Wheee, it's up, display the link mode in use and put
 			 * the timer to sleep.
@@ -805,7 +808,7 @@ static void happy_meal_timer(unsigned long data)
 		 * permutations, but then again this is essentially
 		 * error recovery code for the most part.
 		 */
-		hp->sw_bmsr = happy_meal_tcvr_read(hp, tregs, DP83840_BMSR);
+		hp->sw_bmsr = happy_meal_tcvr_read(hp, tregs, MII_BMSR);
 		hp->sw_csconfig = happy_meal_tcvr_read(hp, tregs, DP83840_CSCONFIG);
 		if (hp->timer_ticks == 1) {
 			if (!is_lucent_phy(hp)) {
@@ -1066,9 +1069,9 @@ static int happy_meal_tcvr_reset(struct happy_meal *hp, unsigned long tregs)
 		hp->tcvr_type = internal;
 		hp->paddr = TCV_PADDR_ITX;
 		ASD(("ISOLATE,"));
-		happy_meal_tcvr_write(hp, tregs, DP83840_BMCR,
+		happy_meal_tcvr_write(hp, tregs, MII_BMCR,
 				      (BMCR_LOOPBACK|BMCR_PDOWN|BMCR_ISOLATE));
-		result = happy_meal_tcvr_read(hp, tregs, DP83840_BMCR);
+		result = happy_meal_tcvr_read(hp, tregs, MII_BMCR);
 		if (result == TCVR_FAILURE) {
 			ASD(("phyread_fail>\n"));
 			return -1;
@@ -1082,9 +1085,9 @@ static int happy_meal_tcvr_reset(struct happy_meal *hp, unsigned long tregs)
 			ASD(("internal<PSELECT,"));
 			hme_write32(hp, tregs + TCVR_CFG, (tconfig | TCV_CFG_PSELECT));
 			ASD(("ISOLATE,"));
-			happy_meal_tcvr_write(hp, tregs, DP83840_BMCR,
+			happy_meal_tcvr_write(hp, tregs, MII_BMCR,
 					      (BMCR_LOOPBACK|BMCR_PDOWN|BMCR_ISOLATE));
-			result = happy_meal_tcvr_read(hp, tregs, DP83840_BMCR);
+			result = happy_meal_tcvr_read(hp, tregs, MII_BMCR);
 			if (result == TCVR_FAILURE) {
 				ASD(("phyread_fail>\n"));
 				return -1;
@@ -1097,10 +1100,10 @@ static int happy_meal_tcvr_reset(struct happy_meal *hp, unsigned long tregs)
 	}
 
 	ASD(("BMCR_RESET "));
-	happy_meal_tcvr_write(hp, tregs, DP83840_BMCR, BMCR_RESET);
+	happy_meal_tcvr_write(hp, tregs, MII_BMCR, BMCR_RESET);
 
 	while (--tries) {
-		result = happy_meal_tcvr_read(hp, tregs, DP83840_BMCR);
+		result = happy_meal_tcvr_read(hp, tregs, MII_BMCR);
 		if (result == TCVR_FAILURE)
 			return -1;
 		hp->sw_bmcr = result;
@@ -1115,18 +1118,18 @@ static int happy_meal_tcvr_reset(struct happy_meal *hp, unsigned long tregs)
 	ASD(("RESET_OK\n"));
 
 	/* Get fresh copies of the PHY registers. */
-	hp->sw_bmsr      = happy_meal_tcvr_read(hp, tregs, DP83840_BMSR);
-	hp->sw_physid1   = happy_meal_tcvr_read(hp, tregs, DP83840_PHYSID1);
-	hp->sw_physid2   = happy_meal_tcvr_read(hp, tregs, DP83840_PHYSID2);
-	hp->sw_advertise = happy_meal_tcvr_read(hp, tregs, DP83840_ADVERTISE);
+	hp->sw_bmsr      = happy_meal_tcvr_read(hp, tregs, MII_BMSR);
+	hp->sw_physid1   = happy_meal_tcvr_read(hp, tregs, MII_PHYSID1);
+	hp->sw_physid2   = happy_meal_tcvr_read(hp, tregs, MII_PHYSID2);
+	hp->sw_advertise = happy_meal_tcvr_read(hp, tregs, MII_ADVERTISE);
 
 	ASD(("UNISOLATE"));
 	hp->sw_bmcr &= ~(BMCR_ISOLATE);
-	happy_meal_tcvr_write(hp, tregs, DP83840_BMCR, hp->sw_bmcr);
+	happy_meal_tcvr_write(hp, tregs, MII_BMCR, hp->sw_bmcr);
 
 	tries = TCVR_UNISOLATE_TRIES;
 	while (--tries) {
-		result = happy_meal_tcvr_read(hp, tregs, DP83840_BMCR);
+		result = happy_meal_tcvr_read(hp, tregs, MII_BMCR);
 		if (result == TCVR_FAILURE)
 			return -1;
 		if (!(result & BMCR_ISOLATE))
@@ -1350,14 +1353,14 @@ static void happy_meal_begin_auto_negotiation(struct happy_meal *hp,
 	int timeout;
 
 	/* Read all of the registers we are interested in now. */
-	hp->sw_bmsr      = happy_meal_tcvr_read(hp, tregs, DP83840_BMSR);
-	hp->sw_bmcr      = happy_meal_tcvr_read(hp, tregs, DP83840_BMCR);
-	hp->sw_physid1   = happy_meal_tcvr_read(hp, tregs, DP83840_PHYSID1);
-	hp->sw_physid2   = happy_meal_tcvr_read(hp, tregs, DP83840_PHYSID2);
+	hp->sw_bmsr      = happy_meal_tcvr_read(hp, tregs, MII_BMSR);
+	hp->sw_bmcr      = happy_meal_tcvr_read(hp, tregs, MII_BMCR);
+	hp->sw_physid1   = happy_meal_tcvr_read(hp, tregs, MII_PHYSID1);
+	hp->sw_physid2   = happy_meal_tcvr_read(hp, tregs, MII_PHYSID2);
 
 	/* XXX Check BMSR_ANEGCAPABLE, should not be necessary though. */
 
-	hp->sw_advertise = happy_meal_tcvr_read(hp, tregs, DP83840_ADVERTISE);
+	hp->sw_advertise = happy_meal_tcvr_read(hp, tregs, MII_ADVERTISE);
 	if (ep == NULL || ep->autoneg == AUTONEG_ENABLE) {
 		/* Advertise everything we can support. */
 		if (hp->sw_bmsr & BMSR_10HALF)
@@ -1377,7 +1380,7 @@ static void happy_meal_begin_auto_negotiation(struct happy_meal *hp,
 			hp->sw_advertise |= (ADVERTISE_100FULL);
 		else
 			hp->sw_advertise &= ~(ADVERTISE_100FULL);
-		happy_meal_tcvr_write(hp, tregs, DP83840_ADVERTISE, hp->sw_advertise);
+		happy_meal_tcvr_write(hp, tregs, MII_ADVERTISE, hp->sw_advertise);
 
 		/* XXX Currently no Happy Meal cards I know off support 100BaseT4,
 		 * XXX and this is because the DP83840 does not support it, changes
@@ -1399,17 +1402,17 @@ static void happy_meal_begin_auto_negotiation(struct happy_meal *hp,
 
 		/* Enable Auto-Negotiation, this is usually on already... */
 		hp->sw_bmcr |= BMCR_ANENABLE;
-		happy_meal_tcvr_write(hp, tregs, DP83840_BMCR, hp->sw_bmcr);
+		happy_meal_tcvr_write(hp, tregs, MII_BMCR, hp->sw_bmcr);
 
 		/* Restart it to make sure it is going. */
 		hp->sw_bmcr |= BMCR_ANRESTART;
-		happy_meal_tcvr_write(hp, tregs, DP83840_BMCR, hp->sw_bmcr);
+		happy_meal_tcvr_write(hp, tregs, MII_BMCR, hp->sw_bmcr);
 
 		/* BMCR_ANRESTART self clears when the process has begun. */
 
 		timeout = 64;  /* More than enough. */
 		while (--timeout) {
-			hp->sw_bmcr = happy_meal_tcvr_read(hp, tregs, DP83840_BMCR);
+			hp->sw_bmcr = happy_meal_tcvr_read(hp, tregs, MII_BMCR);
 			if (!(hp->sw_bmcr & BMCR_ANRESTART))
 				break; /* got it. */
 			udelay(10);
@@ -1443,7 +1446,7 @@ force_link:
 			if (ep->duplex == DUPLEX_FULL)
 				hp->sw_bmcr |= BMCR_FULLDPLX;
 		}
-		happy_meal_tcvr_write(hp, tregs, DP83840_BMCR, hp->sw_bmcr);
+		happy_meal_tcvr_write(hp, tregs, MII_BMCR, hp->sw_bmcr);
 
 		if (!is_lucent_phy(hp)) {
 			/* OK, seems we need do disable the transceiver for the first
@@ -1782,8 +1785,8 @@ static void happy_meal_set_initial_advertisement(struct happy_meal *hp)
 		return;
 
 	/* Latch PHY registers as of now. */
-	hp->sw_bmsr      = happy_meal_tcvr_read(hp, tregs, DP83840_BMSR);
-	hp->sw_advertise = happy_meal_tcvr_read(hp, tregs, DP83840_ADVERTISE);
+	hp->sw_bmsr      = happy_meal_tcvr_read(hp, tregs, MII_BMSR);
+	hp->sw_advertise = happy_meal_tcvr_read(hp, tregs, MII_ADVERTISE);
 
 	/* Advertise everything we can support. */
 	if (hp->sw_bmsr & BMSR_10HALF)
@@ -1805,7 +1808,7 @@ static void happy_meal_set_initial_advertisement(struct happy_meal *hp)
 		hp->sw_advertise &= ~(ADVERTISE_100FULL);
 
 	/* Update the PHY advertisement register. */
-	happy_meal_tcvr_write(hp, tregs, DP83840_ADVERTISE, hp->sw_advertise);
+	happy_meal_tcvr_write(hp, tregs, MII_ADVERTISE, hp->sw_advertise);
 }
 
 /* Once status is latched (by happy_meal_interrupt) it is cleared by
@@ -1929,8 +1932,8 @@ static void happy_meal_mif_interrupt(struct happy_meal *hp)
 	unsigned long tregs = hp->tcvregs;
 
 	printk(KERN_INFO "%s: Link status change.\n", hp->dev->name);
-	hp->sw_bmcr = happy_meal_tcvr_read(hp, tregs, DP83840_BMCR);
-	hp->sw_lpa = happy_meal_tcvr_read(hp, tregs, DP83840_LPA);
+	hp->sw_bmcr = happy_meal_tcvr_read(hp, tregs, MII_BMCR);
+	hp->sw_lpa = happy_meal_tcvr_read(hp, tregs, MII_LPA);
 
 	/* Use the fastest transmission protocol possible. */
 	if (hp->sw_lpa & LPA_100FULL) {
@@ -1945,7 +1948,7 @@ static void happy_meal_mif_interrupt(struct happy_meal *hp)
 	} else {
 		printk(KERN_INFO "%s: Using 10Mbps at half duplex.", hp->dev->name);
 	}
-	happy_meal_tcvr_write(hp, tregs, DP83840_BMCR, hp->sw_bmcr);
+	happy_meal_tcvr_write(hp, tregs, MII_BMCR, hp->sw_bmcr);
 
 	/* Finally stop polling and shut up the MIF. */
 	happy_meal_poll_stop(hp, tregs);
@@ -2108,7 +2111,7 @@ static void happy_meal_rx(struct happy_meal *hp, struct net_device *dev)
 		}
 
 		/* This card is _fucking_ hot... */
-		skb->csum = (csum ^ 0xffff);
+		skb->csum = ntohs(csum ^ 0xffff);
 		skb->ip_summed = CHECKSUM_HW;
 
 		RXD(("len=%d csum=%4x]", len, csum));
@@ -2458,8 +2461,8 @@ static int happy_meal_ioctl(struct net_device *dev,
 		ecmd.phy_address = 0; /* XXX fixed PHYAD */
 
 		/* Record PHY settings. */
-		hp->sw_bmcr = happy_meal_tcvr_read(hp, hp->tcvregs, DP83840_BMCR);
-		hp->sw_lpa = happy_meal_tcvr_read(hp, hp->tcvregs, DP83840_LPA);
+		hp->sw_bmcr = happy_meal_tcvr_read(hp, hp->tcvregs, MII_BMCR);
+		hp->sw_lpa = happy_meal_tcvr_read(hp, hp->tcvregs, MII_LPA);
 		if (hp->sw_bmcr & BMCR_ANENABLE) {
 			ecmd.autoneg = AUTONEG_ENABLE;
 			ecmd.speed =

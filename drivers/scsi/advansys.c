@@ -775,9 +775,7 @@
  */
 
 #include <linux/config.h>
-#ifdef MODULE
 #include <linux/module.h>
-#endif /* MODULE */
 
 #if defined(CONFIG_X86) && !defined(CONFIG_ISA)
 #define CONFIG_ISA
@@ -789,7 +787,7 @@
 #include <linux/types.h>
 #include <linux/ioport.h>
 #include <linux/delay.h>
-#include <linux/malloc.h>
+#include <linux/slab.h>
 #include <linux/mm.h>
 #include <linux/proc_fs.h>
 #include <linux/init.h>
@@ -18682,3 +18680,4 @@ AdvInquiryHandling(
         }
     }
 }
+MODULE_LICENSE("BSD without advertising clause");

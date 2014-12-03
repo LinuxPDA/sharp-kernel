@@ -145,7 +145,7 @@ static void __sound_remove_unit(struct sound_unit **list, int unit)
  *	This lock guards the sound loader list.
  */
 
-spinlock_t sound_loader_lock = SPIN_LOCK_UNLOCKED;
+static spinlock_t sound_loader_lock = SPIN_LOCK_UNLOCKED;
 
 /*
  *	Allocate the controlling structure and add it to the sound driver
@@ -547,6 +547,7 @@ EXPORT_SYMBOL(mod_firmware_load);
 
 MODULE_DESCRIPTION("Core sound module");
 MODULE_AUTHOR("Alan Cox");
+MODULE_LICENSE("GPL");
 
 static void __exit cleanup_soundcore(void)
 {

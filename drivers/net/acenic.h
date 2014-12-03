@@ -582,28 +582,20 @@ struct ace_info {
 	aceaddr	stats2_ptr;
 };
 
-#if defined(CONFIG_X86) || defined(CONFIG_PPC)
-/* Intel has null pci_unmap_single, no reasons to remember mapping. */
-#define DUMMY_PCI_UNMAP
-#endif
-
 struct ring_info {
 	struct sk_buff		*skb;
-#ifndef DUMMY_PCI_UNMAP
 	dma_addr_t		mapping;
-#endif
 };
 
-/* Funny... As soon as we add maplen on alpha, it starts to work
+/*
+ * Funny... As soon as we add maplen on alpha, it starts to work
  * much slower. Hmm... is it because struct does not fit to one cacheline?
  * So, split tx_ring_info.
  */
 struct tx_ring_info {
 	struct sk_buff		*skb;
-#ifndef DUMMY_PCI_UNMAP
 	dma_addr_t		mapping;
 	int			maplen;
-#endif
 };
 
 /*
@@ -691,6 +683,7 @@ struct ace_private
 	u32			last_tx, last_std_rx, last_mini_rx;
 #endif
 	struct net_device_stats stats;
+	int			pci_using_dac;
 };
 
 
@@ -712,31 +705,11 @@ static inline int tx_space (u32 csm, u32 prd)
 
 static inline void set_aceaddr(aceaddr *aa, dma_addr_t addr)
 {
-	unsigned long baddr = (unsigned long) addr;
-#ifdef ACE_64BIT_PTR
+	u64 baddr = (u64) addr;
 	aa->addrlo = baddr & 0xffffffff;
 	aa->addrhi = baddr >> 32;
-#else
-	/* Don't bother setting zero every time */
-	aa->addrlo = baddr;
-#endif
 	mb();
 }
-
-
-#if 0
-static inline void *get_aceaddr(aceaddr *aa)
-{
-	unsigned long addr;
-	mb();
-#ifdef ACE_64BIT_PTR
-	addr = (u64)aa->addrhi << 32 | aa->addrlo;
-#else
-	addr = aa->addrlo;
-#endif
-	return (void *)addr;
-}
-#endif
 
 
 static inline void ace_set_txprd(struct ace_regs *regs,

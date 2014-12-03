@@ -1,28 +1,14 @@
-
 /*
+ * Environment provided by system and miscellaneous definitions
  *
  * Copyright (C) Eicon Technology Corporation, 2000.
  *
  * Eicon File Revision :    1.2  
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2, or (at your option)
- * any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY OF ANY KIND WHATSOEVER INCLUDING ANY 
- * implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  
- * See the GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ * This software may be used and distributed according to the terms
+ * of the GNU General Public License, incorporated herein by reference.
  *
  */
-
-
-/* Environment provided by system and miscellaneous definitions */
 
 #if !defined(SYS_H)
 #define SYS_H
@@ -54,15 +40,6 @@ typedef volatile dword	vdword;
 #define NULL    ((void *) 0)
 #endif
 
-/* MIN and MAX */
-
-#if !defined(MIN)
-#define MIN(a,b) ((a)>(b) ? (b) : (a))
-#endif
-#if !defined(MAX)
-#define MAX(a,b) ((a)>(b) ? (a) : (b))
-#endif
-
 /* Return the dimension of an array */
 
 #if !defined(DIM)
@@ -85,6 +62,8 @@ void HwFatalError(void);
 /* void HwAssert(char *file, int line, char *condition); */
 
 #include <linux/kernel.h>
+#include <linux/string.h>
+
 #define _PRINTK printk
 
 #define _PRINTF	DivasPrintf

@@ -1,30 +1,14 @@
-
 /*
+ * Unix Eicon active card driver
+ * XLOG related functions
  *
  * Copyright (C) Eicon Technology Corporation, 2000.
  *
  * Eicon File Revision :    1.2  
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2, or (at your option)
- * any later version.
+ * This software may be used and distributed according to the terms
+ * of the GNU General Public License, incorporated herein by reference.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY OF ANY KIND WHATSOEVER INCLUDING ANY 
- * implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  
- * See the GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
- *
- */
-
-
-/*
- * Unix Eicon active card driver
- * XLOG related functions
  */
 
 #include "sys.h"
@@ -59,7 +43,7 @@ void	xlog_to_klog(byte *b, int size, int card_num)
 
 	x = (card_xlog_t *) b;
 
-	bzero(&klog, sizeof(klog));
+	memset(&klog, 0, sizeof(klog));
 
 	klog.time_stamp = (dword) x->time_hi;
 	klog.time_stamp = (klog.time_stamp << 16) | (dword) x->time_lo;
@@ -71,13 +55,13 @@ void	xlog_to_klog(byte *b, int size, int card_num)
 	{
 		klog.type = KLOG_XTXT_MSG;
 		klog.code = 0;
-		bcopy(&x->xcode, klog.buffer, klog.length);
+		memcpy(klog.buffer, &x->xcode, klog.length);
 	}
 	else if (x->code == 2)
 	{
 		klog.type = KLOG_XLOG_MSG;
 		klog.code = x->xcode;
-		bcopy(&x->data, klog.buffer, klog.length);
+		memcpy(klog.buffer, &x->data, klog.length);
 	}
 	else
 	{

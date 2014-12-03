@@ -1730,9 +1730,15 @@ static int __init init(void)
 	}
 
 #ifdef CONFIG_PROC_FS
-	if (!proc_net_create("ip_tables_names", 0, ipt_get_tables)) {
+	{
+	struct proc_dir_entry *proc;
+
+	proc = proc_net_create("ip_tables_names", 0, ipt_get_tables);
+	if (!proc) {
 		nf_unregister_sockopt(&ipt_sockopts);
 		return -ENOMEM;
+	}
+	proc->owner = THIS_MODULE;
 	}
 #endif
 
@@ -1758,3 +1764,4 @@ EXPORT_SYMBOL(ipt_unregister_target);
 
 module_init(init);
 module_exit(fini);
+MODULE_LICENSE("GPL");

@@ -476,7 +476,7 @@ static struct dentry_operations pipefs_dentry_operations = {
 
 static struct inode * get_pipe_inode(void)
 {
-	struct inode *inode = get_empty_inode();
+	struct inode *inode = new_inode(pipe_mnt->mnt_sb);
 
 	if (!inode)
 		goto fail_inode;
@@ -485,7 +485,6 @@ static struct inode * get_pipe_inode(void)
 		goto fail_iput;
 	PIPE_READERS(*inode) = PIPE_WRITERS(*inode) = 1;
 	inode->i_fop = &rdwr_pipe_fops;
-	inode->i_sb = pipe_mnt->mnt_sb;
 
 	/*
 	 * Mark the inode dirty from the very beginning,
@@ -630,8 +629,7 @@ static struct super_block * pipefs_read_super(struct super_block *sb, void *data
 	return sb;
 }
 
-static DECLARE_FSTYPE(pipe_fs_type, "pipefs", pipefs_read_super,
-	FS_NOMOUNT|FS_SINGLE);
+static DECLARE_FSTYPE(pipe_fs_type, "pipefs", pipefs_read_super, FS_NOMOUNT);
 
 static int __init init_pipe_fs(void)
 {
@@ -650,7 +648,7 @@ static int __init init_pipe_fs(void)
 static void __exit exit_pipe_fs(void)
 {
 	unregister_filesystem(&pipe_fs_type);
-	kern_umount(pipe_mnt);
+	mntput(pipe_mnt);
 }
 
 module_init(init_pipe_fs)

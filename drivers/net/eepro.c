@@ -588,7 +588,7 @@ int __init eepro_probe(struct net_device *dev)
 	return -ENODEV;
 }
 
-static void printEEPROMInfo(short ioaddr, struct net_device *dev)
+static void __init printEEPROMInfo(short ioaddr, struct net_device *dev)
 {
 	unsigned short Word;
 	int i,j;
@@ -647,7 +647,7 @@ static void printEEPROMInfo(short ioaddr, struct net_device *dev)
    probes on the ISA bus.  A good device probe avoids doing writes, and
    verifies that the correct device exists and functions.  */
 
-static int eepro_probe1(struct net_device *dev, short ioaddr)
+static int __init eepro_probe1(struct net_device *dev, short ioaddr)
 {
 	unsigned short station_addr[6], id, counter;
 	int i,j, irqMask;
@@ -1767,6 +1767,8 @@ static int n_eepro;
 
 MODULE_AUTHOR("Pascal Dupuis <dupuis@lei.ucl.ac.be> for the 2.1 stuff (locking,...)");
 MODULE_DESCRIPTION("Intel i82595 ISA EtherExpressPro10/10+ driver");
+MODULE_LICENSE("GPL");
+
 MODULE_PARM(io, "1-" __MODULE_STRING(MAX_EEPRO) "i");
 MODULE_PARM(irq, "1-" __MODULE_STRING(MAX_EEPRO) "i");
 MODULE_PARM(mem, "1-" __MODULE_STRING(MAX_EEPRO) "i");

@@ -3,7 +3,7 @@
  *
  * Copyright (c) 2001 Axis Communications AB.
  *
- * $Id: usb-host.c,v 1.8 2001/02/27 13:52:48 bjornw Exp $
+ * $Id: usb-host.c,v 1.11 2001/09/26 11:52:16 bjornw Exp $
  *
  */
 
@@ -23,17 +23,18 @@
 #include <asm/uaccess.h>
 #include <asm/io.h>
 #include <asm/irq.h>
+#include <asm/dma.h>
 #include <asm/system.h>
 #include <asm/svinto.h>
 
 #include <linux/usb.h>
 #include "usb-host.h"
 
-#define ETRAX_USB_HC_IRQ 31
-#define ETRAX_USB_RX_IRQ 25
-#define ETRAX_USB_TX_IRQ 24
+#define ETRAX_USB_HC_IRQ USB_HC_IRQ_NBR
+#define ETRAX_USB_RX_IRQ USB_DMA_RX_IRQ_NBR
+#define ETRAX_USB_TX_IRQ USB_DMA_TX_IRQ_NBR
 
-static const char *usb_hcd_version = "$Revision: 1.8 $";
+static const char *usb_hcd_version = "$Revision: 1.11 $";
 
 #undef KERN_DEBUG
 #define KERN_DEBUG ""
@@ -791,6 +792,8 @@ static void etrax_usb_setup_epid(char epid, char devnum, char endpoint, char pac
 	cli();
 	
 	if (test_bit(epid, (void *)&ep_usage_bitmask)) {
+		restore_flags(flags);
+
 		warn("Trying to setup used epid %d", epid);
 		DBFEXIT;
 		return;
@@ -827,12 +830,16 @@ static void etrax_usb_free_epid(char epid)
 
 	save_flags(flags);
 	cli();
+
 	*R_USB_EPT_INDEX = IO_FIELD(R_USB_EPT_INDEX, value, epid);
 	nop();
-	while (*R_USB_EPT_DATA & IO_MASK(R_USB_EPT_DATA, hold))printk("+");
+	while (*R_USB_EPT_DATA & IO_MASK(R_USB_EPT_DATA, hold))
+		printk("+");
 	*R_USB_EPT_DATA = 0;
 	clear_bit(epid, (void *)&ep_usage_bitmask);
+
 	restore_flags(flags);
+
 	dbg_ep("epid: %d freed", epid);
 	
 	DBFEXIT;
@@ -860,6 +867,8 @@ static int etrax_usb_lookup_epid(unsigned char devnum, char endpoint, char slow,
 			    (IO_EXTRACT(R_USB_EPT_DATA, ep, data) == endpoint) &&
 			    (IO_EXTRACT(R_USB_EPT_DATA, low_speed, data) == slow) &&
 			    (IO_EXTRACT(R_USB_EPT_DATA, max_len, data) == maxp)) {
+				restore_flags(flags);
+	
 				dbg_ep("Found ep_id %d for devnum %d, endpoint %d",
 				       i, devnum, endpoint);
 				DBFEXIT;
@@ -1336,6 +1345,7 @@ static int etrax_usb_do_ctrl_hw_add(urb_t *urb, char epid, char maxlen)
 	TxCtrlEPList[epid].sub = virt_to_phys(sb_desc_1);
 	TxCtrlEPList[epid].hw_len = 0;
 	TxCtrlEPList[epid].command |= IO_STATE(USB_EP_command, enable, yes);
+
 	restore_flags(flags);
 
 	dump_ep_desc(&TxCtrlEPList[epid]);
@@ -1774,8 +1784,10 @@ static void etrax_usb_hc_intr_bottom_half(void *data)
 
 		save_flags(flags);
 		cli();
+
 		*R_USB_EPT_INDEX = IO_FIELD(R_USB_EPT_INDEX, value, epid); nop();
 		r_usb_ept_data = *R_USB_EPT_DATA;
+
 		restore_flags(flags);
 
 		if (r_usb_ept_data & IO_MASK(R_USB_EPT_DATA, hold)) {
@@ -2034,21 +2046,21 @@ static int etrax_rh_submit_urb(urb_t *urb)
 		OK (4);		/* hub power ** */
 		
 	case RH_GET_STATUS | RH_OTHER | RH_CLASS:
-                if (wIndex == 1) {
+		if (wIndex == 1) {
 			*((__u16*)data) = cpu_to_le16(hc->rh.prev_wPortStatus_1);
 			*((__u16*)data + 1) = cpu_to_le16(hc->rh.wPortChange_1);
-                }
-                else if (wIndex == 2) {
+		}
+		else if (wIndex == 2) {
 			*((__u16*)data) = cpu_to_le16(hc->rh.prev_wPortStatus_2);
 			*((__u16*)data + 1) = cpu_to_le16(hc->rh.wPortChange_2);
-                }
-                else {
+		}
+		else {
 			dbg_rh("RH_GET_STATUS whith invalid wIndex !!");
 			OK(0);
-                }
+		}
 		
-                OK(4);
-                
+		OK(4);
+
 	case RH_CLEAR_FEATURE | RH_ENDPOINT:
 		switch (wValue) {
 		case (RH_ENDPOINT_STALL):
@@ -2114,16 +2126,16 @@ static int etrax_rh_submit_urb(urb_t *urb)
 			OK (0);	/* port power ** */
 		case (RH_C_PORT_CONNECTION):
 			
-                        if (wIndex == 1) {
+			if (wIndex == 1) {
 				hc->rh.wPortChange_1 &= ~(1 << RH_PORT_CONNECTION);
-                        }
-                        else if (wIndex == 2) {
+			}
+			else if (wIndex == 2) {
 				hc->rh.wPortChange_2 &= ~(1 << RH_PORT_CONNECTION);
-                        }
-                        else {
+			}
+			else {
 				dbg_rh("RH_CLEAR_FEATURE->RH_C_PORT_CONNECTION "
 				       "with invalid wIndex == %d!!", wIndex);
-                        }
+			}
 
 			OK (0);
 		case (RH_C_PORT_ENABLE):
@@ -2182,7 +2194,7 @@ static int etrax_rh_submit_urb(urb_t *urb)
 
 			OK (0);
 		case (RH_PORT_RESET):
-                        if (wIndex == 1) {
+			if (wIndex == 1) {
 				int port1_retry;
 				
 			port1_redo:
@@ -2205,8 +2217,8 @@ static int etrax_rh_submit_urb(urb_t *urb)
 				   not even schedule() works !!! WHY ?? */
 
 				udelay(15000);
-                        }
-                        else if (wIndex == 2) {
+			}
+			else if (wIndex == 2) {
 				int port2_retry;
 				
 			port2_redo:
@@ -2229,7 +2241,7 @@ static int etrax_rh_submit_urb(urb_t *urb)
 				   not even schedule() works !!! WHY ?? */
 
 				udelay(15000);
-                        }
+			}
 
 			/* Try to bring the HC into running state */
 			*R_USB_COMMAND =
@@ -2237,31 +2249,31 @@ static int etrax_rh_submit_urb(urb_t *urb)
 			
 			nop(); while (*R_USB_COMMAND & IO_MASK(R_USB_COMMAND, busy));
 			
-                        dbg_rh("...Done");
-                        OK(0);
-                        
+			dbg_rh("...Done");
+			OK(0);
+
 		case (RH_PORT_POWER):
 			OK (0);	/* port power ** */
 		case (RH_PORT_ENABLE):
 			/* There is no rh port enable command in the Etrax USB interface!!!! */
 			OK (0);
-                        
+
 		}
 		break;
 		
 	case RH_SET_ADDRESS:
 		hc->rh.devnum = wValue;
-                dbg_rh("RH address set to: %d", hc->rh.devnum);
+		dbg_rh("RH address set to: %d", hc->rh.devnum);
 		OK (0);
 		
 	case RH_GET_DESCRIPTOR:
 		switch ((wValue & 0xff00) >> 8) {
 		case (0x01):	/* device descriptor */
-			len = min (leni, min (sizeof (root_hub_dev_des), wLength));
+			len = min_t(unsigned int, leni, min_t(unsigned int, sizeof (root_hub_dev_des), wLength));
 			memcpy (data, root_hub_dev_des, len);
 			OK (len);
 		case (0x02):	/* configuration descriptor */
-			len = min (leni, min (sizeof (root_hub_config_des), wLength));
+			len = min_t(unsigned int, leni, min_t(unsigned int, sizeof (root_hub_config_des), wLength));
 			memcpy (data, root_hub_config_des, len);
 			OK (len);
 		case (0x03):	/* string descriptors */
@@ -2269,7 +2281,7 @@ static int etrax_rh_submit_urb(urb_t *urb)
 						   0xff, "ETRAX 100LX",
 						   data, wLength);
 			if (len > 0) {
-				OK (min (leni, len));
+				OK(min_t(int, leni, len));
 			} else 
 				stat = -EPIPE;
 		}
@@ -2277,7 +2289,7 @@ static int etrax_rh_submit_urb(urb_t *urb)
 		
 	case RH_GET_DESCRIPTOR | RH_CLASS:
 		root_hub_hub_des[2] = hc->rh.numports;
-		len = min (leni, min (sizeof (root_hub_hub_des), wLength));
+		len = min_t(unsigned int, leni, min_t(unsigned int, sizeof (root_hub_hub_des), wLength));
 		memcpy (data, root_hub_hub_des, len);
 		OK (len);
 		
@@ -2324,7 +2336,7 @@ static int __init etrax_usb_hc_init(void)
 	etrax_usb_bus = bus = usb_alloc_bus(&etrax_usb_device_operations);
 	hc->bus = bus;
 	bus->hcpriv = hc;
-        
+
 	/* Initalize RH to the default address.
 	   And make sure that we have no status change indication */
 	hc->rh.numports = 2;  /* The RH has two ports */
@@ -2339,7 +2351,7 @@ static int __init etrax_usb_hc_init(void)
 	/* Initialize the intr-traffic flags */
 	hc->intr.sleeping = 0;
 	hc->intr.wq = NULL;
-        
+
 	/* Initially all ep's are free except ep 0 */
 	ep_usage_bitmask = 0;
 	set_bit(0, (void *)&ep_usage_bitmask);
@@ -2349,20 +2361,20 @@ static int __init etrax_usb_hc_init(void)
 
 	/* This code should really be moved */
 
-        if (request_dma(8, "ETRAX 100LX built-in USB (Tx)")) {
+	if (request_dma(USB_TX_DMA_NBR, "ETRAX 100LX built-in USB (Tx)")) {
 		err("Could not allocate DMA ch 8 for USB");
 		etrax_usb_hc_cleanup();
 		DBFEXIT;
 		return -1;
 	}
 	
-	if (request_dma(9, "ETRAX 100LX built-in USB (Rx)")) {
+	if (request_dma(USB_RX_DMA_NBR, "ETRAX 100LX built-in USB (Rx)")) {
 		err("Could not allocate DMA ch 9 for USB");
 		etrax_usb_hc_cleanup();
 		DBFEXIT;
 		return -1;
 	}	
-#if 0  /* Moved to head.S */        
+#if 0  /* Moved to head.S */
 	*R_GEN_CONFIG = genconfig_shadow =
 		(genconfig_shadow & ~(IO_MASK(R_GEN_CONFIG, usb1) |
 				      IO_MASK(R_GEN_CONFIG, usb2) |
@@ -2490,8 +2502,8 @@ static void etrax_usb_hc_cleanup(void)
 	free_irq(ETRAX_USB_RX_IRQ, NULL);
 	free_irq(ETRAX_USB_TX_IRQ, NULL);
 
-	free_dma(8);
-	free_dma(9);
+	free_dma(USB_TX_DMA_NBR);
+	free_dma(USB_RX_DMA_NBR);
 	usb_deregister_bus(etrax_usb_bus);
 
 	DBFEXIT;

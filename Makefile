@@ -1,11 +1,12 @@
 VERSION = 2
 PATCHLEVEL = 4
-SUBLEVEL = 6
+SUBLEVEL = 13
 EXTRAVERSION =
 
 KERNELRELEASE=$(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
 
 ARCH := $(shell uname -m | sed -e s/i.86/i386/ -e s/sun4u/sparc64/ -e s/arm.*/arm/ -e s/sa110/arm/)
+KERNELPATH=kernel-$(shell echo $(KERNELRELEASE) | sed -e "s/-//")
 
 CONFIG_SHELL := $(shell if [ -x "$$BASH" ]; then echo $$BASH; \
 	  else if [ -x /bin/bash ]; then echo /bin/bash; \
@@ -88,7 +89,7 @@ export MODLIB
 CPPFLAGS := -D__KERNEL__ -I$(HPATH)
 
 CFLAGS := $(CPPFLAGS) -Wall -Wstrict-prototypes -Wno-trigraphs -O2 \
-          -fomit-frame-pointer -fno-strict-aliasing
+	  -fomit-frame-pointer -fno-strict-aliasing -fno-common
 AFLAGS := -D__ASSEMBLY__ $(CPPFLAGS)
 
 #
@@ -146,7 +147,9 @@ DRIVERS-$(CONFIG_WAN) += drivers/net/wan/wan.o
 DRIVERS-$(CONFIG_ARCNET) += drivers/net/arcnet/arcnetdrv.o
 DRIVERS-$(CONFIG_ATM) += drivers/atm/atm.o
 DRIVERS-$(CONFIG_IDE) += drivers/ide/idedriver.o
+DRIVERS-$(CONFIG_FC4) += drivers/fc4/fc4.a
 DRIVERS-$(CONFIG_SCSI) += drivers/scsi/scsidrv.o
+DRIVERS-$(CONFIG_FUSION_BOOT) += drivers/message/fusion/fusion.o
 DRIVERS-$(CONFIG_IEEE1394) += drivers/ieee1394/ieee1394drv.o
 
 ifneq ($(CONFIG_CD_NO_IDESCSI)$(CONFIG_BLK_DEV_IDECD)$(CONFIG_BLK_DEV_SR)$(CONFIG_PARIDE_PCD),)
@@ -174,7 +177,7 @@ DRIVERS-$(CONFIG_HAMRADIO) += drivers/net/hamradio/hamradio.o
 DRIVERS-$(CONFIG_TC) += drivers/tc/tc.a
 DRIVERS-$(CONFIG_USB) += drivers/usb/usbdrv.o
 DRIVERS-$(CONFIG_INPUT) += drivers/input/inputdrv.o
-DRIVERS-$(CONFIG_I2O) += drivers/i2o/i2o.o
+DRIVERS-$(CONFIG_I2O) += drivers/message/i2o/i2o.o
 DRIVERS-$(CONFIG_IRDA) += drivers/net/irda/irda.o
 DRIVERS-$(CONFIG_I2C) += drivers/i2c/i2c.o
 DRIVERS-$(CONFIG_PHONE) += drivers/telephony/telephony.o
@@ -196,6 +199,11 @@ CLEAN_FILES = \
 	drivers/zorro/devlist.h drivers/zorro/gen-devlist \
 	drivers/sound/bin2hex drivers/sound/hex2hex \
 	drivers/atm/fore200e_mkfirm drivers/atm/{pca,sba}*{.bin,.bin1,.bin2} \
+	drivers/scsi/aic7xxx/aicasm/aicasm_gram.c \
+	drivers/scsi/aic7xxx/aicasm/aicasm_scan.c \
+	drivers/scsi/aic7xxx/aicasm/y.tab.h \
+	drivers/scsi/aic7xxx/aicasm/aicasm \
+	drivers/scsi/53c700-mem.c \
 	net/khttpd/make_times_h \
 	net/khttpd/times.h \
 	submenu*
@@ -222,7 +230,9 @@ MRPROPER_FILES = \
 	.menuconfig.log \
 	include/asm \
 	.hdepend scripts/mkdep scripts/split-include scripts/docproc \
-	$(TOPDIR)/include/linux/modversions.h
+	$(TOPDIR)/include/linux/modversions.h \
+	kernel.spec
+
 # directories removed with 'make mrproper'
 MRPROPER_DIRS = \
 	include/config \
@@ -246,7 +256,7 @@ Version: dummy
 boot: vmlinux
 	@$(MAKE) CFLAGS="$(CFLAGS) $(CFLAGS_KERNEL)" -C arch/$(ARCH)/boot
 
-vmlinux: $(CONFIGURATION) init/main.o init/version.o linuxsubdirs
+vmlinux: include/linux/version.h $(CONFIGURATION) init/main.o init/version.o linuxsubdirs
 	$(LD) $(LINKFLAGS) $(HEAD) init/main.o init/version.o \
 		--start-group \
 		$(CORE_FILES) \
@@ -291,11 +301,8 @@ $(TOPDIR)/include/linux/version.h: include/linux/version.h
 $(TOPDIR)/include/linux/compile.h: include/linux/compile.h
 
 newversion:
-	@if [ ! -f .version ]; then \
-		echo 1 > .version; \
-	else \
-		expr 0`cat .version` + 1 > .version; \
-	fi
+	. scripts/mkversion > .tmpversion
+	@mv -f .tmpversion .version
 
 include/linux/compile.h: $(CONFIGURATION) include/linux/version.h newversion
 	@echo -n \#define UTS_VERSION \"\#`cat .version` > .ver
@@ -333,14 +340,14 @@ fs lib mm ipc kernel drivers net: dummy
 TAGS: dummy
 	etags `find include/asm-$(ARCH) -name '*.h'`
 	find include -type d \( -name "asm-*" -o -name config \) -prune -o -name '*.h' -print | xargs etags -a
-	find $(SUBDIRS) init -name '*.c' | xargs etags -a
+	find $(SUBDIRS) init -name '*.[ch]' | xargs etags -a
 
 # Exuberant ctags works better with -I
 tags: dummy
 	CTAGSF=`ctags --version | grep -i exuberant >/dev/null && echo "-I __initdata,__exitdata,EXPORT_SYMBOL,EXPORT_SYMBOL_NOVERS"`; \
 	ctags $$CTAGSF `find include/asm-$(ARCH) -name '*.h'` && \
 	find include -type d \( -name "asm-*" -o -name config \) -prune -o -name '*.h' -print | xargs ctags $$CTAGSF -a && \
-	find $(SUBDIRS) init -name '*.c' | xargs ctags $$CTAGSF -a
+	find $(SUBDIRS) init -name '*.[ch]' | xargs ctags $$CTAGSF -a
 
 ifdef CONFIG_MODULES
 ifdef CONFIG_MODVERSIONS
@@ -417,7 +424,8 @@ mrproper: clean archmrproper
 	$(MAKE) -C Documentation/DocBook mrproper
 
 distclean: mrproper
-	rm -f core `find . \( -name '*.orig' -o -name '*.rej' -o -name '*~' \
+	rm -f core `find . \( -not -type d \) -and \
+		\( -name '*.orig' -o -name '*.rej' -o -name '*~' \
 		-o -name '*.bak' -o -name '#*#' -o -name '.*.orig' \
 		-o -name '.*.rej' -o -name '.SUMS' -o -size 0 \) -type f -print` TAGS tags
 
@@ -500,3 +508,30 @@ scripts/mkdep: scripts/mkdep.c
 
 scripts/split-include: scripts/split-include.c
 	$(HOSTCC) $(HOSTCFLAGS) -o scripts/split-include scripts/split-include.c
+
+#
+# RPM target
+#
+#	If you do a make spec before packing the tarball you can rpm -ta it
+#
+spec:
+	. scripts/mkspec >kernel.spec
+
+#
+#	Build a tar ball, generate an rpm from it and pack the result
+#	There arw two bits of magic here
+#	1) The use of /. to avoid tar packing just the symlink
+#	2) Removing the .dep files as they have source paths in them that
+#	   will become invalid
+#
+rpm:	clean spec
+	find . \( -size 0 -o -name .depend -o -name .hdepend \) -type f -print | xargs rm -f
+	set -e; \
+	cd $(TOPDIR)/.. ; \
+	ln -sf $(TOPDIR) $(KERNELPATH) ; \
+	tar -cvz --exclude CVS -f $(KERNELPATH).tar.gz $(KERNELPATH)/. ; \
+	rm $(KERNELPATH) ; \
+	cd $(TOPDIR) ; \
+	. scripts/mkversion > .version ; \
+	rpm -ta $(TOPDIR)/../$(KERNELPATH).tar.gz ; \
+	rm $(TOPDIR)/../$(KERNELPATH).tar.gz

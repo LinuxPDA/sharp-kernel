@@ -134,6 +134,19 @@ static unsigned long getreg(struct task_struct *child,
 	return retval;
 }
 
+/*
+ * Called by kernel/ptrace.c when detaching..
+ *
+ * Make sure the single step bit is not set.
+ */
+void ptrace_disable(struct task_struct *child)
+{ 
+	long tmp;
+
+	tmp = get_stack_long(child, EFL_OFFSET) & ~TRAP_FLAG;
+	put_stack_long(child, EFL_OFFSET, tmp);
+}
+
 asmlinkage int sys_ptrace(long request, long pid, long addr, long data)
 {
 	struct task_struct *child;
@@ -165,34 +178,7 @@ asmlinkage int sys_ptrace(long request, long pid, long addr, long data)
 		goto out_tsk;
 
 	if (request == PTRACE_ATTACH) {
-		if (child == current)
-			goto out_tsk;
-		if(((current->uid != child->euid) ||
-		    (current->uid != child->suid) ||
-		    (current->uid != child->uid) ||
-	 	    (current->gid != child->egid) ||
-	 	    (current->gid != child->sgid) ||
-	 	    (!cap_issubset(child->cap_permitted, current->cap_permitted)) ||
-	 	    (current->gid != child->gid)) && !capable(CAP_SYS_PTRACE))
-			goto out_tsk;
-		rmb();
-		if (!child->dumpable && !capable(CAP_SYS_PTRACE))
-			goto out_tsk;
-		/* the same process cannot be attached many times */
-		if (child->ptrace & PT_PTRACED)
-			goto out_tsk;
-		child->ptrace |= PT_PTRACED;
-
-		write_lock_irq(&tasklist_lock);
-		if (child->p_pptr != current) {
-			REMOVE_LINKS(child);
-			child->p_pptr = current;
-			SET_LINKS(child);
-		}
-		write_unlock_irq(&tasklist_lock);
-
-		send_sig(SIGSTOP, child, 1);
-		ret = 0;
+		ret = ptrace_attach(child);
 		goto out_tsk;
 	}
 	ret = -ESRCH;
@@ -229,7 +215,7 @@ asmlinkage int sys_ptrace(long request, long pid, long addr, long data)
 			break;
 
 		tmp = 0;  /* Default return condition */
-		if(addr < 17*sizeof(long))
+		if(addr < FRAME_SIZE*sizeof(long))
 			tmp = getreg(child, addr);
 		if(addr >= (long) &dummy->u_debugreg[0] &&
 		   addr <= (long) &dummy->u_debugreg[7]){
@@ -256,7 +242,7 @@ asmlinkage int sys_ptrace(long request, long pid, long addr, long data)
 		    addr > sizeof(struct user) - 3)
 			break;
 
-		if (addr < 17*sizeof(long)) {
+		if (addr < FRAME_SIZE*sizeof(long)) {
 			ret = putreg(child, addr, data);
 			break;
 		}
@@ -347,33 +333,17 @@ asmlinkage int sys_ptrace(long request, long pid, long addr, long data)
 		break;
 	}
 
-	case PTRACE_DETACH: { /* detach a process that was attached. */
-		long tmp;
-
-		ret = -EIO;
-		if ((unsigned long) data > _NSIG)
-			break;
-		child->ptrace = 0;
-		child->exit_code = data;
-		write_lock_irq(&tasklist_lock);
-		REMOVE_LINKS(child);
-		child->p_pptr = child->p_opptr;
-		SET_LINKS(child);
-		write_unlock_irq(&tasklist_lock);
-		/* make sure the single step bit is not set. */
-		tmp = get_stack_long(child, EFL_OFFSET) & ~TRAP_FLAG;
-		put_stack_long(child, EFL_OFFSET, tmp);
-		wake_up_process(child);
-		ret = 0;
+	case PTRACE_DETACH:
+		/* detach a process that was attached. */
+		ret = ptrace_detach(child, data);
 		break;
-	}
 
 	case PTRACE_GETREGS: { /* Get all gp regs from the child. */
-	  	if (!access_ok(VERIFY_WRITE, (unsigned *)data, 17*sizeof(long))) {
+	  	if (!access_ok(VERIFY_WRITE, (unsigned *)data, FRAME_SIZE*sizeof(long))) {
 			ret = -EIO;
 			break;
 		}
-		for ( i = 0; i < 17*sizeof(long); i += sizeof(long) ) {
+		for ( i = 0; i < FRAME_SIZE*sizeof(long); i += sizeof(long) ) {
 			__put_user(getreg(child, i),(unsigned long *) data);
 			data += sizeof(long);
 		}
@@ -383,11 +353,11 @@ asmlinkage int sys_ptrace(long request, long pid, long addr, long data)
 
 	case PTRACE_SETREGS: { /* Set all gp regs in the child. */
 		unsigned long tmp;
-	  	if (!access_ok(VERIFY_READ, (unsigned *)data, 17*sizeof(long))) {
+	  	if (!access_ok(VERIFY_READ, (unsigned *)data, FRAME_SIZE*sizeof(long))) {
 			ret = -EIO;
 			break;
 		}
-		for ( i = 0; i < 17*sizeof(long); i += sizeof(long) ) {
+		for ( i = 0; i < FRAME_SIZE*sizeof(long); i += sizeof(long) ) {
 			__get_user(tmp, (unsigned long *) data);
 			putreg(child, i, tmp);
 			data += sizeof(long);

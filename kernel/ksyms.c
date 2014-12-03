@@ -23,8 +23,6 @@
 #include <linux/serial.h>
 #include <linux/locks.h>
 #include <linux/delay.h>
-#include <linux/minix_fs.h>
-#include <linux/ext2_fs.h>
 #include <linux/random.h>
 #include <linux/reboot.h>
 #include <linux/pagemap.h>
@@ -47,6 +45,7 @@
 #include <linux/fs.h>
 #include <linux/tty.h>
 #include <linux/in6.h>
+#include <linux/completion.h>
 #include <asm/checksum.h>
 
 #if defined(CONFIG_PROC_FS)
@@ -60,7 +59,7 @@ extern void set_device_ro(kdev_t dev,int flag);
 
 extern void *sys_call_table;
 
-extern int sys_tz;
+extern struct timezone sys_tz;
 extern int request_dma(unsigned int dmanr, char * deviceID);
 extern void free_dma(unsigned int dmanr);
 extern spinlock_t dma_spin_lock;
@@ -129,6 +128,7 @@ EXPORT_SYMBOL(def_blk_fops);
 EXPORT_SYMBOL(update_atime);
 EXPORT_SYMBOL(get_fs_type);
 EXPORT_SYMBOL(get_super);
+EXPORT_SYMBOL(drop_super);
 EXPORT_SYMBOL(getname);
 EXPORT_SYMBOL(names_cachep);
 EXPORT_SYMBOL(fput);
@@ -172,11 +172,13 @@ EXPORT_SYMBOL(put_filp);
 EXPORT_SYMBOL(files_lock);
 EXPORT_SYMBOL(check_disk_change);
 EXPORT_SYMBOL(__invalidate_buffers);
+EXPORT_SYMBOL(invalidate_bdev);
 EXPORT_SYMBOL(invalidate_inodes);
 EXPORT_SYMBOL(invalidate_device);
 EXPORT_SYMBOL(invalidate_inode_pages);
 EXPORT_SYMBOL(truncate_inode_pages);
 EXPORT_SYMBOL(fsync_dev);
+EXPORT_SYMBOL(fsync_no_super);
 EXPORT_SYMBOL(permission);
 EXPORT_SYMBOL(vfs_permission);
 EXPORT_SYMBOL(inode_setattr);
@@ -194,6 +196,7 @@ EXPORT_SYMBOL(__brelse);
 EXPORT_SYMBOL(__bforget);
 EXPORT_SYMBOL(ll_rw_block);
 EXPORT_SYMBOL(submit_bh);
+EXPORT_SYMBOL(unlock_buffer);
 EXPORT_SYMBOL(__wait_on_buffer);
 EXPORT_SYMBOL(___wait_on_page);
 EXPORT_SYMBOL(block_write_full_page);
@@ -220,6 +223,7 @@ EXPORT_SYMBOL(posix_lock_file);
 EXPORT_SYMBOL(posix_test_lock);
 EXPORT_SYMBOL(posix_block_lock);
 EXPORT_SYMBOL(posix_unblock_lock);
+EXPORT_SYMBOL(posix_locks_deadlock);
 EXPORT_SYMBOL(locks_mandatory_area);
 EXPORT_SYMBOL(dput);
 EXPORT_SYMBOL(have_submounts);
@@ -241,9 +245,12 @@ EXPORT_SYMBOL(vfs_unlink);
 EXPORT_SYMBOL(vfs_rename);
 EXPORT_SYMBOL(vfs_statfs);
 EXPORT_SYMBOL(generic_read_dir);
+EXPORT_SYMBOL(generic_file_llseek);
+EXPORT_SYMBOL(no_llseek);
 EXPORT_SYMBOL(__pollwait);
 EXPORT_SYMBOL(poll_freewait);
 EXPORT_SYMBOL(ROOT_DEV);
+EXPORT_SYMBOL(__find_get_page);
 EXPORT_SYMBOL(__find_lock_page);
 EXPORT_SYMBOL(grab_cache_page);
 EXPORT_SYMBOL(read_cache_page);
@@ -279,8 +286,6 @@ EXPORT_SYMBOL(tty_unregister_driver);
 EXPORT_SYMBOL(tty_std_termios);
 
 /* block device driver support */
-EXPORT_SYMBOL(block_read);
-EXPORT_SYMBOL(block_write);
 EXPORT_SYMBOL(blksize_size);
 EXPORT_SYMBOL(hardsect_size);
 EXPORT_SYMBOL(blk_size);
@@ -294,7 +299,6 @@ EXPORT_SYMBOL(blkdev_open);
 EXPORT_SYMBOL(blkdev_get);
 EXPORT_SYMBOL(blkdev_put);
 EXPORT_SYMBOL(ioctl_by_bdev);
-EXPORT_SYMBOL(gendisk_head);
 EXPORT_SYMBOL(grok_partitions);
 EXPORT_SYMBOL(register_disk);
 EXPORT_SYMBOL(tq_disk);
@@ -302,7 +306,6 @@ EXPORT_SYMBOL(init_buffer);
 EXPORT_SYMBOL(refile_buffer);
 EXPORT_SYMBOL(max_sectors);
 EXPORT_SYMBOL(max_readahead);
-EXPORT_SYMBOL(file_moveto);
 
 /* tty routines */
 EXPORT_SYMBOL(tty_hangup);
@@ -312,8 +315,6 @@ EXPORT_SYMBOL(tty_hung_up_p);
 EXPORT_SYMBOL(tty_flip_buffer_push);
 EXPORT_SYMBOL(tty_get_baud_rate);
 EXPORT_SYMBOL(do_SAK);
-EXPORT_SYMBOL(console_print);
-EXPORT_SYMBOL(console_loglevel);
 
 /* filesystem registration */
 EXPORT_SYMBOL(register_filesystem);
@@ -330,11 +331,6 @@ EXPORT_SYMBOL(prepare_binprm);
 EXPORT_SYMBOL(compute_creds);
 EXPORT_SYMBOL(remove_arg_zero);
 EXPORT_SYMBOL(set_binfmt);
-
-/* execution environment registration */
-EXPORT_SYMBOL(register_exec_domain);
-EXPORT_SYMBOL(unregister_exec_domain);
-EXPORT_SYMBOL(__set_personality);
 
 /* sysctl table registration */
 EXPORT_SYMBOL(register_sysctl_table);
@@ -362,6 +358,10 @@ EXPORT_SYMBOL(irq_stat);	/* No separate irq_stat for s390, it is part of PSA */
 EXPORT_SYMBOL(add_wait_queue);
 EXPORT_SYMBOL(add_wait_queue_exclusive);
 EXPORT_SYMBOL(remove_wait_queue);
+
+/* completion handling */
+EXPORT_SYMBOL(wait_for_completion);
+EXPORT_SYMBOL(complete);
 
 /* The notion of irq probe/assignment is foreign to S/390 */
 
@@ -423,8 +423,9 @@ EXPORT_SYMBOL(ioport_resource);
 EXPORT_SYMBOL(iomem_resource);
 
 /* process management */
-EXPORT_SYMBOL(up_and_exit);
+EXPORT_SYMBOL(complete_and_exit);
 EXPORT_SYMBOL(__wake_up);
+EXPORT_SYMBOL(__wake_up_sync);
 EXPORT_SYMBOL(wake_up_process);
 EXPORT_SYMBOL(sleep_on);
 EXPORT_SYMBOL(sleep_on_timeout);
@@ -446,9 +447,12 @@ EXPORT_SYMBOL(nr_running);
 
 /* misc */
 EXPORT_SYMBOL(panic);
-EXPORT_SYMBOL(printk);
 EXPORT_SYMBOL(sprintf);
+EXPORT_SYMBOL(snprintf);
+EXPORT_SYMBOL(sscanf);
 EXPORT_SYMBOL(vsprintf);
+EXPORT_SYMBOL(vsnprintf);
+EXPORT_SYMBOL(vsscanf);
 EXPORT_SYMBOL(kdevname);
 EXPORT_SYMBOL(bdevname);
 EXPORT_SYMBOL(cdevname);
@@ -466,6 +470,7 @@ EXPORT_SYMBOL(secure_tcp_sequence_number);
 EXPORT_SYMBOL(get_random_bytes);
 EXPORT_SYMBOL(securebits);
 EXPORT_SYMBOL(cap_bset);
+EXPORT_SYMBOL(reparent_to_init);
 EXPORT_SYMBOL(daemonize);
 EXPORT_SYMBOL(csum_partial); /* for networking and md */
 
@@ -484,6 +489,7 @@ EXPORT_SYMBOL(si_meminfo);
 EXPORT_SYMBOL(sys_tz);
 EXPORT_SYMBOL(file_fsync);
 EXPORT_SYMBOL(fsync_inode_buffers);
+EXPORT_SYMBOL(fsync_inode_data_buffers);
 EXPORT_SYMBOL(clear_inode);
 EXPORT_SYMBOL(nr_async_pages);
 EXPORT_SYMBOL(___strtok);
@@ -515,10 +521,6 @@ EXPORT_SYMBOL(disk_name);	/* for md.c */
 /* binfmt_aout */
 EXPORT_SYMBOL(get_write_access);
 
-/* dynamic registering of consoles */
-EXPORT_SYMBOL(register_console);
-EXPORT_SYMBOL(unregister_console);
-
 /* time */
 EXPORT_SYMBOL(get_fast_time);
 
@@ -537,8 +539,10 @@ EXPORT_SYMBOL(tasklet_init);
 EXPORT_SYMBOL(tasklet_kill);
 EXPORT_SYMBOL(__run_task_queue);
 EXPORT_SYMBOL(do_softirq);
-EXPORT_SYMBOL(tasklet_schedule);
-EXPORT_SYMBOL(tasklet_hi_schedule);
+EXPORT_SYMBOL(raise_softirq);
+EXPORT_SYMBOL(cpu_raise_softirq);
+EXPORT_SYMBOL(__tasklet_schedule);
+EXPORT_SYMBOL(__tasklet_hi_schedule);
 
 /* init task, for moving kthread roots - ought to export a function ?? */
 

@@ -1210,6 +1210,7 @@ static int w83977af_net_open(struct net_device *dev)
 {
 	struct w83977af_ir *self;
 	int iobase;
+	char hwname[32];
 	__u8 set;
 	
 	IRDA_DEBUG(0, __FUNCTION__ "()\n");
@@ -1251,11 +1252,14 @@ static int w83977af_net_open(struct net_device *dev)
 	/* Ready to play! */
 	netif_start_queue(dev);
 	
+	/* Give self a hardware name */
+	sprintf(hwname, "w83977af @ 0x%03x", self->io.fir_base);
+
 	/* 
 	 * Open new IrLAP layer instance, now that everything should be
 	 * initialized properly 
 	 */
-	self->irlap = irlap_open(dev, &self->qos);
+	self->irlap = irlap_open(dev, &self->qos, hwname);
 
 	MOD_INC_USE_COUNT;
 
@@ -1374,6 +1378,8 @@ static struct net_device_stats *w83977af_net_get_stats(struct net_device *dev)
 
 MODULE_AUTHOR("Dag Brattli <dagb@cs.uit.no>");
 MODULE_DESCRIPTION("Winbond W83977AF IrDA Device Driver");
+MODULE_LICENSE("GPL");
+
 
 MODULE_PARM(qos_mtt_bits, "i");
 MODULE_PARM_DESC(qos_mtt_bits, "Mimimum Turn Time");

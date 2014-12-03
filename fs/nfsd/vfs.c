@@ -98,7 +98,7 @@ nfsd_lookup(struct svc_rqst *rqstp, struct svc_fh *fhp, const char *name,
 	struct dentry		*dentry;
 	int			err;
 
-	dprintk("nfsd: nfsd_lookup(fh %s, %*.*s)\n", SVCFH_fmt(fhp), len,len,name);
+	dprintk("nfsd: nfsd_lookup(fh %s, %.*s)\n", SVCFH_fmt(fhp), len,name);
 
 	/* Obtain dentry and export. */
 	err = fh_verify(rqstp, fhp, S_IFDIR, MAY_EXEC);
@@ -227,7 +227,7 @@ nfsd_setattr(struct svc_rqst *rqstp, struct svc_fh *fhp, struct iattr *iap,
 #define	MAX_TOUCH_TIME_ERROR (30*60)
 	if (err
 	    && (iap->ia_valid & BOTH_TIME_SET) == BOTH_TIME_SET
-	    && iap->ia_mtime == iap->ia_ctime
+	    && iap->ia_mtime == iap->ia_atime
 	    ) {
 	    /* looks good.  now just make sure time is in the right ballpark.
 	     * solaris, at least, doesn't seem to care what the time request is
@@ -296,16 +296,6 @@ nfsd_setattr(struct svc_rqst *rqstp, struct svc_fh *fhp, struct iattr *iap,
 
 
 	iap->ia_valid |= ATTR_CTIME;
-#ifdef CONFIG_QUOTA
-	/* DQUOT_TRANSFER needs both ia_uid and ia_gid defined */
-	if (iap->ia_valid & (ATTR_UID|ATTR_GID)) {
-		if (! (iap->ia_valid & ATTR_UID))
-			iap->ia_uid = inode->i_uid;
-		if (! (iap->ia_valid & ATTR_GID))
-			iap->ia_gid = inode->i_gid;
-		iap->ia_valid |= ATTR_UID|ATTR_GID;
-	}
-#endif /* CONFIG_QUOTA */
 
 	if (iap->ia_valid & ATTR_SIZE) {
 		fh_lock(fhp);
@@ -313,12 +303,7 @@ nfsd_setattr(struct svc_rqst *rqstp, struct svc_fh *fhp, struct iattr *iap,
 	}
 	err = nfserr_notsync;
 	if (!check_guard || guardtime == inode->i_ctime) {
-#ifdef CONFIG_QUOTA
-		if (iap->ia_valid & (ATTR_UID|ATTR_GID)) 
-			err = DQUOT_TRANSFER(dentry, iap);
-		else
-#endif
-			err = notify_change(dentry, iap);
+		err = notify_change(dentry, iap);
 		err = nfserrno(err);
 	}
 	if (size_change) {
@@ -481,6 +466,7 @@ nfsd_open(struct svc_rqst *rqstp, struct svc_fh *fhp, int type,
 	filp->f_op    = fops_get(inode->i_fop);
 	atomic_set(&filp->f_count, 1);
 	filp->f_dentry = dentry;
+	filp->f_vfsmnt = fhp->fh_export->ex_mnt;
 	if (access & MAY_WRITE) {
 		filp->f_flags = O_WRONLY|O_LARGEFILE;
 		filp->f_mode  = FMODE_WRITE;
@@ -1178,7 +1164,7 @@ out_nfserr:
  */
 int
 nfsd_link(struct svc_rqst *rqstp, struct svc_fh *ffhp,
-				char *fname, int len, struct svc_fh *tfhp)
+				char *name, int len, struct svc_fh *tfhp)
 {
 	struct dentry	*ddir, *dnew, *dold;
 	struct inode	*dirp, *dest;
@@ -1195,14 +1181,14 @@ nfsd_link(struct svc_rqst *rqstp, struct svc_fh *ffhp,
 	if (!len)
 		goto out;
 	err = nfserr_exist;
-	if (isdotent(fname, len))
+	if (isdotent(name, len))
 		goto out;
 
 	fh_lock(ffhp);
 	ddir = ffhp->fh_dentry;
 	dirp = ddir->d_inode;
 
-	dnew = lookup_one_len(fname, ddir, len);
+	dnew = lookup_one_len(name, ddir, len);
 	err = PTR_ERR(dnew);
 	if (IS_ERR(dnew))
 		goto out_nfserr;

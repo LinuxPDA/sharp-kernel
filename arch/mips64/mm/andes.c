@@ -125,14 +125,8 @@ andes_flush_icache_page(unsigned long page)
 static void
 andes_flush_cache_sigtramp(unsigned long addr)
 {
-	unsigned long daddr, iaddr;
-
-	daddr = addr & ~(dc_lsize - 1);
-	protected_writeback_dcache_line(daddr);
-	protected_writeback_dcache_line(daddr + dc_lsize);
-	iaddr = addr & ~(ic_lsize - 1);
-	protected_flush_icache_line(iaddr);
-	protected_flush_icache_line(iaddr + ic_lsize);
+	protected_writeback_dcache_line(addr & ~(dc_lsize - 1));
+	protected_flush_icache_line(addr & ~(ic_lsize - 1));
 }
 
 #define NTLB_ENTRIES       64
@@ -284,8 +278,8 @@ static void andes_update_mmu_cache(struct vm_area_struct * vma,
 
 	if((pid != (CPU_CONTEXT(smp_processor_id(), vma->vm_mm) & 0xff)) ||
 	   (CPU_CONTEXT(smp_processor_id(), vma->vm_mm) == 0)) {
-		printk("update_mmu_cache: Wheee, bogus tlbpid mmpid=%d 
-			tlbpid=%d\n", (int) (CPU_CONTEXT(smp_processor_id(), 
+		printk("update_mmu_cache: Wheee, bogus tlbpid mmpid=%d "
+			"tlbpid=%d\n", (int) (CPU_CONTEXT(smp_processor_id(),
 			vma->vm_mm) & 0xff), pid);
 	}
 
@@ -332,8 +326,8 @@ static void andes_show_regs(struct pt_regs *regs)
 	printk("Lo      : %016lx\n", regs->lo);
 
 	/* Saved cp0 registers. */
-	printk("epc     : %016lx\nbadvaddr: %016lx\n",
-	       regs->cp0_epc, regs->cp0_badvaddr);
+	printk("epc     : %016lx    %s\nbadvaddr: %016lx\n",
+	       regs->cp0_epc, print_tainted(), regs->cp0_badvaddr);
 	printk("Status  : %08x\nCause   : %08x\n",
 	       (unsigned int) regs->cp0_status, (unsigned int) regs->cp0_cause);
 }

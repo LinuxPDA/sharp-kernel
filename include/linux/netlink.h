@@ -34,7 +34,7 @@ struct nlmsghdr
 
 #define NLM_F_REQUEST		1	/* It is request message. 	*/
 #define NLM_F_MULTI		2	/* Multipart message, terminated by NLMSG_DONE */
-#define NLM_F_ACK		4	/* If succeed, reply with ack	*/
+#define NLM_F_ACK		4	/* Reply with ack, with zero or error code */
 #define NLM_F_ECHO		8	/* Echo this request 		*/
 
 /* Modifiers to GET request */
@@ -127,7 +127,7 @@ struct netlink_callback
 	long		args[4];
 };
 
-extern __inline__ struct nlmsghdr *
+static __inline__ struct nlmsghdr *
 __nlmsg_put(struct sk_buff *skb, u32 pid, u32 seq, int type, int len)
 {
 	struct nlmsghdr *nlh;

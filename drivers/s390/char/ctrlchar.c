@@ -1,5 +1,5 @@
 /*
- *  drivers/s390/char/controlchar.c
+ *  drivers/s390/char/ctrlchar.c
  *  Unified handling of special chars.
  *
  *    Copyright (C) 2001 IBM Deutschland Entwicklung GmbH, IBM Corporation
@@ -38,7 +38,7 @@ void ctrlchar_init(void) {
 		return;
 	INIT_LIST_HEAD(&ctrlchar_tq.list);
 	ctrlchar_tq.sync = 0;
-	ctrlchar_tq.routine = ctrlchar_handle_sysrq;
+	ctrlchar_tq.routine = (void (*)(void *)) ctrlchar_handle_sysrq;
 #endif
 }
 

@@ -9,9 +9,17 @@
    use will be evident. */
 #ifdef CONFIG_SVINTO_SIM
   /* Let's use the ucsim interface since it lets us do write(2, ...) */
-#define SIMCOUT(s,len) asm ("moveq 4,r1\n\tmoveq 2,r10\n\tmove.d %0,r11\n\tmove.d %1,r12\
-\n\tpush irp\n\t.word 0xae3f\n\t.dword 0f\n\tjump -6809\n0:\n\tpop irp" \
-       : : "rm" (s), "rm" (len) : "r1","r10","r11","r12","memory")
+#define SIMCOUT(s,len)							\
+  asm ("moveq 4,$r9	\n\t"						\
+       "moveq 2,$r10	\n\t"						\
+       "move.d %0,$r11	\n\t"						\
+       "move.d %1,$r12	\n\t"						\
+       "push $irp	\n\t"						\
+       "move 0f,$irp	\n\t"						\
+       "jump -6809	\n"						\
+       "0:		\n\t"						\
+       "pop $irp"							\
+       : : "rm" (s), "rm" (len) : "r9","r10","r11","r12","memory")
 #define TRACE_ON() __extension__ \
  ({ int _Foofoo; __asm__ volatile ("bmod [%0],%0" : "=r" (_Foofoo) : "0" \
 			       (255)); _Foofoo; })
@@ -113,7 +121,10 @@ extern volatile unsigned long *port_csp4_addr;
 #define LED_ACTIVE_SET_R(x) \
          REG_SHADOW_SET(R_PORT_PA_DATA, port_pa_data_shadow, CONFIG_ETRAX_LED2R, !(x))
 #define LED_DISK_WRITE(x) \
-         REG_SHADOW_SET(R_PORT_PA_DATA, port_pa_data_shadow, CONFIG_ETRAX_LED3R, !(x))
+         do{\
+                REG_SHADOW_SET(R_PORT_PA_DATA, port_pa_data_shadow, CONFIG_ETRAX_LED3G, !(x));\
+                REG_SHADOW_SET(R_PORT_PA_DATA, port_pa_data_shadow, CONFIG_ETRAX_LED3R, !(x));\
+        }while(0)
 #define LED_DISK_READ(x) \
          REG_SHADOW_SET(R_PORT_PA_DATA, port_pa_data_shadow, CONFIG_ETRAX_LED3G, !(x)) 
 #endif
@@ -128,12 +139,27 @@ extern volatile unsigned long *port_csp4_addr;
 #define LED_ACTIVE_SET_R(x) \
          REG_SHADOW_SET(R_PORT_PB_DATA, port_pb_data_shadow, CONFIG_ETRAX_LED2R, !(x))
 #define LED_DISK_WRITE(x) \
-         REG_SHADOW_SET(R_PORT_PB_DATA, port_pa_data_shadow, CONFIG_ETRAX_LED3R, !(x))
+        do{\
+                REG_SHADOW_SET(R_PORT_PB_DATA, port_pb_data_shadow, CONFIG_ETRAX_LED3G, !(x));\
+                REG_SHADOW_SET(R_PORT_PB_DATA, port_pb_data_shadow, CONFIG_ETRAX_LED3R, !(x));\
+        }while(0)
 #define LED_DISK_READ(x) \
-         REG_SHADOW_SET(R_PORT_PB_DATA, port_pa_data_shadow, CONFIG_ETRAX_LED3G, !(x))     
+         REG_SHADOW_SET(R_PORT_PB_DATA, port_pb_data_shadow, CONFIG_ETRAX_LED3G, !(x))     
 #endif
 
 #ifdef CONFIG_ETRAX_CSP0_LEDS
+#define CONFIGURABLE_LEDS\
+        ((1 << CONFIG_ETRAX_LED1G ) | (1 << CONFIG_ETRAX_LED1R ) |\
+         (1 << CONFIG_ETRAX_LED2G ) | (1 << CONFIG_ETRAX_LED2R ) |\
+         (1 << CONFIG_ETRAX_LED3G ) | (1 << CONFIG_ETRAX_LED3R ) |\
+         (1 << CONFIG_ETRAX_LED4G ) | (1 << CONFIG_ETRAX_LED4R ) |\
+         (1 << CONFIG_ETRAX_LED5G ) | (1 << CONFIG_ETRAX_LED5R ) |\
+         (1 << CONFIG_ETRAX_LED6G ) | (1 << CONFIG_ETRAX_LED6R ) |\
+         (1 << CONFIG_ETRAX_LED7G ) | (1 << CONFIG_ETRAX_LED7R ) |\
+         (1 << CONFIG_ETRAX_LED8Y ) | (1 << CONFIG_ETRAX_LED9Y ) |\
+         (1 << CONFIG_ETRAX_LED10Y ) |(1 << CONFIG_ETRAX_LED11Y )|\
+         (1 << CONFIG_ETRAX_LED12R ))
+
 #define LED_NETWORK_SET_G(x) \
          REG_SHADOW_SET(port_csp0_addr, port_csp0_shadow, CONFIG_ETRAX_LED1G, !(x))
 #define LED_NETWORK_SET_R(x) \
@@ -143,13 +169,30 @@ extern volatile unsigned long *port_csp4_addr;
 #define LED_ACTIVE_SET_R(x) \
          REG_SHADOW_SET(port_csp0_addr, port_csp0_shadow, CONFIG_ETRAX_LED2R, !(x))
 #define LED_DISK_WRITE(x) \
-         REG_SHADOW_SET(port_csp0_addr, port_csp0_shadow, CONFIG_ETRAX_LED3R, !(x))
+        do{\
+                REG_SHADOW_SET(port_csp0_addr, port_csp0_shadow, CONFIG_ETRAX_LED3G, !(x));\
+                REG_SHADOW_SET(port_csp0_addr, port_csp0_shadow, CONFIG_ETRAX_LED3R, !(x));\
+        }while(0)
 #define LED_DISK_READ(x) \
          REG_SHADOW_SET(port_csp0_addr, port_csp0_shadow, CONFIG_ETRAX_LED3G, !(x))
-#define LED_BIT_SET(x) \
-         REG_SHADOW_SET(port_csp0_addr, port_csp0_shadow, x, 1)
-#define LED_BIT_CLR(x) \
-          REG_SHADOW_SET(port_csp0_addr, port_csp0_shadow, x, 0)        
+#define LED_BIT_SET(x)\
+        do{\
+                if((( 1 << x) & CONFIGURABLE_LEDS)  != 0)\
+                       REG_SHADOW_SET(port_csp0_addr, port_csp0_shadow, x, 1);\
+        }while(0)
+#define LED_BIT_CLR(x)\
+        do{\
+                if((( 1 << x) & CONFIGURABLE_LEDS)  != 0)\
+                       REG_SHADOW_SET(port_csp0_addr, port_csp0_shadow, x, 0);\
+        }while(0)
+#endif
+
+#
+#ifdef CONFIG_ETRAX_SOFT_SHUTDOWN
+#define SOFT_SHUTDOWN() \
+          REG_SHADOW_SET(port_csp0_addr, port_csp0_shadow, CONFIG_ETRAX_SHUTDOWN_BIT, 1)
+#else
+#define SOFT_SHUTDOWN()
 #endif
 
 /*

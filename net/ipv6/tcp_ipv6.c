@@ -5,7 +5,7 @@
  *	Authors:
  *	Pedro Roque		<roque@di.fc.ul.pt>	
  *
- *	$Id: tcp_ipv6.c,v 1.137 2001/06/13 16:25:03 davem Exp $
+ *	$Id: tcp_ipv6.c,v 1.140 2001/10/15 12:34:50 davem Exp $
  *
  *	Based on: 
  *	linux/net/ipv4/tcp.c
@@ -339,13 +339,18 @@ static inline struct sock *__tcp_v6_lookup(struct in6_addr *saddr, u16 sport,
 	return tcp_v6_lookup_listener(daddr, hnum, dif);
 }
 
-#define tcp_v6_lookup(sa, sp, da, dp, dif) \
-({	struct sock *___sk; \
-	local_bh_disable(); \
-	___sk = __tcp_v6_lookup((sa),(sp),(da),ntohs(dp),(dif)); \
-	local_bh_enable(); \
-	___sk; \
-})
+__inline__ struct sock *tcp_v6_lookup(struct in6_addr *saddr, u16 sport,
+				      struct in6_addr *daddr, u16 dport,
+				      int dif)
+{
+	struct sock *sk;
+
+	local_bh_disable();
+	sk = __tcp_v6_lookup(saddr, sport, daddr, ntohs(dport), dif);
+	local_bh_enable();
+
+	return sk;
+}
 
 
 /*
@@ -656,7 +661,7 @@ static int tcp_v6_connect(struct sock *sk, struct sockaddr *uaddr,
 	tp->mss_clamp = IPV6_MIN_MTU - sizeof(struct tcphdr) - sizeof(struct ipv6hdr);
 
 	err = -ENOBUFS;
-	buff = alloc_skb(MAX_TCP_HEADER + 15, GFP_KERNEL);
+	buff = alloc_skb(MAX_TCP_HEADER + 15, sk->allocation);
 
 	if (buff == NULL)
 		goto failure;
@@ -1098,7 +1103,7 @@ static struct sock *tcp_v6_hnd_req(struct sock *sk,struct sk_buff *skb)
 			bh_lock_sock(nsk);
 			return nsk;
 		}
-		tcp_tw_put((struct tcp_tw_bucket*)sk);
+		tcp_tw_put((struct tcp_tw_bucket*)nsk);
 		return NULL;
 	}
 
@@ -1380,7 +1385,7 @@ static int tcp_v6_checksum_init(struct sk_buff *skb)
 		if (!tcp_v6_check(skb->h.th,skb->len,&skb->nh.ipv6h->saddr,
 				  &skb->nh.ipv6h->daddr,skb->csum))
 			return 0;
-		NETDEBUG(printk(KERN_DEBUG "hw tcp v6 csum failed\n"));
+		NETDEBUG(if (net_ratelimit()) printk(KERN_DEBUG "hw tcp v6 csum failed\n"));
 	}
 	if (skb->len <= 76) {
 		if (tcp_v6_check(skb->h.th,skb->len,&skb->nh.ipv6h->saddr,

@@ -17,17 +17,18 @@
 
 #define MD_RESERVED       0UL
 #define LINEAR            1UL
-#define STRIPED           2UL
-#define RAID0             STRIPED
+#define RAID0             2UL
 #define RAID1             3UL
 #define RAID5             4UL
 #define TRANSLUCENT       5UL
 #define HSM               6UL
-#define MAX_PERSONALITY   7UL
+#define MULTIPATH         7UL
+#define MAX_PERSONALITY   8UL
 
 static inline int pers_to_level (int pers)
 {
 	switch (pers) {
+		case MULTIPATH:		return -4;
 		case HSM:		return -3;
 		case TRANSLUCENT:	return -2;
 		case LINEAR:		return -1;
@@ -35,11 +36,11 @@ static inline int pers_to_level (int pers)
 		case RAID1:		return 1;
 		case RAID5:		return 5;
 	}
-	panic("pers_to_level()");
+	BUG();
 	return MD_RESERVED;
 }
 
-extern inline int level_to_pers (int level)
+static inline int level_to_pers (int level)
 {
 	switch (level) {
 		case -3: return HSM;
@@ -171,6 +172,7 @@ struct mdk_rdev_s
 	mdp_super_t *sb;
 	unsigned long sb_offset;
 
+	int alias_device;		/* device alias to the same disk */
 	int faulty;			/* if faulty do not issue IO requests */
 	int desc_nr;			/* descriptor index in the superblock */
 };
@@ -258,6 +260,7 @@ static inline kdev_t mddev_to_kdev(mddev_t * mddev)
 
 extern mdk_rdev_t * find_rdev(mddev_t * mddev, kdev_t dev);
 extern mdk_rdev_t * find_rdev_nr(mddev_t *mddev, int nr);
+extern mdp_disk_t *get_spare(mddev_t *mddev);
 
 /*
  * iterates through some rdev ringlist. It's safe to remove the
@@ -323,7 +326,7 @@ typedef struct mdk_thread_s {
 	void			*data;
 	md_wait_queue_head_t	wqueue;
 	unsigned long           flags;
-	struct semaphore	*sem;
+	struct completion	*event;
 	struct task_struct	*tsk;
 	const char		*name;
 } mdk_thread_t;
@@ -364,6 +367,31 @@ do {									\
 	if (condition)	 						\
 		break;							\
 	__wait_event_lock_irq(wq, condition, lock);			\
+} while (0)
+
+
+#define __wait_disk_event(wq, condition) 				\
+do {									\
+	wait_queue_t __wait;						\
+	init_waitqueue_entry(&__wait, current);				\
+									\
+	add_wait_queue(&wq, &__wait);					\
+	for (;;) {							\
+		set_current_state(TASK_UNINTERRUPTIBLE);		\
+		if (condition)						\
+			break;						\
+		run_task_queue(&tq_disk);				\
+		schedule();						\
+	}								\
+	current->state = TASK_RUNNING;					\
+	remove_wait_queue(&wq, &__wait);				\
+} while (0)
+
+#define wait_disk_event(wq, condition) 					\
+do {									\
+	if (condition)	 						\
+		break;							\
+	__wait_disk_event(wq, condition);				\
 } while (0)
 
 #endif 

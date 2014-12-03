@@ -46,7 +46,7 @@ static void flush_all_zero_pkmaps(void)
 
 	for (i = 0; i < LAST_PKMAP; i++) {
 		struct page *page;
-		pte_t pte;
+
 		/*
 		 * zero means we don't have anything to do,
 		 * >1 means that it is still in use. Only
@@ -56,10 +56,21 @@ static void flush_all_zero_pkmaps(void)
 		if (pkmap_count[i] != 1)
 			continue;
 		pkmap_count[i] = 0;
-		pte = ptep_get_and_clear(pkmap_page_table+i);
-		if (pte_none(pte))
+
+		/* sanity check */
+		if (pte_none(pkmap_page_table[i]))
 			BUG();
-		page = pte_page(pte);
+
+		/*
+		 * Don't need an atomic fetch-and-clear op here;
+		 * no-one has the page mapped, and cannot get at
+		 * its virtual address (and hence PTE) without first
+		 * getting the kmap_lock (which is held here).
+		 * So no dangers, even with speculative execution.
+		 */
+		page = pte_page(pkmap_page_table[i]);
+		pte_clear(&pkmap_page_table[i]);
+
 		page->virtual = NULL;
 	}
 	flush_tlb_all();
@@ -139,6 +150,7 @@ void kunmap_high(struct page *page)
 {
 	unsigned long vaddr;
 	unsigned long nr;
+	int need_wakeup;
 
 	spin_lock(&kmap_lock);
 	vaddr = (unsigned long) page->virtual;
@@ -150,13 +162,28 @@ void kunmap_high(struct page *page)
 	 * A count must never go down to zero
 	 * without a TLB flush!
 	 */
+	need_wakeup = 0;
 	switch (--pkmap_count[nr]) {
 	case 0:
 		BUG();
 	case 1:
-		wake_up(&pkmap_map_wait);
+		/*
+		 * Avoid an unnecessary wake_up() function call.
+		 * The common case is pkmap_count[] == 1, but
+		 * no waiters.
+		 * The tasks queued in the wait-queue are guarded
+		 * by both the lock in the wait-queue-head and by
+		 * the kmap_lock.  As the kmap_lock is held here,
+		 * no need for the wait-queue-head's lock.  Simply
+		 * test if the queue is empty.
+		 */
+		need_wakeup = waitqueue_active(&pkmap_map_wait);
 	}
 	spin_unlock(&kmap_lock);
+
+	/* do wake-up, if needed, race-free outside of the spin lock */
+	if (need_wakeup)
+		wake_up(&pkmap_map_wait);
 }
 
 #define POOL_SIZE 32
@@ -182,20 +209,12 @@ static inline void copy_from_high_bh (struct buffer_head *to,
 {
 	struct page *p_from;
 	char *vfrom;
-	unsigned long flags;
 
 	p_from = from->b_page;
 
-	/*
-	 * Since this can be executed from IRQ context, reentrance
-	 * on the same CPU must be avoided:
-	 */
-	__save_flags(flags);
-	__cli();
-	vfrom = kmap_atomic(p_from, KM_BOUNCE_WRITE);
+	vfrom = kmap_atomic(p_from, KM_USER0);
 	memcpy(to->b_data, vfrom + bh_offset(from), to->b_size);
-	kunmap_atomic(vfrom, KM_BOUNCE_WRITE);
-	__restore_flags(flags);
+	kunmap_atomic(vfrom, KM_USER0);
 }
 
 static inline void copy_to_high_bh_irq (struct buffer_head *to,
@@ -254,6 +273,13 @@ static inline void bounce_end_io (struct buffer_head *bh, int uptodate)
 
 static __init int init_emergency_pool(void)
 {
+	struct sysinfo i;
+        si_meminfo(&i);
+        si_swapinfo(&i);
+        
+        if (!i.totalhigh)
+        	return 0;
+
 	spin_lock_irq(&emergency_lock);
 	while (nr_emergency_pages < POOL_SIZE) {
 		struct page * page = alloc_page(GFP_ATOMIC);
@@ -301,16 +327,16 @@ struct page *alloc_bounce_page (void)
 	struct list_head *tmp;
 	struct page *page;
 
-repeat_alloc:
-	page = alloc_page(GFP_NOIO);
+	page = alloc_page(GFP_NOHIGHIO);
 	if (page)
 		return page;
 	/*
 	 * No luck. First, kick the VM so it doesnt idle around while
 	 * we are using up our emergency rations.
 	 */
-	wakeup_bdflush(0);
+	wakeup_bdflush();
 
+repeat_alloc:
 	/*
 	 * Try to allocate from the emergency pool.
 	 */
@@ -339,16 +365,16 @@ struct buffer_head *alloc_bounce_bh (void)
 	struct list_head *tmp;
 	struct buffer_head *bh;
 
-repeat_alloc:
-	bh = kmem_cache_alloc(bh_cachep, SLAB_NOIO);
+	bh = kmem_cache_alloc(bh_cachep, SLAB_NOHIGHIO);
 	if (bh)
 		return bh;
 	/*
 	 * No luck. First, kick the VM so it doesnt idle around while
 	 * we are using up our emergency rations.
 	 */
-	wakeup_bdflush(0);
+	wakeup_bdflush();
 
+repeat_alloc:
 	/*
 	 * Try to allocate from the emergency pool.
 	 */

@@ -25,6 +25,7 @@
 #include "acorn.h"
 #include "amiga.h"
 #include "atari.h"
+#include "ldm.h"
 #include "mac.h"
 #include "msdos.h"
 #include "osf.h"
@@ -35,12 +36,14 @@
 
 extern int *blk_size[];
 
-struct gendisk *gendisk_head;
 int warn_no_part = 1; /*This is ugly: should make genhd removable media aware*/
 
-static int (*check_part[])(struct gendisk *hd, kdev_t dev, unsigned long first_sect, int first_minor) = {
+static int (*check_part[])(struct gendisk *hd, struct block_device *bdev, unsigned long first_sect, int first_minor) = {
 #ifdef CONFIG_ACORN_PARTITION
 	acorn_partition,
+#endif
+#ifdef CONFIG_LDM_PARTITION
+	ldm_partition,		/* this must come before msdos */
 #endif
 #ifdef CONFIG_MSDOS_PARTITION
 	msdos_partition,
@@ -73,25 +76,42 @@ static int (*check_part[])(struct gendisk *hd, kdev_t dev, unsigned long first_s
 };
 
 /*
+ *	This is ucking fugly but its probably the best thing for 2.4.x
+ *	Take it as a clear reminder than we should put the device name
+ *	generation in the object kdev_t points to in 2.5.
+ */
+ 
+#ifdef CONFIG_ARCH_S390
+int (*genhd_dasd_name)(char*,int,int,struct gendisk*) = NULL;
+EXPORT_SYMBOL(genhd_dasd_name);
+#endif
+
+/*
  * disk_name() is used by partition check code and the md driver.
  * It formats the devicename of the indicated disk into
  * the supplied buffer (of size at least 32), and returns
  * a pointer to that same buffer (for convenience).
  */
+
 char *disk_name (struct gendisk *hd, int minor, char *buf)
 {
-	unsigned int part;
 	const char *maj = hd->major_name;
-	int unit = (minor >> hd->minor_shift) + 'a';
+	unsigned int unit = (minor >> hd->minor_shift);
+	unsigned int part = (minor & ((1 << hd->minor_shift) -1 ));
 
-	part = minor & ((1 << hd->minor_shift) - 1);
-	if (hd->part[minor].de) {
+	if ((unit < hd->nr_real) && hd->part[minor].de) {
 		int pos;
 
 		pos = devfs_generate_path (hd->part[minor].de, buf, 64);
 		if (pos >= 0)
 			return buf + pos;
 	}
+
+#ifdef CONFIG_ARCH_S390
+	if (genhd_dasd_name
+	    && genhd_dasd_name (buf, unit, part, hd) == 0)
+		return buf;
+#endif
 	/*
 	 * IDE devices use multiple major numbers, but the drives
 	 * are named as:  {hda,hdb}, {hdc,hdd}, {hde,hdf}, {hdg,hdh}..
@@ -120,13 +140,13 @@ char *disk_name (struct gendisk *hd, int minor, char *buf)
 			maj = "hd";
 			break;
 		case MD_MAJOR:
-			sprintf(buf, "%s%d", maj, unit - 'a');
+			sprintf(buf, "%s%d", maj, unit);
 			return buf;
 	}
 	if (hd->major >= SCSI_DISK1_MAJOR && hd->major <= SCSI_DISK7_MAJOR) {
 		unit = unit + (hd->major - SCSI_DISK1_MAJOR + 1) * 16;
-		if (unit > 'z') {
-			unit -= 'z' + 1;
+		if (unit+'a' > 'z') {
+			unit -= 26;
 			sprintf(buf, "sd%c%c", 'a' + unit / 26, 'a' + unit % 26);
 			if (part)
 				sprintf(buf + 4, "%d", part);
@@ -135,38 +155,41 @@ char *disk_name (struct gendisk *hd, int minor, char *buf)
 	}
 	if (hd->major >= COMPAQ_SMART2_MAJOR && hd->major <= COMPAQ_SMART2_MAJOR+7) {
 		int ctlr = hd->major - COMPAQ_SMART2_MAJOR;
- 		int disk = minor >> hd->minor_shift;
- 		int part = minor & (( 1 << hd->minor_shift) - 1);
  		if (part == 0)
- 			sprintf(buf, "%s/c%dd%d", maj, ctlr, disk);
+ 			sprintf(buf, "%s/c%dd%d", maj, ctlr, unit);
  		else
- 			sprintf(buf, "%s/c%dd%dp%d", maj, ctlr, disk, part);
+ 			sprintf(buf, "%s/c%dd%dp%d", maj, ctlr, unit, part);
  		return buf;
  	}
 	if (hd->major >= COMPAQ_CISS_MAJOR && hd->major <= COMPAQ_CISS_MAJOR+7) {
                 int ctlr = hd->major - COMPAQ_CISS_MAJOR;
-                int disk = minor >> hd->minor_shift;
-                int part = minor & (( 1 << hd->minor_shift) - 1);
                 if (part == 0)
-                        sprintf(buf, "%s/c%dd%d", maj, ctlr, disk);
+                        sprintf(buf, "%s/c%dd%d", maj, ctlr, unit);
                 else
-                        sprintf(buf, "%s/c%dd%dp%d", maj, ctlr, disk, part);
+                        sprintf(buf, "%s/c%dd%dp%d", maj, ctlr, unit, part);
                 return buf;
 	}
 	if (hd->major >= DAC960_MAJOR && hd->major <= DAC960_MAJOR+7) {
 		int ctlr = hd->major - DAC960_MAJOR;
- 		int disk = minor >> hd->minor_shift;
- 		int part = minor & (( 1 << hd->minor_shift) - 1);
  		if (part == 0)
- 			sprintf(buf, "%s/c%dd%d", maj, ctlr, disk);
+ 			sprintf(buf, "%s/c%dd%d", maj, ctlr, unit);
  		else
- 			sprintf(buf, "%s/c%dd%dp%d", maj, ctlr, disk, part);
+ 			sprintf(buf, "%s/c%dd%dp%d", maj, ctlr, unit, part);
  		return buf;
  	}
+	if (hd->major == ATARAID_MAJOR) {
+		int disk = minor >> hd->minor_shift;
+		int part = minor & (( 1 << hd->minor_shift) - 1);
+		if (part == 0)
+			sprintf(buf, "%s/d%d", maj, disk);
+		else
+			sprintf(buf, "%s/d%dp%d", maj, disk, part);
+		return buf;
+	}
 	if (part)
-		sprintf(buf, "%s%c%d", maj, unit, part);
+		sprintf(buf, "%s%c%d", maj, unit+'a', part);
 	else
-		sprintf(buf, "%s%c", maj, unit);
+		sprintf(buf, "%s%c", maj, unit+'a');
 	return buf;
 }
 
@@ -192,87 +215,12 @@ void add_gd_partition(struct gendisk *hd, int minor, int start, int size)
 #endif
 }
 
-unsigned int get_ptable_blocksize(kdev_t dev)
-{
-	int ret = 1024;
-
-	/*
-	 * See whether the low-level driver has given us a minumum blocksize.
-	 * If so, check to see whether it is larger than the default of 1024.
-	 */
-	if (!blksize_size[MAJOR(dev)])
-		return ret;
-
-	/*
-	 * Check for certain special power of two sizes that we allow.
-	 * With anything larger than 1024, we must force the blocksize up to
-	 * the natural blocksize for the device so that we don't have to try
-	 * and read partial sectors.  Anything smaller should be just fine.
-	 */
-
-	switch (blksize_size[MAJOR(dev)][MINOR(dev)]) {
-		case 2048:
-			ret = 2048;
-			break;
-		case 4096:
-			ret = 4096;
-			break;
-		case 8192:
-			ret = 8192;
-			break;
-		case 1024:
-		case 512:
-		case 256:
-		case 0:
-			/*
-			 * These are all OK.
-			 */
-			break;
-		default:
-			panic("Strange blocksize for partition table\n");
-	}
-
-	return ret;
-}
-
-#ifdef CONFIG_PROC_FS
-int get_partition_list(char *page, char **start, off_t offset, int count)
-{
-	struct gendisk *dsk;
-	int len;
-
-	len = sprintf(page, "major minor  #blocks  name\n\n");
-	for (dsk = gendisk_head; dsk; dsk = dsk->next) {
-		int n;
-
-		for (n = 0; n < (dsk->nr_real << dsk->minor_shift); n++)
-			if (dsk->part[n].nr_sects) {
-				char buf[64];
-
-				len += sprintf(page + len,
-					       "%4d  %4d %10d %s\n",
-					       dsk->major, n, dsk->sizes[n],
-					       disk_name(dsk, n, buf));
-				if (len < offset)
-					offset -= len, len = 0;
-				else if (len >= offset + count)
-					goto leave_loops;
-			}
-	}
-leave_loops:
-	*start = page + offset;
-	len -= offset;
-	if (len < 0)
-		len = 0;
-	return len > count ? count : len;
-}
-#endif
-
 static void check_partition(struct gendisk *hd, kdev_t dev, int first_part_minor)
 {
 	devfs_handle_t de = NULL;
 	static int first_time = 1;
 	unsigned long first_sector;
+	struct block_device *bdev;
 	char buf[64];
 	int i;
 
@@ -297,12 +245,24 @@ static void check_partition(struct gendisk *hd, kdev_t dev, int first_part_minor
 		printk(KERN_INFO " /dev/%s:", buf + i);
 	else
 		printk(KERN_INFO " %s:", disk_name(hd, MINOR(dev), buf));
-	for (i = 0; check_part[i]; i++)
-		if (check_part[i](hd, dev, first_sector, first_part_minor))
+	bdev = bdget(kdev_t_to_nr(dev));
+	bdev->bd_inode->i_size = (loff_t)hd->part[MINOR(dev)].nr_sects << 9;
+	bdev->bd_inode->i_blkbits = blksize_bits(block_size(dev));
+	for (i = 0; check_part[i]; i++) {
+		int res;
+		res = check_part[i](hd, bdev, first_sector, first_part_minor);
+		if (res) {
+			if (res < 0 &&  warn_no_part)
+				printk(" unable to read partition table\n");
 			goto setup_devfs;
+		}
+	}
 
 	printk(" unknown partition table\n");
 setup_devfs:
+	invalidate_bdev(bdev, 1);
+	truncate_inode_pages(bdev->bd_inode->i_mapping, 0);
+	bdput(bdev);
 	i = first_part_minor - 1;
 	devfs_register_partitions (hd, i, hd->sizes ? 0 : 1);
 }
@@ -328,6 +288,8 @@ static void devfs_register_partition (struct gendisk *dev, int minor, int part)
 			    dev->fops, NULL);
 }
 
+static struct unique_numspace disc_numspace = UNIQUE_NUMBERSPACE_INITIALISER;
+
 static void devfs_register_disc (struct gendisk *dev, int minor)
 {
 	int pos = 0;
@@ -335,7 +297,6 @@ static void devfs_register_disc (struct gendisk *dev, int minor)
 	devfs_handle_t dir, slave;
 	unsigned int devfs_flags = DEVFS_FL_DEFAULT;
 	char dirname[64], symlink[16];
-	static unsigned int disc_counter;
 	static devfs_handle_t devfs_handle;
 
 	if (dev->part[minor].de) return;
@@ -356,7 +317,8 @@ static void devfs_register_disc (struct gendisk *dev, int minor)
 	}
 	if (!devfs_handle)
 		devfs_handle = devfs_mk_dir (NULL, "discs", NULL);
-	sprintf (symlink, "disc%u", disc_counter++);
+	dev->part[minor].number = devfs_alloc_unique_number (&disc_numspace);
+	sprintf (symlink, "disc%d", dev->part[minor].number);
 	devfs_mk_symlink (devfs_handle, symlink, DEVFS_FL_DEFAULT,
 			  dirname + pos, &slave, NULL);
 	dev->part[minor].de =
@@ -386,6 +348,8 @@ void devfs_register_partitions (struct gendisk *dev, int minor, int unregister)
 	if (unregister) {
 		devfs_unregister (dev->part[minor].de);
 		dev->part[minor].de = NULL;
+		devfs_dealloc_unique_number (&disc_numspace,
+					     dev->part[minor].number);
 	}
 #endif  /*  CONFIG_DEVFS_FS  */
 }
@@ -422,6 +386,12 @@ void grok_partitions(struct gendisk *dev, int drive, unsigned minors, long size)
 	if (!size || minors == 1)
 		return;
 
+	if (dev->sizes) {
+		dev->sizes[first_minor] = size >> (BLOCK_SIZE_BITS - 9);
+		for (i = first_minor + 1; i < end_minor; i++)
+			dev->sizes[i] = 0;
+	}
+	blk_size[dev->major] = dev->sizes;
 	check_partition(dev, MKDEV(dev->major, first_minor), 1 + first_minor);
 
  	/*
@@ -431,6 +401,28 @@ void grok_partitions(struct gendisk *dev, int drive, unsigned minors, long size)
 	if (dev->sizes != NULL) {	/* optional safeguard in ll_rw_blk.c */
 		for (i = first_minor; i < end_minor; i++)
 			dev->sizes[i] = dev->part[i].nr_sects >> (BLOCK_SIZE_BITS - 9);
-		blk_size[dev->major] = dev->sizes;
 	}
+}
+
+unsigned char *read_dev_sector(struct block_device *bdev, unsigned long n, Sector *p)
+{
+	struct address_space *mapping = bdev->bd_inode->i_mapping;
+	int sect = PAGE_CACHE_SIZE / 512;
+	struct page *page;
+
+	page = read_cache_page(mapping, n/sect,
+			(filler_t *)mapping->a_ops->readpage, NULL);
+	if (!IS_ERR(page)) {
+		wait_on_page(page);
+		if (!Page_Uptodate(page))
+			goto fail;
+		if (PageError(page))
+			goto fail;
+		p->v = page;
+		return (unsigned char *)page_address(page) + 512 * (n % sect);
+fail:
+		page_cache_release(page);
+	}
+	p->v = NULL;
+	return NULL;
 }

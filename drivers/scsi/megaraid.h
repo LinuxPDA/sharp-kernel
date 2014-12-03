@@ -10,7 +10,7 @@
 #define IN_RESET		0x20000000L
 #define IN_QUEUE		0x10000000L
 
-#define BOARD_QUARTZ		0x08000000L
+#define BOARD_QUARTZ	0x08000000L
 #define BOARD_40LD	   	0x04000000L
 #define BOARD_64BIT		0x02000000L
 
@@ -27,7 +27,8 @@
 #define M_RD_IOCTL_CMD_NEW		0x81
 #define M_RD_DRIVER_IOCTL_INTERFACE	0x82
 
-#define MEGARAID_VERSION "v1.14g-ac2 (Release Date: Mar 22, 2001; 19:34:02)"
+#define MEGARAID_VERSION "v1.17a (Release Date: Fri Jul 13 18:44:01 EDT 2001)"
+
 #define MEGARAID_IOCTL_VERSION 	114
 
 /* Methods */
@@ -63,12 +64,14 @@
 #define FROMTO_DEVICE		0x2
 
 /* Mailbox commands */
-#define MEGA_MBOXCMD_LREAD      0x01
-#define MEGA_MBOXCMD_LWRITE     0x02
-#define MEGA_MBOXCMD_LREAD64    0xA7
-#define MEGA_MBOXCMD_LWRITE64   0xA8
-#define MEGA_MBOXCMD_PASSTHRU   0x03
-#define MEGA_MBOXCMD_ADAPTERINQ 0x05
+#define MEGA_MBOXCMD_LREAD		0x01
+#define MEGA_MBOXCMD_LWRITE		0x02
+#define MEGA_MBOXCMD_LREAD64		0xA7
+#define MEGA_MBOXCMD_LWRITE64		0xA8
+#define MEGA_MBOXCMD_PASSTHRU		0x03
+#define MEGA_MBOXCMD_EXTPASSTHRU	0xE3
+#define MEGA_MBOXCMD_ADAPTERINQ		0x05
+
 
 /* Offsets into Mailbox */
 #define COMMAND_PORT       	0x00
@@ -114,6 +117,23 @@
 #define CLEAR_INTR(base)	WRITE_PORT(base,I_ACK_PORT,ACK_BYTE)
 #define ENABLE_INTR(base)	WRITE_PORT(base,I_TOGGLE_PORT,ENABLE_INTR_BYTE)
 #define DISABLE_INTR(base)	WRITE_PORT(base,I_TOGGLE_PORT,DISABLE_INTR_BYTE)
+
+/* Define AMI's PCI codes */
+#ifndef PCI_VENDOR_ID_AMI
+#define PCI_VENDOR_ID_AMI		0x101E
+#endif
+
+#ifndef PCI_DEVICE_ID_AMI_MEGARAID
+#define PCI_DEVICE_ID_AMI_MEGARAID	0x9010
+#endif
+
+#ifndef PCI_DEVICE_ID_AMI_MEGARAID2
+#define PCI_DEVICE_ID_AMI_MEGARAID2	0x9060
+#endif
+
+#ifndef PCI_DEVICE_ID_AMI_MEGARAID3
+#define PCI_DEVICE_ID_AMI_MEGARAID3	0x1960
+#endif
 
 /* Special Adapter Commands */
 #define FW_FIRE_WRITE   	0x2C
@@ -454,6 +474,7 @@ struct MegaRAID_Notify {
 #define M_RD_PTHRU_WITH_SGLIST	  	0x0002
 #define M_RD_BULK_DATA_ONLY	     	0x0004
 #define M_RD_SGLIST_ONLY		0x0008
+#define M_RD_EPTHRU_WITH_BULK_DATA   	0x0010
 #endif
 /********************************************
  * ENQUIRY3
@@ -546,6 +567,38 @@ typedef struct mega_passthru {
 	u32 dataxferlen;
 } mega_passthru;
 
+/*
+ * Extended passthru: support CDB > 10 bytes
+ */
+typedef struct {
+	u8 timeout:3;		/* 0=6sec/1=60sec/2=10min/3=3hrs */
+	u8 ars:1;
+	u8 rsvd1:1;
+	u8 cd_rom:1;
+	u8 rsvd2:1;
+	u8 islogical:1;
+
+	u8 logdrv;		/* if islogical == 1 */
+	u8 channel;		/* if islogical == 0 */
+	u8 target;		/* if islogical == 0 */
+
+	u8 queuetag;		/* unused */
+	u8 queueaction;		/* unused */
+
+	u8 cdblen;
+	u8 rsvd3;
+	u8 cdb[16];
+
+	u8 numsgelements;
+	u8 status;
+	u8 reqsenselen;
+	u8 reqsensearea[MAX_REQ_SENSE_LEN];
+	u8 rsvd4;
+
+	u32 dataxferaddr;
+	u32 dataxferlen;
+}mega_ext_passthru;
+
 struct _mega_mailbox {
 	/* 0x0 */ u8 cmd;
 	/* 0x1 */ u8 cmdid;
@@ -617,14 +670,17 @@ struct _mega_scb {
 	u8 sglist_count;
 	dma_addr_t dma_sghandle64;
 	dma_addr_t dma_passthruhandle64;
+	dma_addr_t dma_ext_passthruhandle64;
 	dma_addr_t dma_bounce_buffer;
 	u8 *bounce_buffer;
 #endif
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,4,0)
 	mega_passthru *pthru;
+	mega_ext_passthru *epthru;
 #else
 	mega_passthru pthru;
+	mega_ext_passthru epthru;
 #endif
 
 	Scsi_Cmnd *SCpnt;
@@ -708,6 +764,9 @@ typedef struct _mega_host_config {
 	int procidx;
 	struct proc_dir_entry *controller_proc_dir_entry;
 	struct proc_dir_entry *proc_read, *proc_stat, *proc_status, *proc_mbox;
+	int		support_ext_cdb;
+	int		boot_ldrv_enabled;
+	int		boot_ldrv;
 } mega_host_config;
 
 typedef struct _driver_info {
@@ -822,6 +881,36 @@ struct mega_hbas {
 
 #define		IS_BIOS_ENABLED		0x62
 #define		GET_BIOS		0x01
+#define		CHNL_CLASS		0xA9
+#define		GET_CHNL_CLASS	0x00
+#define		SET_CHNL_CLASS	0x01
+#define		CH_RAID			0x01
+#define		CH_SCSI			0x00
+
+
+#define BIOS_PVT_DATA		0x40
+#define GET_BIOS_PVT_DATA	0x00
+
+#pragma pack(1)
+struct private_bios_data {
+	u8		geometry:4;		/*
+							 * bits 0-3 - BIOS geometry
+							 * 0x0001 - 1GB
+							 * 0x0010 - 2GB
+							 * 0x1000 - 8GB
+							 * Others values are invalid
+							 */
+	u8		unused:4;		/* bits 4-7 are unused */
+	u8		boot_ldrv;		/*
+							 * logical drive set as boot drive
+							 * 0..7 - for 8LD cards
+							 * 0..39 - for 40LD cards
+							 */
+	u8		rsvd[12];
+	u16		cksum;			/* 0-(sum of first 13 bytes of this structure) */
+};
+#pragma pack()
+
 
 /*================================================================
  *
@@ -829,15 +918,15 @@ struct mega_hbas {
  *
  *================================================================
  */
-static const char *megaraid_info (struct Scsi_Host *);
+const char *megaraid_info (struct Scsi_Host *);
 int megaraid_detect (Scsi_Host_Template *);
-static int megaraid_release (struct Scsi_Host *);
-static int megaraid_command (Scsi_Cmnd *);
-static int megaraid_abort (Scsi_Cmnd *);
-static int megaraid_reset (Scsi_Cmnd *, unsigned int);
-static int megaraid_queue (Scsi_Cmnd *, void (*done) (Scsi_Cmnd *));
-static int megaraid_biosparam (Disk *, kdev_t, int *);
-static int megaraid_proc_info (char *buffer, char **start, off_t offset,
+int megaraid_release (struct Scsi_Host *);
+int megaraid_command (Scsi_Cmnd *);
+int megaraid_abort (Scsi_Cmnd *);
+int megaraid_reset (Scsi_Cmnd *, unsigned int);
+int megaraid_queue (Scsi_Cmnd *, void (*done) (Scsi_Cmnd *));
+int megaraid_biosparam (Disk *, kdev_t, int *);
+int megaraid_proc_info (char *buffer, char **start, off_t offset,
 			int length, int hostno, int inout);
 
 static int megaIssueCmd (mega_host_config * megaCfg, u_char * mboxData,
@@ -855,7 +944,7 @@ static void mega_Convert8ldTo40ld (mega_RAIDINQ * inquiry,
 
 static int megaraid_reboot_notify (struct notifier_block *,
 				   unsigned long, void *);
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,3,0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,3,0)  
 static mega_scb *mega_ioctl (mega_host_config * megaCfg, Scsi_Cmnd * SCpnt);
 static void mega_build_kernel_sg (char *barea, ulong xfersize, mega_scb * pScb,
 			   mega_ioctl_mbox * mbox);
@@ -878,5 +967,15 @@ static void mega_reorder_hosts (void);
 static void mega_swap_hosts (struct Scsi_Host *, struct Scsi_Host *);
 
 static void mega_create_proc_entry (int index, struct proc_dir_entry *);
+static int mega_support_ext_cdb(mega_host_config *);
+static mega_passthru* mega_prepare_passthru(mega_host_config *, mega_scb *,
+		Scsi_Cmnd *);
+static mega_ext_passthru* mega_prepare_extpassthru(mega_host_config *,
+		mega_scb *, Scsi_Cmnd *);
+static void mega_enum_raid_scsi(mega_host_config *);
+static int mega_partsize(Disk *, kdev_t, int *);
+static void mega_get_boot_ldrv(mega_host_config *);
 
 #endif
+
+/* vi: set ts=4: */

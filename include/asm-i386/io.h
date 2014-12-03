@@ -1,6 +1,8 @@
 #ifndef _ASM_IO_H
 #define _ASM_IO_H
 
+#include <linux/config.h>
+
 /*
  * This file contains the definitions for the x86 IO instructions
  * inb/inw/inl/outb/outw/outl and the "string versions" of the same
@@ -34,74 +36,10 @@
   *  - Arnaldo Carvalho de Melo <acme@conectiva.com.br>
   */
 
-#ifdef SLOW_IO_BY_JUMPING
-#define __SLOW_DOWN_IO "\njmp 1f\n1:\tjmp 1f\n1:"
-#else
-#define __SLOW_DOWN_IO "\noutb %%al,$0x80"
-#endif
-
-#ifdef REALLY_SLOW_IO
-#define __FULL_SLOW_DOWN_IO __SLOW_DOWN_IO __SLOW_DOWN_IO __SLOW_DOWN_IO __SLOW_DOWN_IO
-#else
-#define __FULL_SLOW_DOWN_IO __SLOW_DOWN_IO
-#endif
-
-/*
- * Talk about misusing macros..
- */
-#define __OUT1(s,x) \
-extern inline void out##s(unsigned x value, unsigned short port) {
-
-#define __OUT2(s,s1,s2) \
-__asm__ __volatile__ ("out" #s " %" s1 "0,%" s2 "1"
-
-#define __OUT(s,s1,x) \
-__OUT1(s,x) __OUT2(s,s1,"w") : : "a" (value), "Nd" (port)); } \
-__OUT1(s##_p,x) __OUT2(s,s1,"w") __FULL_SLOW_DOWN_IO : : "a" (value), "Nd" (port));} \
-
-#define __IN1(s) \
-extern inline RETURN_TYPE in##s(unsigned short port) { RETURN_TYPE _v;
-
-#define __IN2(s,s1,s2) \
-__asm__ __volatile__ ("in" #s " %" s2 "1,%" s1 "0"
-
-#define __IN(s,s1,i...) \
-__IN1(s) __IN2(s,s1,"w") : "=a" (_v) : "Nd" (port) ,##i ); return _v; } \
-__IN1(s##_p) __IN2(s,s1,"w") __FULL_SLOW_DOWN_IO : "=a" (_v) : "Nd" (port) ,##i ); return _v; } \
-
-#define __INS(s) \
-extern inline void ins##s(unsigned short port, void * addr, unsigned long count) \
-{ __asm__ __volatile__ ("rep ; ins" #s \
-: "=D" (addr), "=c" (count) : "d" (port),"0" (addr),"1" (count)); }
-
-#define __OUTS(s) \
-extern inline void outs##s(unsigned short port, const void * addr, unsigned long count) \
-{ __asm__ __volatile__ ("rep ; outs" #s \
-: "=S" (addr), "=c" (count) : "d" (port),"0" (addr),"1" (count)); }
-
-#define RETURN_TYPE unsigned char
-__IN(b,"")
-#undef RETURN_TYPE
-#define RETURN_TYPE unsigned short
-__IN(w,"")
-#undef RETURN_TYPE
-#define RETURN_TYPE unsigned int
-__IN(l,"")
-#undef RETURN_TYPE
-
-__OUT(b,"b",char)
-__OUT(w,"w",short)
-__OUT(l,,int)
-
-__INS(b)
-__INS(w)
-__INS(l)
-
-__OUTS(b)
-__OUTS(w)
-__OUTS(l)
-
 #define IO_SPACE_LIMIT 0xffff
+
+#define XQUAD_PORTIO_BASE 0xfe400000
+#define XQUAD_PORTIO_LEN  0x40000   /* 256k per quad. Only remapping 1st */
 
 #ifdef __KERNEL__
 
@@ -111,7 +49,7 @@ __OUTS(l)
  * Temporary debugging check to catch old code using
  * unmapped ISA addresses. Will be removed in 2.4.
  */
-#if 0
+#if CONFIG_DEBUG_IOVIRT
   extern void *__io_virt_debug(unsigned long x, const char *file, int line);
   extern unsigned long __io_phys_debug(unsigned long x, const char *file, int line);
   #define __io_virt(x) __io_virt_debug((unsigned long)(x), __FILE__, __LINE__)
@@ -125,19 +63,24 @@ __OUTS(l)
  * Change virtual addresses to physical addresses and vv.
  * These are pretty trivial
  */
-extern inline unsigned long virt_to_phys(volatile void * address)
+static inline unsigned long virt_to_phys(volatile void * address)
 {
 	return __pa(address);
 }
 
-extern inline void * phys_to_virt(unsigned long address)
+static inline void * phys_to_virt(unsigned long address)
 {
 	return __va(address);
 }
 
+/*
+ * Change "struct page" to physical address.
+ */
+#define page_to_phys(page)	((page - mem_map) << PAGE_SHIFT)
+
 extern void * __ioremap(unsigned long offset, unsigned long size, unsigned long flags);
 
-extern inline void * ioremap (unsigned long offset, unsigned long size)
+static inline void * ioremap (unsigned long offset, unsigned long size)
 {
 	return __ioremap(offset, size, 0);
 }
@@ -147,7 +90,7 @@ extern inline void * ioremap (unsigned long offset, unsigned long size)
  * it's useful if some control registers are in such an area and write combining
  * or read caching is not desirable:
  */
-extern inline void * ioremap_nocache (unsigned long offset, unsigned long size)
+static inline void * ioremap_nocache (unsigned long offset, unsigned long size)
 {
         return __ioremap(offset, size, _PAGE_PCD);
 }
@@ -159,6 +102,7 @@ extern void iounmap(void *addr);
  */
 #define virt_to_bus virt_to_phys
 #define bus_to_virt phys_to_virt
+#define page_to_bus page_to_phys
 
 /*
  * readX/writeX() are used to access memory mapped devices. On some
@@ -252,5 +196,111 @@ out:
 #define dma_cache_wback_inv(_start,_size)	do { } while (0)
 
 #endif /* __KERNEL__ */
+
+#ifdef SLOW_IO_BY_JUMPING
+#define __SLOW_DOWN_IO "\njmp 1f\n1:\tjmp 1f\n1:"
+#else
+#define __SLOW_DOWN_IO "\noutb %%al,$0x80"
+#endif
+
+#ifdef REALLY_SLOW_IO
+#define __FULL_SLOW_DOWN_IO __SLOW_DOWN_IO __SLOW_DOWN_IO __SLOW_DOWN_IO __SLOW_DOWN_IO
+#else
+#define __FULL_SLOW_DOWN_IO __SLOW_DOWN_IO
+#endif
+
+#ifdef CONFIG_MULTIQUAD
+extern void *xquad_portio;    /* Where the IO area was mapped */
+#endif /* CONFIG_MULTIQUAD */
+
+/*
+ * Talk about misusing macros..
+ */
+#define __OUT1(s,x) \
+static inline void out##s(unsigned x value, unsigned short port) {
+
+#define __OUT2(s,s1,s2) \
+__asm__ __volatile__ ("out" #s " %" s1 "0,%" s2 "1"
+
+#ifdef CONFIG_MULTIQUAD
+/* Make the default portio routines operate on quad 0 for now */
+#define __OUT(s,s1,x) \
+__OUT1(s##_local,x) __OUT2(s,s1,"w") : : "a" (value), "Nd" (port)); } \
+__OUT1(s##_p_local,x) __OUT2(s,s1,"w") __FULL_SLOW_DOWN_IO : : "a" (value), "Nd" (port));} \
+__OUTQ0(s,s,x) \
+__OUTQ0(s,s##_p,x) 
+#else
+#define __OUT(s,s1,x) \
+__OUT1(s,x) __OUT2(s,s1,"w") : : "a" (value), "Nd" (port)); } \
+__OUT1(s##_p,x) __OUT2(s,s1,"w") __FULL_SLOW_DOWN_IO : : "a" (value), "Nd" (port));} 
+#endif /* CONFIG_MULTIQUAD */
+
+#ifdef CONFIG_MULTIQUAD
+#define __OUTQ0(s,ss,x)    /* Do the equivalent of the portio op on quad 0 */ \
+static inline void out##ss(unsigned x value, unsigned short port) { \
+	if (xquad_portio) \
+		write##s(value, (unsigned long) xquad_portio + port); \
+	else               /* We're still in early boot, running on quad 0 */ \
+		out##ss##_local(value, port); \
+} 
+
+#define __INQ0(s,ss)       /* Do the equivalent of the portio op on quad 0 */ \
+static inline RETURN_TYPE in##ss(unsigned short port) { \
+	if (xquad_portio) \
+		return read##s((unsigned long) xquad_portio + port); \
+	else               /* We're still in early boot, running on quad 0 */ \
+		return in##ss##_local(port); \
+}
+#endif /* CONFIG_MULTIQUAD */
+
+#define __IN1(s) \
+static inline RETURN_TYPE in##s(unsigned short port) { RETURN_TYPE _v;
+
+#define __IN2(s,s1,s2) \
+__asm__ __volatile__ ("in" #s " %" s2 "1,%" s1 "0"
+
+#ifdef CONFIG_MULTIQUAD
+#define __IN(s,s1,i...) \
+__IN1(s##_local) __IN2(s,s1,"w") : "=a" (_v) : "Nd" (port) ,##i ); return _v; } \
+__IN1(s##_p_local) __IN2(s,s1,"w") __FULL_SLOW_DOWN_IO : "=a" (_v) : "Nd" (port) ,##i ); return _v; } \
+__INQ0(s,s) \
+__INQ0(s,s##_p) 
+#else
+#define __IN(s,s1,i...) \
+__IN1(s) __IN2(s,s1,"w") : "=a" (_v) : "Nd" (port) ,##i ); return _v; } \
+__IN1(s##_p) __IN2(s,s1,"w") __FULL_SLOW_DOWN_IO : "=a" (_v) : "Nd" (port) ,##i ); return _v; } 
+#endif /* CONFIG_MULTIQUAD */
+
+#define __INS(s) \
+static inline void ins##s(unsigned short port, void * addr, unsigned long count) \
+{ __asm__ __volatile__ ("rep ; ins" #s \
+: "=D" (addr), "=c" (count) : "d" (port),"0" (addr),"1" (count)); }
+
+#define __OUTS(s) \
+static inline void outs##s(unsigned short port, const void * addr, unsigned long count) \
+{ __asm__ __volatile__ ("rep ; outs" #s \
+: "=S" (addr), "=c" (count) : "d" (port),"0" (addr),"1" (count)); }
+
+#define RETURN_TYPE unsigned char
+__IN(b,"")
+#undef RETURN_TYPE
+#define RETURN_TYPE unsigned short
+__IN(w,"")
+#undef RETURN_TYPE
+#define RETURN_TYPE unsigned int
+__IN(l,"")
+#undef RETURN_TYPE
+
+__OUT(b,"b",char)
+__OUT(w,"w",short)
+__OUT(l,,int)
+
+__INS(b)
+__INS(w)
+__INS(l)
+
+__OUTS(b)
+__OUTS(w)
+__OUTS(l)
 
 #endif

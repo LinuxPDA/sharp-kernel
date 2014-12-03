@@ -96,22 +96,6 @@ int do_check_pgt_cache(int low, int high)
 }
 #endif
 
-void show_mem(void)
-{
-	int free = 0, total = 0, reserved = 0;
-	int shared = 0, cached = 0, node;
-
-	printk("Mem-info:\n");
-	show_free_areas();
-	printk("Free swap:       %6dkB\n",nr_swap_pages<<(PAGE_SHIFT-10));
-
-	for (node = 0; node < numnodes; node++) {
-		struct page *page, *end;
-
-		page = NODE_MEM_MAP(node);
-		end  = page + NODE_DATA(node)->node_size;
-
-		do {
 /* This is currently broken
  * PG_skip is used on sparc/sparc64 architectures to "skip" certain
  * parts of the address space.
@@ -124,11 +108,29 @@ void show_mem(void)
  *					break;
  *			}
  */
+void show_mem(void)
+{
+	int free = 0, total = 0, reserved = 0;
+	int shared = 0, cached = 0, slab = 0, node;
+
+	printk("Mem-info:\n");
+	show_free_areas();
+	printk("Free swap:       %6dkB\n",nr_swap_pages<<(PAGE_SHIFT-10));
+
+	for (node = 0; node < numnodes; node++) {
+		struct page *page, *end;
+
+		page = NODE_MEM_MAP(node);
+		end  = page + NODE_DATA(node)->node_size;
+
+		do {
 			total++;
 			if (PageReserved(page))
 				reserved++;
 			else if (PageSwapCache(page))
 				cached++;
+			else if (PageSlab(page))
+				slab++;
 			else if (!page_count(page))
 				free++;
 			else
@@ -140,6 +142,7 @@ void show_mem(void)
 	printk("%d pages of RAM\n", total);
 	printk("%d free pages\n", free);
 	printk("%d reserved pages\n", reserved);
+	printk("%d slab pages\n", slab);
 	printk("%d pages shared\n", shared);
 	printk("%d pages swap cached\n", cached);
 #ifndef CONFIG_NO_PGT_CACHE
@@ -375,8 +378,17 @@ static __init void reserve_node_zero(unsigned int bootmap_pfn, unsigned int boot
 	 */
 	if (machine_is_archimedes() || machine_is_a5k())
 		reserve_bootmem_node(pgdat, 0x02000000, 0x00080000);
+	if (machine_is_edb7211())
+		reserve_bootmem_node(pgdat, 0xc0000000, 0x00020000);
 	if (machine_is_p720t())
-		reserve_bootmem_node(pgdat, PAGE_OFFSET, 0x00014000);
+		reserve_bootmem_node(pgdat, PHYS_OFFSET, 0x00014000);
+#ifdef CONFIG_SA1111
+	/*
+	 * Because of the SA1111 DMA bug, we want to preserve
+	 * our precious DMA-able memory...
+	 */
+	reserve_bootmem_node(pgdat, PHYS_OFFSET, __pa(swapper_pg_dir)-PHYS_OFFSET);
+#endif
 }
 
 /*
@@ -464,6 +476,7 @@ void __init bootmem_init(struct meminfo *mi)
 
 	if (map_pg != bootmap_pfn + bootmap_pages)
 		BUG();
+
 }
 
 /*
@@ -521,6 +534,12 @@ void __init paging_init(struct meminfo *mi, struct machine_desc *mdesc)
 				(bdata->node_boot_start >> PAGE_SHIFT);
 
 		/*
+		 * If this zone has zero size, skip it.
+		 */
+		if (!zone_size[0])
+			continue;
+
+		/*
 		 * For each bank in this node, calculate the size of the
 		 * holes.  holes = node_size - sum(bank_sizes_in_node)
 		 */
@@ -532,6 +551,12 @@ void __init paging_init(struct meminfo *mi, struct machine_desc *mdesc)
 			zhole_size[0] -= mi->bank[i].size >> PAGE_SHIFT;
 		}
 
+		/*
+		 * Adjust the sizes according to any special
+		 * requirements for this machine type.
+		 */
+		arch_adjust_zones(node, zone_size, zhole_size);
+
 		free_area_init_node(node, pgdat, 0, zone_size,
 				bdata->node_boot_start, zhole_size);
 	}
@@ -542,6 +567,23 @@ void __init paging_init(struct meminfo *mi, struct machine_desc *mdesc)
 	 */
 	memzero(zero_page, PAGE_SIZE);
 	empty_zero_page = virt_to_page(zero_page);
+	flush_dcache_page(empty_zero_page);
+}
+
+static inline void free_area(unsigned long addr, unsigned long end, char *s)
+{
+	unsigned int size = (end - addr) >> 10;
+
+	for (; addr < end; addr += PAGE_SIZE) {
+		struct page *page = virt_to_page(addr);
+		ClearPageReserved(page);
+		set_page_count(page, 1);
+		free_page(addr);
+		totalram_pages++;
+	}
+
+	if (size && s)
+		printk("Freeing %s memory: %dK\n", s, size);
 }
 
 /*
@@ -568,8 +610,17 @@ void __init mem_init(void)
 		create_memmap_holes(&meminfo);
 
 	/* this will put all unused low memory onto the freelists */
-	for (node = 0; node < numnodes; node++)
-		totalram_pages += free_all_bootmem_node(NODE_DATA(node));
+	for (node = 0; node < numnodes; node++) {
+		pg_data_t *pgdat = NODE_DATA(node);
+
+		if (pgdat->node_size != 0)
+			totalram_pages += free_all_bootmem_node(pgdat);
+	}
+
+#ifdef CONFIG_SA1111
+	/* now that our DMA memory is actually so designated, we can free it */
+	free_area(PAGE_OFFSET, (unsigned long)swapper_pg_dir, NULL);
+#endif
 
 	/*
 	 * Since our memory may not be contiguous, calculate the
@@ -598,22 +649,6 @@ void __init mem_init(void)
 		 */
 		sysctl_overcommit_memory = 1;
 	}
-}
-
-static inline void free_area(unsigned long addr, unsigned long end, char *s)
-{
-	unsigned int size = (end - addr) >> 10;
-
-	for (; addr < end; addr += PAGE_SIZE) {
-		struct page *page = virt_to_page(addr);
-		ClearPageReserved(page);
-		set_page_count(page, 1);
-		free_page(addr);
-		totalram_pages++;
-	}
-
-	if (size)
-		printk("Freeing %s memory: %dK\n", s, size);
 }
 
 void free_initmem(void)

@@ -59,21 +59,7 @@ static __inline__ ide_ioreg_t ide_default_io_base(int index)
 static inline void ide_init_hwif_ports(hw_regs_t *hw, ide_ioreg_t data_port,
                                        ide_ioreg_t ctrl_port, int *irq)
 {
-	ide_ioreg_t reg = data_port;
-	int i;
-
-	for (i = IDE_DATA_OFFSET; i <= IDE_STATUS_OFFSET; i++) {
-		hw->io_ports[i] = reg;
-		reg += 1;
-	}
-	if (ctrl_port) {
-		hw->io_ports[IDE_CONTROL_OFFSET] = ctrl_port;
-	} else {
-		hw->io_ports[IDE_CONTROL_OFFSET] = hw->io_ports[IDE_DATA_OFFSET] + 0x206;
-	}
-	if (irq != NULL)
-		*irq = 0;
-	hw->io_ports[IDE_IRQ_OFFSET] = 0;
+	ide_ops->ide_init_hwif_ports(hw, data_port, ctrl_port, irq);
 }
 
 static __inline__ void ide_init_default_hwifs(void)
@@ -128,6 +114,52 @@ static __inline__ void ide_release_region(ide_ioreg_t from,
 {
 	ide_ops->ide_release_region(from, extent);
 }
+
+
+#if defined(CONFIG_SWAP_IO_SPACE) && defined(__MIPSEB__)
+
+#ifdef insl
+#undef insl
+#endif
+#ifdef outsl
+#undef outsl
+#endif
+#ifdef insw
+#undef insw
+#endif
+#ifdef outsw
+#undef outsw
+#endif
+
+#define insw(p,a,c)							\
+do {									\
+	unsigned short *ptr = (unsigned short *)(a);			\
+	unsigned int i = (c);						\
+	while (i--)							\
+		*ptr++ = inw(p);					\
+} while (0)
+#define insl(p,a,c)							\
+do {									\
+	unsigned long *ptr = (unsigned long *)(a);			\
+	unsigned int i = (c);						\
+	while (i--)							\
+		*ptr++ = inl(p);					\
+} while (0)
+#define outsw(p,a,c)							\
+do {									\
+	unsigned short *ptr = (unsigned short *)(a);			\
+	unsigned int i = (c);						\
+	while (i--)							\
+		outw(*ptr++, (p));					\
+} while (0)
+#define outsl(p,a,c) {							\
+	unsigned long *ptr = (unsigned long *)(a);			\
+	unsigned int i = (c);						\
+	while (i--)							\
+		outl(*ptr++, (p));					\
+} while (0)
+
+#endif /* defined(CONFIG_SWAP_IO_SPACE) && defined(__MIPSEB__)  */
 
 /*
  * The following are not needed for the non-m68k ports

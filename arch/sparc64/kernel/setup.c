@@ -1,4 +1,4 @@
-/*  $Id: setup.c,v 1.65 2001/06/03 13:41:13 ecd Exp $
+/*  $Id: setup.c,v 1.69 2001/10/18 09:40:00 davem Exp $
  *  linux/arch/sparc64/kernel/setup.c
  *
  *  Copyright (C) 1995,1996  David S. Miller (davem@caip.rutgers.edu)
@@ -38,6 +38,7 @@
 #include <asm/idprom.h>
 #include <asm/head.h>
 #include <asm/starfire.h>
+#include <asm/hardirq.h>
 
 #ifdef CONFIG_IP_PNP
 #include <net/ipconfig.h>
@@ -89,13 +90,23 @@ int prom_callback(long *args)
 	struct console *cons, *saved_console = NULL;
 	unsigned long flags;
 	char *cmd;
+	extern spinlock_t prom_entry_lock;
 
 	if (!args)
 		return -1;
 	if (!(cmd = (char *)args[0]))
 		return -1;
 
+	/*
+	 * The callback can be invoked on the cpu that first dropped 
+	 * into prom_cmdline after taking the serial interrupt, or on 
+	 * a slave processor that was smp_captured() if the 
+	 * administrator has done a switch-cpu inside obp. In either 
+	 * case, the cpu is marked as in-interrupt. Drop IRQ locks.
+	 */
+	irq_exit(smp_processor_id(), 0);
 	save_and_cli(flags);
+	spin_unlock(&prom_entry_lock);
 	cons = console_drivers;
 	while (cons) {
 		unregister_console(cons);
@@ -270,7 +281,12 @@ int prom_callback(long *args)
 		saved_console = cons->next;
 		register_console(cons);
 	}
+	spin_lock(&prom_entry_lock);
 	restore_flags(flags);
+	/*
+	 * Restore in-interrupt status for a resume from obp.
+	 */
+	irq_enter(smp_processor_id(), 0);
 	return 0;
 }
 
@@ -467,6 +483,18 @@ void __init setup_arch(char **cmdline_p)
 	conswitchp = &prom_con;
 #endif
 
+#ifdef CONFIG_SMP
+	i = (unsigned long)&irq_stat[1] - (unsigned long)&irq_stat[0];
+	if ((i == SMP_CACHE_BYTES) || (i == (2 * SMP_CACHE_BYTES))) {
+		extern unsigned int irqsz_patchme[1];
+		irqsz_patchme[0] |= ((i == SMP_CACHE_BYTES) ? SMP_CACHE_BYTES_SHIFT : \
+							SMP_CACHE_BYTES_SHIFT + 1);
+		flushi((long)&irqsz_patchme[1]);
+	} else {
+		prom_printf("Unexpected size of irq_stat[] elements\n");
+		prom_halt();
+	}
+#endif
 	/* Work out if we are starfire early on */
 	check_if_starfire();
 
@@ -500,10 +528,6 @@ void __init setup_arch(char **cmdline_p)
 	rd_doload = ((ram_flags & RAMDISK_LOAD_FLAG) != 0);	
 #endif
 
-	/* Due to stack alignment restrictions and assumptions... */
-	init_mm.mmap->vm_page_prot = PAGE_SHARED;
-	init_mm.mmap->vm_start = PAGE_OFFSET;
-	init_mm.mmap->vm_end = PAGE_OFFSET + highest_paddr;
 	init_task.thread.kregs = &fake_swapper_regs;
 
 #ifdef CONFIG_IP_PNP

@@ -24,6 +24,7 @@
 #include <linux/spinlock.h>
 #include <linux/videodev.h>
 #include <linux/wait.h>
+#include <linux/smp_lock.h>
 
 #include <asm/semaphore.h>
 #include <asm/errno.h>
@@ -33,9 +34,10 @@
 #define PWC_MAGIC 0x89DC10ABUL
 #undef PWC_MAGIC
 
-/* Debugging info on/off */
+/* Turn some debugging options on/off */
 #define PWC_DEBUG 0
 
+/* Trace certain actions in the driver */
 #define TRACE_MODULE	0x0001
 #define TRACE_PROBE	0x0002
 #define TRACE_OPEN	0x0004
@@ -58,8 +60,8 @@
 
 /* Version block */
 #define PWC_MAJOR	8
-#define PWC_MINOR	0
-#define PWC_VERSION 	"8.0"
+#define PWC_MINOR	3
+#define PWC_VERSION 	"8.3"
 #define PWC_NAME 	"pwc"
 
 /* Turn certain features on/off */
@@ -77,7 +79,7 @@
 /* Frame buffers: contains compressed or uncompressed video data. */
 #define MAX_FRAMES		5
 /* Maximum size after decompression is 640x480 YUV data, 1.5 * 640 * 480 */
-#define FRAME_SIZE 		(460800 + TOUCAM_HEADER_SIZE + TOUCAM_TRAILER_SIZE)
+#define PWC_FRAME_SIZE 		(460800 + TOUCAM_HEADER_SIZE + TOUCAM_TRAILER_SIZE)
 
 /* Absolute maximum number of buffers available for mmap() */
 #define MAX_IMAGES 		4
@@ -138,7 +140,7 @@ struct pwc_device
    int vbandlength;		/* compressed band length; 0 is uncompressed */
    char vsnapshot;		/* snapshot mode */
    char vsync;			/* used by isoc handler */
-
+   
    /* The image acquisition requires 3 to 4 steps:
       1. data is gathered in short packets from the USB controller
       2. data is synchronized and packed into a frame buffer
@@ -157,7 +159,7 @@ struct pwc_device
    struct pwc_frame_buf *fbuf;	/* all frames */
    struct pwc_frame_buf *empty_frames, *empty_frames_tail;	/* all empty frames */
    struct pwc_frame_buf *full_frames, *full_frames_tail;	/* all filled frames */
-   struct pwc_frame_buf *fill_frame;	/* frame currently filled */
+   struct pwc_frame_buf *fill_frame;	/* frame currently being filled */
    struct pwc_frame_buf *read_frame;	/* frame currently read by user process */
    int frame_size;
    int frame_header_size, frame_trailer_size;
@@ -184,6 +186,7 @@ struct pwc_device
    void *image_data;			/* total buffer, which is subdivided into ... */
    void *image_ptr[MAX_IMAGES];		/* ...several images... */
    int fill_image;			/* ...which are rotated. */
+   int len_per_image;			/* length per image */
    int image_read_pos;			/* In case we read data in pieces, keep track of were we are in the imagebuffer */
    int image_used[MAX_IMAGES];		/* For MCAPTURE and SYNC */
 
@@ -242,6 +245,8 @@ extern int pwc_get_gamma(struct pwc_device *pdev);
 extern int pwc_set_gamma(struct pwc_device *pdev, int value);
 extern int pwc_get_saturation(struct pwc_device *pdev);
 extern int pwc_set_saturation(struct pwc_device *pdev, int value);
+extern int pwc_set_leds(struct pwc_device *pdev, int on_value, int off_value);
+extern int pwc_get_leds(struct pwc_device *pdev, int *on_value, int *off_value);
 
 /* Power down or up the camera; not supported by all models */
 extern int pwc_camera_power(struct pwc_device *pdev, int power);

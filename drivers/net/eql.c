@@ -16,9 +16,6 @@
  *    Phone: 1-703-847-0040 ext 103
  */
 
-static const char *version = 
-	"Equalizer1996: $Revision: 1.2.1 $ $Date: 1996/09/22 13:52:00 $ Simon Janes (simon@ncm.com)\n";
-
 /*
  * Sources:
  *   skeleton.c by Donald Becker.
@@ -124,6 +121,8 @@ static const char *version =
 
 #include <asm/uaccess.h>
 
+static char version[] __initdata = 
+	"Equalizer1996: $Revision: 1.2.1 $ $Date: 1996/09/22 13:52:00 $ Simon Janes (simon@ncm.com)\n";
 
 #ifndef EQL_DEBUG
 /* #undef EQL_DEBUG      -* print nothing at all, not even a boot-banner */
@@ -360,9 +359,9 @@ static int eql_slave_xmit(struct sk_buff *skb, struct net_device *dev)
 #endif
 		skb->dev = slave_dev;
 		skb->priority = 1;
+		slave->bytes_queued += skb->len; 
 		dev_queue_xmit (skb);
 		eql->stats->tx_packets++;
-		slave->bytes_queued += skb->len; 
 	}
 	else
 	{
@@ -1017,6 +1016,7 @@ static void __exit eql_cleanup_module(void)
 
 module_init(eql_init_module);
 module_exit(eql_cleanup_module);
+MODULE_LICENSE("GPL");
 
 /*
  * Local Variables: 

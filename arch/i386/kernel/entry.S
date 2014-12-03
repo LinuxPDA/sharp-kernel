@@ -44,7 +44,6 @@
 #include <linux/sys.h>
 #include <linux/linkage.h>
 #include <asm/segment.h>
-#define ASSEMBLY
 #include <asm/smp.h>
 
 EBX		= 0x00
@@ -620,13 +619,10 @@ ENTRY(sys_call_table)
 	.long SYMBOL_NAME(sys_getdents64)	/* 220 */
 	.long SYMBOL_NAME(sys_fcntl64)
 	.long SYMBOL_NAME(sys_ni_syscall)	/* reserved for TUX */
+	.long SYMBOL_NAME(sys_ni_syscall)	/* Reserved for Security */
+	.long SYMBOL_NAME(sys_gettid)
+	.long SYMBOL_NAME(sys_readahead)	/* 225 */
 
-	/*
-	 * NOTE!! This doesn't have to be exact - we just have
-	 * to make sure we have _enough_ of the "sys_ni_syscall"
-	 * entries. Don't panic if you notice that this hasn't
-	 * been shrunk every time we add a new system call.
-	 */
-	.rept NR_syscalls-221
+	.rept NR_syscalls-(.-sys_call_table)/4
 		.long SYMBOL_NAME(sys_ni_syscall)
 	.endr

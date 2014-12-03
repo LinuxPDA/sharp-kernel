@@ -1,11 +1,15 @@
 /*
- * bluetooth.c   Version 0.11
+ * bluetooth.c   Version 0.12
  *
  * Copyright (c) 2000, 2001 Greg Kroah-Hartman	<greg@kroah.com>
  * Copyright (c) 2000 Mark Douglas Corner	<mcorner@umich.edu>
  *
  * USB Bluetooth driver, based on the Bluetooth Spec version 1.0B
  * 
+ * (2001/07/09) Version 0.12 gkh
+ *	- removed in_interrupt() call, as it doesn't make sense to do 
+ *	  that anymore.
+ *
  * (2001/06/05) Version 0.11 gkh
  *	- Fixed problem with read urb status saying that we have shutdown,
  *	  and that we shouldn't resubmit the urb.  Patch from unknown.
@@ -114,9 +118,9 @@
 /*
  * Version Information
  */
-#define DRIVER_VERSION "v0.11"
+#define DRIVER_VERSION "v0.12"
 #define DRIVER_AUTHOR "Greg Kroah-Hartman, Mark Douglas Corner"
-#define DRIVER_DESC "USB Bluetooth driver"
+#define DRIVER_DESC "USB Bluetooth tty driver"
 
 /* define this if you have hardware that is not good */
 /*#define	BTBUGGYHARDWARE */
@@ -155,7 +159,6 @@
 #define RELEVANT_IFLAG(iflag)	(iflag & (IGNBRK|BRKINT|IGNPAR|PARMRK|INPCK))
 
 #define CHAR2INT16(c1,c0)	(((u32)((c1) & 0xff) << 8) + (u32)((c0) & 0xff))
-#define MIN(a,b)		(((a)<(b))?(a):(b))
 
 #define NUM_BULK_URBS		24
 #define NUM_CONTROL_URBS	16
@@ -484,12 +487,6 @@ static int bluetooth_write (struct tty_struct * tty, int from_user, const unsign
 		case CMD_PKT:
 			/* dbg(__FUNCTION__ "- Send cmd_pkt len:%d", count);*/
 
-			if (in_interrupt()){
-				printk("cmd_pkt from interrupt!\n");
-				retval = count;
-				goto exit;
-			}
-
 			retval = bluetooth_ctrl_msg (bluetooth, 0x00, 0x00, &current_buffer[1], count-1);
 			if (retval) {
 				goto exit;
@@ -520,7 +517,7 @@ static int bluetooth_write (struct tty_struct * tty, int from_user, const unsign
 				}
 				
 
-				buffer_size = MIN (count, bluetooth->bulk_out_buffer_size);
+				buffer_size = min (count, bluetooth->bulk_out_buffer_size);
 				memcpy (urb->transfer_buffer, current_position, buffer_size);
 
 				/* build up our urb */
@@ -1329,7 +1326,7 @@ int usb_bluetooth_init(void)
 		return -1;
 	}
 
-	info(DRIVER_VERSION ":" DRIVER_DESC);
+	info(DRIVER_DESC " " DRIVER_VERSION);
 
 	return 0;
 }
@@ -1348,4 +1345,5 @@ module_exit(usb_bluetooth_exit);
 /* Module information */
 MODULE_AUTHOR( DRIVER_AUTHOR );
 MODULE_DESCRIPTION( DRIVER_DESC );
+MODULE_LICENSE("GPL");
 

@@ -419,6 +419,7 @@
 #include <linux/pci.h>
 #include <linux/ide.h>
 #include <linux/smp_lock.h>
+#include <linux/completion.h>
 
 #include <asm/byteorder.h>
 #include <asm/irq.h>
@@ -978,7 +979,7 @@ typedef struct {
 	int logical_blk_num;			/* logical block number */
 	__u16 wrt_pass_cntr;			/* write pass counter */
 	__u32 update_frame_cntr;		/* update frame counter */
-	struct semaphore *sem;
+	struct completion *waiting;
 	int onstream_write_error;		/* write error recovery active */
 	int header_ok;				/* header frame verified ok */
 	int linux_media;			/* reading linux-specifc media */
@@ -1454,7 +1455,7 @@ char *idetape_command_key_verbose (byte idetape_command_key)
 		case IDETAPE_WRITE_FILEMARK_CMD:	return("WRITE_FILEMARK_CMD");
 		case IDETAPE_SPACE_CMD:			return("SPACE_CMD");
 		case IDETAPE_INQUIRY_CMD:		return("INQUIRY_CMD");
-		case IDETAPE_ERASE_CMD:			return("ERASE_CMD")
+		case IDETAPE_ERASE_CMD:			return("ERASE_CMD");
 		case IDETAPE_MODE_SENSE_CMD:		return("MODE_SENSE_CMD");
 		case IDETAPE_MODE_SELECT_CMD:		return("MODE_SELECT_CMD");
 		case IDETAPE_LOAD_UNLOAD_CMD:		return("LOAD_UNLOAD_CMD");
@@ -1886,8 +1887,8 @@ static void idetape_end_request (byte uptodate, ide_hwgroup_t *hwgroup)
 						printk("ide-tape: %s: skipping over config parition..\n", tape->name);
 #endif
 					tape->onstream_write_error = OS_PART_ERROR;
-					if (tape->sem)
-						up(tape->sem);
+					if (tape->waiting)
+						complete(tape->waiting);
 				}
 			}
 			remove_stage = 1;
@@ -1903,8 +1904,8 @@ static void idetape_end_request (byte uptodate, ide_hwgroup_t *hwgroup)
 					tape->nr_pending_stages++;
 					tape->next_stage = tape->first_stage;
 					rq->current_nr_sectors = rq->nr_sectors;
-					if (tape->sem)
-						up(tape->sem);
+					if (tape->waiting)
+						complete(tape->waiting);
 				}
 			}
 		} else if (rq->cmd == IDETAPE_READ_RQ) {
@@ -3064,15 +3065,15 @@ static void idetape_init_stage (ide_drive_t *drive, idetape_stage_t *stage, int 
 }
 
 /*
- *	idetape_wait_for_request installs a semaphore in a pending request
+ *	idetape_wait_for_request installs a completion in a pending request
  *	and sleeps until it is serviced.
  *
  *	The caller should ensure that the request will not be serviced
- *	before we install the semaphore (usually by disabling interrupts).
+ *	before we install the completion (usually by disabling interrupts).
  */
 static void idetape_wait_for_request (ide_drive_t *drive, struct request *rq)
 {
-	DECLARE_MUTEX_LOCKED(sem);
+	DECLARE_COMPLETION(wait);
 	idetape_tape_t *tape = drive->driver_data;
 
 #if IDETAPE_DEBUG_BUGS
@@ -3081,12 +3082,12 @@ static void idetape_wait_for_request (ide_drive_t *drive, struct request *rq)
 		return;
 	}
 #endif /* IDETAPE_DEBUG_BUGS */
-	rq->sem = &sem;
-	tape->sem = &sem;
+	rq->waiting = &wait;
+	tape->waiting = &wait;
 	spin_unlock(&tape->spinlock);
-	down(&sem);
-	rq->sem = NULL;
-	tape->sem = NULL;
+	wait_for_completion(&wait);
+	rq->waiting = NULL;
+	tape->waiting = NULL;
 	spin_lock_irq(&tape->spinlock);
 }
 
@@ -4098,9 +4099,14 @@ static int idetape_add_chrdev_read_request (ide_drive_t *drive,int blocks)
 	}
 	if (rq_ptr->errors == IDETAPE_ERROR_EOD)
 		return 0;
-	else if (rq_ptr->errors == IDETAPE_ERROR_FILEMARK)
+	if (rq_ptr->errors == IDETAPE_ERROR_FILEMARK) {
+		idetape_switch_buffers (tape, tape->first_stage);
 		set_bit (IDETAPE_FILEMARK, &tape->flags);
-	else {
+#if USE_IOTRACE
+		IO_trace(IO_IDETAPE_FIFO, tape->pipeline_head, tape->buffer_head, tape->tape_head, tape->minor);
+#endif
+		calculate_speeds(drive);
+	} else {
 		idetape_switch_buffers (tape, tape->first_stage);
 		if (rq_ptr->errors == IDETAPE_ERROR_GENERAL) {
 #if ONSTREAM_DEBUG
@@ -6126,24 +6132,33 @@ static ide_proc_entry_t idetape_proc[] = {
 
 #endif
 
+static int idetape_reinit (ide_drive_t *drive)
+{
+	return 0;
+}
+
 /*
  *	IDE subdriver functions, registered with ide.c
  */
 static ide_driver_t idetape_driver = {
-	name:		"ide-tape",
-	version:	IDETAPE_VERSION,
-	media:		ide_tape,
-	busy:		1,
-	supports_dma:	1,
-	supports_dsc_overlap: 1,
-	cleanup:	idetape_cleanup,
-	do_request:	idetape_do_request,
-	end_request:	idetape_end_request,
-	ioctl:		idetape_blkdev_ioctl,
-	open:		idetape_blkdev_open,
-	release:	idetape_blkdev_release,
-	pre_reset:	idetape_pre_reset,
-	proc:		idetape_proc,
+	name:			"ide-tape",
+	version:		IDETAPE_VERSION,
+	media:			ide_tape,
+	busy:			1,
+	supports_dma:		1,
+	supports_dsc_overlap: 	1,
+	cleanup:		idetape_cleanup,
+	do_request:		idetape_do_request,
+	end_request:		idetape_end_request,
+	ioctl:			idetape_blkdev_ioctl,
+	open:			idetape_blkdev_open,
+	release:		idetape_blkdev_release,
+	media_change:		NULL,
+	revalidate:		NULL,
+	pre_reset:		idetape_pre_reset,
+	capacity:		NULL,
+	proc:			idetape_proc,
+	driver_reinit:		idetape_reinit,
 };
 
 int idetape_init (void);
@@ -6165,6 +6180,21 @@ static struct file_operations idetape_fops = {
 	open:		idetape_chrdev_open,
 	release:	idetape_chrdev_release,
 };
+
+MODULE_DESCRIPTION("ATAPI Streaming TAPE Driver");
+
+static void __exit idetape_exit (void)
+{
+	ide_drive_t *drive;
+	int minor;
+
+	for (minor = 0; minor < MAX_HWIFS * MAX_DRIVES; minor++) {
+		drive = idetape_chrdevs[minor].drive;
+		if (drive != NULL && idetape_cleanup (drive))
+		printk (KERN_ERR "ide-tape: %s: cleanup_module() called while still busy\n", drive->name);
+	}
+	ide_unregister_module(&idetape_module);
+}
 
 /*
  *	idetape_init will register the driver for each tape.
@@ -6251,22 +6281,5 @@ int idetape_init (void)
 	return 0;
 }
 
-#ifdef MODULE
-int init_module (void)
-{
-	return idetape_init ();
-}
-
-void cleanup_module (void)
-{
-	ide_drive_t *drive;
-	int minor;
-
-	for (minor = 0; minor < MAX_HWIFS * MAX_DRIVES; minor++) {
-		drive = idetape_chrdevs[minor].drive;
-		if (drive != NULL && idetape_cleanup (drive))
-			printk (KERN_ERR "ide-tape: %s: cleanup_module() called while still busy\n", drive->name);
-	}
-	ide_unregister_module(&idetape_module);
-}
-#endif /* MODULE */
+module_init(idetape_init);
+module_exit(idetape_exit);

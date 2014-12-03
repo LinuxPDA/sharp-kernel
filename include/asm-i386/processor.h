@@ -14,6 +14,7 @@
 #include <asm/types.h>
 #include <asm/sigcontext.h>
 #include <asm/cpufeature.h>
+#include <linux/cache.h>
 #include <linux/config.h>
 #include <linux/threads.h>
 
@@ -52,7 +53,7 @@ struct cpuinfo_x86 {
 	unsigned long *pmd_quick;
 	unsigned long *pte_quick;
 	unsigned long pgtable_cache_sz;
-};
+} __attribute__((__aligned__(SMP_CACHE_BYTES)));
 
 #define X86_VENDOR_INTEL 0
 #define X86_VENDOR_CYRIX 1
@@ -88,6 +89,7 @@ extern struct cpuinfo_x86 cpu_data[];
 #define cpu_has_fxsr	(test_bit(X86_FEATURE_FXSR, boot_cpu_data.x86_capability))
 #define cpu_has_xmm	(test_bit(X86_FEATURE_XMM,  boot_cpu_data.x86_capability))
 #define cpu_has_fpu	(test_bit(X86_FEATURE_FPU,  boot_cpu_data.x86_capability))
+#define cpu_has_apic	(test_bit(X86_FEATURE_APIC, boot_cpu_data.x86_capability))
 
 extern char ignore_irq13;
 
@@ -119,53 +121,57 @@ extern void dodgy_tsc(void);
 /*
  * Generic CPUID function
  */
-extern inline void cpuid(int op, int *eax, int *ebx, int *ecx, int *edx)
+static inline void cpuid(int op, int *eax, int *ebx, int *ecx, int *edx)
 {
 	__asm__("cpuid"
 		: "=a" (*eax),
 		  "=b" (*ebx),
 		  "=c" (*ecx),
 		  "=d" (*edx)
-		: "a" (op));
+		: "0" (op));
 }
 
 /*
  * CPUID functions returning a single datum
  */
-extern inline unsigned int cpuid_eax(unsigned int op)
+static inline unsigned int cpuid_eax(unsigned int op)
 {
-	unsigned int eax, ebx, ecx, edx;
+	unsigned int eax;
 
 	__asm__("cpuid"
-		: "=a" (eax), "=b" (ebx), "=c" (ecx), "=d" (edx)
-		: "a" (op));
+		: "=a" (eax)
+		: "0" (op)
+		: "bx", "cx", "dx");
 	return eax;
 }
-extern inline unsigned int cpuid_ebx(unsigned int op)
+static inline unsigned int cpuid_ebx(unsigned int op)
 {
-	unsigned int eax, ebx, ecx, edx;
+	unsigned int eax, ebx;
 
 	__asm__("cpuid"
-		: "=a" (eax), "=b" (ebx), "=c" (ecx), "=d" (edx)
-		: "a" (op));
+		: "=a" (eax), "=b" (ebx)
+		: "0" (op)
+		: "cx", "dx" );
 	return ebx;
 }
-extern inline unsigned int cpuid_ecx(unsigned int op)
+static inline unsigned int cpuid_ecx(unsigned int op)
 {
-	unsigned int eax, ebx, ecx, edx;
+	unsigned int eax, ecx;
 
 	__asm__("cpuid"
-		: "=a" (eax), "=b" (ebx), "=c" (ecx), "=d" (edx)
-		: "a" (op));
+		: "=a" (eax), "=c" (ecx)
+		: "0" (op)
+		: "bx", "dx" );
 	return ecx;
 }
-extern inline unsigned int cpuid_edx(unsigned int op)
+static inline unsigned int cpuid_edx(unsigned int op)
 {
-	unsigned int eax, ebx, ecx, edx;
+	unsigned int eax, edx;
 
 	__asm__("cpuid"
-		: "=a" (eax), "=b" (ebx), "=c" (ecx), "=d" (edx)
-		: "a" (op));
+		: "=a" (eax), "=d" (edx)
+		: "0" (op)
+		: "bx", "cx");
 	return edx;
 }
 
@@ -222,6 +228,7 @@ static inline void clear_in_cr4 (unsigned long mask)
 #define CX86_CCR4 0xe8
 #define CX86_CCR5 0xe9
 #define CX86_CCR6 0xea
+#define CX86_CCR7 0xeb
 #define CX86_DIR0 0xfe
 #define CX86_DIR1 0xff
 #define CX86_ARR_BASE 0xc4
@@ -386,9 +393,6 @@ struct thread_struct {
 	0,{~0,}			/* io permissions */		\
 }
 
-#define INIT_MMAP \
-{ &init_mm, 0, 0, NULL, PAGE_SHARED, VM_READ | VM_WRITE | VM_EXEC, 1, NULL, NULL }
-
 #define INIT_TSS  {						\
 	0,0, /* back_link, __blh */				\
 	sizeof(init_stack) + (long) &init_stack, /* esp0 */	\
@@ -434,7 +438,7 @@ extern void release_segments(struct mm_struct * mm);
 /*
  * Return saved PC of a blocked thread.
  */
-extern inline unsigned long thread_saved_pc(struct thread_struct *t)
+static inline unsigned long thread_saved_pc(struct thread_struct *t)
 {
 	return ((unsigned long *)t->esp)[3];
 }
@@ -467,9 +471,39 @@ struct microcode {
 #define MICROCODE_IOCFREE	_IO('6',0)
 
 /* REP NOP (PAUSE) is a good thing to insert into busy-wait loops. */
-extern inline void rep_nop(void)
+static inline void rep_nop(void)
 {
 	__asm__ __volatile__("rep;nop");
 }
+
+#define cpu_relax()	rep_nop()
+
+/* Prefetch instructions for Pentium III and AMD Athlon */
+#ifdef 	CONFIG_MPENTIUMIII
+
+#define ARCH_HAS_PREFETCH
+extern inline void prefetch(const void *x)
+{
+	__asm__ __volatile__ ("prefetchnta (%0)" : : "r"(x));
+}
+
+#elif CONFIG_X86_USE_3DNOW
+
+#define ARCH_HAS_PREFETCH
+#define ARCH_HAS_PREFETCHW
+#define ARCH_HAS_SPINLOCK_PREFETCH
+
+extern inline void prefetch(const void *x)
+{
+	 __asm__ __volatile__ ("prefetch (%0)" : : "r"(x));
+}
+
+extern inline void prefetchw(const void *x)
+{
+	 __asm__ __volatile__ ("prefetchw (%0)" : : "r"(x));
+}
+#define spin_lock_prefetch(x)	prefetchw(x)
+
+#endif
 
 #endif /* __ASM_I386_PROCESSOR_H */

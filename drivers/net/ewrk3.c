@@ -164,7 +164,7 @@
 
 #include "ewrk3.h"
 
-static const char version[] __initdata =
+static char version[] __initdata =
 "ewrk3.c:v0.43a 2001/02/04 davies@maniac.ultranet.com\n";
 
 #ifdef EWRK3_DEBUG
@@ -1876,6 +1876,8 @@ void cleanup_module(void)
 	release_region(thisEthwrk.base_addr, EWRK3_TOTAL_SIZE);
 }
 #endif				/* MODULE */
+MODULE_LICENSE("GPL");
+
 
 
 /*

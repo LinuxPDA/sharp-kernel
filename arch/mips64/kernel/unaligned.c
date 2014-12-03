@@ -72,6 +72,7 @@
  *       A store crossing a page boundary might be executed only partially.
  *       Undo the partial store in this case.
  */
+#include <linux/config.h>
 #include <linux/mm.h>
 #include <linux/signal.h>
 #include <linux/smp.h>
@@ -82,6 +83,7 @@
 #include <asm/byteorder.h>
 #include <asm/inst.h>
 #include <asm/uaccess.h>
+#include <asm/system.h>
 
 #define STR(x)  __STR(x)
 #define __STR(x)  #x
@@ -364,17 +366,22 @@ fault:
 		return;
 	}
 
+	die_if_kernel ("Unhandled kernel unaligned access", regs);
 	send_sig(SIGSEGV, current, 1);
 	return;
 sigbus:
+	die_if_kernel ("Unhandled kernel unaligned access", regs);
 	send_sig(SIGBUS, current, 1);
 	return;
 sigill:
+	die_if_kernel ("Unhandled kernel unaligned access or invalid instruction", regs);
 	send_sig(SIGILL, current, 1);
 	return;
 }
 
+#ifdef CONFIG_PROC_FS
 unsigned long unaligned_instructions;
+#endif
 
 asmlinkage void do_ade(struct pt_regs *regs)
 {
@@ -395,10 +402,13 @@ asmlinkage void do_ade(struct pt_regs *regs)
 		goto sigbus;
 
 	emulate_load_store_insn(regs, regs->cp0_badvaddr, pc);
+#ifdef CONFIG_PROC_FS
 	unaligned_instructions++;
+#endif
 
 	return;
 
 sigbus:
+	die_if_kernel ("Kernel unaligned instruction access", regs);
 	force_sig(SIGBUS, current);
 }

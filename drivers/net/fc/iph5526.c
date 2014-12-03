@@ -118,6 +118,8 @@ static struct pci_device_id iph5526_pci_tbl[] __initdata = {
 };
 MODULE_DEVICE_TABLE(pci, iph5526_pci_tbl);
 
+MODULE_LICENSE("GPL");
+
 #define MAX_FC_CARDS 2
 static struct fc_info *fc[MAX_FC_CARDS+1];
 static unsigned int pci_irq_line;
@@ -1930,7 +1932,7 @@ u_int tachyon_status;
 		fi->g.name_server = FALSE;
 		fi->g.alpa_list_index = 0;
 		fi->g.ox_id = NOT_SCSI_XID;
-		fi->g.my_mtu = FRAME_SIZE;
+		fi->g.my_mtu = TACH_FRAME_SIZE;
 		
 		/* Implicitly LOGO with all logged-in nodes. 
 		 */
@@ -2809,7 +2811,7 @@ int i;
 	else
 	if (logi == ELS_FLOGI)
 		fi->g.login.common_features = htons(FLOGI_C_F);
-	fi->g.login.recv_data_field_size = htons(FRAME_SIZE);
+	fi->g.login.recv_data_field_size = htons(TACH_FRAME_SIZE);
 	fi->g.login.n_port_total_conc_seq = htons(CONCURRENT_SEQUENCES);
 	fi->g.login.rel_off_by_info_cat = htons(RO_INFO_CATEGORY);
 	fi->g.login.ED_TOV = htonl(E_D_TOV);
@@ -2845,7 +2847,7 @@ int i;
 		fi->g.login.c_of_s[2].service_options  = htons(SERVICE_VALID);
 	fi->g.login.c_of_s[2].initiator_ctl = htons(0);
 	fi->g.login.c_of_s[2].recipient_ctl = htons(0);
-	fi->g.login.c_of_s[2].recv_data_field_size = htons(FRAME_SIZE);
+	fi->g.login.c_of_s[2].recv_data_field_size = htons(TACH_FRAME_SIZE);
 	fi->g.login.c_of_s[2].concurrent_sequences = htons(CLASS3_CONCURRENT_SEQUENCE);
 	fi->g.login.c_of_s[2].n_port_end_to_end_credit = htons(0);
 	fi->g.login.c_of_s[2].open_seq_per_exchange = htons(CLASS3_OPEN_SEQUENCE);

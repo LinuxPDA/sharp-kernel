@@ -12,11 +12,6 @@
 # this architecture
 #
 
-#
-# Select the object file format to substitute into the linker script.
-#
-tool_prefix	= sh-linux-gnu-
-
 ifdef CONFIG_CPU_LITTLE_ENDIAN
 CFLAGS		+= -ml
 AFLAGS		+= -ml
@@ -28,10 +23,6 @@ AFLAGS		+= -mb
 # LINKFLAGS	+= -EB
 LDFLAGS		:= -EB
 endif
-
-# ifdef CONFIG_CROSSCOMPILE
-CROSS_COMPILE  = $(tool_prefix)
-# endif
 
 LD	=$(CROSS_COMPILE)ld $(LDFLAGS)
 OBJCOPY=$(CROSS_COMPILE)objcopy -O binary -R .note -R .comment -R .stab -R .stabstr -S
@@ -46,8 +37,8 @@ CFLAGS		+= -m3
 AFLAGS		+= -m3
 endif
 ifdef CONFIG_CPU_SH4
-CFLAGS		+= -m4-nofpu
-AFLAGS		+= -m4-nofpu
+CFLAGS		+= -m4 -mno-implicit-fp
+AFLAGS		+= -m4 -mno-implicit-fp
 endif
 
 #
@@ -75,6 +66,11 @@ LIBS := $(TOPDIR)/arch/sh/lib/lib.a $(LIBS) $(TOPDIR)/arch/sh/lib/lib.a \
 
 MAKEBOOT = $(MAKE) -C arch/$(ARCH)/boot
 
+ifneq ($(CONFIG_SH_GENERIC)$(CONFIG_SH_STB1_HARP)$(CONFIG_SH_STB1_OVERDRIVE),)
+SUBDIRS += arch/sh/stboards
+CORE_FILES += arch/sh/stboards/stboards.o
+endif
+
 vmlinux: arch/sh/vmlinux.lds
 
 arch/sh/vmlinux.lds: arch/sh/vmlinux.lds.S FORCE
@@ -93,6 +89,7 @@ zdisk: vmlinux
 archclean:
 	@$(MAKEBOOT) clean
 	$(MAKE) -C arch/$(ARCH)/kernel clean
+	$(MAKE) -C arch/$(ARCH)/stboards clean
 #	$(MAKE) -C arch/$(ARCH)/tools clean
 
 archmrproper:

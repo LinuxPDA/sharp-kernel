@@ -90,10 +90,6 @@
 
 #define VIA_MIN_FRAG_NUMBER		2	
 
-#ifndef AC97_PCM_LR_ADC_RATE
-#  define AC97_PCM_LR_ADC_RATE AC97_PCM_LR_DAC_RATE
-#endif
-
 /* 82C686 function 5 (audio codec) PCI configuration registers */
 #define VIA_ACLINK_CTRL		0x41
 #define VIA_FUNC_ENABLE		0x42
@@ -862,6 +858,7 @@ static void via_chan_pcm_fmt (struct via_channel *chan, int reset)
 
 /**
  *	via_chan_clear - Stop DMA channel operation, and reset pointers
+ *	@card: the chip to accessed
  *	@chan: Channel to be cleared
  *
  *	Call via_chan_stop to halt DMA operations, and then resets
@@ -1362,19 +1359,10 @@ out:
 }
 
 
-static loff_t via_llseek(struct file *file, loff_t offset, int origin)
-{
-	DPRINTK ("ENTER\n");
-
-	DPRINTK ("EXIT, returning -ESPIPE\n");
-	return -ESPIPE;
-}
-
-
 static struct file_operations via_mixer_fops = {
 	owner:		THIS_MODULE,
 	open:		via_mixer_open,
-	llseek:		via_llseek,
+	llseek:		no_llseek,
 	ioctl:		via_mixer_ioctl,
 };
 
@@ -1640,7 +1628,8 @@ static void via_interrupt(int irq, void *dev_id, struct pt_regs *regs)
 	if (!(status32 & VIA_INTR_MASK))
         {
 #ifdef CONFIG_MIDI_VIA82CXXX
-                uart401intr(irq, card->midi_devc, regs);
+	    	 if (card->midi_devc)
+                    	uart401intr(irq, card->midi_devc, regs);
 #endif
 		return;
     	}	    
@@ -1779,7 +1768,7 @@ static struct file_operations via_dsp_fops = {
 	read:		via_dsp_read,
 	write:		via_dsp_write,
 	poll:		via_dsp_poll,
-	llseek: 	via_llseek,
+	llseek: 	no_llseek,
 	ioctl:		via_dsp_ioctl,
 	mmap:		via_dsp_mmap,
 };
@@ -3265,6 +3254,8 @@ module_exit(cleanup_via82cxxx_audio);
 
 MODULE_AUTHOR("Jeff Garzik <jgarzik@mandrakesoft.com>");
 MODULE_DESCRIPTION("DSP audio and mixer driver for Via 82Cxxx audio devices");
+MODULE_LICENSE("GPL");
+
 EXPORT_NO_SYMBOLS;
 
 

@@ -1,4 +1,4 @@
-/* $Id: pgalloc.h,v 1.20 2001/04/26 02:36:36 davem Exp $ */
+/* $Id: pgalloc.h,v 1.26 2001/10/18 09:06:37 davem Exp $ */
 #ifndef _SPARC64_PGALLOC_H
 #define _SPARC64_PGALLOC_H
 
@@ -7,6 +7,8 @@
 #include <linux/sched.h>
 
 #include <asm/page.h>
+#include <asm/spitfire.h>
+#include <asm/pgtable.h>
 
 /* Cache and TLB flush operations. */
 
@@ -29,16 +31,15 @@
 extern void flush_icache_range(unsigned long start, unsigned long end);
 
 extern void __flush_dcache_page(void *addr, int flush_icache);
-#define flush_dcache_page(page) \
-do {	if ((page)->mapping && \
-	    !((page)->mapping->i_mmap) && \
-	    !((page)->mapping->i_mmap_shared)) \
-		set_bit(PG_dcache_dirty, &(page)->flags); \
-	else \
-		__flush_dcache_page((page)->virtual, \
-				    ((tlb_type == spitfire) && \
-				     (page)->mapping != NULL)); \
-} while(0)
+extern void __flush_icache_page(unsigned long);
+extern void flush_dcache_page_impl(struct page *page);
+#ifdef CONFIG_SMP
+extern void smp_flush_dcache_page_impl(struct page *page);
+#else
+#define smp_flush_dcache_page_impl flush_dcache_page_impl
+#endif
+
+extern void flush_dcache_page(struct page *page);
 
 extern void __flush_dcache_range(unsigned long start, unsigned long end);
 
@@ -64,7 +65,7 @@ do { if(CTX_VALID((__mm)->context)) \
 #define flush_tlb_range(__mm, start, end) \
 do { if(CTX_VALID((__mm)->context)) { \
 	unsigned long __start = (start)&PAGE_MASK; \
-	unsigned long __end = (end)&PAGE_MASK; \
+	unsigned long __end = PAGE_ALIGN(end); \
 	__flush_tlb_range(CTX_HWBITS((__mm)->context), __start, \
 			  SECONDARY_CONTEXT, __end, PAGE_SIZE, \
 			  (__end - __start)); \
@@ -227,6 +228,14 @@ extern __inline__ void free_pgd_slow(pgd_t *pgd)
 
 #endif /* CONFIG_SMP */
 
+#if (L1DCACHE_SIZE > PAGE_SIZE)			/* is there D$ aliasing problem */
+#define VPTE_COLOR(address)		(((address) >> (PAGE_SHIFT + 10)) & 1UL)
+#define DCACHE_COLOR(address)		(((address) >> PAGE_SHIFT) & 1UL)
+#else
+#define VPTE_COLOR(address)		0
+#define DCACHE_COLOR(address)		0
+#endif
+
 #define pgd_populate(MM, PGD, PMD)	pgd_set(PGD, PMD)
 
 extern __inline__ pmd_t *pmd_alloc_one(struct mm_struct *mm, unsigned long address)
@@ -254,9 +263,7 @@ extern __inline__ pmd_t *pmd_alloc_one_fast(struct mm_struct *mm, unsigned long 
 
 extern __inline__ void free_pmd_fast(pmd_t *pmd)
 {
-	unsigned long color;
-
-	color = (((unsigned long)pmd >> PAGE_SHIFT) & 0x1UL);
+	unsigned long color = DCACHE_COLOR((unsigned long)pmd);
 	*(unsigned long *)pmd = (unsigned long) pte_quicklist[color];
 	pte_quicklist[color] = (unsigned long *) pmd;
 	pgtable_cache_size++;
@@ -273,7 +280,7 @@ extern pte_t *pte_alloc_one(struct mm_struct *mm, unsigned long address);
 
 extern __inline__ pte_t *pte_alloc_one_fast(struct mm_struct *mm, unsigned long address)
 {
-	unsigned long color = (address >> (PAGE_SHIFT + 10)) & 0x1UL;
+	unsigned long color = VPTE_COLOR(address);
 	unsigned long *ret;
 
 	if((ret = (unsigned long *)pte_quicklist[color]) != NULL) {
@@ -286,7 +293,7 @@ extern __inline__ pte_t *pte_alloc_one_fast(struct mm_struct *mm, unsigned long 
 
 extern __inline__ void free_pte_fast(pte_t *pte)
 {
-	unsigned long color = (((unsigned long)pte >> PAGE_SHIFT) & 0x1);
+	unsigned long color = DCACHE_COLOR((unsigned long)pte);
 	*(unsigned long *)pte = (unsigned long) pte_quicklist[color];
 	pte_quicklist[color] = (unsigned long *) pte;
 	pgtable_cache_size++;

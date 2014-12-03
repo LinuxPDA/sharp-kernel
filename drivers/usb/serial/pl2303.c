@@ -12,6 +12,19 @@
  *
  * See Documentation/usb/usb-serial.txt for more information on using this driver
  *
+ * 2001_Oct_06 gkh
+ *	Added RTS and DTR line control.  Thanks to joe@bndlg.de for parts of it.
+ *
+ * 2001_Sep_19 gkh
+ *	Added break support.
+ *
+ * 2001_Aug_30 gkh
+ *	fixed oops in write_bulk_callback.
+ *
+ * 2001_Aug_28 gkh
+ *	reworked buffer logic to be like other usb-serial drivers.  Hopefully
+ *	removing some reported problems.
+ *
  * 2001_Jun_06 gkh
  *	finished porting to 2.4 format.
  * 
@@ -46,62 +59,59 @@
 /*
  * Version Information
  */
-#define DRIVER_VERSION "v0.5"
+#define DRIVER_VERSION "v0.9"
 #define DRIVER_DESC "Prolific PL2303 USB to serial adaptor driver"
-
-
-#ifndef MIN
-#define MIN(a,b)        ((a) < (b) ? (a) : (b))
-#endif
-
-
-#define	PL2303_LOCK(port,flags)					\
-		do {						\
-		spin_lock_irqsave(&((struct pl2303_private *)(port->private))->lock, flags);	\
-		} while (0)
-
-#define	PL2303_UNLOCK(port,flags)				\
-		do {						\
-		spin_unlock_irqrestore(&((struct pl2303_private *)(port->private))->lock, flags);	\
-		} while (0)
 
 
 
 static __devinitdata struct usb_device_id id_table [] = {
 	{ USB_DEVICE(PL2303_VENDOR_ID, PL2303_PRODUCT_ID) },
+	{ USB_DEVICE(PL2303_VENDOR_ID, PL2303_PRODUCT_ID_RSAQ2) },
+	{ USB_DEVICE(IODATA_VENDOR_ID, IODATA_PRODUCT_ID) },
 	{ USB_DEVICE(ATEN_VENDOR_ID, ATEN_PRODUCT_ID) },
 	{ }					/* Terminating entry */
 };
 
 MODULE_DEVICE_TABLE (usb, id_table);
 
-struct pl2303_private {
-	spinlock_t	lock;
-	unsigned char	*xmit_buf;
-	int		xmit_head;
-	int		xmit_tail;
-	int		xmit_cnt;
-};
+
+#define SET_LINE_REQUEST_TYPE		0x21
+#define SET_LINE_REQUEST		0x20
+
+#define SET_CONTROL_REQUEST_TYPE	0x21
+#define SET_CONTROL_REQUEST		0x22
+#define CONTROL_DTR			0x01
+#define CONTROL_RTS			0x02
+
+#define BREAK_REQUEST_TYPE		0x21
+#define BREAK_REQUEST			0x23	
+#define BREAK_ON			0xffff
+#define BREAK_OFF			0x0000
+
+#define GET_LINE_REQUEST_TYPE		0xa1
+#define GET_LINE_REQUEST		0x21
+
+#define VENDOR_WRITE_REQUEST_TYPE	0x40
+#define VENDOR_WRITE_REQUEST		0x01
+
+#define VENDOR_READ_REQUEST_TYPE	0xc0
+#define VENDOR_READ_REQUEST		0x01
 
 /* function prototypes for a PL2303 serial converter */
-static int pl2303_startup (struct usb_serial *serial);
 static int pl2303_open (struct usb_serial_port *port, struct file *filp);
 static void pl2303_close (struct usb_serial_port *port, struct file *filp);
 static void pl2303_set_termios (struct usb_serial_port *port,
 				struct termios *old);
 static int pl2303_ioctl (struct usb_serial_port *port, struct file *file,
 			 unsigned int cmd, unsigned long arg);
-static void pl2303_throttle (struct usb_serial_port *port);
-static void pl2303_unthrottle (struct usb_serial_port *port);
 static void pl2303_read_int_callback (struct urb *urb);
 static void pl2303_read_bulk_callback (struct urb *urb);
 static void pl2303_write_bulk_callback (struct urb *urb);
 static int pl2303_write (struct usb_serial_port *port, int from_user,
 			 const unsigned char *buf, int count);
-static int pl2303_write_room(struct usb_serial_port *port);
-static int pl2303_chars_in_buffer(struct usb_serial_port *port);
 static void pl2303_break_ctl(struct usb_serial_port *port,int break_state);
-static void start_xmit (struct usb_serial_port *port);
+static int pl2303_startup (struct usb_serial *serial);
+static void pl2303_shutdown (struct usb_serial *serial);
 
 
 /* All of the device info needed for the PL2303 SIO serial converter */
@@ -117,260 +127,167 @@ static struct usb_serial_device_type pl2303_device = {
 	num_ports:		1,
 	open:			pl2303_open,
 	close:			pl2303_close,
-	throttle:		pl2303_throttle,
-	unthrottle:		pl2303_unthrottle,
 	write:			pl2303_write,
 	ioctl:			pl2303_ioctl,
-	write_room:		pl2303_write_room,
-	chars_in_buffer:	pl2303_chars_in_buffer,
 	break_ctl:		pl2303_break_ctl,
 	set_termios:		pl2303_set_termios,
 	read_bulk_callback:	pl2303_read_bulk_callback,
 	read_int_callback:	pl2303_read_int_callback,
 	write_bulk_callback:	pl2303_write_bulk_callback,
 	startup:		pl2303_startup,
+	shutdown:		pl2303_shutdown,
+};
+
+struct pl2303_private { 
+	u8 line_control;
 };
 
 
-#define WDR_TIMEOUT (HZ * 5 )   /* default urb timeout */
+static int pl2303_startup (struct usb_serial *serial)
+{
+	struct pl2303_private *priv;
+	int i;
 
-static unsigned char *tmp_buf;
-static DECLARE_MUTEX (tmp_buf_sem);
-
-
-
-static int
-pl2303_write (struct usb_serial_port *port, int from_user,
-	      const unsigned char *buf, int count)
-{				/* pl2303_write */
-	struct pl2303_private *info = (struct pl2303_private *)port->private;
-	unsigned long flags;
-	int c,ret=0;
-	struct tty_struct *tty=port->tty;
-
-	dbg ("pl2303_write port %d, %d bytes", port->number, count);
-
-	if (!info) {
-		return -ENODEV;
+	for (i = 0; i < serial->num_ports; ++i) {
+		priv = kmalloc (sizeof (struct pl2303_private), GFP_KERNEL);
+		if (!priv)
+			return -ENOMEM;
+		memset (priv, 0x00, sizeof (struct pl2303_private));
+		serial->port[i].private = priv;
 	}
+	return 0;
+}
 
-	if (!tty || !info->xmit_buf || !tmp_buf) {
+static int set_control_lines (struct usb_device *dev, u8 value)
+{
+	int retval;
+	
+	retval = usb_control_msg (dev, usb_sndctrlpipe (dev, 0),
+				  SET_CONTROL_REQUEST, SET_CONTROL_REQUEST_TYPE,
+				  value, 0, NULL, 0, 100);
+	dbg (__FUNCTION__" - value = %d, retval = %d", value, retval);
+	return retval;
+}
+
+static int pl2303_write (struct usb_serial_port *port, int from_user,  const unsigned char *buf, int count)
+{
+	int result;
+
+	dbg (__FUNCTION__ " - port %d, %d bytes", port->number, count);
+
+	if (!port->tty) {
+		err (__FUNCTION__ " - no tty???");
 		return 0;
 	}
 
+	if (port->write_urb->status == -EINPROGRESS) {
+		dbg (__FUNCTION__ " - already writing");
+		return 0;
+	}
 
-	PL2303_LOCK(port,flags);
-
-
+	count = (count > port->bulk_out_size) ? port->bulk_out_size : count;
 	if (from_user) {
-		down(&tmp_buf_sem);
-		while (1) {
-			c = MIN(count, MIN(SERIAL_XMIT_SIZE - info->xmit_cnt - 1,
-					   SERIAL_XMIT_SIZE - info->xmit_head));
-			if (c <= 0)
-				break;
-
-			c -= copy_from_user(tmp_buf, buf, c);
-			if (!c) {
-				if (!ret) {
-					ret = -EFAULT;
-				}
-				break;
-			}
-			c = MIN(c, MIN(SERIAL_XMIT_SIZE - info->xmit_cnt - 1,
-				       SERIAL_XMIT_SIZE - info->xmit_head));
-			memcpy(info->xmit_buf + info->xmit_head, tmp_buf, c);
-			info->xmit_head = ((info->xmit_head + c) & (SERIAL_XMIT_SIZE-1));
-			info->xmit_cnt += c;
-			buf += c;
-			count -= c;
-			ret += c;
-		}
-		up(&tmp_buf_sem);
+		if (copy_from_user (port->write_urb->transfer_buffer, buf, count))
+			return -EFAULT;
 	} else {
-		while (1) {
-			c = MIN(count, MIN(SERIAL_XMIT_SIZE - info->xmit_cnt - 1, 
-					   SERIAL_XMIT_SIZE - info->xmit_head));
-			if (c <= 0) {
-				break;
-			}
-			memcpy(info->xmit_buf + info->xmit_head, buf, c);
-			info->xmit_head = (info->xmit_head + c) & (SERIAL_XMIT_SIZE-1);
-			info->xmit_cnt += c;
-			buf += c;
-			count -= c;
-			ret += c;
-		}
+		memcpy (port->write_urb->transfer_buffer, buf, count);
 	}
-	PL2303_UNLOCK(port, flags);
+	
+	usb_serial_debug_data (__FILE__, __FUNCTION__, count, port->write_urb->transfer_buffer);
 
-	if (info->xmit_cnt && !tty->stopped && !tty->hw_stopped) {
-		start_xmit(port);
-	}
-	return ret;
+	port->write_urb->transfer_buffer_length = count;
+	port->write_urb->dev = port->serial->dev;
+	result = usb_submit_urb (port->write_urb);
+	if (result)
+		err(__FUNCTION__ " - failed submitting write urb, error %d", result);
+	else
+		result = count;
+
+	return result;
 }
 
-static int pl2303_write_room(struct usb_serial_port *port)
+
+
+static void pl2303_set_termios (struct usb_serial_port *port, struct termios *old_termios)
 {
-	struct pl2303_private *info = (struct pl2303_private *)port->private;
-	int     ret;
-
-	if (!info)
-		return 0;
-
-	ret = SERIAL_XMIT_SIZE - info->xmit_cnt - 1;
-	if (ret < 0)
-		ret = 0;
-	return ret;
-}
-
-static int pl2303_chars_in_buffer(struct usb_serial_port *port)
-{
-	struct pl2303_private *info = (struct pl2303_private *)port->private;
-
-	if (!info)
-		return 0;
-
-	return info->xmit_cnt;
-}
-
-static void pl2303_throttle(struct usb_serial_port *port)
-{
-#if 0
-	//struct usb_serial *serial = port->serial;
-	struct tty_struct *tty=port->tty;
-	unsigned long flags;
-
-
-	char    buf[64];
-
-	dbg("throttle %s: %d....", tty_name(tty, buf),
-	    tty->ldisc.chars_in_buffer(tty));
-
-//FIXME FIXME FIXME	
-	if (I_IXOFF(tty))
-		rs_send_xchar(tty, STOP_CHAR(tty));
-
-	PL2303_LOCK(port,flags);
-	//Should remove read request if one is present
-	PL2303_UNLOCK(port,flags);
-#endif
-}
-
-static void pl2303_unthrottle(struct usb_serial_port *port)
-{
-#if 0
-	//struct usb_serial *serial = port->serial;
-	struct tty_struct *tty=port->tty;
-	unsigned long flags;
-
-
-	char    buf[64];
-
-	dbg("unthrottle %s: %d....", tty_name(tty, buf),
-	    tty->ldisc.chars_in_buffer(tty));
-
-	//FIXME FIXME FIXME FIXME FIXME
-	if (I_IXOFF(tty)) {
-		if (info->x_char)
-			info->x_char = 0;
-		else
-			rs_send_xchar(tty, START_CHAR(tty));
-	}
-
-	PL2303_LOCK(port,flags);
-	//Should add read request if one is not present
-	PL2303_UNLOCK(fport,flags);
-#endif
-}
-
-
-static void
-pl2303_set_termios (struct usb_serial_port *port, struct termios *old_termios)
-{				/* pl2303_set_termios */
 	struct usb_serial *serial = port->serial;
-	unsigned int cflag = port->tty->termios->c_cflag;
-	unsigned char buf[7] = { 0, 0, 0, 0, 0, 0, 0};
+	struct pl2303_private *priv;
+	unsigned int cflag;
+	unsigned char *buf;
 	int baud;
 	int i;
 
+	dbg (__FUNCTION__ " -  port %d", port->number);
 
-	dbg ("pl2303_set_termios port %d", port->number);
+	if ((!port->tty) || (!port->tty->termios)) {
+		dbg(__FUNCTION__" - no tty structures");
+		return;
+	}
 
+	cflag = port->tty->termios->c_cflag;
+	/* check that they really want us to change something */
+	if (old_termios) {
+		if ((cflag == old_termios->c_cflag) &&
+		    (RELEVANT_IFLAG(port->tty->termios->c_iflag) == RELEVANT_IFLAG(old_termios->c_iflag))) {
+		    dbg(__FUNCTION__ " - nothing to change...");
+		    return;
+		}
+	}
 
+	buf = kmalloc (7, GFP_KERNEL);
+	if (!buf) {
+		err(__FUNCTION__ " - out of memory.");
+		return;
+	}
+	memset (buf, 0x00, 0x07);
+	
 	i = usb_control_msg (serial->dev, usb_rcvctrlpipe (serial->dev, 0),
-			     0x21, 0xa1, 0, 0, buf, 7, 100);
-
+			     GET_LINE_REQUEST, GET_LINE_REQUEST_TYPE,
+			     0, 0, buf, 7, 100);
 	dbg ("0xa1:0x21:0:0  %d - %x %x %x %x %x %x %x", i,
 	     buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6]);
 
 
 	i = usb_control_msg (serial->dev, usb_sndctrlpipe (serial->dev, 0),
-			     1, 0x40, 0, 1, NULL, 0, 100);
+			     VENDOR_WRITE_REQUEST, VENDOR_WRITE_REQUEST_TYPE,
+			     0, 1, NULL, 0, 100);
 
 	dbg ("0x40:1:0:1  %d", i);
 
-
-
 	if (cflag & CSIZE) {
 		switch (cflag & CSIZE) {
-			case CS6:
-				buf[6] = 6;
-				dbg ("Setting CS6");
-				break;
-			case CS7:
-				buf[6] = 7;
-				dbg ("Setting CS7");
-				break;
-			case CS8:
-				buf[6] = 8;
-				dbg ("Setting CS8");
-				break;
+			case CS5:	buf[6] = 5;	break;
+			case CS6:	buf[6] = 6;	break;
+			case CS7:	buf[6] = 7;	break;
 			default:
-				err ("CSIZE was set but not CS6-CS8");
+			case CS8:	buf[6] = 8;	break;
 		}
+		dbg (__FUNCTION__ " - data bits = %d", buf[6]);
 	}
 
 	baud = 0;
 	switch (cflag & CBAUD) {
-		case B0:
-			err ("Can't do B0 yet");  //FIXME
-			break;
-		case B300:
-			baud = 300;
-			break;
-		case B600:
-			baud = 600;
-			break;
-		case B1200:
-			baud = 1200;
-			break;
-		case B2400:
-			baud = 2400;
-			break;
-		case B4800:
-			baud = 4800;
-			break;
-		case B9600:
-			baud = 9600;
-			break;
-		case B19200:
-			baud = 19200;
-			break;
-		case B38400:
-			baud = 38400;
-			break;
-		case B57600:
-			baud = 57600;
-			break;
-		case B115200:
-			baud = 115200;
-			break;
+		case B0:	baud = 0;	break;
+		case B75:	baud = 75;	break;
+		case B150:	baud = 150;	break;
+		case B300:	baud = 300;	break;
+		case B600:	baud = 600;	break;
+		case B1200:	baud = 1200;	break;
+		case B1800:	baud = 1800;	break;
+		case B2400:	baud = 2400;	break;
+		case B4800:	baud = 4800;	break;
+		case B9600:	baud = 9600;	break;
+		case B19200:	baud = 19200;	break;
+		case B38400:	baud = 38400;	break;
+		case B57600:	baud = 57600;	break;
+		case B115200:	baud = 115200;	break;
+		case B230400:	baud = 230400;	break;
+		case B460800:	baud = 460800;	break;
 		default:
-			dbg ("pl2303 driver does not support the baudrate requested (fix it)");
+			err ("pl2303 driver does not support the baudrate requested (fix it)");
 			break;
 	}
-
+	dbg (__FUNCTION__ " - baud = %d", baud);
 	if (baud) {
 		buf[0] = baud & 0xff;
 		buf[1] = (baud >> 8) & 0xff;
@@ -378,278 +295,318 @@ pl2303_set_termios (struct usb_serial_port *port, struct termios *old_termios)
 		buf[3] = (baud >> 24) & 0xff;
 	}
 
-
+	/* For reference buf[4]=0 is 1 stop bits */
 	/* For reference buf[4]=1 is 1.5 stop bits */
-
+	/* For reference buf[4]=2 is 2 stop bits */
 	if (cflag & CSTOPB) {
 		buf[4] = 2;
+		dbg(__FUNCTION__ " - stop bits = 2");
+	} else {
+		buf[4] = 0;
+		dbg(__FUNCTION__ " - stop bits = 1");
 	}
 
-
 	if (cflag & PARENB) {
+		/* For reference buf[5]=0 is none parity */
+		/* For reference buf[5]=1 is odd parity */
+		/* For reference buf[5]=2 is even parity */
 		/* For reference buf[5]=3 is mark parity */
 		/* For reference buf[5]=4 is space parity */
 		if (cflag & PARODD) {
 			buf[5] = 1;
+			dbg(__FUNCTION__ " - parity = odd");
 		} else {
 			buf[5] = 2;
+			dbg(__FUNCTION__ " - parity = even");
 		}
+	} else {
+		buf[5] = 0;
+		dbg(__FUNCTION__ " - parity = none");
 	}
 
 	i = usb_control_msg (serial->dev, usb_sndctrlpipe (serial->dev, 0),
-			     0x20, 0x21, 0, 0, buf, 7, 100);
-
+			     SET_LINE_REQUEST, SET_LINE_REQUEST_TYPE, 
+			     0, 0, buf, 7, 100);
 	dbg ("0x21:0x20:0:0  %d", i);
 
-	i = usb_control_msg (serial->dev, usb_sndctrlpipe (serial->dev, 0),
-			     0x22, 0x21, 1, 0, NULL, 0, 100);
-
-	dbg ("0x21:0x22:1:0  %d", i);
-
-	i = usb_control_msg (serial->dev, usb_sndctrlpipe (serial->dev, 0),
-			     0x22, 0x21, 3, 0, NULL, 0, 100);
-
-	dbg ("0x21:0x22:3:0  %d", i);
-
+	if (cflag && CBAUD) {
+		priv = port->private;
+		if ((cflag && CBAUD) == B0)
+			priv->line_control &= ~(CONTROL_DTR | CONTROL_RTS);
+		else
+			priv->line_control |= (CONTROL_DTR | CONTROL_RTS);
+		set_control_lines (serial->dev, priv->line_control);
+	}
+	
 	buf[0] = buf[1] = buf[2] = buf[3] = buf[4] = buf[5] = buf[6] = 0;
 
 	i = usb_control_msg (serial->dev, usb_rcvctrlpipe (serial->dev, 0),
-			     0x21, 0xa1, 0, 0, buf, 7, 100);
-
+			     GET_LINE_REQUEST, GET_LINE_REQUEST_TYPE,
+			     0, 0, buf, 7, 100);
 	dbg ("0xa1:0x21:0:0  %d - %x %x %x %x %x %x %x", i,
 	     buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6]);
 
 	if (cflag & CRTSCTS) {
-
 		i = usb_control_msg (serial->dev, usb_sndctrlpipe (serial->dev, 0),
-				     0x01, 0x40, 0x0, 0x41, NULL, 0, 100);
-
+				     VENDOR_WRITE_REQUEST_TYPE, VENDOR_WRITE_REQUEST_TYPE,
+				     0x0, 0x41, NULL, 0, 100);
 		dbg ("0x40:0x1:0x0:0x41  %d", i);
-
 	}
 
-
-	return;
+	kfree (buf);
 }       
 
 
-static int
-pl2303_open (struct usb_serial_port *port, struct file *filp)
-{				/* pl2303_open */
+static int pl2303_open (struct usb_serial_port *port, struct file *filp)
+{
 	struct termios tmp_termios;
 	struct usb_serial *serial = port->serial;
 	unsigned char buf[10];
-	int i;
+	int result;
 
-	dbg ("pl2303_open port %d", port->number);
+	if (port_paranoia_check (port, __FUNCTION__))
+		return -ENODEV;
+		
+	dbg (__FUNCTION__ " -  port %d", port->number);
 
-	port->active++;
+	down (&port->sem);
 
-#define FISH(a,b,c,d) \
-	i=usb_control_msg(serial->dev, usb_rcvctrlpipe(serial->dev,0), \
-		    b, a,c  , d, buf, 1, 100); \
-	dbg("0x%x:0x%x:0x%x:0x%x  %d - %x",a,b,c,d,i,buf[0]);
+	++port->open_count;
+	MOD_INC_USE_COUNT;
 
-#define SOUP(a,b,c,d) \
-	i=usb_control_msg(serial->dev, usb_sndctrlpipe(serial->dev,0), \
-		    b, a,c  , d, NULL, 0, 100); \
-	dbg("0x%x:0x%x:0x%x:0x%x  %d",a,b,c,d,i);
+	if (!port->active) {
+		port->active = 1;
 
+#define FISH(a,b,c,d)									\
+		result=usb_control_msg(serial->dev, usb_rcvctrlpipe(serial->dev,0),	\
+				       b, a, c, d, buf, 1, 100);			\
+		dbg("0x%x:0x%x:0x%x:0x%x  %d - %x",a,b,c,d,result,buf[0]);
 
-	FISH (0xc0, 1, 0x8484, 0);
-	SOUP (0x40, 1, 0x0404, 0);
-	FISH (0xc0, 1, 0x8484, 0);
-	FISH (0xc0, 1, 0x8383, 0);
-	FISH (0xc0, 1, 0x8484, 0);
-	SOUP (0x40, 1, 0x0404, 1);
-	FISH (0xc0, 1, 0x8484, 0);
-	FISH (0xc0, 1, 0x8383, 0);
-	SOUP (0x40, 1, 0, 1);
-	SOUP (0x40, 1, 1, 0xc0);
-	SOUP (0x40, 1, 2, 4);
+#define SOUP(a,b,c,d)									\
+		result=usb_control_msg(serial->dev, usb_sndctrlpipe(serial->dev,0),	\
+				       b, a, c, d, NULL, 0, 100);			\
+		dbg("0x%x:0x%x:0x%x:0x%x  %d",a,b,c,d,result);
 
-	/* Setup termios */
+		FISH (VENDOR_READ_REQUEST_TYPE, VENDOR_READ_REQUEST, 0x8484, 0);
+		SOUP (VENDOR_WRITE_REQUEST_TYPE, VENDOR_WRITE_REQUEST, 0x0404, 0);
+		FISH (VENDOR_READ_REQUEST_TYPE, VENDOR_READ_REQUEST, 0x8484, 0);
+		FISH (VENDOR_READ_REQUEST_TYPE, VENDOR_READ_REQUEST, 0x8383, 0);
+		FISH (VENDOR_READ_REQUEST_TYPE, VENDOR_READ_REQUEST, 0x8484, 0);
+		SOUP (VENDOR_WRITE_REQUEST_TYPE, VENDOR_WRITE_REQUEST, 0x0404, 1);
+		FISH (VENDOR_READ_REQUEST_TYPE, VENDOR_READ_REQUEST, 0x8484, 0);
+		FISH (VENDOR_READ_REQUEST_TYPE, VENDOR_READ_REQUEST, 0x8383, 0);
+		SOUP (VENDOR_WRITE_REQUEST_TYPE, VENDOR_WRITE_REQUEST, 0, 1);
+		SOUP (VENDOR_WRITE_REQUEST_TYPE, VENDOR_WRITE_REQUEST, 1, 0xc0);
+		SOUP (VENDOR_WRITE_REQUEST_TYPE, VENDOR_WRITE_REQUEST, 2, 4);
 
-	if (port->active == 1) {
+		/* Setup termios */
 		*(port->tty->termios) = tty_std_termios;
 		port->tty->termios->c_cflag = B9600 | CS8 | CREAD | HUPCL | CLOCAL;
-	}
 
+		pl2303_set_termios (port, &tmp_termios);
 
-	pl2303_set_termios (port, &tmp_termios);
+		//FIXME: need to assert RTS and DTR if CRTSCTS off
 
-	//FIXME: need to assert RTS and DTR if CRTSCTS off
-
-
-	if (port->active == 1) {
-		struct pl2303_private *info;
-		unsigned long flags,page;
-		int i;
-
-		info = (struct pl2303_private *)kmalloc (sizeof(struct pl2303_private), GFP_KERNEL);
-		if (info == NULL) {
-			err(__FUNCTION__ " - out of memory");
-			pl2303_close (port, NULL);
-			return -ENOMEM;
-		}
-		spin_lock_init(&info->lock);
-		port->private = info;
-
-
-		page = get_free_page(GFP_KERNEL);
-		if (!page) {
-			pl2303_close (port, NULL);
-			return -ENOMEM;
-		}
-
-		PL2303_LOCK(port,flags);
-
-		info->xmit_cnt = info->xmit_head = info->xmit_tail = 0;
-
-		if (tmp_buf)
-			free_page(page);
-		else
-			tmp_buf	= (unsigned char *) page;
-
-		PL2303_UNLOCK(port,flags);
-
-		page = get_free_page(GFP_KERNEL);
-		if (!page) {
-			pl2303_close (port, NULL);
-			return -ENOMEM;
-		}
-
-		PL2303_LOCK(port,flags);
-
-		if (info->xmit_buf)
-			free_page(page);
-		else
-			info->xmit_buf=(unsigned char *) page;
-
-		PL2303_UNLOCK(port,flags);
-
-
-		if ((i = usb_submit_urb (port->read_urb))) {
-			err ("usb_submit_urb(read bulk 1) failed");
-			dbg ("i=%d", i);
+		dbg (__FUNCTION__ " - submitting read urb");
+		port->read_urb->dev = serial->dev;
+		result = usb_submit_urb (port->read_urb);
+		if (result) {
+			err(__FUNCTION__ " - failed submitting read urb, error %d", result);
+			up (&port->sem);
 			pl2303_close (port, NULL);
 			return -EPROTO;
-
 		}
 
-		if ((i = usb_submit_urb (port->interrupt_in_urb))) {
-			err ("usb_submit_urb(interrupt ink) failed");
-			dbg ("i=%d", i);
+		dbg (__FUNCTION__ " - submitting interrupt urb");
+		port->interrupt_in_urb->dev = serial->dev;
+		result = usb_submit_urb (port->interrupt_in_urb);
+		if (result) {
+			err(__FUNCTION__ " - failed submitting interrupt urb, error %d", result);
+			up (&port->sem);
 			pl2303_close (port, NULL);
-
 			return -EPROTO;
 		}
 	}
-
-	return(0);
-}				/* pl2303_open */
-
-
-static void
-pl2303_close (struct usb_serial_port *port, struct file *filp)
-{				/* pl2303_close */
-	struct pl2303_private *info;
-	unsigned int c_cflag = port->tty->termios->c_cflag;
-	unsigned long flags;
-
-	dbg ("pl2303_close port %d", port->number);
-
-	/* shutdown our bulk reads and writes */
-	if (port->active == 1) {
-
-		if (c_cflag & HUPCL) {
-			//FIXME: Do drop DTR
-			//FIXME: Do drop RTS
-		}
-
-		usb_unlink_urb (port->write_urb);
-		usb_unlink_urb (port->read_urb);
-		usb_unlink_urb (port->interrupt_in_urb);
-
-		info = (struct pl2303_private *)port->private;
-		if (info) {
-			PL2303_LOCK(port,flags);
-			if (info->xmit_buf) {
-				unsigned char * temp;
-				temp = info->xmit_buf;
-				info->xmit_buf = 0;
-				free_page((unsigned long) temp);
-			}
-			PL2303_UNLOCK(port,flags);
-		}
-
-		//FIXME: tmp_buf memory leak
-
-
-	}
-	port->active--;
-}				/* pl2303_close */
-
-
-/* do some startup allocations not currently performed by usb_serial_probe() */
-static int
-pl2303_startup (struct usb_serial *serial)
-{
-	return(0);
+	up (&port->sem);
+	return 0;
 }
 
 
-static int
-pl2303_ioctl (struct usb_serial_port *port, struct file *file,
-	      unsigned int cmd, unsigned long arg)
+static void pl2303_close (struct usb_serial_port *port, struct file *filp)
 {
-// struct usb_serial *serial = port->serial;
-// __u16 urb_value=0; /* Will hold the new flags */
-// char buf[1];
-// int  ret, mask;
+	struct usb_serial *serial;
+	struct pl2303_private *priv;
+	unsigned int c_cflag;
+	int result;
 
+	if (port_paranoia_check (port, __FUNCTION__))
+		return;
+	serial = get_usb_serial (port, __FUNCTION__);
+	if (!serial)
+		return;
+	
+	dbg (__FUNCTION__ " - port %d", port->number);
 
-	dbg ("pl2303_sio ioctl 0x%04x", cmd);
+	down (&port->sem);
 
-	/* Based on code from acm.c and others */
+	--port->open_count;
+	if (port->open_count <= 0) {
+		if (serial->dev) {
+			c_cflag = port->tty->termios->c_cflag;
+			if (c_cflag & HUPCL) {
+				/* drop DTR and RTS */
+				priv = port->private;
+				priv->line_control = 0;
+				set_control_lines (port->serial->dev,
+						   priv->line_control);
+			}
+
+			/* shutdown our urbs */
+			dbg (__FUNCTION__ " - shutting down urbs");
+			result = usb_unlink_urb (port->write_urb);
+			if (result)
+				dbg (__FUNCTION__ " - usb_unlink_urb "
+				     "(write_urb) failed with reason: %d",
+				     result);
+
+			result = usb_unlink_urb (port->read_urb);
+			if (result)
+				dbg (__FUNCTION__ " - usb_unlink_urb "
+				     "(read_urb) failed with reason: %d",
+				     result);
+
+			result = usb_unlink_urb (port->interrupt_in_urb);
+			if (result)
+				dbg (__FUNCTION__ " - usb_unlink_urb "
+				     "(interrupt_in_urb) failed with reason: %d",
+				     result);
+		}
+
+		port->active = 0;
+		port->open_count = 0;
+	}
+
+	up (&port->sem);
+	MOD_DEC_USE_COUNT;
+}
+
+static int set_modem_info (struct usb_serial_port *port, unsigned int cmd, unsigned int *value)
+{
+	struct pl2303_private *priv = port->private;
+	unsigned int arg;
+
+	if (copy_from_user(&arg, value, sizeof(int)))
+		return -EFAULT;
+
+	switch (cmd) {
+		case TIOCMBIS:
+			if (arg & TIOCM_RTS)
+				priv->line_control |= CONTROL_RTS;
+			if (arg & TIOCM_DTR)
+				priv->line_control |= CONTROL_DTR;
+			break;
+
+		case TIOCMBIC:
+			if (arg & TIOCM_RTS)
+				priv->line_control &= ~CONTROL_RTS;
+			if (arg & TIOCM_DTR)
+				priv->line_control &= ~CONTROL_DTR;
+			break;
+
+		case TIOCMSET:
+			/* turn off RTS and DTR and then only turn
+			   on what was asked to */
+			priv->line_control &= ~(CONTROL_RTS | CONTROL_DTR);
+			priv->line_control |= ((arg & TIOCM_RTS) ? CONTROL_RTS : 0);
+			priv->line_control |= ((arg & TIOCM_DTR) ? CONTROL_DTR : 0);
+			break;
+	}
+
+	return set_control_lines (port->serial->dev, priv->line_control);
+}
+
+static int get_modem_info (struct usb_serial_port *port, unsigned int *value)
+{
+	struct pl2303_private *priv = port->private;
+	unsigned int mcr = priv->line_control;
+	unsigned int result;
+
+	result = ((mcr & CONTROL_DTR)		? TIOCM_DTR : 0)
+		  | ((mcr & CONTROL_RTS)	? TIOCM_RTS : 0);
+
+	dbg (__FUNCTION__ " - result = %x", result);
+
+	if (copy_to_user(value, &result, sizeof(int)))
+		return -EFAULT;
+	return 0;
+}
+
+static int pl2303_ioctl (struct usb_serial_port *port, struct file *file, unsigned int cmd, unsigned long arg)
+{
+	dbg (__FUNCTION__" (%d) cmd = 0x%04x", port->number, cmd);
+
 	switch (cmd) {
 		
 		case TIOCMGET:
-			dbg ("TIOCMGET");
+			dbg (__FUNCTION__" (%d) TIOCMGET", port->number);
+			return get_modem_info (port, (unsigned int *)arg);
 
-
-			return put_user (0, (unsigned long *) arg);
-			break;
 		case TIOCMBIS:
 		case TIOCMBIC:
 		case TIOCMSET:
-			return 0;
+			dbg(__FUNCTION__" (%d) TIOCMSET/TIOCMBIC/TIOCMSET",  port->number);
+			return set_modem_info(port, cmd, (unsigned int *) arg);
 
 		default:
-			/* This is not an error - turns out the higher layers will do 
-			 *  some ioctls itself (see comment above)
-			 */
-			dbg ("pl2303_sio ioctl arg not supported - it was 0x%04x", cmd);
-			return(-ENOIOCTLCMD);
+			dbg (__FUNCTION__" not supported = 0x%04x", cmd);
 			break;
 	}
-	dbg ("pl2303_ioctl returning 0");
 
-	return 0;
-}				/* pl2303_ioctl */
-
-
-static void pl2303_break_ctl(struct usb_serial_port *port,int break_state)
-{
-//FIXME
+	return -ENOIOCTLCMD;
 }
 
 
-static void
-pl2303_read_int_callback (struct urb *urb)
+static void pl2303_break_ctl (struct usb_serial_port *port, int break_state)
+{
+	struct usb_serial *serial = port->serial;
+	u16 state;
+	int result;
+
+	dbg (__FUNCTION__ " - port %d", port->number);
+
+	if (break_state == 0)
+		state = BREAK_OFF;
+	else
+		state = BREAK_ON;
+	dbg (__FUNCTION__" - turning break %s", state==BREAK_OFF ? "off" : "on");
+
+	result = usb_control_msg (serial->dev, usb_rcvctrlpipe (serial->dev, 0),
+				  BREAK_REQUEST, BREAK_REQUEST_TYPE, state, 
+				  0, NULL, 0, 100);
+	if (result)
+		dbg (__FUNCTION__" - error sending break = %d", result);
+}
+
+
+static void pl2303_shutdown (struct usb_serial *serial)
+{
+	int i;
+
+	dbg (__FUNCTION__);
+
+	/* stop everything on all ports */
+	for (i = 0; i < serial->num_ports; ++i)
+		while (serial->port[i].open_count > 0) {
+			pl2303_close (&serial->port[i], NULL);
+			kfree (serial->port[i].private);
+		}
+}
+
+
+static void pl2303_read_int_callback (struct urb *urb)
 {
 	struct usb_serial_port *port = (struct usb_serial_port *) urb->context;
-	struct usb_serial *serial = get_usb_serial (port, "pl2303_read_int_callback");
+	struct usb_serial *serial = get_usb_serial (port, __FUNCTION__);
 	//unsigned char *data = urb->transfer_buffer;
 	//int i;
 
@@ -664,166 +621,117 @@ pl2303_read_int_callback (struct urb *urb)
 		return;
 	}
 
-
+	usb_serial_debug_data (__FILE__, __FUNCTION__, urb->actual_length, urb->transfer_buffer);
 #if 0
 //FIXME need to update state of terminal lines variable
-	if (urb->actual_length) {
-		printk (KERN_DEBUG __FILE__ ": INT data read - length = %d, data = ",
-			urb->actual_length);
-		for (i = 0; i < urb->actual_length; ++i) {
-			printk ("%.2x ", data[i]);
-		}
-		printk ("\n");
-	}
 #endif
 
 	return;
 }
 
-static void
-pl2303_read_bulk_callback (struct urb *urb)
+
+static void pl2303_read_bulk_callback (struct urb *urb)
 {
 	struct usb_serial_port *port = (struct usb_serial_port *) urb->context;
-	struct usb_serial *serial = get_usb_serial (port, "pl2303_read_bulk_callback");
+	struct usb_serial *serial = get_usb_serial (port, __FUNCTION__);
 	struct tty_struct *tty;
 	unsigned char *data = urb->transfer_buffer;
 	int i;
+	int result;
+
+	if (port_paranoia_check (port, __FUNCTION__))
+		return;
+
+	dbg(__FUNCTION__ " - port %d", port->number);
 
 	if (!serial) {
+		dbg(__FUNCTION__ " - bad serial pointer, exiting");
 		return;
 	}
 
-// PL2303 mysteriously fails with -EPROTO reschedule the read
 	if (urb->status) {
-		urb->status = 0;
-		if (usb_submit_urb (urb))
-			dbg ("failed resubmitting read bulk urb");
+		dbg (__FUNCTION__ " - urb->status = %d", urb->status);
+		if (!port->active) {
+			dbg (__FUNCTION__ " - port is closed, exiting.");
+			return;
+		}
+		if (urb->status == -EPROTO) {
+			/* PL2303 mysteriously fails with -EPROTO reschedule the read */
+			dbg (__FUNCTION__ " - caught -EPROTO, resubmitting the urb");
+			urb->status = 0;
+			urb->dev = serial->dev;
+			result = usb_submit_urb(urb);
+			if (result)
+				err(__FUNCTION__ " - failed resubmitting read urb, error %d", result);
+			return;
+		}
+		dbg (__FUNCTION__ " - unable to handle the error, exiting.");
 		return;
 	}
 
-	if (debug) {
-		if (urb->actual_length) {
-			printk (KERN_DEBUG __FILE__ ": BULK data read - length = %d, data = ",
-				urb->actual_length);
-			for (i = 0; i < urb->actual_length; ++i) {
-				printk ("%.2x ", data[i]);
-			}
-			printk ("\n");
-		}
-	}
+	usb_serial_debug_data (__FILE__, __FUNCTION__, urb->actual_length, data);
 
 	tty = port->tty;
 	if (urb->actual_length) {
 		for (i = 0; i < urb->actual_length; ++i) {
 			if (tty->flip.count >= TTY_FLIPBUF_SIZE) {
-				dbg ("ARGH ------------ Flip buffer overrun...");
-
-				break;
+				tty_flip_buffer_push(tty);
 			}
 			tty_insert_flip_char (tty, data[i], 0);
 		}
 		tty_flip_buffer_push (tty);
 	}
 
-
-	/* Schedule the next read*/
-	if (usb_submit_urb (urb))
-		dbg ("failed submitting read bulk urb");
+	/* Schedule the next read _if_ we are still open */
+	if (port->active) {
+		urb->dev = serial->dev;
+		result = usb_submit_urb(urb);
+		if (result)
+			err(__FUNCTION__ " - failed resubmitting read urb, error %d", result);
+	}
 
 	return;
 }
 
 
 
-static void
-pl2303_write_bulk_callback (struct urb *urb)
+static void pl2303_write_bulk_callback (struct urb *urb)
 {
 	struct usb_serial_port *port = (struct usb_serial_port *) urb->context;
-	struct usb_serial *serial;
-	struct tty_struct *tty = port->tty;
+	int result;
 
-	dbg ("pl2303_write_bulk_callback");
-
-
-	if (port_paranoia_check (port, "pl2303_write_bulk_callback")) {
+	if (port_paranoia_check (port, __FUNCTION__))
 		return;
-	}
-
-	serial = port->serial;
-	if (serial_paranoia_check (serial, "pl2303_write_bulk_callback")) {
-		return;
-	}
-
-
+	
+	dbg(__FUNCTION__ " - port %d", port->number);
+	
 	if (urb->status) {
-		dbg ("Overflow in write");
-		dbg ("nonzero write bulk status received: %d", urb->status);
-		//need to resubmit frame;
-
+		/* error in the urb, so we have to resubmit it */
+		if (serial_paranoia_check (port->serial, __FUNCTION__)) {
+			return;
+		}
+		dbg (__FUNCTION__ " - Overflow in write");
+		dbg (__FUNCTION__ " - nonzero write bulk status received: %d", urb->status);
 		port->write_urb->transfer_buffer_length = 1;
-
-		//Resubmit ourselves
-
-		if (usb_submit_urb (port->write_urb))
-			err ("usb_submit_urb(write bulk) failed");
+		port->write_urb->dev = port->serial->dev;
+		result = usb_submit_urb (port->write_urb);
+		if (result)
+			err(__FUNCTION__ " - failed resubmitting write urb, error %d", result);
 
 		return;
 	}
 
-	wake_up_interruptible (&port->write_wait);
-
-	if ((tty->flags & (1 << TTY_DO_WRITE_WAKEUP)) && tty->ldisc.write_wakeup)
-		(tty->ldisc.write_wakeup) (tty);
-
-	wake_up_interruptible (&tty->write_wait);
-
-	start_xmit(port);
+	queue_task(&port->tqueue, &tq_immediate);
+	mark_bh(IMMEDIATE_BH);
 
 	return;
-}
-
-
-
-static void
-start_xmit (struct usb_serial_port *port)
-{
-	struct usb_serial *serial;
-	struct pl2303_private *info;
-	unsigned long flags;
-
-	serial = port->serial;
-	info = (struct pl2303_private *)port->private;
-
-	if (info) {
-		PL2303_LOCK(port,flags);
-
-		if (port->write_urb->status != -EINPROGRESS) {
-			if (info->xmit_tail != info->xmit_head) {
-
-				memcpy (port->write_urb->transfer_buffer, &info->xmit_buf[info->xmit_tail],1);
-				info->xmit_cnt--;
-				info->xmit_tail = (info->xmit_tail + 1) & (SERIAL_XMIT_SIZE - 1);
-
-
-				port->write_urb->transfer_buffer_length = 1;
-
-
-				if (usb_submit_urb (port->write_urb))
-					err ("usb_submit_urb(write bulk) failed");
-
-
-			}
-		}
-
-		PL2303_UNLOCK(port,flags);
-	}
 }
 
 
 static int __init pl2303_init (void)
 {
 	usb_serial_register (&pl2303_device);
-	info(DRIVER_VERSION " : " DRIVER_DESC);
+	info(DRIVER_DESC " " DRIVER_VERSION);
 	return 0;
 }
 
@@ -838,6 +746,7 @@ module_init(pl2303_init);
 module_exit(pl2303_exit);
 
 MODULE_DESCRIPTION(DRIVER_DESC);
+MODULE_LICENSE("GPL");
 
 MODULE_PARM(debug, "i");
 MODULE_PARM_DESC(debug, "Debug enabled or not");

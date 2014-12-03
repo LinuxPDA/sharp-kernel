@@ -6,7 +6,7 @@
  *	Pedro Roque		<roque@di.fc.ul.pt>	
  *	Alexey Kuznetsov	<kuznet@ms2.inr.ac.ru>
  *
- *	$Id: sit.c,v 1.51 2001/05/17 04:12:18 davem Exp $
+ *	$Id: sit.c,v 1.53 2001/09/25 05:09:53 davem Exp $
  *
  *	This program is free software; you can redistribute it and/or
  *      modify it under the terms of the GNU General Public License
@@ -482,7 +482,8 @@ static int ipip6_tunnel_xmit(struct sk_buff *skb, struct net_device *dev)
 			neigh = skb->dst->neighbour;
 
 		if (neigh == NULL) {
-			printk(KERN_DEBUG "sit: nexthop == NULL\n");
+			if (net_ratelimit())
+				printk(KERN_DEBUG "sit: nexthop == NULL\n");
 			goto tx_error;
 		}
 
@@ -711,6 +712,7 @@ ipip6_tunnel_ioctl (struct net_device *dev, struct ifreq *ifr, int cmd)
 			err = -EPERM;
 			if (t == &ipip6_fb_tunnel)
 				goto done;
+			dev = t->dev;
 		}
 		err = unregister_netdevice(dev);
 		break;

@@ -1,5 +1,5 @@
 /*
- * BK Id: SCCS/s.traps.c 1.14 06/15/01 13:00:20 paulus
+ * BK Id: SCCS/s.traps.c 1.19 08/24/01 20:07:37 paulus
  */
 /*
  *  linux/arch/ppc/kernel/traps.c
@@ -40,7 +40,7 @@
 #include <asm/processor.h>
 
 extern int fix_alignment(struct pt_regs *);
-extern void bad_page_fault(struct pt_regs *, unsigned long);
+extern void bad_page_fault(struct pt_regs *, unsigned long, int sig);
 
 #ifdef CONFIG_XMON
 extern void xmon(struct pt_regs *regs);
@@ -191,8 +191,8 @@ SMIException(struct pt_regs *regs)
 void
 UnknownException(struct pt_regs *regs)
 {
-	printk("Bad trap at PC: %lx, SR: %lx, vector=%lx\n",
-	       regs->nip, regs->msr, regs->trap);
+	printk("Bad trap at PC: %lx, SR: %lx, vector=%lx    %s\n",
+	       regs->nip, regs->msr, regs->trap, print_tainted());
 	_exception(SIGTRAP, regs);	
 }
 
@@ -244,7 +244,7 @@ emulate_instruction(struct pt_regs *regs)
 	 */
 	if ((instword & INST_MFSPR_PVR_MASK) == INST_MFSPR_PVR) {
 		rd = (instword >> 21) & 0x1f;
-		regs->gpr[rd] = _get_PVR();
+		regs->gpr[rd] = mfspr(PVR);
 		retval = 0;
 	}
 	if (retval == 0)
@@ -317,7 +317,7 @@ AlignmentException(struct pt_regs *regs)
 		if (user_mode(regs))
 			force_sig(SIGSEGV, current);
 		else
-			bad_page_fault(regs, regs->dar);
+			bad_page_fault(regs, regs->dar, SIGSEGV);
 		return;
 	}
 	_exception(SIGBUS, regs);	
@@ -338,9 +338,9 @@ StackOverflow(struct pt_regs *regs)
 void
 trace_syscall(struct pt_regs *regs)
 {
-	printk("Task: %p(%d), PC: %08lX/%08lX, Syscall: %3ld, Result: %s%ld\n",
+	printk("Task: %p(%d), PC: %08lX/%08lX, Syscall: %3ld, Result: %s%ld    %s\n",
 	       current, current->pid, regs->nip, regs->link, regs->gpr[0],
-	       regs->ccr&0x10000000?"Error=":"", regs->gpr[3]);
+	       regs->ccr&0x10000000?"Error=":"", regs->gpr[3], print_tainted());
 }
 
 #ifdef CONFIG_8xx
@@ -372,12 +372,14 @@ SoftwareEmulation(struct pt_regs *regs)
 }
 #endif
 
+#if !defined(CONFIG_TAU_INT)
 void
 TAUException(struct pt_regs *regs)
 {
-	printk("TAU trap at PC: %lx, SR: %lx, vector=%lx\n",
-	       regs->nip, regs->msr, regs->trap);
+	printk("TAU trap at PC: %lx, SR: %lx, vector=%lx    %s\n",
+	       regs->nip, regs->msr, regs->trap, print_tainted());
 }
+#endif /* CONFIG_INT_TAU */
 
 void __init trap_init(void)
 {

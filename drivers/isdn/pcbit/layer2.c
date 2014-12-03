@@ -1,4 +1,6 @@
 /*
+ * PCBIT-D low-layer interface
+ *
  * Copyright (C) 1996 Universidade de Lisboa
  *
  * Written by Pedro Roque Marques (roque@di.fc.ul.pt)
@@ -13,10 +15,6 @@
 */
 
 /*
- *        PCBIT-D low-layer interface
- */
-
-/*
  *        Based on documentation provided by Inesc:
  *        - "Interface com bus do PC para o PCBIT e PCBIT-D", Inesc, Jan 93
  */
@@ -25,16 +23,6 @@
  *        TODO: better handling of errors
  *              re-write/remove debug printks
  */
-
-#define __NO_VERSION__
-
-
-#ifdef MODULE
-#define INCLUDE_INLINE_FUNCS
-#endif
-
-
-#include <linux/module.h>
 
 #include <linux/sched.h>
 #include <linux/string.h>
@@ -176,7 +164,6 @@ pcbit_transmit(struct pcbit_dev *dev)
 	struct frame_buf *frame = NULL;
 	unsigned char unacked;
 	int flen;               /* fragment frame length including all headers */
-	int totlen;             /* non-fragmented frame length */
 	int free;
 	int count,
 	 cp_len;
@@ -213,11 +200,12 @@ pcbit_transmit(struct pcbit_dev *dev)
 			ulong 	msg;
 
 			if (frame->skb)
-				totlen = FRAME_HDR_LEN + PREHDR_LEN + frame->skb->len;
+				flen = FRAME_HDR_LEN + PREHDR_LEN + frame->skb->len;
 			else
-				totlen = FRAME_HDR_LEN + PREHDR_LEN;
+				flen = FRAME_HDR_LEN + PREHDR_LEN;
 
-			flen = MIN(totlen, free);
+			if (flen > free)
+				flen = free;
 
 			msg = frame->msg;
 
@@ -259,9 +247,10 @@ pcbit_transmit(struct pcbit_dev *dev)
 		} else {
 			/* Type 1 frame */
 
-			totlen = 2 + (frame->skb->len - frame->copied);
+			flen = 2 + (frame->skb->len - frame->copied);
 
-			flen = MIN(totlen, free);
+			if (flen > free)
+				flen = free;
 
 			/* TT */
 			tt = ((ushort) (flen - 2)) | 0x8000U;	/* Type 1 */
@@ -271,8 +260,9 @@ pcbit_transmit(struct pcbit_dev *dev)
 		}
 
 		if (frame->skb) {
-			cp_len = MIN(frame->skb->len - frame->copied,
-				     flen - count);
+			cp_len = frame->skb->len - frame->copied;
+			if (cp_len > flen - count)
+				cp_len = flen - count;
 
 			memcpy_topcbit(dev, frame->skb->data + frame->copied,
 				       cp_len);

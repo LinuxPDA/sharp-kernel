@@ -22,21 +22,33 @@
 #define PT_MOF       16
 #define PT_DCCR      17
 #define PT_SRP       18
-#define PT_IRP       19
-#define PT_CSRINSTR  20    /* CPU Status record remnants - valid if frametype == busfault */
+#define PT_IRP       19    /* This is actually the debugged process' PC */
+#define PT_CSRINSTR  20    /* CPU Status record remnants -
+			      valid if frametype == busfault */
 #define PT_CSRADDR   21
 #define PT_CSRDATA   22
 #define PT_USP       23    /* special case - USP is not in the pt_regs */
 #define PT_MAX       23
 
+/* Condition code bit numbers.  The same numbers apply to CCR of course,
+   but we use DCCR everywhere else, so let's try and be consistent.  */
+#define C_DCCR_BITNR 0
+#define V_DCCR_BITNR 1
+#define Z_DCCR_BITNR 2
+#define N_DCCR_BITNR 3
+#define X_DCCR_BITNR 4
+#define I_DCCR_BITNR 5
+#define B_DCCR_BITNR 6
+#define M_DCCR_BITNR 7
+#define U_DCCR_BITNR 8
+#define P_DCCR_BITNR 9
+#define F_DCCR_BITNR 10
+
 /* Frame types */
 
-#define CRIS_FRAME_NORMAL   0  /* normal frame without SBFS stacking */
-#define CRIS_FRAME_BUSFAULT 1  /* frame stacked using SBFS, need RBF return path */
-
-/* Arbitrarily choose the same ptrace numbers as used by the Sparc code. */
-#define PTRACE_GETREGS            12
-#define PTRACE_SETREGS            13
+#define CRIS_FRAME_NORMAL   0 /* normal frame without SBFS stacking */
+#define CRIS_FRAME_BUSFAULT 1 /* frame stacked using SBFS, need RBF return
+				 path */
 
 /* pt_regs not only specifices the format in the user-struct during
  * ptrace but is also the frame format used in the kernel prologue/epilogues 
@@ -47,10 +59,10 @@ struct pt_regs {
 	unsigned long frametype;  /* type of stackframe */
 	unsigned long orig_r10;
 	/* pushed by movem r13, [sp] in SAVE_ALL, movem pushes backwards */
-	unsigned long r13; /* 8 */
-	unsigned long r12; /* 12 */
-	unsigned long r11; /* 16 */
-	unsigned long r10; /* 20 */
+	unsigned long r13;
+	unsigned long r12;
+	unsigned long r11;
+	unsigned long r10;
 	unsigned long r9;
 	unsigned long r8;
 	unsigned long r7;
@@ -64,20 +76,21 @@ struct pt_regs {
 	unsigned long mof;
 	unsigned long dccr;
 	unsigned long srp;
-	unsigned long irp;
+	unsigned long irp; /* This is actually the debugged process' PC */
 	unsigned long csrinstr;
 	unsigned long csraddr;
 	unsigned long csrdata;
 };
 
-/* switch_stack is the extra stuff pushed onto the stack in _resume (entry.S) when
-   doing a context-switch. it is used (apart from in resume) when a new thread is made 
-   and we need to make _resume (which is starting it for the first time) realise what
-   is going on. 
-
-   actually, the use is very close to the thread struct (TSS) in that both the switch_stack
-   and the TSS are used to keep thread stuff when switching in _resume.
-*/
+/* switch_stack is the extra stuff pushed onto the stack in _resume (entry.S)
+ * when doing a context-switch. it is used (apart from in resume) when a new
+ * thread is made and we need to make _resume (which is starting it for the
+ * first time) realise what is going on.
+ *
+ * Actually, the use is very close to the thread struct (TSS) in that both the
+ * switch_stack and the TSS are used to keep thread stuff when switching in
+ * _resume.
+ */
 
 struct switch_stack {
 	unsigned long r9;
@@ -94,8 +107,12 @@ struct switch_stack {
 };
 
 #ifdef __KERNEL__
+/* Arbitrarily choose the same ptrace numbers as used by the Sparc code. */
+#define PTRACE_GETREGS            12
+#define PTRACE_SETREGS            13
+
 /* bit 8 is user-mode flag */
-#define user_mode(regs) ((regs)->dccr & 0x100)
+#define user_mode(regs) (((regs)->dccr & 0x100) != 0)
 #define instruction_pointer(regs) ((regs)->irp)
 extern void show_regs(struct pt_regs *);
 #endif

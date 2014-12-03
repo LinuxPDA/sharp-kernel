@@ -1,10 +1,10 @@
-/* $Id: termios.h,v 1.2 2000/01/27 23:45:30 ralf Exp $
- *
+/*
  * This file is subject to the terms and conditions of the GNU General Public
  * License.  See the file "COPYING" in the main directory of this archive
  * for more details.
  *
- * Copyright (C) 1995, 1996 by Ralf Baechle
+ * Copyright (C) 1995, 1996, 2000, 2001 by Ralf Baechle
+ * Copyright (C) 2000, 2001 Silicon Graphics, Inc.
  */
 #ifndef _ASM_TERMIOS_H
 #define _ASM_TERMIOS_H
@@ -101,7 +101,7 @@ struct termio {
 #define N_SMSBLOCK	12	/* SMS block mode - for talking to GSM data cards about SMS messages */
 #define N_HDLC		13	/* synchronous HDLC */
 #define N_SYNC_PPP	14	/* synchronous PPP */
-#define N_HCI		15  /* Bluetooth HCI UART */
+#define N_HCI		15	/* Bluetooth HCI UART */
 
 #ifdef __KERNEL__
 

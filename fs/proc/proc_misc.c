@@ -140,57 +140,58 @@ static int meminfo_read_proc(char *page, char **start, off_t off,
 {
 	struct sysinfo i;
 	int len;
+	int pg_size ;
 
 /*
  * display in kilobytes.
  */
 #define K(x) ((x) << (PAGE_SHIFT - 10))
-#define B(x) ((x) << PAGE_SHIFT)
-        si_meminfo(&i);
-        si_swapinfo(&i);
-        len = sprintf(page, "        total:    used:    free:  shared: buffers:  cached:\n"
-                "Mem:  %8lu %8lu %8lu %8lu %8lu %8u\n"
-                "Swap: %8lu %8lu %8lu\n",
-                B(i.totalram), B(i.totalram-i.freeram), B(i.freeram),
-                B(i.sharedram), B(i.bufferram),
-                B(atomic_read(&page_cache_size)), B(i.totalswap),
-                B(i.totalswap-i.freeswap), B(i.freeswap));
-        /*
-         * Tagged format, for easy grepping and expansion.
-         * The above will go away eventually, once the tools
-         * have been updated.
-         */
-        len += sprintf(page+len,
-                "MemTotal:     %8lu kB\n"
-                "MemFree:      %8lu kB\n"
-                "MemShared:    %8lu kB\n"
-                "Buffers:      %8lu kB\n"
-                "Cached:       %8u kB\n"
+#define B(x) ((unsigned long long)(x) << PAGE_SHIFT)
+	si_meminfo(&i);
+	si_swapinfo(&i);
+	pg_size = atomic_read(&page_cache_size) - i.bufferram ;
+
+	len = sprintf(page, "        total:    used:    free:  shared: buffers:  cached:\n"
+		"Mem:  %8Lu %8Lu %8Lu %8Lu %8Lu %8Lu\n"
+		"Swap: %8Lu %8Lu %8Lu\n",
+		B(i.totalram), B(i.totalram-i.freeram), B(i.freeram),
+		B(i.sharedram), B(i.bufferram),
+		B(pg_size), B(i.totalswap),
+		B(i.totalswap-i.freeswap), B(i.freeswap));
+	/*
+	 * Tagged format, for easy grepping and expansion.
+	 * The above will go away eventually, once the tools
+	 * have been updated.
+	 */
+	len += sprintf(page+len,
+		"MemTotal:     %8lu kB\n"
+		"MemFree:      %8lu kB\n"
+		"MemShared:    %8lu kB\n"
+		"Buffers:      %8lu kB\n"
+		"Cached:       %8lu kB\n"
+		"SwapCached:   %8lu kB\n"
 		"Active:       %8u kB\n"
-		"Inact_dirty:  %8u kB\n"
-		"Inact_clean:  %8u kB\n"
-		"Inact_target: %8lu kB\n"
-                "HighTotal:    %8lu kB\n"
-                "HighFree:     %8lu kB\n"
-                "LowTotal:     %8lu kB\n"
-                "LowFree:      %8lu kB\n"
-                "SwapTotal:    %8lu kB\n"
-                "SwapFree:     %8lu kB\n",
-                K(i.totalram),
-                K(i.freeram),
-                K(i.sharedram),
-                K(i.bufferram),
-                K(atomic_read(&page_cache_size)),
+		"Inactive:     %8u kB\n"
+		"HighTotal:    %8lu kB\n"
+		"HighFree:     %8lu kB\n"
+		"LowTotal:     %8lu kB\n"
+		"LowFree:      %8lu kB\n"
+		"SwapTotal:    %8lu kB\n"
+		"SwapFree:     %8lu kB\n",
+		K(i.totalram),
+		K(i.freeram),
+		K(i.sharedram),
+		K(i.bufferram),
+		K(pg_size - swapper_space.nrpages),
+		K(swapper_space.nrpages),
 		K(nr_active_pages),
-		K(nr_inactive_dirty_pages),
-		K(nr_inactive_clean_pages()),
-		K(inactive_target),
-                K(i.totalhigh),
-                K(i.freehigh),
-                K(i.totalram-i.totalhigh),
-                K(i.freeram-i.freehigh),
-                K(i.totalswap),
-                K(i.freeswap));
+		K(nr_inactive_pages),
+		K(i.totalhigh),
+		K(i.freehigh),
+		K(i.totalram-i.totalhigh),
+		K(i.freeram-i.freehigh),
+		K(i.totalswap),
+		K(i.freeswap));
 
 	return proc_calc_metrics(page, start, off, count, eof, len);
 #undef B
@@ -289,11 +290,11 @@ static int kstat_read_proc(char *page, char **start, off_t off,
 			kstat.per_cpu_nice[cpu_logical_map(i)],
 			kstat.per_cpu_system[cpu_logical_map(i)],
 			jif - (  kstat.per_cpu_user[cpu_logical_map(i)] \
-			           + kstat.per_cpu_nice[cpu_logical_map(i)] \
-			           + kstat.per_cpu_system[cpu_logical_map(i)]));
+				   + kstat.per_cpu_nice[cpu_logical_map(i)] \
+				   + kstat.per_cpu_system[cpu_logical_map(i)]));
 	len += sprintf(page + len,
 		"page %u %u\n"
-                "swap %u %u\n"
+		"swap %u %u\n"
 		"intr %u",
 			kstat.pgpgin >> 1,
 			kstat.pgpgout >> 1,
@@ -571,7 +572,7 @@ void __init proc_misc_init(void)
 			entry->size = (1+prof_len) * sizeof(unsigned int);
 		}
 	}
-#ifdef __powerpc__
+#ifdef CONFIG_PPC32
 	{
 		extern struct file_operations ppc_htab_operations;
 		entry = create_proc_entry("ppc_htab", S_IRUGO|S_IWUSR, NULL);

@@ -1,8 +1,8 @@
 /*
  *
- * Hardware accelerated Matrox Millennium I, II, Mystique, G100, G200 and G400
+ * Hardware accelerated Matrox Millennium I, II, Mystique, G100, G200, G400 and G450
  *
- * (c) 1998,1999,2000 Petr Vandrovec <vandrove@vc.cvut.cz>
+ * (c) 1998,1999,2000,2001 Petr Vandrovec <vandrove@vc.cvut.cz>
  *
  */
 #ifndef __MATROXFB_H__
@@ -102,7 +102,7 @@
 
 #endif /* MATROXFB_DEBUG */
 
-#ifndef __i386__
+#if !defined(__i386__) && !defined(__x86_64__)
 #ifndef ioremap_nocache
 #define ioremap_nocache(X,Y) ioremap(X,Y)
 #endif
@@ -117,7 +117,7 @@
 /* I benchmarked PII/350MHz with G200... MEMCPY, MEMCPYTOIO and WRITEL are on same speed ( <2% diff) */
 /* so that means that G200 speed (or AGP speed?) is our limit... I do not have benchmark to test, how */
 /* much of PCI bandwidth is used during transfers... */
-#if defined(__i386__)
+#if defined(__i386__) || defined(__x86_64__)
 #define MEMCPYTOIO_MEMCPY
 #else
 #define MEMCPYTOIO_WRITEL
@@ -533,6 +533,7 @@ struct matrox_fb_info {
 						/* 0 except for 6MB Millenium */
 		int		memtype;
 		int		g450dac;
+		int		dfp_type;
 			      } devflags;
 	struct display_switch	dispsw;
 	struct {

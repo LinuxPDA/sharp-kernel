@@ -1,4 +1,4 @@
-/* $Id: uaccess.h,v 1.10 2000/03/24 13:53:45 gniibe Exp $
+/* $Id: uaccess.h,v 1.13 2001/10/01 02:22:01 gniibe Exp $
  *
  * User space memory access functions
  *
@@ -150,6 +150,7 @@ switch (size) { \
 case 1: __put_user_asm("b"); break; \
 case 2: __put_user_asm("w"); break; \
 case 4: __put_user_asm("l"); break; \
+case 8: __put_user_u64(__pu_val,__pu_addr,__pu_err); break; \
 default: __put_user_unknown(); break; \
 } __pu_err; })
 
@@ -165,6 +166,7 @@ switch (size) { \
 case 1: __put_user_asm("b"); break; \
 case 2: __put_user_asm("w"); break; \
 case 4: __put_user_asm("l"); break; \
+case 8: __put_user_u64(__pu_val,__pu_addr,__pu_err); break; \
 default: __put_user_unknown(); break; \
 } } __pu_err; })
 
@@ -190,12 +192,59 @@ __asm__ __volatile__( \
 	:"r" (__pu_val), "m" (__m(__pu_addr)), "i" (-EFAULT) \
         :"memory"); })
 
+#if defined(__LITTLE_ENDIAN__)
+#define __put_user_u64(val,addr,retval) \
+({ \
+__asm__ __volatile__( \
+	"1:\n\t" \
+	"mov.l	%R1,%2\n\t" \
+	"mov.l	%S1,%T2\n\t" \
+	"mov	#0,%0\n" \
+	"2:\n" \
+	".section	.fixup,\"ax\"\n" \
+	"3:\n\t" \
+	"nop\n\t" \
+	"mov.l	4f,%0\n\t" \
+	"jmp	@%0\n\t" \
+	" mov	%3,%0\n" \
+	"4:	.long	2b\n\t" \
+	".previous\n" \
+	".section	__ex_table,\"a\"\n\t" \
+	".long	1b, 3b\n\t" \
+	".previous" \
+	: "=r" (retval) \
+	: "r" (val), "m" (__m(addr)), "i" (-EFAULT) \
+        : "memory"); })
+#else
+({ \
+__asm__ __volatile__( \
+	"1:\n\t" \
+	"mov.l	%S1,%2\n\t" \
+	"mov.l	%R1,%T2\n\t" \
+	"mov	#0,%0\n" \
+	"2:\n" \
+	".section	.fixup,\"ax\"\n" \
+	"3:\n\t" \
+	"nop\n\t" \
+	"mov.l	4f,%0\n\t" \
+	"jmp	@%0\n\t" \
+	" mov	%3,%0\n" \
+	"4:	.long	2b\n\t" \
+	".previous\n" \
+	".section	__ex_table,\"a\"\n\t" \
+	".long	1b, 3b\n\t" \
+	".previous" \
+	: "=r" (retval) \
+	: "r" (val), "m" (__m(addr)), "i" (-EFAULT) \
+        : "memory"); })
+#endif
+
 extern void __put_user_unknown(void);
 
 /* Generic arbitrary sized copy.  */
 /* Return the number of bytes NOT copied */
 /* XXX: should be such that: 4byte and the rest. */
-extern __inline__ __kernel_size_t
+static __inline__ __kernel_size_t
 __copy_user(void *__to, const void *__from, __kernel_size_t __n)
 {
 	unsigned long __dummy, _f, _t;
@@ -260,7 +309,7 @@ __copy_res; })
 
 /* XXX: Not sure it works well..
    should be such that: 4byte clear and the rest. */
-extern __inline__ __kernel_size_t
+static __inline__ __kernel_size_t
 __clear_user(void *addr, __kernel_size_t size)
 {
 	unsigned long __a;
@@ -299,7 +348,7 @@ if (__cl_size && __access_ok(((unsigned long)(__cl_addr)), __cl_size)) \
 __cl_size = __clear_user(__cl_addr, __cl_size); \
 __cl_size; })
 
-extern __inline__ int
+static __inline__ int
 __strncpy_from_user(unsigned long __dest, unsigned long __src, int __count)
 {
 	__kernel_size_t res;
@@ -351,7 +400,7 @@ __sfu_res = __strncpy_from_user((unsigned long) (dest), __sfu_src, __sfu_count);
 /*
  * Return the size of a string (including the ending 0!)
  */
-extern __inline__ long __strnlen_user(const char *__s, long __n)
+static __inline__ long __strnlen_user(const char *__s, long __n)
 {
 	unsigned long res;
 	unsigned long __dummy;
@@ -384,7 +433,7 @@ extern __inline__ long __strnlen_user(const char *__s, long __n)
 	return res;
 }
 
-extern __inline__ long strnlen_user(const char *s, long n)
+static __inline__ long strnlen_user(const char *s, long n)
 {
 	if (!__addr_ok(s))
 		return 0;

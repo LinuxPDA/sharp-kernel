@@ -96,6 +96,7 @@ static const char *options = "options: " OPTIONS;
 MODULE_AUTHOR("David Hinds <dahinds@users.sourceforge.net>");
 MODULE_DESCRIPTION("Linux Kernel Card Services " CS_RELEASE
 		   "\n  options:" OPTIONS);
+MODULE_LICENSE("Dual MPL/GPL");	  
 
 /*====================================================================*/
 
@@ -788,6 +789,10 @@ static int alloc_io_space(socket_info_t *s, u_int attr, ioaddr_t *base,
 	      *base, align);
 	align = 0;
     }
+    if ((s->cap.features & SS_CAP_STATIC_MAP) && s->cap.io_offset) {
+	*base = s->cap.io_offset | (*base & 0x0fff);
+	return 0;
+    }
     /* Check for an already-allocated window that must conflict with
        what was asked for.  It is a hack because it does not catch all
        potential conflicts, just the most obvious ones. */
@@ -832,7 +837,8 @@ static void release_io_space(socket_info_t *s, ioaddr_t base,
 			     ioaddr_t num)
 {
     int i;
-    release_region(base, num);
+    if(!(s->cap.features & SS_CAP_STATIC_MAP))
+	release_region(base, num);
     for (i = 0; i < MAX_IO_WIN; i++) {
 	if ((s->io[i].BasePort <= base) &&
 	    (s->io[i].BasePort+s->io[i].NumPorts >= base+num)) {
@@ -1622,7 +1628,8 @@ int pcmcia_release_window(window_handle_t win)
     s->state &= ~SOCKET_WIN_REQ(win->index);
 
     /* Release system memory */
-    release_mem_region(win->base, win->size);
+    if(!(s->cap.features & SS_CAP_STATIC_MAP))
+	release_mem_region(win->base, win->size);
     win->handle->state &= ~CLIENT_WIN_REQ(win->index);
 
     win->magic = 0;

@@ -1,5 +1,3 @@
-#define RCS_ID "$Id: scc.c,v 1.75 1998/11/04 15:15:01 jreuter Exp jreuter $"
-
 #define VERSION "3.0"
 
 /*
@@ -18,7 +16,7 @@
 
    ********************************************************************
 
-	Copyright (c) 1993, 2000 Joerg Reuter DL1BKE
+	Copyright (c) 1993, 2001 Joerg Reuter DL1BKE
 
 	portions (c) 1993 Guido ten Dolle PE1NNZ
 
@@ -106,6 +104,10 @@
    2000-02-13	Fixed for new network driver interface changes, still
    		does TX timeouts itself since it uses its own queue
    		scheme.
+   2001-10-05   Set skb to NULL on Rx_OVR in scc_spint() (tnx everybody
+		who insisted that the skb gets in fact re-used by the
+		following code otherwise. I think we have another Z8530
+		bug here...)
 
    Thanks to all who contributed to this driver with ideas and bug
    reports!
@@ -184,7 +186,7 @@
 #include <linux/kernel.h>
 #include <linux/proc_fs.h>
 
-static const char banner[] __initdata = KERN_INFO "AX.25: Z8530 SCC driver version "VERSION".dl1bke\n";
+static char banner[] __initdata = KERN_INFO "AX.25: Z8530 SCC driver version "VERSION".dl1bke\n";
 
 static void t_dwait(unsigned long);
 static void t_txdelay(unsigned long);
@@ -583,6 +585,7 @@ static inline void scc_spint(struct scc_channel *scc)
 		if (skb != NULL) 
 			dev_kfree_skb_irq(skb);
 		scc->rx_buff = skb = NULL;
+		skb = NULL;			/* avoid skb being reused */
 	}
 
 	if(status & END_FR && skb != NULL)	/* end of frame */
@@ -1775,8 +1778,8 @@ static int scc_net_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 					Ivec[hwcfg.irq].used = 1;
 			}
 
-			if (hwcfg.vector_latch) {
-				if (!request_region(Vector_Latch, 1, "scc vector latch"))
+			if (hwcfg.vector_latch && !Vector_Latch) {
+				if (!request_region(hwcfg.vector_latch, 1, "scc vector latch"))
 					printk(KERN_WARNING "z8530drv: warning, cannot reserve vector latch port 0x%lx\n, disabled.", hwcfg.vector_latch);
 				else
 					Vector_Latch = hwcfg.vector_latch;

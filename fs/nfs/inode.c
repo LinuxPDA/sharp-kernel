@@ -48,6 +48,7 @@ static void nfs_read_inode(struct inode *);
 static void nfs_write_inode(struct inode *,int);
 static void nfs_delete_inode(struct inode *);
 static void nfs_put_super(struct super_block *);
+static void nfs_clear_inode(struct inode *);
 static void nfs_umount_begin(struct super_block *);
 static int  nfs_statfs(struct super_block *, struct statfs *);
 
@@ -57,6 +58,7 @@ static struct super_operations nfs_sops = {
 	delete_inode:	nfs_delete_inode,
 	put_super:	nfs_put_super,
 	statfs:		nfs_statfs,
+	clear_inode:	nfs_clear_inode,
 	umount_begin:	nfs_umount_begin,
 };
 
@@ -139,6 +141,19 @@ nfs_delete_inode(struct inode * inode)
 	}
 
 	clear_inode(inode);
+}
+
+/*
+ * For the moment, the only task for the NFS clear_inode method is to
+ * release the mmap credential
+ */
+static void
+nfs_clear_inode(struct inode *inode)
+{
+	struct rpc_cred *cred = NFS_I(inode)->mm_cred;
+
+	if (cred)
+		put_rpccred(cred);
 }
 
 void
@@ -297,6 +312,7 @@ nfs_read_super(struct super_block *sb, void *raw_data, int silent)
 	if (data->flags & NFS_MOUNT_NOAC) {
 		data->acregmin = data->acregmax = 0;
 		data->acdirmin = data->acdirmax = 0;
+		sb->s_flags |= MS_SYNCHRONOUS;
 	}
 	server->acregmin = data->acregmin*HZ;
 	server->acregmax = data->acregmax*HZ;
@@ -600,7 +616,6 @@ nfs_fill_inode(struct inode *inode, struct nfs_fh *fh, struct nfs_fattr *fattr)
 		inode->i_ctime = nfs_time_to_secs(fattr->ctime);
 		NFS_CACHE_CTIME(inode) = fattr->ctime;
 		NFS_CACHE_MTIME(inode) = fattr->mtime;
-		NFS_CACHE_ATIME(inode) = fattr->atime;
 		NFS_CACHE_ISIZE(inode) = fattr->size;
 		NFS_ATTRTIMEO(inode) = NFS_MINATTRTIMEO(inode);
 		NFS_ATTRTIMEO_UPDATE(inode) = jiffies;
@@ -646,7 +661,7 @@ nfs_inode_is_stale(struct inode *inode, struct nfs_fh *fh, struct nfs_fattr *fat
 	if ((fattr->mode & S_IFMT) != (inode->i_mode & S_IFMT))
 		return 1;
 
-	if (is_bad_inode(inode))
+	if (is_bad_inode(inode) || NFS_STALE(inode))
 		return 1;
 
 	/* Has the filehandle changed? If so is the old one stale? */
@@ -794,6 +809,21 @@ nfs_revalidate(struct dentry *dentry)
 }
 
 /*
+ * Ensure that mmap has a recent RPC credential for use when writing out
+ * shared pages
+ */
+static inline void
+nfs_set_mmcred(struct inode *inode, struct rpc_cred *cred)
+{
+	struct rpc_cred **p = &NFS_I(inode)->mm_cred,
+			*oldcred = *p;
+
+	*p = get_rpccred(cred);
+	if (oldcred)
+		put_rpccred(oldcred);
+}
+
+/*
  * These are probably going to contain hooks for
  * allocating and releasing RPC credentials for
  * the file. I'll have to think about Tronds patch
@@ -808,20 +838,20 @@ int nfs_open(struct inode *inode, struct file *filp)
 	auth = NFS_CLIENT(inode)->cl_auth;
 	cred = rpcauth_lookupcred(auth, 0);
 	filp->private_data = cred;
+	if (filp->f_mode & FMODE_WRITE)
+		nfs_set_mmcred(inode, cred);
 	unlock_kernel();
 	return 0;
 }
 
 int nfs_release(struct inode *inode, struct file *filp)
 {
-	struct rpc_auth *auth;
 	struct rpc_cred *cred;
 
 	lock_kernel();
-	auth = NFS_CLIENT(inode)->cl_auth;
 	cred = nfs_file_cred(filp);
 	if (cred)
-		rpcauth_releasecred(auth, cred);
+		put_rpccred(cred);
 	unlock_kernel();
 	return 0;
 }
@@ -833,24 +863,22 @@ int nfs_release(struct inode *inode, struct file *filp)
 int
 __nfs_revalidate_inode(struct nfs_server *server, struct inode *inode)
 {
-	int		 status = 0;
+	int		 status = -ESTALE;
 	struct nfs_fattr fattr;
 
 	dfprintk(PAGECACHE, "NFS: revalidating (%x/%Ld)\n",
 		inode->i_dev, (long long)NFS_FILEID(inode));
 
 	lock_kernel();
-	if (!inode || is_bad_inode(inode) || NFS_STALE(inode)) {
-		unlock_kernel();
-		return -ESTALE;
-	}
+	if (!inode || is_bad_inode(inode))
+ 		goto out_nowait;
+	if (NFS_STALE(inode) && inode != inode->i_sb->s_root->d_inode)
+ 		goto out_nowait;
 
 	while (NFS_REVALIDATING(inode)) {
 		status = nfs_wait_on_inode(inode, NFS_INO_REVALIDATING);
-		if (status < 0) {
-			unlock_kernel();
-			return status;
-		}
+		if (status < 0)
+			goto out_nowait;
 		if (time_before(jiffies,NFS_READTIME(inode)+NFS_ATTRTIMEO(inode))) {
 			status = NFS_STALE(inode) ? -ESTALE : 0;
 			goto out_nowait;
@@ -864,7 +892,8 @@ __nfs_revalidate_inode(struct nfs_server *server, struct inode *inode)
 			 inode->i_dev, (long long)NFS_FILEID(inode), status);
 		if (status == -ESTALE) {
 			NFS_FLAGS(inode) |= NFS_INO_STALE;
-			remove_inode_hash(inode);
+			if (inode != inode->i_sb->s_root->d_inode)
+				remove_inode_hash(inode);
 		}
 		goto out;
 	}
@@ -877,6 +906,8 @@ __nfs_revalidate_inode(struct nfs_server *server, struct inode *inode)
 	}
 	dfprintk(PAGECACHE, "NFS: (%x/%Ld) revalidation complete\n",
 		inode->i_dev, (long long)NFS_FILEID(inode));
+
+	NFS_FLAGS(inode) &= ~NFS_INO_STALE;
 out:
 	NFS_FLAGS(inode) &= ~NFS_INO_REVALIDATING;
 	wake_up(&inode->i_wait);
@@ -976,7 +1007,6 @@ __nfs_refresh_inode(struct inode *inode, struct nfs_fattr *fattr)
 	NFS_CACHE_CTIME(inode) = fattr->ctime;
 	inode->i_ctime = nfs_time_to_secs(fattr->ctime);
 
-	NFS_CACHE_ATIME(inode) = fattr->atime;
 	inode->i_atime = nfs_time_to_secs(fattr->atime);
 
 	NFS_CACHE_MTIME(inode) = new_mtime;

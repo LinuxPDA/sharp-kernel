@@ -105,7 +105,6 @@
 #ifdef CONFIG_VT
 extern void con_init_devfs (void);
 #endif
-extern int rio_init(void);
 
 #define CONSOLE_DEV MKDEV(TTY_MAJOR,0)
 #define TTY_DEV MKDEV(TTYAUX_MAJOR,0)
@@ -154,11 +153,13 @@ extern void hwc_tty_init(void);
 extern void con3215_init(void);
 extern void tty3215_init(void);
 extern void tub3270_con_init(void);
-extern void tub3270_initfunc(void);
+extern void tub3270_init(void);
 extern void rs285_console_init(void);
 extern void sa1100_rs_console_init(void);
 extern void sgi_serial_console_init(void);
 extern void sci_console_init(void);
+extern void tx3912_console_init(void);
+extern void tx3912_rs_init(void);
 
 #ifndef MIN
 #define MIN(a,b)	((a) < (b) ? (a) : (b))
@@ -211,9 +212,9 @@ inline int tty_paranoia_check(struct tty_struct *tty, kdev_t device,
 			      const char *routine)
 {
 #ifdef TTY_PARANOIA_CHECK
-	static const char *badmagic =
+	static const char badmagic[] = KERN_WARNING
 		"Warning: bad magic number for tty struct (%s) in %s\n";
-	static const char *badtty =
+	static const char badtty[] = KERN_WARNING
 		"Warning: null TTY for (%s) in %s\n";
 
 	if (!tty) {
@@ -245,7 +246,8 @@ static int check_tty_count(struct tty_struct *tty, const char *routine)
 	    tty->link && tty->link->count)
 		count++;
 	if (tty->count != count) {
-		printk("Warning: dev (%s) tty->count(%d) != #fd's(%d) in %s\n",
+		printk(KERN_WARNING "Warning: dev (%s) tty->count(%d) "
+				    "!= #fd's(%d) in %s\n",
 		       kdevname(tty->device), tty->count, count, routine);
 		return count;
        }	
@@ -267,6 +269,8 @@ int tty_register_ldisc(int disc, struct tty_ldisc *new_ldisc)
 	
 	return 0;
 }
+
+EXPORT_SYMBOL(tty_register_ldisc);
 
 /* Set the discipline of a tty line. */
 static int tty_set_ldisc(struct tty_struct *tty, int ldisc)
@@ -356,7 +360,7 @@ int tty_check_change(struct tty_struct * tty)
 	if (current->tty != tty)
 		return 0;
 	if (tty->pgrp <= 0) {
-		printk("tty_check_change: tty->pgrp <= 0!\n");
+		printk(KERN_WARNING "tty_check_change: tty->pgrp <= 0!\n");
 		return 0;
 	}
 	if (current->pgrp == tty->pgrp)
@@ -399,13 +403,8 @@ static int hung_up_tty_ioctl(struct inode * inode, struct file * file,
 	return cmd == TIOCSPGRP ? -ENOTTY : -EIO;
 }
 
-static loff_t tty_lseek(struct file * file, loff_t offset, int orig)
-{
-	return -ESPIPE;
-}
-
 static struct file_operations tty_fops = {
-	llseek:		tty_lseek,
+	llseek:		no_llseek,
 	read:		tty_read,
 	write:		tty_write,
 	poll:		tty_poll,
@@ -416,7 +415,7 @@ static struct file_operations tty_fops = {
 };
 
 static struct file_operations hung_up_tty_fops = {
-	llseek:		tty_lseek,
+	llseek:		no_llseek,
 	read:		hung_up_tty_read,
 	write:		hung_up_tty_write,
 	poll:		hung_up_tty_poll,
@@ -447,8 +446,6 @@ void do_tty_hangup(void *data)
 	file_list_lock();
 	for (l = tty->tty_files.next; l != &tty->tty_files; l = l->next) {
 		struct file * filp = list_entry(l, struct file, f_list);
-		if (!filp->f_dentry)
-			continue;
 		if (filp->f_dentry->d_inode->i_rdev == CONSOLE_DEV ||
 		    filp->f_dentry->d_inode->i_rdev == SYSCONS_DEV) {
 			cons_filp = filp;
@@ -494,8 +491,8 @@ void do_tty_hangup(void *data)
 		if (tty->ldisc.open) {
 			int i = (tty->ldisc.open)(tty);
 			if (i < 0)
-				printk("do_tty_hangup: N_TTY open: error %d\n",
-				       -i);
+				printk(KERN_ERR "do_tty_hangup: N_TTY open: "
+						"error %d\n", -i);
 		}
 	}
 	
@@ -537,7 +534,7 @@ void tty_hangup(struct tty_struct * tty)
 #ifdef TTY_DEBUG_HANGUP
 	char	buf[64];
 	
-	printk("%s hangup...\n", tty_name(tty, buf));
+	printk(KERN_DEBUG "%s hangup...\n", tty_name(tty, buf));
 #endif
 	schedule_task(&tty->tq_hangup);
 }
@@ -547,7 +544,7 @@ void tty_vhangup(struct tty_struct * tty)
 #ifdef TTY_DEBUG_HANGUP
 	char	buf[64];
 
-	printk("%s vhangup...\n", tty_name(tty, buf));
+	printk(KERN_DEBUG "%s vhangup...\n", tty_name(tty, buf));
 #endif
 	do_tty_hangup((void *) tty);
 }
@@ -999,7 +996,8 @@ fail_no_mem:
 
 	/* call the tty release_mem routine to clean out this slot */
 release_mem_out:
-	printk("init_dev: ldisc open failed, clearing slot %d\n", idx);
+	printk(KERN_INFO "init_dev: ldisc open failed, "
+			 "clearing slot %d\n", idx);
 	release_mem(tty, idx);
 	goto end_init;
 }
@@ -1022,6 +1020,7 @@ static void release_mem(struct tty_struct *tty, int idx)
 		}
 		o_tty->magic = 0;
 		(*o_tty->driver.refcount)--;
+		list_del(&o_tty->tty_files);
 		free_tty_struct(o_tty);
 	}
 
@@ -1033,6 +1032,7 @@ static void release_mem(struct tty_struct *tty, int idx)
 	}
 	tty->magic = 0;
 	(*tty->driver.refcount)--;
+	list_del(&tty->tty_files);
 	free_tty_struct(tty);
 }
 
@@ -1066,23 +1066,23 @@ static void release_dev(struct file * filp)
 
 #ifdef TTY_PARANOIA_CHECK
 	if (idx < 0 || idx >= tty->driver.num) {
-		printk("release_dev: bad idx when trying to free (%s)\n",
-		       kdevname(tty->device));
+		printk(KERN_DEBUG "release_dev: bad idx when trying to "
+				  "free (%s)\n", kdevname(tty->device));
 		return;
 	}
 	if (tty != tty->driver.table[idx]) {
-		printk("release_dev: driver.table[%d] not tty for (%s)\n",
-		       idx, kdevname(tty->device));
+		printk(KERN_DEBUG "release_dev: driver.table[%d] not tty "
+				  "for (%s)\n", idx, kdevname(tty->device));
 		return;
 	}
 	if (tty->termios != tty->driver.termios[idx]) {
-		printk("release_dev: driver.termios[%d] not termios "
+		printk(KERN_DEBUG "release_dev: driver.termios[%d] not termios "
 		       "for (%s)\n",
 		       idx, kdevname(tty->device));
 		return;
 	}
 	if (tty->termios_locked != tty->driver.termios_locked[idx]) {
-		printk("release_dev: driver.termios_locked[%d] not "
+		printk(KERN_DEBUG "release_dev: driver.termios_locked[%d] not "
 		       "termios_locked for (%s)\n",
 		       idx, kdevname(tty->device));
 		return;
@@ -1090,33 +1090,33 @@ static void release_dev(struct file * filp)
 #endif
 
 #ifdef TTY_DEBUG_HANGUP
-	printk("release_dev of %s (tty count=%d)...", tty_name(tty, buf),
-	       tty->count);
+	printk(KERN_DEBUG "release_dev of %s (tty count=%d)...",
+	       tty_name(tty, buf), tty->count);
 #endif
 
 #ifdef TTY_PARANOIA_CHECK
 	if (tty->driver.other) {
 		if (o_tty != tty->driver.other->table[idx]) {
-			printk("release_dev: other->table[%d] not o_tty for ("
-			       "%s)\n",
+			printk(KERN_DEBUG "release_dev: other->table[%d] "
+					  "not o_tty for (%s)\n",
 			       idx, kdevname(tty->device));
 			return;
 		}
 		if (o_tty->termios != tty->driver.other->termios[idx]) {
-			printk("release_dev: other->termios[%d] not o_termios "
-			       "for (%s)\n",
+			printk(KERN_DEBUG "release_dev: other->termios[%d] "
+					  "not o_termios for (%s)\n",
 			       idx, kdevname(tty->device));
 			return;
 		}
 		if (o_tty->termios_locked != 
 		      tty->driver.other->termios_locked[idx]) {
-			printk("release_dev: other->termios_locked[%d] not "
-			       "o_termios_locked for (%s)\n",
+			printk(KERN_DEBUG "release_dev: other->termios_locked["
+					  "%d] not o_termios_locked for (%s)\n",
 			       idx, kdevname(tty->device));
 			return;
 		}
 		if (o_tty->link != tty) {
-			printk("release_dev: bad pty pointers\n");
+			printk(KERN_DEBUG "release_dev: bad pty pointers\n");
 			return;
 		}
 	}
@@ -1171,8 +1171,8 @@ static void release_dev(struct file * filp)
 		if (!do_sleep)
 			break;
 
-		printk("release_dev: %s: read/write wait queue active!\n",
-		       tty_name(tty, buf));
+		printk(KERN_WARNING "release_dev: %s: read/write wait queue "
+				    "active!\n", tty_name(tty, buf));
 		schedule();
 	}	
 
@@ -1183,13 +1183,14 @@ static void release_dev(struct file * filp)
 	 */
 	if (pty_master) {
 		if (--o_tty->count < 0) {
-			printk("release_dev: bad pty slave count (%d) for %s\n",
+			printk(KERN_WARNING "release_dev: bad pty slave count "
+					    "(%d) for %s\n",
 			       o_tty->count, tty_name(o_tty, buf));
 			o_tty->count = 0;
 		}
 	}
 	if (--tty->count < 0) {
-		printk("release_dev: bad tty->count (%d) for %s\n",
+		printk(KERN_WARNING "release_dev: bad tty->count (%d) for %s\n",
 		       tty->count, tty_name(tty, buf));
 		tty->count = 0;
 	}
@@ -1198,7 +1199,7 @@ static void release_dev(struct file * filp)
 	 * We've decremented tty->count, so we should zero out
 	 * filp->private_data, to break the link between the tty and
 	 * the file descriptor.  Otherwise if filp_close() blocks before
-	 * the the file descriptor is removed from the inuse_filp
+	 * the file descriptor is removed from the inuse_filp
 	 * list, check_tty_count() could observe a discrepancy and
 	 * printk a warning message to the user.
 	 */
@@ -1240,7 +1241,7 @@ static void release_dev(struct file * filp)
 		return;
 	
 #ifdef TTY_DEBUG_HANGUP
-	printk("freeing tty structure...");
+	printk(KERN_DEBUG "freeing tty structure...");
 #endif
 
 	/*
@@ -1368,7 +1369,7 @@ init_dev_done:
 	    tty->driver.subtype == PTY_TYPE_MASTER)
 		noctty = 1;
 #ifdef TTY_DEBUG_HANGUP
-	printk("opening %s...", tty_name(tty, buf));
+	printk(KERN_DEBUG "opening %s...", tty_name(tty, buf));
 #endif
 	if (tty->driver.open)
 		retval = tty->driver.open(tty, filp);
@@ -1381,7 +1382,7 @@ init_dev_done:
 
 	if (retval) {
 #ifdef TTY_DEBUG_HANGUP
-		printk("error %d in opening %s...", retval,
+		printk(KERN_DEBUG "error %d in opening %s...", retval,
 		       tty_name(tty, buf));
 #endif
 
@@ -1605,7 +1606,8 @@ static int tiocspgrp(struct tty_struct *tty, struct tty_struct *real_tty, pid_t 
 	    (current->tty != real_tty) ||
 	    (real_tty->session != current->session))
 		return -ENOTTY;
-	get_user(pgrp, (pid_t *) arg);
+	if (get_user(pgrp, (pid_t *) arg))
+		return -EFAULT;
 	if (pgrp < 0)
 		return -EINVAL;
 	if (session_of_pgrp(pgrp) != current->session)
@@ -1636,11 +1638,10 @@ static int tiocttygstruct(struct tty_struct *tty, struct tty_struct *arg)
 
 static int tiocsetd(struct tty_struct *tty, int *arg)
 {
-	int retval, ldisc;
+	int ldisc;
 
-	retval = get_user(ldisc, arg);
-	if (retval)
-		return retval;
+	if (get_user(ldisc, arg))
+		return -EFAULT;
 	return tty_set_ldisc(tty, ldisc);
 }
 
@@ -1953,7 +1954,8 @@ int tty_get_baud_rate(struct tty_struct *tty)
 	}
 	if (i==15 && tty->alt_speed) {
 		if (!tty->warned) {
-			printk("Use of setserial/setrocket to set SPD_* flags is deprecated\n");
+			printk(KERN_WARNING "Use of setserial/setrocket to "
+					    "set SPD_* flags is deprecated\n");
 			tty->warned = 1;
 		}
 		return(tty->alt_speed);
@@ -2021,7 +2023,7 @@ void tty_register_devfs (struct tty_driver *driver, unsigned int flags, unsigned
 			break;
 		default:
 			if (driver->major == PTY_MASTER_MAJOR)
-				flags |= DEVFS_FL_AUTO_OWNER;
+				mode |= S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH;
 			break;
 	}
 	if ( (minor <  driver->minor_start) || 
@@ -2184,11 +2186,16 @@ void __init console_init(void)
 #ifdef CONFIG_VT
 	con_init();
 #endif
+#ifdef CONFIG_AU1000_SERIAL_CONSOLE
+	au1000_serial_console_init();
+#endif
 #ifdef CONFIG_SERIAL_CONSOLE
 #if (defined(CONFIG_8xx) || defined(CONFIG_8260))
 	console_8xx_init();
 #elif defined(CONFIG_MAC_SERIAL)
-	mac_scc_console_init();
+ 	mac_scc_console_init();
+#elif defined(CONFIG_PARISC)
+	pdc_console_init();
 #elif defined(CONFIG_SERIAL)
 	serial_console_init();
 #endif /* CONFIG_8xx */
@@ -2205,14 +2212,17 @@ void __init console_init(void)
 	sci_console_init();
 #endif
 #endif
-#ifdef CONFIG_3215
-        con3215_init();
-#endif
-#ifdef CONFIG_3270_CONSOLE
+#ifdef CONFIG_TN3270_CONSOLE
 	tub3270_con_init();
+#endif
+#ifdef CONFIG_TN3215
+	con3215_init();
 #endif
 #ifdef CONFIG_HWC
         hwc_console_init();
+#endif
+#ifdef CONFIG_STDIO_CONSOLE
+	stdio_console_init();
 #endif
 #ifdef CONFIG_SERIAL_21285_CONSOLE
 	rs285_console_init();
@@ -2220,8 +2230,14 @@ void __init console_init(void)
 #ifdef CONFIG_SERIAL_SA1100_CONSOLE
 	sa1100_rs_console_init();
 #endif
+#ifdef CONFIG_ARC_CONSOLE
+	arc_console_init();
+#endif
 #ifdef CONFIG_SERIAL_AMBA_CONSOLE
 	ambauart_console_init();
+#endif
+#ifdef CONFIG_SERIAL_TX3912_CONSOLE
+	tx3912_console_init();
 #endif
 }
 
@@ -2303,11 +2319,15 @@ void __init tty_init(void)
 
 	kbd_init();
 #endif
+
 #ifdef CONFIG_ESPSERIAL  /* init ESP before rs, so rs doesn't see the port */
 	espserial_init();
 #endif
 #if defined(CONFIG_MVME162_SCC) || defined(CONFIG_BVME6000_SCC) || defined(CONFIG_MVME147_SCC)
 	vme_scc_init();
+#endif
+#ifdef CONFIG_SERIAL_TX3912
+	tx3912_rs_init();
 #endif
 #ifdef CONFIG_COMPUTONE
 	ip2_init();
@@ -2336,9 +2356,6 @@ void __init tty_init(void)
 #ifdef CONFIG_SPECIALIX
 	specialix_init();
 #endif
-#ifdef CONFIG_RIO
-	rio_init();
-#endif
 #if (defined(CONFIG_8xx) || defined(CONFIG_8260))
 	rs_8xx_init();
 #endif /* CONFIG_8xx */
@@ -2352,13 +2369,16 @@ void __init tty_init(void)
 #ifdef CONFIG_VT
 	vcs_init();
 #endif
-#ifdef CONFIG_3270
-	tub3270_initfunc();
+#ifdef CONFIG_TN3270
+	tub3270_init();
 #endif
-#ifdef CONFIG_3215
+#ifdef CONFIG_TN3215
 	tty3215_init();
 #endif
 #ifdef CONFIG_HWC
 	hwc_tty_init();
+#endif
+#ifdef CONFIG_A2232
+	a2232board_init();
 #endif
 }

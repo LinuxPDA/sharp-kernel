@@ -29,11 +29,21 @@
 #include <asm/bootinfo.h>
 #include <asm/cpu.h>
 
+/*
+ * Called by kernel/ptrace.c when detaching..
+ *
+ * Make sure single step bits etc are not set.
+ */
+void ptrace_disable(struct task_struct *child)
+{
+	/* Nothing to do.. */
+}
+
 asmlinkage int sys_ptrace(long request, long pid, long addr, long data)
 {
 	struct task_struct *child;
 	int res;
-	extern void save_fp(void*);
+	extern void save_fp(struct task_struct *);
 
 	lock_kernel();
 #if 0
@@ -66,34 +76,7 @@ asmlinkage int sys_ptrace(long request, long pid, long addr, long data)
 		goto out;
 
 	if (request == PTRACE_ATTACH) {
-		if (child == current)
-			goto out_tsk;
-		if ((!child->dumpable ||
-		    (current->uid != child->euid) ||
-		    (current->uid != child->suid) ||
-		    (current->uid != child->uid) ||
-	 	    (current->gid != child->egid) ||
-		    (current->gid != child->sgid) ||
-	 	    (current->gid != child->gid) ||
-		    (!cap_issubset(child->cap_permitted,
-		                  current->cap_permitted)) ||
-                    (current->gid != child->gid)) && !capable(CAP_SYS_PTRACE))
-			goto out_tsk;
-		/* the same process cannot be attached many times */
-		if (child->ptrace & PT_PTRACED)
-			goto out_tsk;
-		child->ptrace |= PT_PTRACED;
-
-		write_lock_irq(&tasklist_lock);
-		if (child->p_pptr != current) {
-			REMOVE_LINKS(child);
-			child->p_pptr = current;
-			SET_LINKS(child);
-		}
-		write_unlock_irq(&tasklist_lock);
-
-		send_sig(SIGSTOP, child, 1);
-		res = 0;
+		res = ptrace_attach(child);
 		goto out_tsk;
 	}
 	res = -ESRCH;
@@ -138,19 +121,31 @@ asmlinkage int sys_ptrace(long request, long pid, long addr, long data)
 			        unsigned long long *fregs
 					= (unsigned long long *)
 					    &child->thread.fpu.hard.fp_regs[0];
-#ifdef CONFIG_MIPS_FPU_EMULATOR
-			    if(!(mips_cpu.options & MIPS_CPU_FPU)) {
-				    fregs = (unsigned long long *)
-					&child->thread.fpu.soft.regs[0];
-			    } else 
+			 	if(!(mips_cpu.options & MIPS_CPU_FPU)) {
+					fregs = (unsigned long long *)
+						child->thread.fpu.soft.regs;
+				} else 
+					if (last_task_used_math == child) {
+						enable_cp1();
+						save_fp(child);
+						disable_cp1();
+						last_task_used_math = NULL;
+						regs->cp0_status &= ~ST0_CU1;
+					}
+				/*
+				 * The odd registers are actually the high
+				 * order bits of the values stored in the even
+				 * registers - unless we're using r2k_switch.S.
+				 */
+#ifdef CONFIG_CPU_R3000
+				if (mips_cpu.options & MIPS_CPU_FPU)
+					tmp = *(unsigned long *)(fregs + addr);
+				else
 #endif
-				if (last_task_used_math == child) {
-					enable_cp1();
-					save_fp(child);
-					disable_cp1();
-					last_task_used_math = NULL;
-				}
-				tmp = (unsigned long) fregs[(addr - 32)];
+				if (addr & 1)
+					tmp = (unsigned long) (fregs[((addr & ~1) - 32)] >> 32);
+				else
+					tmp = (unsigned long) (fregs[(addr - 32)] & 0xffffffff);
 			} else {
 				tmp = -1;	/* FP not yet used  */
 			}
@@ -171,12 +166,10 @@ asmlinkage int sys_ptrace(long request, long pid, long addr, long data)
 			tmp = regs->lo;
 			break;
 		case FPC_CSR:
-#ifdef CONFIG_MIPS_FPU_EMULATOR
-			if(!(mips_cpu.options & MIPS_CPU_FPU))
+			if (!(mips_cpu.options & MIPS_CPU_FPU))
 				tmp = child->thread.fpu.soft.sr;
 			else
-#endif
-			tmp = child->thread.fpu.hard.control;
+				tmp = child->thread.fpu.hard.control;
 			break;
 		case FPC_EIR: {	/* implementation / version register */
 			unsigned int flags;
@@ -219,19 +212,17 @@ asmlinkage int sys_ptrace(long request, long pid, long addr, long data)
 			unsigned long long *fregs;
 			fregs = (unsigned long long *)&child->thread.fpu.hard.fp_regs[0];
 			if (child->used_math) {
-				if (last_task_used_math == child)
-#ifdef CONFIG_MIPS_FPU_EMULATOR
-				    if(!(mips_cpu.options & MIPS_CPU_FPU)) {
-					fregs = (unsigned long long *)
-					    &child->thread.fpu.soft.regs[0];
-				    } else
-#endif
-				{
-					enable_cp1();
-					save_fp(child);
-					disable_cp1();
-					last_task_used_math = NULL;
-					regs->cp0_status &= ~ST0_CU1;
+				if (last_task_used_math == child) {
+					if(!(mips_cpu.options & MIPS_CPU_FPU)) {
+						fregs = (unsigned long long *)
+						child->thread.fpu.soft.regs;
+					} else {
+						enable_cp1();
+						save_fp(child);
+						disable_cp1();
+						last_task_used_math = NULL;
+						regs->cp0_status &= ~ST0_CU1;
+					}
 				}
 			} else {
 				/* FP not yet used  */
@@ -239,7 +230,23 @@ asmlinkage int sys_ptrace(long request, long pid, long addr, long data)
 				       sizeof(child->thread.fpu.hard));
 				child->thread.fpu.hard.control = 0;
 			}
-			fregs[addr - FPR_BASE] = data;
+			/*
+			 * The odd registers are actually the high order bits
+			 * of the values stored in the even registers - unless
+			 * we're using r2k_switch.S.
+			 */
+#ifdef CONFIG_CPU_R3000
+			if (mips_cpu.options & MIPS_CPU_FPU)
+				*(unsigned long *)(fregs + addr) = data;
+			else
+#endif
+			if (addr & 1) {
+				fregs[(addr & ~1) - FPR_BASE] &= 0xffffffff;
+				fregs[(addr & ~1) - FPR_BASE] |= ((unsigned long long) data) << 32;
+			} else {
+				fregs[addr - FPR_BASE] &= ~0xffffffffLL;
+				fregs[addr - FPR_BASE] |= data;
+			}
 			break;
 		}
 		case PC:
@@ -252,12 +259,10 @@ asmlinkage int sys_ptrace(long request, long pid, long addr, long data)
 			regs->lo = data;
 			break;
 		case FPC_CSR:
-#ifdef CONFIG_MIPS_FPU_EMULATOR
-			if(!(mips_cpu.options & MIPS_CPU_FPU)) 
+			if (!(mips_cpu.options & MIPS_CPU_FPU)) 
 				child->thread.fpu.soft.sr = data;
 			else
-#endif
-			child->thread.fpu.hard.control = data;
+				child->thread.fpu.hard.control = data;
 			break;
 		default:
 			/* The rest are not allowed. */
@@ -296,18 +301,7 @@ asmlinkage int sys_ptrace(long request, long pid, long addr, long data)
 		break;
 
 	case PTRACE_DETACH: /* detach a process that was attached. */
-		res = -EIO;
-		if ((unsigned long) data > _NSIG)
-			break;
-		child->ptrace = 0;
-		child->exit_code = data;
-		write_lock_irq(&tasklist_lock);
-		REMOVE_LINKS(child);
-		child->p_pptr = child->p_opptr;
-		SET_LINKS(child);
-		write_unlock_irq(&tasklist_lock);
-		wake_up_process(child);
-		res = 0;
+		res = ptrace_detach(child, data);
 		break;
 
 	case PTRACE_SETOPTIONS:

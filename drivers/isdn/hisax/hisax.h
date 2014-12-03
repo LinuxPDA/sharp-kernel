@@ -1,13 +1,12 @@
-/* $Id: hisax.h,v 2.52.6.6 2001/06/09 15:14:17 kai Exp $
+/* $Id: hisax.h,v 2.52.6.9 2001/09/23 22:24:48 kai Exp $
  *
- *   Basic declarations, defines and prototypes
+ * Basic declarations, defines and prototypes
  *
- * This file is (c) under GNU General Public License
+ * This software may be used and distributed according to the terms
+ * of the GNU General Public License, incorporated herein by reference.
  *
  */
 #include <linux/config.h>
-#include <linux/module.h>
-#include <linux/version.h>
 #include <linux/errno.h>
 #include <linux/fs.h>
 #include <linux/major.h>
@@ -455,7 +454,6 @@ struct amd7930_hw {
 	struct tq_struct tq_xmt;
 };
 
-
 #define BC_FLG_INIT	1
 #define BC_FLG_ACTIV	2
 #define BC_FLG_BUSY	3
@@ -512,6 +510,7 @@ struct BCState {
 		struct tiger_hw tiger;
 		struct amd7930_hw  amd7930;
 		struct w6692B_hw w6692;
+		struct hisax_b_if *b_if;
 	} hw;
 };
 
@@ -535,7 +534,7 @@ struct Channel {
 };
 
 struct elsa_hw {
-	unsigned int base;
+	unsigned long base;
 	unsigned int cfg;
 	unsigned int ctrl;
 	unsigned int ale;
@@ -597,9 +596,9 @@ struct diva_hw {
 	unsigned long cfg_reg;
 	unsigned long pci_cfg;
 	unsigned int ctrl;
-	unsigned int isac_adr;
+	unsigned long isac_adr;
 	unsigned int isac;
-	unsigned int hscx_adr;
+	unsigned long hscx_adr;
 	unsigned int hscx;
 	unsigned int status;
 	struct timer_list tl;
@@ -653,7 +652,7 @@ struct mic_hw {
 };
 
 struct njet_hw {
-	unsigned int base;
+	unsigned long base;
 	unsigned int isac;
 	unsigned int auxa;
 	unsigned char auxd;
@@ -692,7 +691,7 @@ struct hfcPCI_hw {
 };
 
 struct hfcSX_hw {
-        unsigned int  base;
+        unsigned long base;
 	unsigned char cirm;
 	unsigned char ctmt;
 	unsigned char conn;
@@ -754,15 +753,15 @@ struct saphir_hw {
 };
 
 struct bkm_hw {
-	unsigned int base;
+	unsigned long base;
 	/* A4T stuff */
-	unsigned int isac_adr;
+	unsigned long isac_adr;
 	unsigned int isac_ale;
-	unsigned int jade_adr;
+	unsigned long jade_adr;
 	unsigned int jade_ale;
 	/* Scitel Quadro stuff */
-	unsigned int plx_adr;
-	unsigned int data_adr;
+	unsigned long plx_adr;
+	unsigned long data_adr;
 };	
 
 struct gazel_hw {
@@ -897,6 +896,7 @@ struct IsdnCardState {
 		struct bkm_hw ax;
 		struct gazel_hw gazel;
 		struct w6692_hw w6692;
+		struct hisax_d_if *hisax_d_if;
 	} hw;
 	int myid;
 	isdn_if iif;
@@ -991,7 +991,8 @@ struct IsdnCardState {
 #define  ISDN_CTYPE_HFC_SX      37
 #define  ISDN_CTYPE_NETJET_U	38
 #define  ISDN_CTYPE_HFC_SP_PCMCIA      39
-#define  ISDN_CTYPE_COUNT	39
+#define  ISDN_CTYPE_DYNAMIC     40
+#define  ISDN_CTYPE_COUNT	40
 
 
 #ifdef ISDN_CHIP_ISAC
@@ -1275,7 +1276,7 @@ extern void Logl2Frame(struct IsdnCardState *cs, struct sk_buff *skb, char *buf,
 struct IsdnCard {
 	int typ;
 	int protocol;		/* EDSS1, 1TR6 or NI1 */
-	unsigned int para[4];
+	unsigned long para[4];
 	struct IsdnCardState *cs;
 };
 

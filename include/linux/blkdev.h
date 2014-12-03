@@ -14,14 +14,11 @@ typedef struct elevator_s elevator_t;
 
 /*
  * Ok, this is an expanded form so that we can use the same
- * request for paging requests when that is implemented. In
- * paging, 'bh' is NULL, and the semaphore is used to wait
- * for read/write completion.
+ * request for paging requests.
  */
 struct request {
 	struct list_head queue;
 	int elevator_sequence;
-	struct list_head table;
 
 	volatile int rq_status;	/* should split this into a few status bits */
 #define RQ_INACTIVE		(-1)
@@ -41,7 +38,7 @@ struct request {
 	unsigned long current_nr_sectors;
 	void * special;
 	char * buffer;
-	struct semaphore * sem;
+	struct completion * waiting;
 	struct buffer_head * bh;
 	struct buffer_head * bhtail;
 	request_queue_t *q;
@@ -151,8 +148,7 @@ extern struct blk_dev_struct blk_dev[MAX_BLKDEV];
 extern void grok_partitions(struct gendisk *dev, int drive, unsigned minors, long size);
 extern void register_disk(struct gendisk *dev, kdev_t first, unsigned minors, struct block_device_operations *ops, long size);
 extern void generic_make_request(int rw, struct buffer_head * bh);
-extern request_queue_t *blk_get_queue(kdev_t dev);
-extern inline request_queue_t *__blk_get_queue(kdev_t dev);
+extern inline request_queue_t *blk_get_queue(kdev_t dev);
 extern void blkdev_release_request(struct request *);
 
 /*
@@ -175,8 +171,6 @@ extern int * max_readahead[MAX_BLKDEV];
 extern int * max_sectors[MAX_BLKDEV];
 
 extern int * max_segments[MAX_BLKDEV];
-
-extern atomic_t queued_sectors;
 
 #define MAX_SEGMENTS 128
 #define MAX_SECTORS 255
@@ -205,14 +199,30 @@ static inline int get_hardsect_size(kdev_t dev)
 		return 512;
 }
 
-#define blk_finished_io(nsects)				\
-	atomic_sub(nsects, &queued_sectors);		\
-	if (atomic_read(&queued_sectors) < 0) {		\
-		printk("block: queued_sectors < 0\n");	\
-		atomic_set(&queued_sectors, 0);		\
-	}
+#define blk_finished_io(nsects)	do { } while (0)
+#define blk_started_io(nsects)	do { } while (0)
 
-#define blk_started_io(nsects)				\
-	atomic_add(nsects, &queued_sectors);
+static inline unsigned int blksize_bits(unsigned int size)
+{
+	unsigned int bits = 8;
+	do {
+		bits++;
+		size >>= 1;
+	} while (size > 256);
+	return bits;
+}
+
+static inline unsigned int block_size(kdev_t dev)
+{
+	int retval = BLOCK_SIZE;
+	int major = MAJOR(dev);
+
+	if (blksize_size[major]) {
+		int minor = MINOR(dev);
+		if (blksize_size[major][minor])
+			retval = blksize_size[major][minor];
+	}
+	return retval;
+}
 
 #endif

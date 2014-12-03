@@ -131,7 +131,19 @@ void fill_iso_packet(struct hpsb_packet *packet, int length, int channel,
 
         packet->header_size = 4;
         packet->data_size = length;
+        packet->type = hpsb_iso;
         packet->tcode = TCODE_ISO_DATA;
+}
+
+void fill_phy_packet(struct hpsb_packet *packet, quadlet_t data) 
+{ 
+        packet->header[0] = data;
+        packet->header[1] = ~data; 
+        packet->header_size = 8;
+        packet->data_size = 0;
+        packet->expect_response = 0;
+        packet->type = hpsb_raw;             /* No CRC added */
+        packet->speed_code = SPEED_100; /* Force speed to be 100Mbps */
 }
 
 
@@ -384,6 +396,20 @@ struct hpsb_packet *hpsb_make_lockpacket(struct hpsb_host *host, nodeid_t node,
         return p;
 }
 
+struct hpsb_packet *hpsb_make_phypacket(struct hpsb_host *host,
+                                        quadlet_t data) 
+{
+        struct hpsb_packet *p; 
+
+        p = alloc_hpsb_packet(0); 
+        if (!p) return NULL; 
+
+        p->host = host; 
+        fill_phy_packet(p, data); 
+
+        return p; 
+}
+
 /*
  * FIXME - these functions should probably read from / write to user space to
  * avoid in kernel buffers for user space callers
@@ -421,7 +447,12 @@ int hpsb_read(struct hpsb_host *host, nodeid_t node, u64 addr,
                 return -ENOMEM;
         }
 
-        hpsb_send_packet(packet);
+	packet->generation = get_hpsb_generation(host);
+        if (!hpsb_send_packet(packet)) {
+		retval = -EINVAL;
+		goto hpsb_read_fail;
+	}
+
         down(&packet->state_change);
         down(&packet->state_change);
         retval = hpsb_packet_success(packet);
@@ -434,54 +465,74 @@ int hpsb_read(struct hpsb_host *host, nodeid_t node, u64 addr,
                 }
         }
 
+hpsb_read_fail:
         free_tlabel(host, node, packet->tlabel);
         free_hpsb_packet(packet);
 
         return retval;
 }
 
-
-int hpsb_write(struct hpsb_host *host, nodeid_t node, u64 addr,
-               quadlet_t *buffer, size_t length)
+struct hpsb_packet *hpsb_make_packet (struct hpsb_host *host, nodeid_t node,
+				      u64 addr, quadlet_t *buffer, size_t length)
 {
         struct hpsb_packet *packet;
-        int retval = 0;
         
-        if (length == 0) {
-                return -EINVAL;
-        }
+        if (length == 0)
+                return NULL;
 
-        if (host->node_id == node) {
-                switch(highlevel_write(host, node, buffer, addr, length)) {
-                case RCODE_COMPLETE:
-                        return 0;
-                case RCODE_TYPE_ERROR:
-                        return -EACCES;
-                case RCODE_ADDRESS_ERROR:
-                default:
-                        return -EINVAL;
-                }
-        }
-
-        if (length == 4) {
+        if (length == 4)
                 packet = hpsb_make_writeqpacket(host, node, addr, *buffer);
-        } else {
+        else
                 packet = hpsb_make_writebpacket(host, node, addr, length);
-        }
 
-        if (!packet) {
-                return -ENOMEM;
-        }
+        if (!packet)
+                return NULL;
 
-        if (length != 4) {
+	/* Sometimes this may be called without data, just to allocate the
+	 * packet. */
+        if (length != 4 && buffer)
                 memcpy(packet->data, buffer, length);
-        }
 
-        hpsb_send_packet(packet);
+	return packet;
+}
+
+int hpsb_write(struct hpsb_host *host, nodeid_t node, u64 addr,
+	       quadlet_t *buffer, size_t length)
+{
+	struct hpsb_packet *packet;
+	int retval;
+
+	if (length == 0)
+		return -EINVAL;
+
+	if (host->node_id == node) {
+		switch(highlevel_write(host, node, node, buffer, addr, length)) {
+		case RCODE_COMPLETE:
+			return 0;
+		case RCODE_TYPE_ERROR:
+			return -EACCES;
+		case RCODE_ADDRESS_ERROR:
+		default:
+			return -EINVAL;
+		}
+	}
+
+	packet = hpsb_make_packet (host, node, addr, buffer, length);
+
+	if (!packet)
+		return -ENOMEM;
+
+	packet->generation = get_hpsb_generation(host);
+        if (!hpsb_send_packet(packet)) {
+		retval = -EINVAL;
+		goto hpsb_write_fail;
+	}
+
         down(&packet->state_change);
         down(&packet->state_change);
         retval = hpsb_packet_success(packet);
 
+hpsb_write_fail:
         free_tlabel(host, node, packet->tlabel);
         free_hpsb_packet(packet);
 
@@ -537,7 +588,11 @@ int hpsb_lock(struct hpsb_host *host, nodeid_t node, u64 addr, int extcode,
         }
         fill_async_lock(packet, addr, extcode, length);
 
-        hpsb_send_packet(packet);
+	packet->generation = get_hpsb_generation(host);
+        if (!hpsb_send_packet(packet)) {
+		retval = -EINVAL;
+		goto hpsb_lock_fail;
+	}
         down(&packet->state_change);
         down(&packet->state_change);
         retval = hpsb_packet_success(packet);
@@ -546,6 +601,7 @@ int hpsb_lock(struct hpsb_host *host, nodeid_t node, u64 addr, int extcode,
                 *data = packet->data[0];
         }
 
+hpsb_lock_fail:
         free_tlabel(host, node, packet->tlabel);
         free_hpsb_packet(packet);
 

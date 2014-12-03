@@ -14,6 +14,7 @@
  */
 
 #include "irnet_ppp.h"		/* Private header */
+/* Please put other headers in irnet.h - Thanks */
 
 /************************* CONTROL CHANNEL *************************/
 /*
@@ -199,7 +200,8 @@ irnet_read_discovery_log(irnet_socket *	ap,
       __u16		mask = irlmp_service_to_hint(S_LAN);
 
       /* Ask IrLMP for the current discovery log */
-      ap->discoveries = irlmp_get_discoveries(&ap->disco_number, mask);
+      ap->discoveries = irlmp_get_discoveries(&ap->disco_number, mask,
+					      DISCOVERY_DEFAULT_SLOTS);
       /* Check if the we got some results */
       if(ap->discoveries == NULL)
 	ap->disco_number = -1;
@@ -858,8 +860,8 @@ ppp_irnet_send(struct ppp_channel *	chan,
       irda_irnet_connect(self);
 #endif /* CONNECT_IN_SEND */
 
-      DEBUG(PPP_INFO, "IrTTP not ready ! (%d-0x%X)\n",
-	    self->ttp_open, (unsigned int) self->tsap);
+      DEBUG(PPP_INFO, "IrTTP not ready ! (%d-%d)\n",
+	    self->ttp_open, self->ttp_connect);
 
       /* Note : we can either drop the packet or block the packet.
        *
@@ -882,7 +884,7 @@ ppp_irnet_send(struct ppp_channel *	chan,
        */
 #ifdef BLOCK_WHEN_CONNECT
       /* If we are attempting to connect */
-      if(self->tsap)
+      if(self->ttp_connect)
 	{
 	  /* Blocking packet, ppp_generic will retry later */
 	  return 0;
@@ -1095,3 +1097,4 @@ cleanup_module(void)
   return ppp_irnet_cleanup();
 }
 #endif /* MODULE */
+MODULE_LICENSE("GPL");

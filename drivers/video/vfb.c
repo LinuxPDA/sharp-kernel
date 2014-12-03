@@ -382,8 +382,7 @@ int __init vfb_setup(char *options)
     if (!options || !*options)
 	return 0;
 
-    for (this_opt = strtok(options, ","); this_opt;
-	 this_opt = strtok(NULL, ",")) {
+    while (this_opt = strsep(&options, ",")) {
 	if (!strncmp(this_opt, "font:", 5))
 	    strcpy(fb_info.fontname, this_opt+5);
     }
@@ -601,6 +600,8 @@ static void do_install_cmap(int con, struct fb_info *info)
 
 
 #ifdef MODULE
+MODULE_LICENSE("GPL");
+
 int init_module(void)
 {
     return vfb_init();

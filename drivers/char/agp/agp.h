@@ -101,6 +101,7 @@ struct agp_bridge_data {
 	int num_aperture_sizes;
 	int num_of_masks;
 	int capndx;
+	int cant_use_aperture;
 
 	/* Links to driver specific functions */
 
@@ -119,6 +120,9 @@ struct agp_bridge_data {
 	void (*free_by_type) (agp_memory *);
 	unsigned long (*agp_alloc_page) (void);
 	void (*agp_destroy_page) (unsigned long);
+	int (*suspend)(void);
+	void (*resume)(void);
+	
 };
 
 #define OUTREG32(mmap, addr, val)   __raw_writel((val), (mmap)+(addr))
@@ -128,6 +132,10 @@ struct agp_bridge_data {
 #define INREG32(mmap, addr)         __raw_readl((mmap)+(addr))
 #define INREG16(mmap, addr)         __raw_readw((mmap)+(addr))
 #define INREG8(mmap, addr)         __raw_readb((mmap)+(addr))
+
+#define KB(x) ((x) * 1024)
+#define MB(x) (KB (KB (x)))
+#define GB(x) (MB (KB (x)))
 
 #define CACHE_FLUSH	agp_bridge.cache_flush
 #define A_SIZE_8(x)	((aper_size_info_8 *) x)
@@ -142,10 +150,6 @@ struct agp_bridge_data {
 #define A_IDXFIX()	(A_SIZE_FIX(agp_bridge.aperture_sizes) + i)
 #define MAXKEY		(4096 * 32)
 
-#ifndef min
-#define min(a,b)	(((a)<(b))?(a):(b))
-#endif
-
 #define AGPGART_MODULE_NAME	"agpgart"
 #define PFX			AGPGART_MODULE_NAME ": "
 
@@ -159,6 +163,9 @@ struct agp_bridge_data {
 #endif
 #ifndef PCI_DEVICE_ID_VIA_8363_0
 #define PCI_DEVICE_ID_VIA_8363_0      0x0305
+#endif
+#ifndef PCI_DEVICE_ID_VIA_82C694X_0
+#define PCI_DEVICE_ID_VIA_82C694X_0      0x0605
 #endif
 #ifndef PCI_DEVICE_ID_INTEL_810_0
 #define PCI_DEVICE_ID_INTEL_810_0       0x7120
@@ -193,11 +200,23 @@ struct agp_bridge_data {
 #ifndef PCI_DEVICE_ID_INTEL_815_1
 #define PCI_DEVICE_ID_INTEL_815_1       0x1132
 #endif
+#ifndef PCI_DEVICE_ID_INTEL_830_M_0
+#define PCI_DEVICE_ID_INTEL_830_M_0     0x3575
+#endif
+#ifndef PCI_DEVICE_ID_INTEL_830_M_1
+#define PCI_DEVICE_ID_INTEL_830_M_1     0x3577
+#endif
 #ifndef PCI_DEVICE_ID_INTEL_82443GX_1
 #define PCI_DEVICE_ID_INTEL_82443GX_1   0x71a1
 #endif
 #ifndef PCI_DEVICE_ID_AMD_IRONGATE_0
 #define PCI_DEVICE_ID_AMD_IRONGATE_0    0x7006
+#endif
+#ifndef PCI_DEVICE_ID_AMD_761_0
+#define PCI_DEVICE_ID_AMD_761_0         0x700e
+#endif
+#ifndef PCI_DEVICE_ID_AMD_762_0
+#define PCI_DEVICE_ID_AMD_762_0		0x700C
 #endif
 #ifndef PCI_VENDOR_ID_AL
 #define PCI_VENDOR_ID_AL		0x10b9
@@ -257,6 +276,22 @@ struct agp_bridge_data {
 #define I810_DRAM_CTL          0x3000
 #define I810_DRAM_ROW_0        0x00000001
 #define I810_DRAM_ROW_0_SDRAM  0x00000001
+
+/* intel i830 registers */
+#define I830_GMCH_CTRL             0x52
+#define I830_GMCH_ENABLED          0x4
+#define I830_GMCH_MEM_MASK         0x1
+#define I830_GMCH_MEM_64M          0x1
+#define I830_GMCH_MEM_128M         0
+#define I830_GMCH_GMS_MASK         0x70
+#define I830_GMCH_GMS_DISABLED     0x00
+#define I830_GMCH_GMS_LOCAL        0x10
+#define I830_GMCH_GMS_STOLEN_512   0x20
+#define I830_GMCH_GMS_STOLEN_1024  0x30
+#define I830_GMCH_GMS_STOLEN_8192  0x40
+#define I830_RDRAM_CHANNEL_TYPE    0x03010
+#define I830_RDRAM_ND(x)           (((x) & 0x20) >> 5)
+#define I830_RDRAM_DDT(x)          (((x) & 0x18) >> 3)
 
 /* VIA register */
 #define VIA_APBASE      0x10

@@ -83,6 +83,8 @@ static int max_sg_segs = 0;
 #ifdef MODULE
 MODULE_AUTHOR("Willem Riede");
 MODULE_DESCRIPTION("OnStream SCSI Tape Driver");
+MODULE_LICENSE("GPL");
+
 MODULE_PARM(buffer_kbs, "i");
 MODULE_PARM(write_threshold_kbs, "i");
 MODULE_PARM(max_buffers, "i");
@@ -290,7 +292,7 @@ static void osst_sleep_done (Scsi_Cmnd * SCpnt)
 #if DEBUG
 		STp->write_pending = 0;
 #endif
-		up(SCpnt->request.sem);
+		complete(SCpnt->request.waiting);
 	}
 #if DEBUG
 	else if (debugging)
@@ -321,8 +323,9 @@ static	Scsi_Request * osst_do_scsi(Scsi_Request *SRpnt, OS_Scsi_Tape *STp,
 		}
 	}
 
-	cmd[1] |= (SRpnt->sr_device->lun << 5) & 0xe0;
-	init_MUTEX_LOCKED(&STp->sem);
+        if (SRpnt->sr_device->scsi_level <= SCSI_2)
+                cmd[1] |= (SRpnt->sr_device->lun << 5) & 0xe0;
+        init_completion(&STp->wait);
 	SRpnt->sr_use_sg = (bytes > (STp->buffer)->sg[0].length) ?
 				    (STp->buffer)->use_sg : 0;
 	if (SRpnt->sr_use_sg) {
@@ -334,15 +337,15 @@ static	Scsi_Request * osst_do_scsi(Scsi_Request *SRpnt, OS_Scsi_Tape *STp,
 		bp = (STp->buffer)->b_data;
 	SRpnt->sr_data_direction = direction;
 	SRpnt->sr_cmd_len = 0;
-	SRpnt->sr_request.sem = &(STp->sem);
+	SRpnt->sr_request.waiting = &(STp->wait);
 	SRpnt->sr_request.rq_status = RQ_SCSI_BUSY;
 	SRpnt->sr_request.rq_dev = STp->devt;
 
 	scsi_do_req(SRpnt, (void *)cmd, bp, bytes, osst_sleep_done, timeout, retries);
 
 	if (do_wait) {
-		down(SRpnt->sr_request.sem);
-		SRpnt->sr_request.sem = NULL;
+		wait_for_completion(SRpnt->sr_request.waiting);
+		SRpnt->sr_request.waiting = NULL;
 		STp->buffer->syscall_result = osst_chk_result(STp, SRpnt);
 #ifdef OSST_INJECT_ERRORS
 		if (STp->buffer->syscall_result == 0 &&
@@ -374,8 +377,8 @@ static void osst_write_behind_check(OS_Scsi_Tape *STp)
 	else
 		STp->nbr_finished++;
 #endif
-	down(&(STp->sem));
-	(STp->buffer)->last_SRpnt->sr_request.sem = NULL;
+	wait_for_completion(&(STp->wait));
+	(STp->buffer)->last_SRpnt->sr_request.waiting = NULL;
 
 	STp->buffer->syscall_result = osst_chk_result(STp, STp->buffer->last_SRpnt);
 
@@ -712,7 +715,7 @@ static int osst_wait_frame(OS_Scsi_Tape * STp, Scsi_Request ** aSRpnt, int curr,
 		result = osst_get_frame_position (STp, aSRpnt);
 		if (result == -EIO)
 			if ((result = osst_write_error_recovery(STp, aSRpnt, 0)) == 0)
-				return 0;	/* successfull recovery leaves drive ready for frame */
+				return 0;	/* successful recovery leaves drive ready for frame */
 		if (result < 0) break;
 		if (STp->first_frame_position == curr &&
 		    ((minlast < 0 &&
@@ -1379,7 +1382,7 @@ static int osst_reposition_and_retry(OS_Scsi_Tape * STp, Scsi_Request ** aSRpnt,
 	unsigned char	cmd[MAX_COMMAND_SIZE];
 	Scsi_Request  * SRpnt;
 	int		dev       = TAPE_NR(STp->devt);
-	int		expected  = 0;
+	int		expected  __attribute__ ((__unused__));
 	int		attempts  = 1000 / skip;
 	int		flag      = 1;
 	long		startwait = jiffies;
@@ -4932,7 +4935,6 @@ static OSST_buffer * new_tape_buffer( int from_initialization, int need_dma )
 			tb->sg[0].address =
 			    (unsigned char *)__get_free_pages(priority, order);
 			if (tb->sg[0].address != NULL) {
-			    tb->sg[0].alt_address = NULL;
 			    tb->sg[0].length = b_size;
 			    break;
 			}
@@ -4968,7 +4970,6 @@ static OSST_buffer * new_tape_buffer( int from_initialization, int need_dma )
 				tb = NULL;
 				break;
 			    }
-			    tb->sg[segs].alt_address = NULL;
 			    tb->sg[segs].length = b_size;
 			    got += b_size;
 			    segs++;
@@ -5042,7 +5043,6 @@ static int enlarge_buffer(OSST_buffer *STbuffer, int new_size, int need_dma)
 			normalize_buffer(STbuffer);
 			return FALSE;
 		}
-		STbuffer->sg[segs].alt_address = NULL;
 		STbuffer->sg[segs].length = b_size;
 		STbuffer->sg_segs += 1;
 		got += b_size;

@@ -22,13 +22,13 @@
 #include <linux/swap.h>
 #include <linux/init.h>
 #include <linux/smp_lock.h>
+#include <linux/completion.h>
 
 #include <asm/system.h>
 #include <asm/io.h>
 #include <linux/blk.h>
 #include <linux/highmem.h>
-#include <linux/raid/md.h>
-
+#include <linux/slab.h>
 #include <linux/module.h>
 
 /*
@@ -118,17 +118,10 @@ int * max_readahead[MAX_BLKDEV];
 int * max_sectors[MAX_BLKDEV];
 
 /*
- * queued sectors for all devices, used to make sure we don't fill all
- * of memory with locked buffers
+ * How many reqeusts do we allocate per queue,
+ * and how many do we "batch" on freeing them?
  */
-atomic_t queued_sectors;
-
-/*
- * high and low watermark for above
- */
-static int high_queued_sectors, low_queued_sectors;
-static int batch_requests, queue_nr_requests;
-static DECLARE_WAIT_QUEUE_HEAD(blk_buffers_wait);
+static int queue_nr_requests, batch_requests;
 
 static inline int get_max_sectors(kdev_t dev)
 {
@@ -137,7 +130,7 @@ static inline int get_max_sectors(kdev_t dev)
 	return max_sectors[MAJOR(dev)][MINOR(dev)];
 }
 
-inline request_queue_t *__blk_get_queue(kdev_t dev)
+inline request_queue_t *blk_get_queue(kdev_t dev)
 {
 	struct blk_dev_struct *bdev = blk_dev + MAJOR(dev);
 
@@ -145,22 +138,6 @@ inline request_queue_t *__blk_get_queue(kdev_t dev)
 		return bdev->queue(dev);
 	else
 		return &blk_dev[MAJOR(dev)].request_queue;
-}
-
-/*
- * NOTE: the device-specific queue() functions
- * have to be atomic!
- */
-request_queue_t *blk_get_queue(kdev_t dev)
-{
-	request_queue_t *ret;
-	unsigned long flags;
-
-	spin_lock_irqsave(&io_request_lock,flags);
-	ret = __blk_get_queue(dev);
-	spin_unlock_irqrestore(&io_request_lock,flags);
-
-	return ret;
 }
 
 static int __blk_cleanup_queue(struct list_head *head)
@@ -172,8 +149,8 @@ static int __blk_cleanup_queue(struct list_head *head)
 		return 0;
 
 	do {
-		rq = list_entry(head->next, struct request, table);
-		list_del(&rq->table);
+		rq = list_entry(head->next, struct request, queue);
+		list_del(&rq->queue);
 		kmem_cache_free(request_cachep, rq);
 		i++;
 	} while (!list_empty(head));
@@ -365,9 +342,14 @@ static void blk_init_free_list(request_queue_t *q)
 	 */
 	for (i = 0; i < queue_nr_requests; i++) {
 		rq = kmem_cache_alloc(request_cachep, SLAB_KERNEL);
+		if (rq == NULL) {
+			/* We'll get a `leaked requests' message from blk_cleanup_queue */
+			printk(KERN_EMERG "blk_init_free_list: error allocating requests\n");
+			break;
+		}
 		memset(rq, 0, sizeof(struct request));
 		rq->rq_status = RQ_INACTIVE;
-		list_add(&rq->table, &q->request_freelist[i & 1]);
+		list_add(&rq->queue, &q->request_freelist[i & 1]);
 	}
 
 	init_waitqueue_head(&q->wait_for_request);
@@ -433,7 +415,7 @@ void blk_init_queue(request_queue_t * q, request_fn_proc * rfn)
 	q->head_active    	= 1;
 }
 
-#define blkdev_free_rq(list) list_entry((list)->next, struct request, table);
+#define blkdev_free_rq(list) list_entry((list)->next, struct request, queue);
 /*
  * Get a free request. io_request_lock must be held and interrupts
  * disabled on the way in.
@@ -444,7 +426,7 @@ static inline struct request *get_request(request_queue_t *q, int rw)
 
 	if (!list_empty(&q->request_freelist[rw])) {
 		rq = blkdev_free_rq(&q->request_freelist[rw]);
-		list_del(&rq->table);
+		list_del(&rq->queue);
 		rq->rq_status = RQ_ACTIVE;
 		rq->special = NULL;
 		rq->q = q;
@@ -586,16 +568,9 @@ inline void blkdev_release_request(struct request *req)
 	 */
 	if (q) {
 		/*
-		 * we've released enough buffers to start I/O again
-		 */
-		if (waitqueue_active(&blk_buffers_wait)
-		    && atomic_read(&queued_sectors) < low_queued_sectors)
-			wake_up(&blk_buffers_wait);
-
-		/*
 		 * Add to pending free list and batch wakeups
 		 */
-		list_add(&req->table, &q->pending_freelist[rw]);
+		list_add(&req->queue, &q->pending_freelist[rw]);
 
 		if (++q->pending_free[rw] >= batch_requests) {
 			int wake_up = q->pending_free[rw];
@@ -621,7 +596,7 @@ static void attempt_merge(request_queue_t * q,
 	if (req->cmd != next->cmd
 	    || req->rq_dev != next->rq_dev
 	    || req->nr_sectors + next->nr_sectors > max_sectors
-	    || next->sem)
+	    || next->waiting)
 		return;
 	/*
 	 * If we are not allowed to merge these requests, then
@@ -806,7 +781,7 @@ get_rq:
 	req->nr_segments = 1; /* Always 1 for a new request. */
 	req->nr_hw_segments = 1; /* Always 1 for a new request. */
 	req->buffer = bh->b_data;
-	req->sem = NULL;
+	req->waiting = NULL;
 	req->bh = bh;
 	req->bhtail = bh;
 	req->rq_dev = bh->b_rdev;
@@ -955,15 +930,6 @@ void submit_bh(int rw, struct buffer_head * bh)
 	}
 }
 
-/*
- * Default IO end handler, used by "ll_rw_block()".
- */
-static void end_buffer_io_sync(struct buffer_head *bh, int uptodate)
-{
-	mark_buffer_uptodate(bh, uptodate);
-	unlock_buffer(bh);
-}
-
 /**
  * ll_rw_block: low-level access to block devices
  * @rw: whether to %READ or %WRITE or maybe %READA (readahead)
@@ -1007,12 +973,7 @@ void ll_rw_block(int rw, int nr, struct buffer_head * bhs[])
 	major = MAJOR(bhs[0]->b_dev);
 
 	/* Determine correct block size for this device. */
-	correct_size = BLOCK_SIZE;
-	if (blksize_size[major]) {
-		i = blksize_size[major][MINOR(bhs[0]->b_dev)];
-		if (i)
-			correct_size = i;
-	}
+	correct_size = get_hardsect_size(bhs[0]->b_dev);
 
 	/* Verify requested block sizes. */
 	for (i = 0; i < nr; i++) {
@@ -1035,21 +996,12 @@ void ll_rw_block(int rw, int nr, struct buffer_head * bhs[])
 	for (i = 0; i < nr; i++) {
 		struct buffer_head *bh = bhs[i];
 
-		/*
-		 * don't lock any more buffers if we are above the high
-		 * water mark. instead start I/O on the queued stuff.
-		 */
-		if (atomic_read(&queued_sectors) >= high_queued_sectors) {
-			run_task_queue(&tq_disk);
-			wait_event(blk_buffers_wait,
-			 atomic_read(&queued_sectors) < low_queued_sectors);
-		}
-
 		/* Only one thread can actually submit the I/O. */
 		if (test_and_set_bit(BH_Lock, &bh->b_state))
 			continue;
 
 		/* We have the buffer lock */
+		atomic_inc(&bh->b_count);
 		bh->b_end_io = end_buffer_io_sync;
 
 		switch(rw) {
@@ -1143,8 +1095,8 @@ int end_that_request_first (struct request *req, int uptodate, char *name)
 
 void end_that_request_last(struct request *req)
 {
-	if (req->sem != NULL)
-		up(req->sem);
+	if (req->waiting != NULL)
+		complete(req->waiting);
 
 	blkdev_release_request(req);
 }
@@ -1170,42 +1122,21 @@ int __init blk_dev_init(void)
 	memset(max_readahead, 0, sizeof(max_readahead));
 	memset(max_sectors, 0, sizeof(max_sectors));
 
-	atomic_set(&queued_sectors, 0);
 	total_ram = nr_free_pages() << (PAGE_SHIFT - 10);
 
 	/*
-	 * Try to keep 128MB max hysteris. If not possible,
-	 * use half of RAM
+	 * Free request slots per queue.
+	 * (Half for reads, half for writes)
 	 */
-	high_queued_sectors = (total_ram * 2) / 3;
-	low_queued_sectors = high_queued_sectors / 3;
-	if (high_queued_sectors - low_queued_sectors > MB(128))
-		low_queued_sectors = high_queued_sectors - MB(128);
-
+	queue_nr_requests = 64;
+	if (total_ram > MB(32))
+		queue_nr_requests = 128;
 
 	/*
-	 * make it sectors (512b)
+	 * Batch frees according to queue length
 	 */
-	high_queued_sectors <<= 1;
-	low_queued_sectors <<= 1;
-
-	/*
-	 * Scale free request slots per queue too
-	 */
-	total_ram = (total_ram + MB(32) - 1) & ~(MB(32) - 1);
-	if ((queue_nr_requests = total_ram >> 9) > QUEUE_NR_REQUESTS)
-		queue_nr_requests = QUEUE_NR_REQUESTS;
-
-	/*
-	 * adjust batch frees according to queue length, with upper limit
-	 */
-	if ((batch_requests = queue_nr_requests >> 3) > 32)
-		batch_requests = 32;
-
-	printk("block: queued sectors max/low %dkB/%dkB, %d slots per queue\n",
-						high_queued_sectors / 2,
-						low_queued_sectors / 2,
-						queue_nr_requests);
+	batch_requests = queue_nr_requests >> 3;
+	printk("block: %d slots per queue, batch=%d\n", queue_nr_requests, batch_requests);
 
 #ifdef CONFIG_AMIGA_Z2RAM
 	z2_init();
@@ -1319,11 +1250,9 @@ EXPORT_SYMBOL(end_that_request_first);
 EXPORT_SYMBOL(end_that_request_last);
 EXPORT_SYMBOL(blk_init_queue);
 EXPORT_SYMBOL(blk_get_queue);
-EXPORT_SYMBOL(__blk_get_queue);
 EXPORT_SYMBOL(blk_cleanup_queue);
 EXPORT_SYMBOL(blk_queue_headactive);
 EXPORT_SYMBOL(blk_queue_make_request);
 EXPORT_SYMBOL(generic_make_request);
 EXPORT_SYMBOL(blkdev_release_request);
 EXPORT_SYMBOL(generic_unplug_device);
-EXPORT_SYMBOL(queued_sectors);

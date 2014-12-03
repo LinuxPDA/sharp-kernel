@@ -103,7 +103,7 @@ static int bit_velle_init(void)
 	return 0;
 }
 
-static void bit_velle_exit(void)
+static void __exit bit_velle_exit(void)
 {	
 	release_region( base , (base == 0x3bc)? 3 : 8 );
 }
@@ -189,6 +189,7 @@ EXPORT_NO_SYMBOLS;
 #ifdef MODULE
 MODULE_AUTHOR("Simon G. Vogl <simon@tk.uni-linz.ac.at>");
 MODULE_DESCRIPTION("I2C-Bus adapter routines for Velleman K8000 adapter");
+MODULE_LICENSE("GPL");
 
 MODULE_PARM(base, "i");
 

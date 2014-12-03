@@ -109,7 +109,7 @@ static kmem_cache_t *nfs_wdata_cachep;
 static __inline__ struct nfs_page *nfs_page_alloc(void)
 {
 	struct nfs_page	*p;
-	p = kmem_cache_alloc(nfs_page_cachep, SLAB_KERNEL);
+	p = kmem_cache_alloc(nfs_page_cachep, SLAB_NOFS);
 	if (p) {
 		memset(p, 0, sizeof(*p));
 		INIT_LIST_HEAD(&p->wb_hash);
@@ -127,7 +127,7 @@ static __inline__ void nfs_page_free(struct nfs_page *p)
 static __inline__ struct nfs_write_data *nfs_writedata_alloc(void)
 {
 	struct nfs_write_data	*p;
-	p = kmem_cache_alloc(nfs_wdata_cachep, SLAB_NFS);
+	p = kmem_cache_alloc(nfs_wdata_cachep, SLAB_NOFS);
 	if (p) {
 		memset(p, 0, sizeof(*p));
 		INIT_LIST_HEAD(&p->pages);
@@ -181,7 +181,9 @@ nfs_writepage_sync(struct file *file, struct inode *inode, struct page *page,
 
 
 	if (file)
-		cred = nfs_file_cred(file);
+		cred = get_rpccred(nfs_file_cred(file));
+	if (!cred)
+		cred = get_rpccred(NFS_I(inode)->mm_cred);
 
 	dprintk("NFS:      nfs_writepage_sync(%x/%Ld %d@%Ld)\n",
 		inode->i_dev, (long long)NFS_FILEID(inode),
@@ -226,6 +228,8 @@ nfs_writepage_sync(struct file *file, struct inode *inode, struct page *page,
 
 io_error:
 	kunmap(page);
+	if (cred)
+		put_rpccred(cred);
 
 	return written? written : result;
 }
@@ -241,6 +245,9 @@ nfs_writepage_async(struct file *file, struct inode *inode, struct page *page,
 	status = (IS_ERR(req)) ? PTR_ERR(req) : 0;
 	if (status < 0)
 		goto out;
+	if (!req->wb_cred)
+		req->wb_cred = get_rpccred(NFS_I(inode)->mm_cred);
+	nfs_unlock_request(req);
 	nfs_release_request(req);
 	nfs_strategy(inode);
  out:
@@ -281,7 +288,7 @@ nfs_writepage(struct page *page)
 		goto out;
 do_it:
 	lock_kernel();
-	if (NFS_SERVER(inode)->rsize >= PAGE_CACHE_SIZE) {
+	if (NFS_SERVER(inode)->wsize >= PAGE_CACHE_SIZE && !IS_SYNC(inode)) {
 		err = nfs_writepage_async(NULL, inode, page, 0, offset);
 		if (err >= 0)
 			err = 0;
@@ -557,13 +564,11 @@ struct nfs_page *nfs_create_request(struct file *file, struct inode *inode,
 	req->wb_bytes   = count;
 	req->wb_file    = file;
 
-	/* If we have a struct file, use its cached credentials
-	 * else cache the current process' credentials. */
+	/* If we have a struct file, use its cached credentials */
 	if (file) {
 		get_file(file);
 		req->wb_cred	= nfs_file_cred(file);
-	} else
-		req->wb_cred = rpcauth_lookupcred(NFS_CLIENT(inode)->cl_auth, 0);
+	}
 	req->wb_inode   = inode;
 	req->wb_count   = 1;
 
@@ -608,8 +613,8 @@ nfs_release_request(struct nfs_page *req)
 	/* Release struct file or cached credential */
 	if (req->wb_file)
 		fput(req->wb_file);
-	else
-		rpcauth_releasecred(NFS_CLIENT(inode)->cl_auth, req->wb_cred);
+	else if (req->wb_cred)
+		put_rpccred(req->wb_cred);
 	page_cache_release(page);
 	nfs_page_free(req);
 	/* wake up anyone waiting to allocate a request */
@@ -927,8 +932,6 @@ nfs_update_request(struct file* file, struct inode *inode, struct page *page,
 	if (end > rqend)
 		req->wb_bytes = end - req->wb_offset;
 
-	nfs_unlock_request(req);
-
 	return req;
 }
 
@@ -1028,7 +1031,7 @@ nfs_updatepage(struct file *file, struct page *page, unsigned int offset, unsign
 	 * If wsize is smaller than page size, update and write
 	 * page synchronously.
 	 */
-	if (NFS_SERVER(inode)->wsize < PAGE_SIZE)
+	if (NFS_SERVER(inode)->wsize < PAGE_CACHE_SIZE || IS_SYNC(inode))
 		return nfs_writepage_sync(file, inode, page, offset, count);
 
 	/*
@@ -1049,6 +1052,7 @@ nfs_updatepage(struct file *file, struct page *page, unsigned int offset, unsign
 		goto done;
 
 	status = 0;
+	nfs_unlock_request(req);
 	/* If we wrote past the end of the page.
 	 * Call the strategy routine so it can send out a bunch
 	 * of requests.

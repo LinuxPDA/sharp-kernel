@@ -1,22 +1,11 @@
-/* $Id: isdnloop.c,v 1.11.6.3 2001/06/09 15:14:19 kai Exp $
-
+/* $Id: isdnloop.c,v 1.11.6.6 2001/09/23 22:24:56 kai Exp $
+ *
  * ISDN low-level module implementing a dummy loop driver.
  *
  * Copyright 1997 by Fritz Elfert (fritz@isdn4linux.de)
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2, or (at your option)
- * any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ * This software may be used and distributed according to the terms
+ * of the GNU General Public License, incorporated herein by reference.
  *
  */
 
@@ -25,8 +14,14 @@
 #include <linux/init.h>
 #include "isdnloop.h"
 
-static char
-*revision = "$Revision: 1.11.6.3 $";
+static char *revision = "$Revision: 1.11.6.6 $";
+static char *isdnloop_id;
+
+MODULE_DESCRIPTION("ISDN4Linux: Pseudo Driver that simulates an ISDN card");
+MODULE_AUTHOR("Fritz Elfert");
+MODULE_LICENSE("GPL");
+MODULE_PARM(isdnloop_id, "s");
+MODULE_PARM_DESC(isdnloop_id, "ID-String of first card");
 
 static int isdnloop_addcard(char *);
 
@@ -323,7 +318,7 @@ isdnloop_polldchan(unsigned long data)
 	int left;
 	u_char c;
 	int ch;
-	int flags;
+	unsigned long flags;
 	u_char *p;
 	isdn_ctrl cmd;
 
@@ -985,10 +980,12 @@ isdnloop_writecmd(const u_char * buf, int len, int user, isdnloop_card * card)
 	isdn_ctrl cmd;
 
 	while (len) {
-		int count = MIN(255, len);
+		int count = len;
 		u_char *p;
 		u_char msg[0x100];
 
+		if (count > 255)
+			count = 255;
 		if (user)
 			copy_from_user(msg, buf, count);
 		else
@@ -1518,16 +1515,11 @@ isdnloop_initcard(char *id)
 static int
 isdnloop_addcard(char *id1)
 {
-	ulong flags;
 	isdnloop_card *card;
 
-	save_flags(flags);
-	cli();
 	if (!(card = isdnloop_initcard(id1))) {
-		restore_flags(flags);
 		return -EIO;
 	}
-	restore_flags(flags);
 	printk(KERN_INFO
 	       "isdnloop: (%s) virtual card added\n",
 	       card->interface.id);

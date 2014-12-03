@@ -702,6 +702,12 @@ static void yenta_allocate_res(pci_socket_t *socket, int nr, unsigned type)
 	u32 start, end;
 	u32 align, size, min, max;
 	unsigned offset;
+	unsigned mask;
+
+	/* The granularity of the memory limit is 4kB, on IO it's 4 bytes */
+	mask = ~0xfff;
+	if (type & IORESOURCE_IO)
+		mask = ~3;
 
 	offset = 0x1c + 8*nr;
 	bus = socket->dev->subordinate;
@@ -715,8 +721,8 @@ static void yenta_allocate_res(pci_socket_t *socket, int nr, unsigned type)
 	if (!root)
 		return;
 
-	start = config_readl(socket, offset);
-	end = config_readl(socket, offset+4) | 0xfff;
+	start = config_readl(socket, offset) & mask;
+	end = config_readl(socket, offset+4) | ~mask;
 	if (start && end > start) {
 		res->start = start;
 		res->end = end;
@@ -729,7 +735,7 @@ static void yenta_allocate_res(pci_socket_t *socket, int nr, unsigned type)
 	if (type & IORESOURCE_IO) {
 		align = 1024;
 		size = 256;
-		min = PCIBIOS_MIN_IO;
+		min = 0x4000;
 		max = 0xffff;
 	}
 		
@@ -795,6 +801,8 @@ static struct cardbus_override_struct {
 	{ PD(TI,1251B),	&ti_ops },
 	{ PD(TI,1410),	&ti_ops },
 	{ PD(TI,1420),	&ti_ops },
+	{ PD(TI,4410),	&ti_ops },
+	{ PD(TI,4451),	&ti_ops },
 
 	{ PD(RICOH,RL5C465), &ricoh_ops },
 	{ PD(RICOH,RL5C466), &ricoh_ops },
@@ -887,3 +895,4 @@ struct pci_socket_ops yenta_operations = {
 	yenta_proc_setup
 };
 EXPORT_SYMBOL(yenta_operations);
+MODULE_LICENSE("GPL");

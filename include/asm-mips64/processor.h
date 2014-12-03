@@ -26,7 +26,7 @@
 ({									\
 	void *_a;							\
 									\
-	__asm__ ("jal\t1f, 1f\n\t"					\
+	__asm__ ("jal\t1f, %0\n\t"					\
 		"1:"							\
 		: "=r" (_a));						\
 									\
@@ -198,9 +198,6 @@ struct thread_struct {
 
 #endif /* !defined (_LANGUAGE_ASSEMBLY) */
 
-#define INIT_MMAP { &init_mm, KSEG0, KSEG1, NULL, PAGE_SHARED, \
-                    VM_READ | VM_WRITE | VM_EXEC, 1, NULL, NULL }
-
 #define INIT_THREAD  { \
         /* \
          * saved main processor registers \
@@ -292,6 +289,8 @@ unsigned long get_wchan(struct task_struct *p);
 
 #define init_task	(init_task_union.task)
 #define init_stack	(init_task_union.stack)
+
+#define cpu_relax()	do { } while (0)
 
 #endif /* !defined (_LANGUAGE_ASSEMBLY) */
 #endif /* __KERNEL__ */

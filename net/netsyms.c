@@ -61,6 +61,7 @@ extern struct net_proto_family inet_family_ops;
 #include <net/ipv6.h>
 #include <net/ndisc.h>
 #include <net/transp_v6.h>
+#include <net/addrconf.h>
 
 extern int sysctl_local_port_range[2];
 extern int tcp_port_rover;
@@ -145,6 +146,7 @@ EXPORT_SYMBOL(skb_copy_datagram_iovec);
 EXPORT_SYMBOL(skb_copy_and_csum_datagram_iovec);
 EXPORT_SYMBOL(skb_copy_bits);
 EXPORT_SYMBOL(skb_copy_and_csum_bits);
+EXPORT_SYMBOL(skb_copy_and_csum_dev);
 EXPORT_SYMBOL(skb_copy_expand);
 EXPORT_SYMBOL(___pskb_trim);
 EXPORT_SYMBOL(__pskb_pull_tail);
@@ -251,6 +253,7 @@ EXPORT_SYMBOL(in_aton);
 EXPORT_SYMBOL(ip_mc_inc_group);
 EXPORT_SYMBOL(ip_mc_dec_group);
 EXPORT_SYMBOL(ip_finish_output);
+EXPORT_SYMBOL(inet_stream_ops);
 EXPORT_SYMBOL(inet_dgram_ops);
 EXPORT_SYMBOL(ip_cmsg_recv);
 EXPORT_SYMBOL(inet_addr_type); 
@@ -278,10 +281,12 @@ EXPORT_SYMBOL(dlci_ioctl_hook);
 #ifdef CONFIG_IPV6
 EXPORT_SYMBOL(ipv6_addr_type);
 EXPORT_SYMBOL(icmpv6_send);
+EXPORT_SYMBOL(ndisc_mc_map);
+EXPORT_SYMBOL(register_inet6addr_notifier);
+EXPORT_SYMBOL(unregister_inet6addr_notifier);
 #endif
 #if defined (CONFIG_IPV6_MODULE) || defined (CONFIG_KHTTPD) || defined (CONFIG_KHTTPD_MODULE)
 /* inet functions common to v4 and v6 */
-EXPORT_SYMBOL(inet_stream_ops);
 EXPORT_SYMBOL(inet_release);
 EXPORT_SYMBOL(inet_stream_connect);
 EXPORT_SYMBOL(inet_dgram_connect);
@@ -499,8 +504,6 @@ EXPORT_SYMBOL(dev_close);
 EXPORT_SYMBOL(dev_mc_add);
 EXPORT_SYMBOL(dev_mc_delete);
 EXPORT_SYMBOL(dev_mc_upload);
-EXPORT_SYMBOL(n_tty_ioctl);
-EXPORT_SYMBOL(tty_register_ldisc);
 EXPORT_SYMBOL(__kill_fasync);
 
 EXPORT_SYMBOL(if_port_text);

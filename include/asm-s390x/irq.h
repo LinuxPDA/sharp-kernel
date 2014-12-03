@@ -572,6 +572,10 @@ int s390_request_irq_special( int                      irq,
 extern int set_cons_dev(int irq);
 extern int reset_cons_dev(int irq);
 extern int wait_cons_dev(int irq);
+extern schib_t *s390_get_schib( int irq );
+
+extern int s390_register_adapter_interrupt(adapter_int_handler_t handler);
+extern int s390_unregister_adapter_interrupt(adapter_int_handler_t handler);
 
 /*
  * Some S390 specific IO instructions as inline
@@ -889,9 +893,9 @@ static inline void s390_do_profile (unsigned long addr)
         spin_lock_irqsave(&(ioinfo[irq]->irq_lock), flags)
 #define s390irq_spin_unlock_irqrestore(irq,flags) \
         spin_unlock_irqrestore(&(ioinfo[irq]->irq_lock), flags)
-#endif /* __KERNEL__ */
 
 #define touch_nmi_watchdog() do { } while(0)
 
+#endif /* __KERNEL__ */
 #endif
 

@@ -560,7 +560,7 @@ static void mfm_rw_intr(void)
 		};
 	};			/* Result read */
 
-	/*console_printf ("mfm_rw_intr nearexit [%02X]\n", inb(mfm_IRQPollLoc)); */
+	/*console_printf ("mfm_rw_intr nearexit [%02X]\n", __raw_readb(mfm_IRQPollLoc)); */
 
 	/* If end of command move on */
 	if (mfm_status & (STAT_CED)) {
@@ -1209,7 +1209,9 @@ static int mfm_ioctl(struct inode *inode, struct file *file, u_int cmd, u_long a
 		return 0;
 
 	case BLKGETSIZE:
-		return put_user (mfm[minor].nr_sects, (long *)arg);
+		return put_user (mfm[minor].nr_sects, (unsigned long *)arg);
+	case BLKGETSIZE64:
+		return put_user ((u64)mfm[minor].nr_sects << 9, (u64 *)arg);
 
 	case BLKFRASET:
 		if (!capable(CAP_SYS_ADMIN))
@@ -1311,15 +1313,13 @@ void xd_set_geometry(kdev_t dev, unsigned char secsptrack, unsigned char heads,
 }
 
 static struct gendisk mfm_gendisk = {
-	MAJOR_NR,		/* Major number */
-	"mfm",			/* Major name */
-	6,			/* Bits to shift to get real from partition */
-	1 << 6,			/* Number of partitions per real */
-	mfm,			/* hd struct */
-	mfm_sizes,		/* block sizes */
-	0,			/* number */
-	(void *) mfm_info,	/* internal */
-	NULL			/* next */
+	major:		MAJOR_NR,
+	major_name:	"mfm",
+	minor_shift:	6,
+	max_p:		1 << 6,
+	part:		mfm,
+	sizes:		mfm_sizes,
+	real_devices:	(void *)mfm_info,
 };
 
 static struct block_device_operations mfm_fops =
@@ -1425,7 +1425,7 @@ int mfm_init (void)
 		}
 
 		mfm_addr	= ecard_address(ecs, ECARD_IOC, ECARD_MEDIUM) + 0x800;
-		mfm_IRQPollLoc	= mfm_addr + 0x400;
+		mfm_IRQPollLoc	= ioaddr(mfm_addr + 0x400);
 		mfm_irqenable	= mfm_IRQPollLoc;
 		mfm_irq		= ecs->irq;
 		irqmask		= 0x08;
@@ -1444,16 +1444,13 @@ int mfm_init (void)
 
 	/* Stuff for the assembler routines to get to */
 	hdc63463_baseaddress	= ioaddr(mfm_addr);
-	hdc63463_irqpolladdress	= ioaddr(mfm_IRQPollLoc);
+	hdc63463_irqpolladdress	= mfm_IRQPollLoc;
 	hdc63463_irqpollmask	= irqmask;
 
 	blk_init_queue(BLK_DEFAULT_QUEUE(MAJOR_NR), DEVICE_REQUEST);
 	read_ahead[MAJOR_NR] = 8;	/* 8 sector (4kB?) read ahread */
 
-#ifndef MODULE
-	mfm_gendisk.next = gendisk_head;
-	gendisk_head = &mfm_gendisk;
-#endif
+	add_gendisk(&mfm_gendisk);
 
 	Busy = 0;
 	lastspecifieddrive = -1;
@@ -1501,6 +1498,10 @@ static int mfm_reread_partitions(kdev_t dev)
 }
 
 #ifdef MODULE
+
+EXPORT_NO_SYMBOLS;
+MODULE_LICENSE("GPL");
+
 int init_module(void)
 {
 	return mfm_init();
@@ -1512,6 +1513,7 @@ void cleanup_module(void)
 		outw (0, mfm_irqenable);	/* Required to enable IRQs from MFM podule */
 	free_irq(mfm_irq, NULL);
 	unregister_blkdev(MAJOR_NR, "mfm");
+	del_gendisk(&mfm_gendisk);
 	if (ecs)
 		ecard_release(ecs);
 	if (mfm_addr)

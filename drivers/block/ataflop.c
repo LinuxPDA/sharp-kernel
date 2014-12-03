@@ -1600,7 +1600,7 @@ static int fd_ioctl(struct inode *inode, struct file *filp,
 				dtp = UDT;
 		}
 		if (cmd == BLKGETSIZE)
-			return put_user(dtp->blocks, (long *)param);
+			return put_user(dtp->blocks, (unsigned long *)param);
 
 		memset((void *)&getprm, 0, sizeof(getprm));
 		getprm.size = dtp->blocks;
@@ -2056,6 +2056,9 @@ void __init atari_floppy_setup( char *str, int *ints )
 }
 
 #ifdef MODULE
+
+MODULE_LICENSE("GPL");
+
 int init_module (void)
 {
 	if (!MACH_IS_ATARI)

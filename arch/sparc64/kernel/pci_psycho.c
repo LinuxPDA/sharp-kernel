@@ -1,4 +1,4 @@
-/* $Id: pci_psycho.c,v 1.26 2001/06/13 06:34:30 davem Exp $
+/* $Id: pci_psycho.c,v 1.29 2001/10/11 00:44:38 davem Exp $
  * pci_psycho.c: PSYCHO/U2P specific PCI controller support.
  *
  * Copyright (C) 1997, 1998, 1999 David S. Miller (davem@caipfs.rutgers.edu)
@@ -18,6 +18,7 @@
 #include <asm/starfire.h>
 
 #include "pci_impl.h"
+#include "iommu_common.h"
 
 /* All PSYCHO registers are 64-bits.  The following accessor
  * routines are how they are accessed.  The REG parameter
@@ -35,7 +36,8 @@
 	__asm__ __volatile__("stxa %0, [%1] %2" \
 			     : /* no outputs */ \
 			     : "r" (__val), "r" (__reg), \
-			       "i" (ASI_PHYS_BYPASS_EC_E))
+			       "i" (ASI_PHYS_BYPASS_EC_E) \
+			     : "memory")
 
 /* Misc. PSYCHO PCI controller register offsets and definitions. */
 #define PSYCHO_CONTROL		0x0010UL
@@ -715,12 +717,12 @@ static void psycho_check_iommu_error(struct pci_controller_info *p,
 			       ((tag & PSYCHO_IOMMU_TAG_WRITE) ? 1 : 0),
 			       ((tag & PSYCHO_IOMMU_TAG_STREAM) ? 1 : 0),
 			       ((tag & PSYCHO_IOMMU_TAG_SIZE) ? 64 : 8),
-			       (tag & PSYCHO_IOMMU_TAG_VPAGE) << PAGE_SHIFT);
+			       (tag & PSYCHO_IOMMU_TAG_VPAGE) << IOMMU_PAGE_SHIFT);
 			printk("PSYCHO%d: IOMMU DATA(%d)[valid(%d) cache(%d) ppg(%016lx)]\n",
 			       p->index, i,
 			       ((data & PSYCHO_IOMMU_DATA_VALID) ? 1 : 0),
 			       ((data & PSYCHO_IOMMU_DATA_CACHE) ? 1 : 0),
-			       (data & PSYCHO_IOMMU_DATA_PPAGE) << PAGE_SHIFT);
+			       (data & PSYCHO_IOMMU_DATA_PPAGE) << IOMMU_PAGE_SHIFT);
 		}
 	}
 	__psycho_check_stc_error(p, afsr, afar, type);
@@ -1322,7 +1324,7 @@ static void __init psycho_iommu_init(struct pci_controller_info *p)
 	 * table (128K ioptes * 8 bytes per iopte).  This is
 	 * page order 7 on UltraSparc.
 	 */
-	tsbbase = __get_free_pages(GFP_KERNEL, 7);
+	tsbbase = __get_free_pages(GFP_KERNEL, get_order(IO_TSB_SIZE));
 	if (!tsbbase) {
 		prom_printf("PSYCHO_IOMMU: Error, gfp(tsb) failed.\n");
 		prom_halt();
@@ -1331,7 +1333,7 @@ static void __init psycho_iommu_init(struct pci_controller_info *p)
 	iommu->page_table_sz_bits = 17;
 	iommu->page_table_map_base = 0xc0000000;
 	iommu->dma_addr_mask = 0xffffffff;
-	memset((char *)tsbbase, 0, PAGE_SIZE << 7);
+	memset((char *)tsbbase, 0, IO_TSB_SIZE);
 
 	/* We start with no consistent mappings. */
 	iommu->lowest_consistent_map =
@@ -1477,14 +1479,23 @@ static void psycho_pbm_init(struct pci_controller_info *p,
 {
 	unsigned int busrange[2];
 	struct pci_pbm_info *pbm;
-	int err;
+	char namebuf[64];
+	int err, len;
 
 	if (is_pbm_a) {
 		pbm = &p->pbm_A;
+		pbm->pci_first_slot = 1;
 		pbm->io_space.start = p->controller_regs + PSYCHO_IOSPACE_A;
 		pbm->mem_space.start = p->controller_regs + PSYCHO_MEMSPACE_A;
 	} else {
 		pbm = &p->pbm_B;
+		pbm->pci_first_slot = 1;
+		len = prom_getproperty(prom_root_node, "name",
+				       namebuf, sizeof(namebuf));
+		if (len > 0) {
+			if (!strcmp(namebuf, "SUNW,Ultra-1-Engine"))
+				pbm->pci_first_slot = 2;
+		}
 		pbm->io_space.start = p->controller_regs + PSYCHO_IOSPACE_B;
 		pbm->mem_space.start = p->controller_regs + PSYCHO_MEMSPACE_B;
 	}

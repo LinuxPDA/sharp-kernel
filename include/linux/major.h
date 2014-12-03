@@ -117,6 +117,8 @@
 #define COMPAQ_CISS_MAJOR6      110
 #define COMPAQ_CISS_MAJOR7      111
 
+#define ATARAID_MAJOR		114
+
 #define DASD_MAJOR      94	/* Official assignations from Peter */
 
 #define MDISK_MAJOR     95	/* Official assignations from Peter */
@@ -174,6 +176,20 @@
 
 static __inline__ int scsi_blk_major(int m) {
 	return SCSI_BLK_MAJOR(m);
+}
+
+/*
+ * Tests for IDE devices
+ */
+#define IDE_DISK_MAJOR(M)	((M) == IDE0_MAJOR || (M) == IDE1_MAJOR || \
+				(M) == IDE2_MAJOR || (M) == IDE3_MAJOR || \
+				(M) == IDE4_MAJOR || (M) == IDE5_MAJOR || \
+				(M) == IDE6_MAJOR || (M) == IDE7_MAJOR || \
+				(M) == IDE8_MAJOR || (M) == IDE9_MAJOR)
+
+static __inline__ int ide_blk_major(int m)
+{
+	return IDE_DISK_MAJOR(m);
 }
 
 #endif

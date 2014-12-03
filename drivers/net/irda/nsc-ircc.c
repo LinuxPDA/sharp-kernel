@@ -90,7 +90,7 @@ static int nsc_ircc_init_338(nsc_chip_t *chip, chipio_t *info);
 static nsc_chip_t chips[] = {
 	{ "PC87108", { 0x150, 0x398, 0xea }, 0x05, 0x10, 0xf0, 
 	  nsc_ircc_probe_108, nsc_ircc_init_108 },
-	{ "PC87338", { 0x398, 0x15c, 0x2e }, 0x08, 0xb0, 0xf0, 
+	{ "PC87338", { 0x398, 0x15c, 0x2e }, 0x08, 0xb0, 0xf8, 
 	  nsc_ircc_probe_338, nsc_ircc_init_338 },
 	{ NULL }
 };
@@ -112,7 +112,7 @@ static char *dongle_types[] = {
 	"Reserved",
 	"Reserved",
 	"HP HSDL-1100/HSDL-2100",
-	"HP HSDL-1100/HSDL-2100"
+	"HP HSDL-1100/HSDL-2100",
 	"Supports SIR Mode only",
 	"No dongle connected",
 };
@@ -160,7 +160,7 @@ int __init nsc_ircc_init(void)
 	int i = 0;
 
 	/* Probe for all the NSC chipsets we know about */
-	for (chip=chips; chip->name ; chip++,i++) {
+	for (chip=chips; chip->name ; chip++) {
 		IRDA_DEBUG(2, __FUNCTION__"(), Probing for %s ...\n", 
 			   chip->name);
 		
@@ -196,7 +196,7 @@ int __init nsc_ircc_init(void)
 				 * we init the chip, if not we probe the values
 				 * set by the BIOS
 				 */				
-				if (io[i] < 2000) {
+				if (io[i] < 0x2000) {
 					chip->init(chip, &info);
 				} else
 					chip->probe(chip, &info);
@@ -602,7 +602,7 @@ static int nsc_ircc_probe_338(nsc_chip_t *chip, chipio_t *info)
 	outb(CFG_PNP0, cfg_base);
 	reg = inb(cfg_base+1);
 	
-	pnp = (reg >> 4) & 0x01;
+	pnp = (reg >> 3) & 0x01;
 	if (pnp) {
 		IRDA_DEBUG(2, "(), Chip is in PnP mode\n");
 		outb(0x46, cfg_base);
@@ -1836,6 +1836,7 @@ static int nsc_ircc_net_open(struct net_device *dev)
 {
 	struct nsc_ircc_cb *self;
 	int iobase;
+	char hwname[32];
 	__u8 bank;
 	
 	IRDA_DEBUG(4, __FUNCTION__ "()\n");
@@ -1874,14 +1875,16 @@ static int nsc_ircc_net_open(struct net_device *dev)
 	outb(bank, iobase+BSR);
 
 	/* Ready to play! */
-
 	netif_start_queue(dev);
 	
+	/* Give self a hardware name */
+	sprintf(hwname, "NSC-FIR @ 0x%03x", self->io.fir_base);
+
 	/* 
 	 * Open new IrLAP layer instance, now that everything should be
 	 * initialized properly 
 	 */
-	self->irlap = irlap_open(dev, &self->qos);
+	self->irlap = irlap_open(dev, &self->qos, hwname);
 
 	MOD_INC_USE_COUNT;
 
@@ -2039,6 +2042,8 @@ static int nsc_ircc_pmproc(struct pm_dev *dev, pm_request_t rqst, void *data)
 #ifdef MODULE
 MODULE_AUTHOR("Dag Brattli <dagb@cs.uit.no>");
 MODULE_DESCRIPTION("NSC IrDA Device Driver");
+MODULE_LICENSE("GPL");
+
 
 MODULE_PARM(qos_mtt_bits, "i");
 MODULE_PARM_DESC(qos_mtt_bits, "Minimum Turn Time");

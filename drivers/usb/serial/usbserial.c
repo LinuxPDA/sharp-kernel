@@ -14,7 +14,23 @@
  * based on a driver by Brad Keryan)
  *
  * See Documentation/usb/usb-serial.txt for more information on using this driver
- * 
+ *
+ * (10/10/2001) gkh
+ *	usb_serial_disconnect() now sets the serial->dev pointer is to NULL to
+ *	help prevent child drivers from accessing the device since it is now
+ *	gone.
+ *
+ * (09/13/2001) gkh
+ *	Moved generic driver initialize after we have registered with the USB
+ *	core.  Thanks to Randy Dunlap for pointing this problem out.
+ *
+ * (07/03/2001) gkh
+ *	Fixed module paramater size.  Thanks to John Brockmeyer for the pointer.
+ *	Fixed vendor and product getting defined through the MODULE_PARM macro
+ *	if the Generic driver wasn't compiled in.
+ *	Fixed problem with generic_shutdown() not being called for drivers that
+ *	don't have a shutdown() function.
+ *
  * (06/06/2001) gkh
  *	added evil hack that is needed for the prolific pl2303 device due to the
  *	crazy way its endpoints are set up.
@@ -296,11 +312,9 @@
 /*
  * Version Information
  */
-#define DRIVER_VERSION "v1.2"
+#define DRIVER_VERSION "v1.4"
 #define DRIVER_AUTHOR "Greg Kroah-Hartman, greg@kroah.com, http://www.kroah.com/linux-usb/"
 #define DRIVER_DESC "USB Serial Driver core"
-
-#define MAX(a,b)	(((a)>(b))?(a):(b))
 
 /* function prototypes for a "generic" type serial converter (no flow control, not all endpoints needed) */
 /* need to always compile these in, as some of the other devices use these functions as their own. */
@@ -334,6 +348,13 @@ static struct usb_serial_device_type generic_device = {
 	num_ports:		1,
 	shutdown:		generic_shutdown,
 };
+
+#define if_generic_do(x)			\
+	if ((serial->vendor == vendor) &&	\
+	    (serial->product == product))	\
+	                x
+#else
+#define if_generic_do(x)
 #endif
 
 
@@ -347,6 +368,7 @@ static void serial_throttle (struct tty_struct * tty);
 static void serial_unthrottle (struct tty_struct * tty);
 static int  serial_ioctl (struct tty_struct *tty, struct file * file, unsigned int cmd, unsigned long arg);
 static void serial_set_termios (struct tty_struct *tty, struct termios * old);
+static void serial_shutdown (struct usb_serial *serial);
 
 static void * usb_serial_probe(struct usb_device *dev, unsigned int ifnum,
 			       const struct usb_device_id *id);
@@ -445,10 +467,15 @@ static void return_serial (struct usb_serial *serial)
 int ezusb_writememory (struct usb_serial *serial, int address, unsigned char *data, int length, __u8 bRequest)
 {
 	int result;
-	unsigned char *transfer_buffer =  kmalloc (length, GFP_KERNEL);
+	unsigned char *transfer_buffer;
 
-//	dbg("ezusb_writememory %x, %d", address, length);
+	/* dbg("ezusb_writememory %x, %d", address, length); */
+	if (!serial->dev) {
+		dbg(__FUNCTION__ " - no physical device present, failing.");
+		return -ENODEV;
+	}
 
+	transfer_buffer =  kmalloc (length, GFP_KERNEL);
 	if (!transfer_buffer) {
 		err(__FUNCTION__ " - kmalloc(%d) failed.", length);
 		return -ENOMEM;
@@ -495,8 +522,6 @@ static int serial_open (struct tty_struct *tty, struct file * filp)
 		return -ENODEV;
 	}
 
-	MOD_INC_USE_COUNT;
-	
 	/* set up our port structure making the tty driver remember our port object, and us it */
 	portNumber = MINOR(tty->device) - serial->minor;
 	port = &serial->port[portNumber];
@@ -534,8 +559,6 @@ static void serial_close(struct tty_struct *tty, struct file * filp)
 	} else {
 		generic_close(port, filp);
 	}
-
-	MOD_DEC_USE_COUNT;
 }	
 
 
@@ -736,6 +759,16 @@ static void serial_break (struct tty_struct *tty, int break_state)
 }
 
 
+static void serial_shutdown (struct usb_serial *serial)
+{
+	if (serial->type->shutdown) {
+		serial->type->shutdown(serial);
+	} else {
+		generic_shutdown(serial);
+	}
+}
+
+
 
 /*****************************************************************************
  * generic devices specific driver functions
@@ -748,7 +781,8 @@ static int generic_open (struct usb_serial_port *port, struct file *filp)
 	if (port_paranoia_check (port, __FUNCTION__))
 		return -ENODEV;
 
-	MOD_INC_USE_COUNT;
+	/* only increment our usage count, if this device is _really_ a generic device */
+	if_generic_do(MOD_INC_USE_COUNT);
 
 	dbg(__FUNCTION__ " - port %d", port->number);
 
@@ -797,18 +831,22 @@ static void generic_close (struct usb_serial_port *port, struct file * filp)
 	--port->open_count;
 
 	if (port->open_count <= 0) {
-		/* shutdown any bulk reads that might be going on */
-		if (serial->num_bulk_out)
-			usb_unlink_urb (port->write_urb);
-		if (serial->num_bulk_in)
-			usb_unlink_urb (port->read_urb);
+		if (serial->dev) {
+			/* shutdown any bulk reads that might be going on */
+			if (serial->num_bulk_out)
+				usb_unlink_urb (port->write_urb);
+			if (serial->num_bulk_in)
+				usb_unlink_urb (port->read_urb);
+		}
 		
 		port->active = 0;
 		port->open_count = 0;
 	}
 
 	up (&port->sem);
-	MOD_DEC_USE_COUNT;
+
+	/* only decrement our usage count, if this device is _really_ a generic device */
+	if_generic_do(MOD_DEC_USE_COUNT);
 }
 
 
@@ -834,7 +872,8 @@ static int generic_write (struct usb_serial_port *port, int from_user, const uns
 		count = (count > port->bulk_out_size) ? port->bulk_out_size : count;
 
 		if (from_user) {
-			copy_from_user(port->write_urb->transfer_buffer, buf, count);
+			if (copy_from_user(port->write_urb->transfer_buffer, buf, count))
+				return -EFAULT;
 		}
 		else {
 			memcpy (port->write_urb->transfer_buffer, buf, count);
@@ -1159,6 +1198,8 @@ static void * usb_serial_probe(struct usb_device *dev, unsigned int ifnum,
 	serial->num_bulk_in = num_bulk_in;
 	serial->num_bulk_out = num_bulk_out;
 	serial->num_interrupt_in = num_interrupt_in;
+	serial->vendor = dev->descriptor.idVendor;
+	serial->product = dev->descriptor.idProduct;
 
 	/* if this device type has a startup function, call it */
 	if (type->startup) {
@@ -1242,9 +1283,9 @@ static void * usb_serial_probe(struct usb_device *dev, unsigned int ifnum,
 
 	/* initialize some parts of the port structures */
 	/* we don't use num_ports here cauz some devices have more endpoint pairs than ports */
-	max_endpoints = MAX(num_bulk_in, num_bulk_out);
-	max_endpoints = MAX(max_endpoints, num_interrupt_in);
-	max_endpoints = MAX(max_endpoints, serial->num_ports);
+	max_endpoints = max(num_bulk_in, num_bulk_out);
+	max_endpoints = max(max_endpoints, num_interrupt_in);
+	max_endpoints = max(max_endpoints, (int)serial->num_ports);
 	dbg (__FUNCTION__ " - setting up %d port structures for this device", max_endpoints);
 	for (i = 0; i < max_endpoints; ++i) {
 		port = &serial->port[i];
@@ -1311,8 +1352,8 @@ static void usb_serial_disconnect(struct usb_device *dev, void *ptr)
 				serial->port[i].tty->driver_data = NULL;
 		}
 
-		if (serial->type->shutdown)
-			serial->type->shutdown(serial);
+		serial->dev = NULL;
+		serial_shutdown (serial);
 
 		for (i = 0; i < serial->num_ports; ++i)
 			serial->port[i].active = 0;
@@ -1410,14 +1451,6 @@ int usb_serial_init(void)
 		return -1;
 	}
 
-#ifdef CONFIG_USB_SERIAL_GENERIC
-	generic_device_ids[0].idVendor = vendor;
-	generic_device_ids[0].idProduct = product;
-	generic_device_ids[0].match_flags = USB_DEVICE_ID_MATCH_VENDOR | USB_DEVICE_ID_MATCH_PRODUCT;
-	/* register our generic driver with ourselves */
-	usb_serial_register (&generic_device);
-#endif
-	
 	/* register the USB driver */
 	result = usb_register(&usb_serial_driver);
 	if (result < 0) {
@@ -1426,7 +1459,15 @@ int usb_serial_init(void)
 		return -1;
 	}
 
-	info(DRIVER_VERSION ":" DRIVER_DESC);
+#ifdef CONFIG_USB_SERIAL_GENERIC
+	generic_device_ids[0].idVendor = vendor;
+	generic_device_ids[0].idProduct = product;
+	generic_device_ids[0].match_flags = USB_DEVICE_ID_MATCH_VENDOR | USB_DEVICE_ID_MATCH_PRODUCT;
+	/* register our generic driver with ourselves */
+	usb_serial_register (&generic_device);
+#endif
+
+	info(DRIVER_DESC " " DRIVER_VERSION);
 
 	return 0;
 }
@@ -1496,13 +1537,15 @@ EXPORT_SYMBOL(usb_serial_deregister);
 /* Module information */
 MODULE_AUTHOR( DRIVER_AUTHOR );
 MODULE_DESCRIPTION( DRIVER_DESC );
+MODULE_LICENSE("GPL");
 
 MODULE_PARM(debug, "i");
 MODULE_PARM_DESC(debug, "Debug enabled or not");
 
-MODULE_PARM(vendor, "i");
+#ifdef CONFIG_USB_SERIAL_GENERIC
+MODULE_PARM(vendor, "h");
 MODULE_PARM_DESC(vendor, "User specified USB idVendor");
 
-MODULE_PARM(product, "i");
+MODULE_PARM(product, "h");
 MODULE_PARM_DESC(product, "User specified USB idProduct");
-
+#endif

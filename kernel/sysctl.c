@@ -47,6 +47,8 @@ extern int sysctl_overcommit_memory;
 extern int max_threads;
 extern int nr_queued_signals, max_queued_signals;
 extern int sysrq_enabled;
+extern int core_uses_pid;
+extern int cad_pid;
 
 /* this is needed for the proc_dointvec_minmax for [fs_]overflow UID and GID */
 static int maxolduid = 65535;
@@ -83,8 +85,8 @@ extern int sysctl_ieee_emulation_warnings;
 extern int sysctl_userprocess_debug;
 #endif
 
-#ifdef __powerpc__
-extern unsigned long htab_reclaim_on, zero_paged_on, powersave_nap;
+#ifdef CONFIG_PPC32
+extern unsigned long zero_paged_on, powersave_nap;
 int proc_dol2crvec(ctl_table *table, int write, struct file *filp,
 		  void *buffer, size_t *lenp);
 #endif
@@ -166,6 +168,10 @@ static ctl_table kern_table[] = {
 	 0644, NULL, &proc_doutsstring, &sysctl_string},
 	{KERN_PANIC, "panic", &panic_timeout, sizeof(int),
 	 0644, NULL, &proc_dointvec},
+	{KERN_CORE_USES_PID, "core_uses_pid", &core_uses_pid, sizeof(int),
+	 0644, NULL, &proc_dointvec},
+	{KERN_TAINTED, "tainted", &tainted, sizeof(int),
+	 0644, NULL, &proc_dointvec},
 	{KERN_CAP_BSET, "cap-bound", &cap_bset, sizeof(kernel_cap_t),
 	 0600, NULL, &proc_dointvec_bset},
 #ifdef CONFIG_BLK_DEV_INITRD
@@ -178,9 +184,7 @@ static ctl_table kern_table[] = {
 	{KERN_SPARC_STOP_A, "stop-a", &stop_a_enabled, sizeof (int),
 	 0644, NULL, &proc_dointvec},
 #endif
-#ifdef __powerpc__
-	{KERN_PPC_HTABRECLAIM, "htab-reclaim", &htab_reclaim_on, sizeof(int),
-	 0644, NULL, &proc_dointvec},
+#ifdef CONFIG_PPC32
 	{KERN_PPC_ZEROPAGED, "zero-paged", &zero_paged_on, sizeof(int),
 	 0644, NULL, &proc_dointvec},
 	{KERN_PPC_POWERSAVE_NAP, "powersave-nap", &powersave_nap, sizeof(int),
@@ -232,6 +236,8 @@ static ctl_table kern_table[] = {
 	{KERN_SYSRQ, "sysrq", &sysrq_enabled, sizeof (int),
 	 0644, NULL, &proc_dointvec},
 #endif	 
+	{KERN_CADPID, "cad_pid", &cad_pid, sizeof (int),
+	 0600, NULL, &proc_dointvec},
 	{KERN_MAX_THREADS, "threads-max", &max_threads, sizeof(int),
 	 0644, NULL, &proc_dointvec},
 	{KERN_RANDOM, "random", NULL, 0, 0555, random_table},
@@ -253,17 +259,11 @@ static ctl_table kern_table[] = {
 };
 
 static ctl_table vm_table[] = {
-	{VM_FREEPG, "freepages", 
-	 &freepages, sizeof(freepages_t), 0444, NULL, &proc_dointvec},
 	{VM_BDFLUSH, "bdflush", &bdf_prm, 9*sizeof(int), 0644, NULL,
 	 &proc_dointvec_minmax, &sysctl_intvec, NULL,
 	 &bdflush_min, &bdflush_max},
 	{VM_OVERCOMMIT_MEMORY, "overcommit_memory", &sysctl_overcommit_memory,
 	 sizeof(sysctl_overcommit_memory), 0644, NULL, &proc_dointvec},
-	{VM_BUFFERMEM, "buffermem",
-	 &buffer_mem, sizeof(buffer_mem_t), 0644, NULL, &proc_dointvec},
-	{VM_PAGECACHE, "pagecache",
-	 &page_cache, sizeof(buffer_mem_t), 0644, NULL, &proc_dointvec},
 	{VM_PAGERDAEMON, "kswapd",
 	 &pager_daemon, sizeof(pager_daemon_t), 0644, NULL, &proc_dointvec},
 	{VM_PGT_CACHE, "pagetable_cache", 
@@ -286,14 +286,8 @@ static ctl_table fs_table[] = {
 	 0444, NULL, &proc_dointvec},
 	{FS_MAXFILE, "file-max", &files_stat.max_files, sizeof(int),
 	 0644, NULL, &proc_dointvec},
-	{FS_NRSUPER, "super-nr", &nr_super_blocks, sizeof(int),
-	 0444, NULL, &proc_dointvec},
-	{FS_MAXSUPER, "super-max", &max_super_blocks, sizeof(int),
-	 0644, NULL, &proc_dointvec},
 	{FS_NRDQUOT, "dquot-nr", &nr_dquots, 2*sizeof(int),
 	 0444, NULL, &proc_dointvec},
-	{FS_MAXDQUOT, "dquot-max", &max_dquots, sizeof(int),
-	 0644, NULL, &proc_dointvec},
 	{FS_DENTRY, "dentry-state", &dentry_stat, 6*sizeof(int),
 	 0444, NULL, &proc_dointvec},
 	{FS_OVERFLOWUID, "overflowuid", &fs_overflowuid, sizeof(int), 0644, NULL,

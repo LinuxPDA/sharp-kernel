@@ -25,6 +25,9 @@
  *
  * Version history:
  * 
+ * 2.1 2001_07_09 greg kroah-hartman
+ *	- added support for TIOCMBIS and TIOCMBIC.
+ *
  *     (04/08/2001) gb
  *	- Identify version on module load.
  *
@@ -233,7 +236,7 @@
 #include <linux/errno.h>
 #include <linux/poll.h>
 #include <linux/init.h>
-#include <linux/malloc.h>
+#include <linux/slab.h>
 #include <linux/fcntl.h>
 #include <linux/tty.h>
 #include <linux/tty_driver.h>
@@ -260,7 +263,7 @@
 /*
  * Version Information
  */
-#define DRIVER_VERSION "v2.0.0"
+#define DRIVER_VERSION "v2.1"
 #define DRIVER_AUTHOR "Greg Kroah-Hartman <greg@kroah.com> and David Iacovelli"
 #define DRIVER_DESC "Edgeport USB Serial Driver"
 
@@ -475,7 +478,6 @@ static void load_application_firmware	(struct edgeport_serial *edge_serial);
 
 static void unicode_to_ascii		(char *string, short *unicode, int unicode_size);
 
-static int  get_string_desc		(struct usb_device *dev, int Id, struct usb_string_descriptor **pRetDesc);
 
 
 
@@ -611,6 +613,7 @@ static int get_string (struct usb_device *dev, int Id, char *string)
 }
 
 
+#if 0
 /************************************************************************
  *
  *  Get string descriptor from device
@@ -641,7 +644,7 @@ static int get_string_desc (struct usb_device *dev, int Id, struct usb_string_de
 	*pRetDesc = pStringDesc;
 	return 0;
 }
-
+#endif
 
 
 
@@ -1238,42 +1241,45 @@ static void edge_close (struct usb_serial_port *port, struct file * filp)
 	--port->open_count;
 
 	if (port->open_count <= 0) {
-		// block until tx is empty
-		block_until_tx_empty(edge_port);
-	
-		edge_port->closePending = TRUE;
-	
-		/* flush and chase */
-		edge_port->chaseResponsePending = TRUE;
-	
-		dbg(__FUNCTION__" - Sending IOSP_CMD_CHASE_PORT");
-		status = send_iosp_ext_cmd (edge_port, IOSP_CMD_CHASE_PORT, 0);
-		if (status == 0) {
-			// block until chase finished
-			block_until_chase_response(edge_port);
-		} else {
-			edge_port->chaseResponsePending = FALSE;
+		if (serial->dev) {
+			// block until tx is empty
+			block_until_tx_empty(edge_port);
+
+			edge_port->closePending = TRUE;
+
+			/* flush and chase */
+			edge_port->chaseResponsePending = TRUE;
+
+			dbg(__FUNCTION__" - Sending IOSP_CMD_CHASE_PORT");
+			status = send_iosp_ext_cmd (edge_port, IOSP_CMD_CHASE_PORT, 0);
+			if (status == 0) {
+				// block until chase finished
+				block_until_chase_response(edge_port);
+			} else {
+				edge_port->chaseResponsePending = FALSE;
+			}
+
+			/* close the port */
+			dbg(__FUNCTION__" - Sending IOSP_CMD_CLOSE_PORT");
+			send_iosp_ext_cmd (edge_port, IOSP_CMD_CLOSE_PORT, 0);
+
+			//port->close = TRUE;
+			edge_port->closePending = FALSE;
+			edge_port->open = FALSE;
+			edge_port->openPending = FALSE;
+
+			if (edge_port->write_urb) {
+				usb_unlink_urb (edge_port->write_urb);
+			}
 		}
-	
-		/* close the port */
-		dbg(__FUNCTION__" - Sending IOSP_CMD_CLOSE_PORT");
-		send_iosp_ext_cmd (edge_port, IOSP_CMD_CLOSE_PORT, 0);
-	
-		//port->close = TRUE;
-		edge_port->closePending = FALSE;
-		edge_port->open = FALSE;
-		edge_port->openPending = FALSE;
 	
 		if (edge_port->write_urb) {
 			/* if this urb had a transfer buffer already (old transfer) free it */
 			if (edge_port->write_urb->transfer_buffer != NULL) {
 				kfree(edge_port->write_urb->transfer_buffer);
 			}
-	
-			usb_unlink_urb (edge_port->write_urb);
 			usb_free_urb   (edge_port->write_urb);
 		}
-	
 		if (edge_port->txfifo.fifo) {
 			kfree(edge_port->txfifo.fifo);
 		}
@@ -1308,7 +1314,7 @@ static int edge_write (struct usb_serial_port *port, int from_user, const unsign
 	fifo = &edge_port->txfifo;
 
 	// calculate number of bytes to put in fifo
-	copySize = MIN(count, (edge_port->txCredits - fifo->count));
+	copySize = min ((unsigned int)count, (edge_port->txCredits - fifo->count));
 
 	dbg(__FUNCTION__"(%d) of %d byte(s) Fifo room  %d -- will copy %d bytes", 
 	    port->number, count, edge_port->txCredits - fifo->count, copySize);
@@ -1326,12 +1332,13 @@ static int edge_write (struct usb_serial_port *port, int from_user, const unsign
 	// then copy the reset from the start of the buffer 
 
 	bytesleft = fifo->size - fifo->head;
-	firsthalf = MIN(bytesleft,copySize);
+	firsthalf = min (bytesleft, copySize);
 	dbg (__FUNCTION__" - copy %d bytes of %d into fifo ", firsthalf, bytesleft);
 
 	/* now copy our data */
 	if (from_user) {
-		copy_from_user(&fifo->fifo[fifo->head], data, firsthalf);
+		if (copy_from_user(&fifo->fifo[fifo->head], data, firsthalf))
+			return -EFAULT;
 	} else {
 		memcpy(&fifo->fifo[fifo->head], data, firsthalf);
 	}  
@@ -1350,7 +1357,8 @@ static int edge_write (struct usb_serial_port *port, int from_user, const unsign
 	if (secondhalf) {
 		dbg (__FUNCTION__" - copy rest of data %d", secondhalf);
 		if (from_user) {
-			copy_from_user(&fifo->fifo[fifo->head], &data[firsthalf], secondhalf);
+			if (copy_from_user(&fifo->fifo[fifo->head], &data[firsthalf], secondhalf))
+				return -EFAULT;
 		} else {
 			memcpy(&fifo->fifo[fifo->head], &data[firsthalf], secondhalf);
 		}
@@ -1449,7 +1457,7 @@ static void send_more_port_data(struct edgeport_serial *edge_serial, struct edge
 
 	/* now copy our data */
 	bytesleft =  fifo->size - fifo->tail;
-	firsthalf = MIN(bytesleft,count);
+	firsthalf = min (bytesleft, count);
 	memcpy(&buffer[2], &fifo->fifo[fifo->tail], firsthalf);
 	fifo->tail  += firsthalf;
 	fifo->count -= firsthalf;
@@ -1718,7 +1726,7 @@ static int get_number_bytes_avail(struct edgeport_port *edge_port, unsigned int 
 	return -ENOIOCTLCMD;
 }
 
-static int set_modem_info(struct edgeport_port *edge_port, unsigned int *value)
+static int set_modem_info(struct edgeport_port *edge_port, unsigned int cmd, unsigned int *value)
 {
 	unsigned int mcr = edge_port->shadowMCR;
 	unsigned int arg;
@@ -1726,11 +1734,34 @@ static int set_modem_info(struct edgeport_port *edge_port, unsigned int *value)
 	if (copy_from_user(&arg, value, sizeof(int)))
 		return -EFAULT;
 
-	// turn off the RTS and DTR
-	mcr &=  ~(MCR_RTS | MCR_DTR);
+	switch (cmd) {
+		case TIOCMBIS:
+			if (arg & TIOCM_RTS)
+				mcr |= MCR_RTS;
+			if (arg & TIOCM_DTR)
+				mcr |= MCR_RTS;
+			if (arg & TIOCM_LOOP)
+				mcr |= MCR_LOOPBACK;
+			break;
 
-	mcr |= ((arg & TIOCM_RTS) ? MCR_RTS : 0);
-	mcr |= ((arg & TIOCM_DTR) ? MCR_DTR : 0);
+		case TIOCMBIC:
+			if (arg & TIOCM_RTS)
+				mcr &= ~MCR_RTS;
+			if (arg & TIOCM_DTR)
+				mcr &= ~MCR_RTS;
+			if (arg & TIOCM_LOOP)
+				mcr &= ~MCR_LOOPBACK;
+			break;
+
+		case TIOCMSET:
+			/* turn off the RTS and DTR and LOOPBACK 
+			 * and then only turn on what was asked to */
+			mcr &=  ~(MCR_RTS | MCR_DTR | MCR_LOOPBACK);
+			mcr |= ((arg & TIOCM_RTS) ? MCR_RTS : 0);
+			mcr |= ((arg & TIOCM_DTR) ? MCR_DTR : 0);
+			mcr |= ((arg & TIOCM_LOOP) ? MCR_LOOPBACK : 0);
+			break;
+	}
 
 	edge_port->shadowMCR = mcr;
 
@@ -1827,9 +1858,11 @@ static int edge_ioctl (struct usb_serial_port *port, struct file *file, unsigned
 			return get_lsr_info(edge_port, (unsigned int *) arg);
 			return 0;
 
-		case TIOCMSET:  
-			dbg(__FUNCTION__" (%d) TIOCMSET",  port->number);
-			return set_modem_info(edge_port, (unsigned int *) arg);
+		case TIOCMBIS:
+		case TIOCMBIC:
+		case TIOCMSET:
+			dbg(__FUNCTION__" (%d) TIOCMSET/TIOCMBIC/TIOCMSET",  port->number);
+			return set_modem_info(edge_port, cmd, (unsigned int *) arg);
 
 		case TIOCMGET:  
 			dbg(__FUNCTION__" (%d) TIOCMGET",  port->number);
@@ -3037,7 +3070,7 @@ int __init edgeport_init(void)
 	usb_serial_register (&edgeport_16dual_device);
 	usb_serial_register (&edgeport_compat_id_device);
 	usb_serial_register (&edgeport_8i_device);
-	info(DRIVER_VERSION ":" DRIVER_DESC);
+	info(DRIVER_DESC " " DRIVER_VERSION);
 	return 0;
 }
 
@@ -3073,6 +3106,7 @@ module_exit(edgeport_exit);
 /* Module information */
 MODULE_AUTHOR( DRIVER_AUTHOR );
 MODULE_DESCRIPTION( DRIVER_DESC );
+MODULE_LICENSE("GPL");
 
 MODULE_PARM(debug, "i");
 MODULE_PARM_DESC(debug, "Debug enabled or not");

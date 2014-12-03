@@ -371,29 +371,31 @@ static void ftdi_sio_close (struct usb_serial_port *port, struct file *filp)
 	--port->open_count;
 
 	if (port->open_count <= 0) {
-		if (c_cflag & HUPCL){
-			/* Disable flow control */
-			if (usb_control_msg(serial->dev, usb_sndctrlpipe(serial->dev, 0),
-					    FTDI_SIO_SET_FLOW_CTRL_REQUEST, 
-					    FTDI_SIO_SET_FLOW_CTRL_REQUEST_TYPE,
-					    0, 0, 
-					    buf, 0, WDR_TIMEOUT) < 0) {
-				err("error from flowcontrol urb");
-			}	    
+		if (serial->dev) {
+			if (c_cflag & HUPCL){
+				/* Disable flow control */
+				if (usb_control_msg(serial->dev, 
+						    usb_sndctrlpipe(serial->dev, 0),
+						    FTDI_SIO_SET_FLOW_CTRL_REQUEST,
+						    FTDI_SIO_SET_FLOW_CTRL_REQUEST_TYPE,
+						    0, 0, buf, 0, WDR_TIMEOUT) < 0) {
+					err("error from flowcontrol urb");
+				}	    
 
-			/* drop DTR */
-			if (set_dtr(serial->dev, usb_sndctrlpipe(serial->dev, 0), LOW) < 0){
-				err("Error from DTR LOW urb");
-			}
-			/* drop RTS */
-			if (set_rts(serial->dev, usb_sndctrlpipe(serial->dev, 0),LOW) < 0) {
-				err("Error from RTS LOW urb");
-			}	
-		} /* Note change no line is hupcl is off */
+				/* drop DTR */
+				if (set_dtr(serial->dev, usb_sndctrlpipe(serial->dev, 0), LOW) < 0){
+					err("Error from DTR LOW urb");
+				}
+				/* drop RTS */
+				if (set_rts(serial->dev, usb_sndctrlpipe(serial->dev, 0),LOW) < 0) {
+					err("Error from RTS LOW urb");
+				}	
+			} /* Note change no line is hupcl is off */
 
-		/* shutdown our bulk reads and writes */
-		usb_unlink_urb (port->write_urb);
-		usb_unlink_urb (port->read_urb);
+			/* shutdown our bulk reads and writes */
+			usb_unlink_urb (port->write_urb);
+			usb_unlink_urb (port->read_urb);
+		}
 		port->active = 0;
 		port->open_count = 0;
 	} else {  
@@ -452,7 +454,7 @@ static int ftdi_sio_write (struct usb_serial_port *port, int from_user,
 		while (port->write_urb->status == -EINPROGRESS) {
 			dbg(__FUNCTION__ " write in progress - retrying");
 			if (signal_pending(current)) {
-				current->state = TASK_RUNNING;
+				set_current_state(TASK_RUNNING);
 				remove_wait_queue(&port->write_wait, &wait);
 				rc = -ERESTARTSYS;
 				goto err;
@@ -470,8 +472,9 @@ static int ftdi_sio_write (struct usb_serial_port *port, int from_user,
 
 		/* Copy in the data to send */
 		if (from_user) {
-			copy_from_user(port->write_urb->transfer_buffer + data_offset , 
-				       buf, count - data_offset );
+			if (copy_from_user(port->write_urb->transfer_buffer + data_offset,
+					   buf, count - data_offset ))
+				return -EFAULT;
 		}
 		else {
 			memcpy(port->write_urb->transfer_buffer + data_offset,
@@ -902,7 +905,8 @@ static int ftdi_sio_ioctl (struct usb_serial_port *port, struct file * file, uns
 
 	case TIOCMSET: /* Turns on and off the lines as specified by the mask */
 		dbg(__FUNCTION__ " TIOCMSET");
-		if ((ret = get_user(mask, (unsigned long *) arg))) return ret;
+		if (get_user(mask, (unsigned long *) arg))
+			return -EFAULT;
 		urb_value = ((mask & TIOCM_DTR) ? HIGH : LOW);
 		if (set_dtr(serial->dev, usb_sndctrlpipe(serial->dev, 0),urb_value) < 0){
 			err("Error from DTR set urb (TIOCMSET)");
@@ -915,7 +919,8 @@ static int ftdi_sio_ioctl (struct usb_serial_port *port, struct file * file, uns
 					
 	case TIOCMBIS: /* turns on (Sets) the lines as specified by the mask */
 		dbg(__FUNCTION__ " TIOCMBIS");
- 	        if ((ret = get_user(mask, (unsigned long *) arg))) return ret;
+ 	        if (get_user(mask, (unsigned long *) arg))
+			return -EFAULT;
   	        if (mask & TIOCM_DTR){
 			if ((ret = set_dtr(serial->dev, 
 					   usb_sndctrlpipe(serial->dev, 0),
@@ -936,7 +941,8 @@ static int ftdi_sio_ioctl (struct usb_serial_port *port, struct file * file, uns
 
 	case TIOCMBIC: /* turns off (Clears) the lines as specified by the mask */
 		dbg(__FUNCTION__ " TIOCMBIC");
- 	        if ((ret = get_user(mask, (unsigned long *) arg))) return ret;
+ 	        if (get_user(mask, (unsigned long *) arg))
+			return -EFAULT;
   	        if (mask & TIOCM_DTR){
 			if ((ret = set_dtr(serial->dev, 
 					   usb_sndctrlpipe(serial->dev, 0),
@@ -999,6 +1005,7 @@ module_exit(ftdi_sio_exit);
 
 MODULE_AUTHOR( DRIVER_AUTHOR );
 MODULE_DESCRIPTION( DRIVER_DESC );
+MODULE_LICENSE("GPL");
 
 MODULE_PARM(debug, "i");
 MODULE_PARM_DESC(debug, "Debug enabled or not");

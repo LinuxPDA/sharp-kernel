@@ -1,5 +1,5 @@
 /*
- * BK Id: SCCS/s.fec.c 1.12 05/18/01 07:54:04 patch
+ * BK Id: SCCS/s.fec.c 1.20 10/11/01 11:55:47 trini
  */
 /*
  * Fast Ethernet Controller (FEC) driver for Motorola MPC8xx.
@@ -60,7 +60,7 @@
 #include <asm/irq.h>
 #include <asm/bitops.h>
 #include <asm/uaccess.h>
-#include "commproc.h"
+#include <asm/commproc.h>
 
 #ifdef	CONFIG_USE_MDIO
 /* Forward declarations of some structures to support different PHYs
@@ -412,8 +412,10 @@ fec_enet_start_xmit(struct sk_buff *skb, struct net_device *dev)
 		bdp++;
 	}
 
-	if (bdp->cbd_sc & BD_ENET_TX_READY)
+	if (bdp->cbd_sc & BD_ENET_TX_READY) {
 		netif_stop_queue(dev);
+		fep->tx_full = 1;
+	}
 
 	fep->cur_tx = (cbd_t *)bdp;
 
@@ -866,6 +868,8 @@ static void mii_parse_sr(uint mii_reg, struct net_device *dev)
 		*s |= PHY_STAT_FAULT;
 	if (mii_reg & 0x0020)
 		*s |= PHY_STAT_ANC;
+
+	fep->link = (*s & PHY_STAT_LINK) ? 1 : 0;
 }
 
 static void mii_parse_cr(uint mii_reg, struct net_device *dev)
@@ -1509,7 +1513,6 @@ int __init fec_enet_init(void)
 	volatile	immap_t	*immap;
 	volatile	fec_t	*fecp;
 	bd_t		*bd;
-	extern		uint	_get_IMMR(void);
 #ifdef CONFIG_SCC_ENET
 	unsigned char	tmpaddr[6];
 #endif
@@ -1649,11 +1652,11 @@ int __init fec_enet_init(void)
 #endif
 
 #ifdef PHY_INTERRUPT
-	if (request_8xxirq(PHY_INTERRUPT, mii_link_interrupt, 0, "mii", dev) != 0)
-		panic("Could not allocate MII IRQ!");
-
 	((immap_t *)IMAP_ADDR)->im_siu_conf.sc_siel |=
 		(0x80000000 >> PHY_INTERRUPT);
+
+	if (request_8xxirq(PHY_INTERRUPT, mii_link_interrupt, 0, "mii", dev) != 0)
+		panic("Could not allocate MII IRQ!");
 #endif
 
 	dev->base_addr = (unsigned long)fecp;
@@ -1680,7 +1683,7 @@ int __init fec_enet_init(void)
 
 	/* Bits moved from Rev. D onward.
 	*/
-	if ((_get_IMMR() & 0xffff) < 0x0501)
+	if ((mfspr(IMMR) & 0xffff) < 0x0501)
 		immap->im_ioport.iop_pddir = 0x1c58;	/* Pre rev. D */
 	else
 		immap->im_ioport.iop_pddir = 0x1fff;	/* Rev. D and later */

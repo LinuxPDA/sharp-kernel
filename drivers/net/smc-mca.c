@@ -91,7 +91,7 @@ struct smc_mca_adapters_t {
 	char *name;
 };
 
-static const struct smc_mca_adapters_t smc_mca_adapters[] = {
+static struct smc_mca_adapters_t smc_mca_adapters[] __initdata = {
     { 0x61c8, "SMC Ethercard PLUS Elite/A BNC/AUI (WD8013EP/A)" },
     { 0x61c9, "SMC Ethercard PLUS Elite/A UTP/AUI (WD8013WP/A)" },
     { 0x6fc0, "WD Ethercard PLUS/A (WD8003E/A or WD8003ET/A)" },
@@ -437,6 +437,7 @@ static int ultramca_close_card(struct net_device *dev)
 static struct net_device dev_ultra[MAX_ULTRAMCA_CARDS];
 static int io[MAX_ULTRAMCA_CARDS];
 static int irq[MAX_ULTRAMCA_CARDS];
+MODULE_LICENSE("GPL");
 
 MODULE_PARM(io, "1-" __MODULE_STRING(MAX_ULTRAMCA_CARDS) "i");
 MODULE_PARM(irq, "1-" __MODULE_STRING(MAX_ULTRAMCA_CARDS) "i");

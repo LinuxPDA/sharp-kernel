@@ -51,6 +51,11 @@
  *	20010420-tw	cleanup powerdown/up code.
  *	20010521-tw	eliminate pops, and fixes for powerdown.
  *	20010525-tw	added fixes for thinkpads with powerdown logic.
+ *	20010723-sh     patch from Horms (Simon Horman) -
+ *	                SOUND_PCM_READ_BITS returns bits as set in driver
+ *	                rather than a logical or of the possible values.
+ *	                Various ioctls handle the case where the device
+ *	                is open for reading or writing but not both better.
  *
  *	Status:
  *	Playback/Capture supported from 8k-48k.
@@ -378,7 +383,6 @@ static int cs_open_mixdev(struct inode *inode, struct file *file);
 static int cs_release_mixdev(struct inode *inode, struct file *file);
 static int cs_ioctl_mixdev(struct inode *inode, struct file *file, unsigned int cmd,
 				unsigned long arg);
-static loff_t cs_llseek(struct file *file, loff_t offset, int origin);
 static int cs_hardware_init(struct cs_card *card);
 static int cs46xx_powerup(struct cs_card *card, unsigned int type);
 static int cs461x_powerdown(struct cs_card *card, unsigned int type, int suspendflag);
@@ -997,7 +1001,7 @@ static void cs_rec_setup(struct cs_state *state)
 /* get current playback/recording dma buffer pointer (byte offset from LBA),
    called with spinlock held! */
    
-extern __inline__ unsigned cs_get_dma_addr(struct cs_state *state)
+static inline unsigned cs_get_dma_addr(struct cs_state *state)
 {
 	struct dmabuf *dmabuf = &state->dmabuf;
 	u32 offset;
@@ -1044,7 +1048,7 @@ static void resync_dma_ptrs(struct cs_state *state)
 }
 	
 /* Stop recording (lock held) */
-extern __inline__ void __stop_adc(struct cs_state *state)
+static inline void __stop_adc(struct cs_state *state)
 {
 	struct dmabuf *dmabuf = &state->dmabuf;
 	struct cs_card *card = state->card;
@@ -1883,7 +1887,7 @@ static int cs_midi_open(struct inode *inode, struct file *file)
         spin_unlock_irqrestore(&card->midi.lock, flags);
         card->midi.open_mode |= (file->f_mode & (FMODE_READ | FMODE_WRITE));
         up(&card->midi.open_sem);
-        MOD_INC_USE_COUNT;
+        MOD_INC_USE_COUNT; /* for 2.2 */
         return 0;
 }
 
@@ -1922,7 +1926,7 @@ static int cs_midi_release(struct inode *inode, struct file *file)
         card->midi.open_mode &= (~(file->f_mode & (FMODE_READ | FMODE_WRITE)));
         up(&card->midi.open_sem);
         wake_up(&card->midi.open_wait);
-        MOD_DEC_USE_COUNT;
+        MOD_DEC_USE_COUNT; /* for 2.2 */
         return 0;
 }
 
@@ -1931,18 +1935,13 @@ static int cs_midi_release(struct inode *inode, struct file *file)
  */
 static /*const*/ struct file_operations cs_midi_fops = {
 	CS_OWNER	CS_THIS_MODULE
-	llseek:		cs_llseek,
+	llseek:		no_llseek,
 	read:		cs_midi_read,
 	write:		cs_midi_write,
 	poll:		cs_midi_poll,
 	open:		cs_midi_open,
 	release:	cs_midi_release,
 };
-
-static loff_t cs_llseek(struct file *file, loff_t offset, int origin)
-{
-	return -ESPIPE;
-}
 
 /*
  *
@@ -2846,6 +2845,8 @@ static int cs_ioctl(struct inode *inode, struct file *file, unsigned int cmd, un
 		return 0;
 
 	case SNDCTL_DSP_GETOSPACE:
+		if (!(file->f_mode & FMODE_WRITE))
+			return -EINVAL;
 		state = (struct cs_state *)card->states[1];
 		if(state)
 		{
@@ -2869,6 +2870,8 @@ static int cs_ioctl(struct inode *inode, struct file *file, unsigned int cmd, un
 		return -ENODEV;
 
 	case SNDCTL_DSP_GETISPACE:
+		if (!(file->f_mode & FMODE_READ))
+			return -EINVAL;
 		state = (struct cs_state *)card->states[0];
 		if(state)
 		{
@@ -2950,6 +2953,8 @@ static int cs_ioctl(struct inode *inode, struct file *file, unsigned int cmd, un
 		return 0;
 
 	case SNDCTL_DSP_GETIPTR:
+		if (!(file->f_mode & FMODE_READ))
+			return -EINVAL;
 		state = (struct cs_state *)card->states[0];
 		if(state)
 		{
@@ -2965,6 +2970,8 @@ static int cs_ioctl(struct inode *inode, struct file *file, unsigned int cmd, un
 		return -ENODEV;
 
 	case SNDCTL_DSP_GETOPTR:
+		if (!(file->f_mode & FMODE_WRITE))
+			return -EINVAL;
 		state = (struct cs_state *)card->states[1];
 		if(state)
 		{
@@ -3015,7 +3022,10 @@ static int cs_ioctl(struct inode *inode, struct file *file, unsigned int cmd, un
 		return put_user(val, (int *)arg);
 
 	case SOUND_PCM_READ_RATE:
-		state = (struct cs_state *)card->states[0];
+		if(file->f_mode & FMODE_READ)
+			state = (struct cs_state *)card->states[0];
+		else 
+			state = (struct cs_state *)card->states[1];
 		if(state)
 		{
 			dmabuf = &state->dmabuf;
@@ -3025,7 +3035,10 @@ static int cs_ioctl(struct inode *inode, struct file *file, unsigned int cmd, un
 		
 
 	case SOUND_PCM_READ_CHANNELS:
-		state = (struct cs_state *)card->states[0];
+		if(file->f_mode & FMODE_READ)
+			state = (struct cs_state *)card->states[0];
+		else 
+			state = (struct cs_state *)card->states[1];
 		if(state)
 		{
 			dmabuf = &state->dmabuf;
@@ -3035,11 +3048,16 @@ static int cs_ioctl(struct inode *inode, struct file *file, unsigned int cmd, un
 		return put_user(0, (int *)arg);
 
 	case SOUND_PCM_READ_BITS:
-		state = (struct cs_state *)card->states[0];
+		if(file->f_mode & FMODE_READ)
+			state = (struct cs_state *)card->states[0];
+		else 
+			state = (struct cs_state *)card->states[1];
 		if(state)
 		{
 			dmabuf = &state->dmabuf;
-			return put_user(AFMT_S16_LE | AFMT_U8, (int *)arg);
+			return put_user((dmabuf->fmt & CS_FMT_16BIT) ? 
+			  	AFMT_S16_LE : AFMT_U8, (int *)arg);
+
 		}
 		return put_user(0, (int *)arg);
 
@@ -3276,7 +3294,6 @@ static int cs_open(struct inode *inode, struct file *file)
 
 		state->open_mode |= FMODE_READ;
 		up(&state->open_sem);
-		MOD_INC_USE_COUNT;
 	}
 	if(file->f_mode & FMODE_WRITE)
 	{
@@ -3348,10 +3365,10 @@ static int cs_open(struct inode *inode, struct file *file)
 
 		state->open_mode |= FMODE_WRITE;
 		up(&state->open_sem);
-		MOD_INC_USE_COUNT;
 		if((ret = prog_dmabuf(state)))
 			return ret;
 	}
+	MOD_INC_USE_COUNT;	/* for 2.2 */
 	CS_DBGOUT(CS_OPEN | CS_FUNCTION, 2, printk("cs46xx: cs_open()- 0\n") );
 	return 0;
 }
@@ -3403,7 +3420,6 @@ static int cs_release(struct inode *inode, struct file *file)
 
 			kfree(state);
 		}
-		MOD_DEC_USE_COUNT;
 	}
 
 	state = card->states[0];
@@ -3436,10 +3452,10 @@ static int cs_release(struct inode *inode, struct file *file)
 
 			kfree(state);
 		}
-		MOD_DEC_USE_COUNT;
 	}
 
 	CS_DBGOUT(CS_FUNCTION | CS_RELEASE, 2, printk("cs46xx: cs_release()- 0\n") );
+	MOD_DEC_USE_COUNT;	/* For 2.2 */
 	return 0;
 }
 
@@ -3799,7 +3815,7 @@ static int cs46xx_resume(struct cs_card *card)
 
 static /*const*/ struct file_operations cs461x_fops = {
 	CS_OWNER	CS_THIS_MODULE
-	llseek:		cs_llseek,
+	llseek:		no_llseek,
 	read:		cs_read,
 	write:		cs_write,
 	poll:		cs_poll,
@@ -4070,7 +4086,7 @@ static int cs_open_mixdev(struct inode *inode, struct file *file)
 	}
 	card->amplifier_ctrl(card, 1);
 	CS_INC_USE_COUNT(&card->mixer_use_cnt);
-	MOD_INC_USE_COUNT;
+	MOD_INC_USE_COUNT; /* for 2.2 */
 	CS_DBGOUT(CS_FUNCTION | CS_OPEN, 4,
 		  printk(KERN_INFO "cs46xx: cs_open_mixdev()- 0\n"));
 	return 0;
@@ -4101,7 +4117,7 @@ static int cs_release_mixdev(struct inode *inode, struct file *file)
 		return -ENODEV;
 	}
 match:
-	MOD_DEC_USE_COUNT;
+	MOD_DEC_USE_COUNT; /* for 2.2 */
 	if(!CS_DEC_AND_TEST(&card->mixer_use_cnt))
 	{
 		CS_DBGOUT(CS_FUNCTION | CS_RELEASE, 4,
@@ -4206,7 +4222,7 @@ static int cs_ioctl_mixdev(struct inode *inode, struct file *file, unsigned int 
 
 static /*const*/ struct file_operations cs_mixer_fops = {
 	CS_OWNER	CS_THIS_MODULE
-	llseek:		cs_llseek,
+	llseek:		no_llseek,
 	ioctl:		cs_ioctl_mixdev,
 	open:		cs_open_mixdev,
 	release:	cs_release_mixdev,
@@ -5243,6 +5259,8 @@ static struct cs_card_type cards[]={
 
 MODULE_AUTHOR("Alan Cox <alan@redhat.com>, Jaroslav Kysela, <pcaudio@crystal.cirrus.com>");
 MODULE_DESCRIPTION("Crystal SoundFusion Audio Support");
+MODULE_LICENSE("GPL");
+
 
 static const char cs46xx_banner[] = KERN_INFO "Crystal 4280/46xx + AC97 Audio, version " CS46XX_MAJOR_VERSION "." CS46XX_MINOR_VERSION "." CS46XX_ARCH ", " __TIME__ " " __DATE__ "\n";
 static const char fndmsg[] = KERN_INFO "cs46xx: Found %d audio device(s).\n";

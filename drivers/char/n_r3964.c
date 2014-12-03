@@ -1421,7 +1421,7 @@ static unsigned int r3964_poll(struct tty_struct * tty, struct file * file,
    int pid=current->pid;
    struct r3964_client_info *pClient;
    struct r3964_message *pMsg=NULL;
-   unsigned int flags;
+   unsigned long flags;
    int result = POLLOUT;
 
    TRACE_L("POLL");
@@ -1473,3 +1473,7 @@ static int r3964_receive_room(struct tty_struct *tty)
    return -1;
 }
 
+
+MODULE_LICENSE("GPL");
+
+EXPORT_NO_SYMBOLS;

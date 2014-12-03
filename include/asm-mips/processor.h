@@ -43,7 +43,6 @@ extern void (*cpu_wait)(void);	/* only available on R4[26]00 and R3081 */
 extern void r3081_wait(void);
 extern void r4k_wait(void);
 extern char cyclecounter_available;	/* only available from R4000 upwards. */
-extern char dedicated_iv_available;	/* some embedded MIPS like Nevada */
 
 extern struct mips_cpuinfo boot_cpu_data;
 extern unsigned int vced_count, vcei_count;
@@ -130,10 +129,10 @@ typedef struct {
  * If you change thread_struct remember to change the #defines below too!
  */
 struct thread_struct {
-        /* Saved main processor registers. */
-        unsigned long reg16;
+	/* Saved main processor registers. */
+	unsigned long reg16;
 	unsigned long reg17, reg18, reg19, reg20, reg21, reg22, reg23;
-        unsigned long reg29, reg30, reg31;
+	unsigned long reg29, reg30, reg31;
 
 	/* Saved cp0 stuff. */
 	unsigned long cp0_status;
@@ -170,9 +169,6 @@ struct thread_struct {
 };
 
 #endif /* !defined (_LANGUAGE_ASSEMBLY) */
-
-#define INIT_MMAP { &init_mm, KSEG0, KSEG1, NULL, PAGE_SHARED, \
-                    VM_READ | VM_WRITE | VM_EXEC, 1, NULL, NULL }
 
 #define INIT_THREAD  { \
         /* \
@@ -262,6 +258,8 @@ unsigned long get_wchan(struct task_struct *p);
 
 #define init_task	(init_task_union.task)
 #define init_stack	(init_task_union.stack)
+
+#define cpu_relax()	do { } while (0)
 
 #endif /* !defined (_LANGUAGE_ASSEMBLY) */
 #endif /* __KERNEL__ */

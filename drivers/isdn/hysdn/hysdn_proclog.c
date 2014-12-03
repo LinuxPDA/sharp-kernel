@@ -1,23 +1,12 @@
-/* $Id: hysdn_proclog.c,v 1.9.6.1 2001/05/26 15:19:58 kai Exp $
-
+/* $Id: hysdn_proclog.c,v 1.9.6.3 2001/09/23 22:24:54 kai Exp $
+ *
  * Linux driver for HYSDN cards, /proc/net filesystem log functions.
- * written by Werner Cornelius (werner@titro.de) for Hypercope GmbH
  *
- * Copyright 1999  by Werner Cornelius (werner@titro.de)
+ * Author    Werner Cornelius (werner@titro.de) for Hypercope GmbH
+ * Copyright 1999 by Werner Cornelius (werner@titro.de)
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2, or (at your option)
- * any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ * This software may be used and distributed according to the terms
+ * of the GNU General Public License, incorporated herein by reference.
  *
  */
 
@@ -152,15 +141,6 @@ put_log_buffer(hysdn_card * card, char *cp)
 	wake_up_interruptible(&(pd->rd_queue));		/* announce new entry */
 }				/* put_log_buffer */
 
-
-/*************************/
-/* dummy file operations */
-/*************************/
-static loff_t
-hysdn_dummy_lseek(struct file *file, loff_t offset, int orig)
-{
-	return -ESPIPE;
-}				/* hysdn_dummy_lseek */
 
 /******************************/
 /* file operations and tables */
@@ -411,7 +391,7 @@ hysdn_log_poll(struct file *file, poll_table * wait)
 /**************************************************/
 static struct file_operations log_fops =
 {
-	llseek:         hysdn_dummy_lseek,
+	llseek:         no_llseek,
 	read:           hysdn_log_read,
 	write:          hysdn_log_write,
 	poll:           hysdn_log_poll,

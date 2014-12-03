@@ -6,6 +6,8 @@
 #include <asm/processor.h> 
 #include <asm/msr.h>
 
+static int mce_disabled __initdata = 0;
+
 /*
  *	Machine Check Handler For PII/PIII
  */
@@ -19,7 +21,7 @@ static void intel_machine_check(struct pt_regs * regs, long error_code)
 	u32 mcgstl, mcgsth;
 	int i;
 	
-	rdmsr(0x17a, mcgstl, mcgsth);
+	rdmsr(MSR_IA32_MCG_STATUS, mcgstl, mcgsth);
 	if(mcgstl&(1<<0))	/* Recoverable ? */
 		recover=0;
 
@@ -27,7 +29,7 @@ static void intel_machine_check(struct pt_regs * regs, long error_code)
 	
 	for(i=0;i<banks;i++)
 	{
-		rdmsr(0x401+i*4,low, high);
+		rdmsr(MSR_IA32_MC0_STATUS+i*4,low, high);
 		if(high&(1<<31))
 		{
 			if(high&(1<<29))
@@ -38,18 +40,18 @@ static void intel_machine_check(struct pt_regs * regs, long error_code)
 			high&=~(1<<31);
 			if(high&(1<<27))
 			{
-				rdmsr(0x402+i*4, alow, ahigh);
+				rdmsr(MSR_IA32_MC0_MISC+i*4, alow, ahigh);
 				printk("[%08x%08x]", alow, ahigh);
 			}
 			if(high&(1<<26))
 			{
-				rdmsr(0x402+i*4, alow, ahigh);
+				rdmsr(MSR_IA32_MC0_ADDR+i*4, alow, ahigh);
 				printk(" at %08x%08x", 
 					high, low);
 			}
 			printk("\n");
 			/* Clear it */
-			wrmsr(0x401+i*4, 0UL, 0UL);
+			wrmsr(MSR_IA32_MC0_STATUS+i*4, 0UL, 0UL);
 			/* Serialize */
 			wmb();
 		}
@@ -61,7 +63,7 @@ static void intel_machine_check(struct pt_regs * regs, long error_code)
 		panic("Unable to continue");
 	printk(KERN_EMERG "Attempting to continue.\n");
 	mcgstl&=~(1<<2);
-	wrmsr(0x17a,mcgstl, mcgsth);
+	wrmsr(MSR_IA32_MCG_STATUS,mcgstl, mcgsth);
 }
 
 /*
@@ -71,8 +73,8 @@ static void intel_machine_check(struct pt_regs * regs, long error_code)
 static void pentium_machine_check(struct pt_regs * regs, long error_code)
 {
 	u32 loaddr, hi, lotype;
-	rdmsr(0x0, loaddr, hi);
-	rdmsr(0x1, lotype, hi);
+	rdmsr(MSR_IA32_P5_MC_ADDR, loaddr, hi);
+	rdmsr(MSR_IA32_P5_MC_TYPE, lotype, hi);
 	printk(KERN_EMERG "CPU#%d: Machine Check Exception:  0x%8X (type 0x%8X).\n", smp_processor_id(), loaddr, lotype);
 	if(lotype&(1<<5))
 		printk(KERN_EMERG "CPU#%d: Possible thermal failure (CPU on fire ?).\n", smp_processor_id());
@@ -111,7 +113,7 @@ void do_machine_check(struct pt_regs * regs, long error_code)
  *	Set up machine check reporting for Intel processors
  */
 
-void __init intel_mcheck_init(struct cpuinfo_x86 *c)
+static void __init intel_mcheck_init(struct cpuinfo_x86 *c)
 {
 	u32 l, h;
 	int i;
@@ -130,18 +132,18 @@ void __init intel_mcheck_init(struct cpuinfo_x86 *c)
 	
 	if(c->x86 == 5)
 	{
+		/* Default P5 to off as its often misconnected */
+		if(mce_disabled != -1)
+			return;
 		machine_check_vector = pentium_machine_check;
 		wmb();
 		/* Read registers before enabling */
-		rdmsr(0x0, l, h);
-		rdmsr(0x1, l, h);
+		rdmsr(MSR_IA32_P5_MC_ADDR, l, h);
+		rdmsr(MSR_IA32_P5_MC_TYPE, l, h);
 		if(done==0)
 			printk(KERN_INFO "Intel old style machine check architecture supported.\n");
-		/* Enable MCE */		
-		__asm__ __volatile__ (
-			"movl %%cr4, %%eax\n\t"
-			"orl $0x40, %%eax\n\t"
-			"movl %%eax, %%cr4\n\t" : : : "eax");
+ 		/* Enable MCE */
+		set_in_cr4(X86_CR4_MCE);
 		printk(KERN_INFO "Intel old style machine check reporting enabled on CPU#%d.\n", smp_processor_id());
 		return;
 	}
@@ -161,17 +163,17 @@ void __init intel_mcheck_init(struct cpuinfo_x86 *c)
 	
 	if(done==0)
 		printk(KERN_INFO "Intel machine check architecture supported.\n");
-	rdmsr(0x179, l, h);
+	rdmsr(MSR_IA32_MCG_CAP, l, h);
 	if(l&(1<<8))
-		wrmsr(0x17b, 0xffffffff, 0xffffffff);
+		wrmsr(MSR_IA32_MCG_CTL, 0xffffffff, 0xffffffff);
 	banks = l&0xff;
 	for(i=1;i<banks;i++)
 	{
-		wrmsr(0x400+4*i, 0xffffffff, 0xffffffff); 
+		wrmsr(MSR_IA32_MC0_CTL+4*i, 0xffffffff, 0xffffffff);
 	}
 	for(i=0;i<banks;i++)
 	{
-		wrmsr(0x401+4*i, 0x0, 0x0); 
+		wrmsr(MSR_IA32_MC0_STATUS+4*i, 0x0, 0x0);
 	}
 	set_in_cr4(X86_CR4_MCE);
 	printk(KERN_INFO "Intel machine check reporting enabled on CPU#%d.\n", smp_processor_id());
@@ -191,14 +193,11 @@ static void __init winchip_mcheck_init(struct cpuinfo_x86 *c)
 	/* Winchip C6 */
 	machine_check_vector = winchip_machine_check;
 	wmb();
-	rdmsr(0x107, lo, hi);
+	rdmsr(MSR_IDT_FCR1, lo, hi);
 	lo|= (1<<2);	/* Enable EIERRINT (int 18 MCE) */
 	lo&= ~(1<<4);	/* Enable MCE */
-	wrmsr(0x107, lo, hi);
-	__asm__ __volatile__ (
-		"movl %%cr4, %%eax\n\t"
-		"orl $0x40, %%eax\n\t"
-		"movl %%eax, %%cr4\n\t" : : : "eax");
+	wrmsr(MSR_IDT_FCR1, lo, hi);
+	set_in_cr4(X86_CR4_MCE);
 	printk(KERN_INFO "Winchip machine check reporting enabled on CPU#%d.\n", smp_processor_id());
 }
 
@@ -208,11 +207,10 @@ static void __init winchip_mcheck_init(struct cpuinfo_x86 *c)
  */
 
 
-static int mce_disabled = 0;
 
 void __init mcheck_init(struct cpuinfo_x86 *c)
 {
-	if(mce_disabled)
+	if(mce_disabled==1)
 		return;
 		
 	switch(c->x86_vendor)
@@ -230,12 +228,22 @@ void __init mcheck_init(struct cpuinfo_x86 *c)
 		case X86_VENDOR_CENTAUR:
 			winchip_mcheck_init(c);
 			break;
+		default:
+			break;
 	}
 }
 
 static int __init mcheck_disable(char *str)
 {
 	mce_disabled = 1;
-	return 1;
+	return 0;
 }
+
+static int __init mcheck_enable(char *str)
+{
+	mce_disabled = -1;
+	return 0;
+}
+
 __setup("nomce", mcheck_disable);
+__setup("mce", mcheck_enable);

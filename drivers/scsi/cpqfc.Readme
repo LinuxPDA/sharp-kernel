@@ -6,6 +6,36 @@ Tested in single and dual HBA configuration, 32 and 64bit busses,
 33 and 66MHz.  Only supports FC-AL.
 SEST size 512 Exchanges (simultaneous I/Os) limited by module kmalloc() 
 	max of 128k bytes contiguous.
+
+Ver 2.0.5  Aug 06, 2001
+   * Reject non-existent luns in the driver rather than letting the 
+     hardware do it.  (some HW behaves differently than others in this area.)
+   * Changed Makefile to rely on "make dep" instead of explicit dependencies
+   * ifdef'ed out fibre channel analyzer triggering debug code
+   * fixed a jiffies wrapping issue
+
+Ver 2.0.4  Aug 01, 2001
+   * Incorporated fix for target device reset from Steeleye
+   * Fixed passthrough ioctl so it doesn't hang.
+   * Fixed hang in launch_FCworker_thread() that occurred on some machines.
+   * Avoid problem when number of volumes in a single cabinet > 8
+
+Ver 2.0.2  July 23, 2001
+   Changed the semiphore changes so the driver would compile in 2.4.7. 
+   This version is for 2.4.7 and beyond. 
+ 
+Ver 2.0.1  May 	7, 2001
+   Merged version 1.3.6 fixes into version 2.0.0.   
+
+Ver 2.0.0  May   7, 2001
+  Fixed problem so spinlock is being initialized to UNLOCKED. 
+  Fixed updated driver so it compiles in the 2.4 tree. 
+ 
+ Ver 1.3.6  Feb  27, 2001
+   Added Target_Device_Reset function for SCSI error handling
+   Fixed problem with not reseting addressing mode after implicit logout
+ 
+
 Ver 1.3.4  Sep   7, 2000
   Added Modinfo information
   Fixed problem with statically linking the driver
@@ -212,5 +242,5 @@ is used), logical volumes on the RA4x00 will no longer be visible.
 
 
 Send questions/comments to:
-donald.zimmerman@compaq.com
-dszimmerman@yahoo.com
+Amy Vanzant-Hodge (fibrechannel@compaq.com)
+

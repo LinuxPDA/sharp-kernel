@@ -49,7 +49,7 @@
 
 #ifdef MODULE
 
-#define INCLUDE_LINUX_LOGOBW
+#define INCLUDE_LINUX_LOGO_DATA
 #include <linux/linux_logo.h>
 
 #endif /* MODULE */
@@ -106,7 +106,7 @@ static char *hga_type_name;
 
 /* Global locks */
 
-spinlock_t hga_reg_lock = SPIN_LOCK_UNLOCKED;
+static spinlock_t hga_reg_lock = SPIN_LOCK_UNLOCKED;
 
 /* Framebuffer driver structures */
 
@@ -203,7 +203,7 @@ static void hga_clear_screen(void)
 		fillchar = 0x00;
 	spin_unlock_irqrestore(&hga_reg_lock, flags);
 	if (fillchar != 0xbf)
-		memset((char *)hga_vram_base, fillchar, hga_vram_len);
+		isa_memset_io(hga_vram_base, fillchar, hga_vram_len);
 }
 
 
@@ -275,11 +275,12 @@ static void hga_gfx_mode(void)
 static void hga_show_logo(void)
 {
 	int x, y;
-	char *dest = (char *)hga_vram_base;
+	unsigned long dest = hga_vram_base;
 	char *logo = linux_logo_bw;
 	for (y = 134; y < 134 + 80 ; y++) /* this needs some cleanup */
 		for (x = 0; x < 10 ; x++)
-			*(dest + (y%4)*8192 + (y>>2)*90 + x + 40) = ~*(logo++);
+			isa_writeb(~*(logo++),
+				   (dest + (y%4)*8192 + (y>>2)*90 + x + 40));
 }
 #endif /* MODULE */	
 
@@ -794,8 +795,7 @@ int __init hgafb_setup(char *options)
 	if (!options || !*options)
 		return 0;
 
-	for (this_opt = strtok(options, ","); this_opt;
-			this_opt = strtok(NULL, ",")) {
+	while (this_opt = strsep(&options, ",")) {
 		if (!strncmp(this_opt, "font:", 5))
 			strcpy(fb_info.fontname, this_opt+5);
 	}
@@ -845,6 +845,7 @@ void cleanup_module(void)
 
 MODULE_AUTHOR("Ferenc Bakonyi (fero@drama.obuda.kando.hu)");
 MODULE_DESCRIPTION("FBDev driver for Hercules Graphics Adaptor");
+MODULE_LICENSE("GPL");
 
 MODULE_PARM(font, "s");
 MODULE_PARM_DESC(font, "Specifies one of the compiled-in fonts (VGA8x8, VGA8x16, SUN8x16, Acorn8x8, PEARL8x8) (default=none)");

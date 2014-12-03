@@ -39,15 +39,15 @@ static ssize_t nfs_file_read(struct file *, char *, size_t, loff_t *);
 static ssize_t nfs_file_write(struct file *, const char *, size_t, loff_t *);
 static int  nfs_file_flush(struct file *);
 static int  nfs_fsync(struct file *, struct dentry *dentry, int datasync);
-static int  nfs_file_release(struct inode *, struct file *);
 
 struct file_operations nfs_file_operations = {
+	llseek:		generic_file_llseek,
 	read:		nfs_file_read,
 	write:		nfs_file_write,
 	mmap:		nfs_file_mmap,
 	open:		nfs_open,
 	flush:		nfs_file_flush,
-	release:	nfs_file_release,
+	release:	nfs_release,
 	fsync:		nfs_fsync,
 	lock:		nfs_lock,
 };
@@ -86,13 +86,6 @@ nfs_file_flush(struct file *file)
 		file->f_error = 0;
 	}
 	return status;
-}
-
-static int
-nfs_file_release(struct inode *inode, struct file *file)
-{
-	filemap_fdatasync(inode->i_mapping);
-	return nfs_release(inode,file);
 }
 
 static ssize_t
@@ -162,16 +155,15 @@ nfs_fsync(struct file *file, struct dentry *dentry, int datasync)
  */
 static int nfs_prepare_write(struct file *file, struct page *page, unsigned offset, unsigned to)
 {
-	kmap(page);
 	return nfs_flush_incompatible(file, page);
 }
+
 static int nfs_commit_write(struct file *file, struct page *page, unsigned offset, unsigned to)
 {
 	long status;
 	loff_t pos = ((loff_t)page->index<<PAGE_CACHE_SHIFT) + to;
 	struct inode *inode = page->mapping->host;
 
-	kunmap(page);
 	lock_kernel();
 	status = nfs_updatepage(file, page, offset, to-offset);
 	unlock_kernel();
@@ -272,7 +264,7 @@ nfs_lock(struct file *filp, int cmd, struct file_lock *fl)
 
 	/* Fake OK code if mounted without NLM support */
 	if (NFS_SERVER(inode)->flags & NFS_MOUNT_NONLM) {
-		if (cmd == F_GETLK)
+		if (IS_GETLK(cmd))
 			status = LOCK_USE_CLNT;
 		goto out_ok;
 	}
@@ -312,7 +304,7 @@ nfs_lock(struct file *filp, int cmd, struct file_lock *fl)
 	 * This makes locking act as a cache coherency point.
 	 */
  out_ok:
-	if ((cmd == F_SETLK || cmd == F_SETLKW) && fl->fl_type != F_UNLCK) {
+	if ((IS_SETLK(cmd) || IS_SETLKW(cmd)) && fl->fl_type != F_UNLCK) {
 		filemap_fdatasync(inode->i_mapping);
 		down(&inode->i_sem);
 		nfs_wb_all(inode);      /* we may have slept */

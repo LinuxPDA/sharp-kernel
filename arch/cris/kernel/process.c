@@ -1,4 +1,4 @@
-/* $Id: process.c,v 1.13 2001/03/20 19:44:06 bjornw Exp $
+/* $Id: process.c,v 1.20 2001/10/03 08:21:39 jonashg Exp $
  * 
  *  linux/arch/cris/kernel/process.c
  *
@@ -8,6 +8,33 @@
  *  Authors:   Bjorn Wesen (bjornw@axis.com)
  *
  *  $Log: process.c,v $
+ *  Revision 1.20  2001/10/03 08:21:39  jonashg
+ *  cause_of_death does not exist if CONFIG_SVINTO_SIM is defined.
+ *
+ *  Revision 1.19  2001/09/26 11:52:54  bjornw
+ *  INIT_MMAP is gone in 2.4.10
+ *
+ *  Revision 1.18  2001/08/21 21:43:51  hp
+ *  Move last watchdog fix inside #ifdef CONFIG_ETRAX_WATCHDOG
+ *
+ *  Revision 1.17  2001/08/21 13:48:01  jonashg
+ *  Added fix by HP to avoid oops when doing a hard_reset_now.
+ *
+ *  Revision 1.16  2001/06/21 02:00:40  hp
+ *  	* entry.S: Include asm/unistd.h.
+ *  	(_sys_call_table): Use section .rodata, not .data.
+ *  	(_kernel_thread): Move from...
+ *  	* process.c: ... here.
+ *  	* entryoffsets.c (VAL): Break out from...
+ *  	(OF): Use VAL.
+ *  	(LCLONE_VM): New asmified value from CLONE_VM.
+ *
+ *  Revision 1.15  2001/06/20 16:31:57  hp
+ *  Add comments to describe empty functions according to review.
+ *
+ *  Revision 1.14  2001/05/29 11:27:59  markusl
+ *  Fixed so that hard_reset_now will do reset even if watchdog wasn't enabled
+ *
  *  Revision 1.13  2001/03/20 19:44:06  bjornw
  *  Use the 7th syscall argument for regs instead of current_regs
  *
@@ -50,7 +77,6 @@
  * setup.
  */
 
-static struct vm_area_struct init_mmap = INIT_MMAP;
 static struct fs_struct init_fs = INIT_FS;
 static struct files_struct init_files = INIT_FILES;
 static struct signal_struct init_signals = INIT_SIGNALS;
@@ -67,6 +93,15 @@ struct mm_struct init_mm = INIT_MM(init_mm);
 union task_union init_task_union 
       __attribute__((__section__(".data.init_task"))) =
              { INIT_TASK(init_task_union.task) };
+
+/*
+ * The hlt_counter, disable_hlt and enable_hlt is just here as a hook if
+ * there would ever be a halt sequence (for power save when idle) with
+ * some largish delay when halting or resuming *and* a driver that can't
+ * afford that delay.  The hlt_counter would then be checked before
+ * executing the halt sequence, and the driver marks the unhaltable
+ * region by enable_hlt/disable_hlt.
+ */
 
 static int hlt_counter=0;
 
@@ -90,12 +125,31 @@ int cpu_idle(void *unused)
 
 /* if the watchdog is enabled, we can simply disable interrupts and go
  * into an eternal loop, and the watchdog will reset the CPU after 0.1s
+ * if on the other hand the watchdog wasn't enabled, we just enable it and wait
  */
 
 void hard_reset_now (void)
 {
+	/*
+	 * Don't declare this variable elsewhere.  We don't want any other
+	 * code to know about it than the watchdog handler in entry.S and
+	 * this code, implementing hard reset through the watchdog.
+	 */
+	extern int cause_of_death;
+
 	printk("*** HARD RESET ***\n");
 	cli();
+
+#if defined(CONFIG_ETRAX_WATCHDOG) && !defined(CONFIG_SVINTO_SIM)
+	cause_of_death = 0xbedead;
+
+#else
+	/* Since we dont plan to keep on reseting the watchdog,
+	   the key can be arbitrary hence three */
+	*R_WATCHDOG = IO_FIELD(R_WATCHDOG, key, 3) |
+		IO_STATE(R_WATCHDOG, enable, start);
+#endif
+
 	while(1) /* waiting for RETRIBUTION! */ ;
 }
 
@@ -104,52 +158,27 @@ void machine_restart(void)
 	hard_reset_now();
 }
 
-/* can't do much here... */
+/*
+ * Similar to machine_power_off, but don't shut off power.  Add code
+ * here to freeze the system for e.g. post-mortem debug purpose when
+ * possible.  This halt has nothing to do with the idle halt.
+ */
 
 void machine_halt(void)
 {
 }
+
+/* If or when software power-off is implemented, add code here.  */
 
 void machine_power_off(void)
 {
 }
 
 /*
- * This is the mechanism for creating a new kernel thread.
- *
- * NOTE! Only a kernel-only process(ie the swapper or direct descendants
- * who haven't done an "execve()") should use this: it will work within
- * a system call from a "real" process, but the process memory space will
- * not be free'd until both the parent and the child have exited.
+ * When a process does an "exec", machine state like FPU and debug
+ * registers need to be reset.  This is a hook function for that.
+ * Currently we don't have any such state to reset, so this is empty.
  */
-
-int kernel_thread(int (*fn)(void *), void * arg, unsigned long flags)
-{
-	register long __a __asm__ ("r10");
-	
-	__asm__ __volatile__
-		("movu.w %1,r9\n\t"     /* r9 contains syscall number, to sys_clone */
-		 "clear.d r10\n\t"      /* r10 is argument 1 to clone */
-		 "move.d %2,r11\n\t"    /* r11 is argument 2 to clone, the flags */
-		 "break 13\n\t"         /* call sys_clone, this will fork */
-		 "test.d r10\n\t"       /* parent or child? child returns 0 here. */
-		 "bne 1f\n\t"           /* jump if parent */
-		 "nop\n\t"              /* delay slot */
-		 "move.d %4,r10\n\t"    /* set argument to function to call */
-		 "jsr %5\n\t"           /* call specified function */
-		 "movu.w %3,r9\n\t"     /* r9 is sys_exit syscall number */
-		 "moveq -1,r10\n\t"     /* Give a really bad exit-value */
-		 "break 13\n\t"         /* call sys_exit, killing the child */
-		 "1:\n\t"
-		 : "=r" (__a) 
-		 : "g" (__NR_clone), "r" (flags | CLONE_VM), "g" (__NR_exit),
-		   "r" (arg), "r" (fn) 
-		 : "r10", "r11", "r9");
-	
-	return __a;
-}
-
-
 
 void flush_thread(void)
 {

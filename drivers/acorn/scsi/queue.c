@@ -25,9 +25,6 @@
 
 #include "../../scsi/scsi.h"
 
-MODULE_AUTHOR("Russell King");
-MODULE_DESCRIPTION("SCSI command queueing");
-
 #define DEBUG
 
 typedef struct queue_entry {
@@ -295,13 +292,6 @@ EXPORT_SYMBOL(queue_remove_tgtluntag);
 EXPORT_SYMBOL(queue_remove_cmd);
 EXPORT_SYMBOL(queue_probetgtlun);
 
-#ifdef MODULE
-int __init init_module (void)
-{
-	return 0;
-}
-
-void __exit cleanup_module (void)
-{
-}
-#endif
+MODULE_AUTHOR("Russell King");
+MODULE_DESCRIPTION("SCSI command queueing");
+MODULE_LICENSE("GPL");

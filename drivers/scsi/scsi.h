@@ -617,6 +617,9 @@ struct scsi_device {
 	unsigned remap:1;	/* support remapping  */
 	unsigned starved:1;	/* unable to process commands because
 				   host busy */
+
+	// Flag to allow revalidate to succeed in sd_open
+	int allow_revalidate;
 };
 
 
@@ -629,6 +632,8 @@ typedef struct scsi_pointer {
 	int this_residual;	/* left in this buffer */
 	struct scatterlist *buffer;	/* which buffer */
 	int buffers_residual;	/* how many buffers left */
+
+        dma_addr_t dma_handle;
 
 	volatile int Status;
 	volatile int Message;
@@ -668,7 +673,7 @@ struct scsi_request {
 	unsigned short sr_use_sg;	/* Number of pieces of scatter-gather */
 	unsigned short sr_sglist_len;	/* size of malloc'd scatter-gather list */
 	unsigned sr_underflow;	/* Return error if less than
-				   this amount is transfered */
+				   this amount is transferred */
 };
 
 /*
@@ -742,7 +747,8 @@ struct scsi_cmnd {
 	unsigned request_bufflen;	/* Actual request size */
 
 	struct timer_list eh_timeout;	/* Used to time out the command. */
-	void *request_buffer;	/* Actual requested buffer */
+	void *request_buffer;		/* Actual requested buffer */
+        void **bounce_buffers;		/* Array of bounce buffers when using scatter-gather */
 
 	/* These elements define the operation we ultimately want to perform */
 	unsigned char data_cmnd[MAX_COMMAND_SIZE];
@@ -756,7 +762,7 @@ struct scsi_cmnd {
 	void *buffer;		/* Data buffer */
 
 	unsigned underflow;	/* Return error if less than
-				   this amount is transfered */
+				   this amount is transferred */
 	unsigned old_underflow;	/* save underflow here when reusing the
 				 * command for error handling */
 

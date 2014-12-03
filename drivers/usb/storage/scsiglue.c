@@ -1,7 +1,7 @@
 /* Driver for USB Mass Storage compliant devices
  * SCSI layer glue code
  *
- * $Id: scsiglue.c,v 1.19 2000/11/13 22:28:55 mdharm Exp $
+ * $Id: scsiglue.c,v 1.22 2001/09/02 04:29:27 mdharm Exp $
  *
  * Current development and maintenance by:
  *   (c) 1999, 2000 Matthew Dharm (mdharm-usb@one-eyed-alien.net)
@@ -122,8 +122,9 @@ static int release(struct Scsi_Host *psh)
 	 */
 	US_DEBUGP("-- sending US_ACT_EXIT command to thread\n");
 	us->action = US_ACT_EXIT;
-	wake_up(&(us->wqh));
-	down(&(us->notify));
+	
+	up(&(us->sema));
+	wait_for_completion(&(us->notify));
 
 	/* remove the pointer to the data structure we were using */
 	(struct us_data*)psh->hostdata[0] = NULL;
@@ -160,7 +161,7 @@ static int queuecommand( Scsi_Cmnd *srb , void (*done)(Scsi_Cmnd *))
 	up(&(us->queue_exclusion));
 
 	/* wake up the process task */
-	wake_up(&(us->wqh));
+	up(&(us->sema));
 
 	return 0;
 }
@@ -194,7 +195,7 @@ static int command_abort( Scsi_Cmnd *srb )
 		usb_unlink_urb(us->current_urb);
 
 		/* wait for us to be done */
-		down(&(us->notify));
+		wait_for_completion(&(us->notify));
 		return SUCCESS;
 	}
 
@@ -331,7 +332,7 @@ static int proc_info (char *buffer, char **start, off_t offset, int length,
 		return -ESRCH;
 	}
 
-	/* print the controler name */
+	/* print the controller name */
 	SPRINTF("   Host scsi%d: usb-storage\n", hostno);
 
 	/* print product, vendor, and serial number strings */
@@ -345,6 +346,7 @@ static int proc_info (char *buffer, char **start, off_t offset, int length,
 
 	/* show the GUID of the device */
 	SPRINTF("         GUID: " GUID_FORMAT "\n", GUID_ARGS(us->guid));
+	SPRINTF("     Attached: %d\n", us->pusb_dev != NULL);
 
 	/*
 	 * Calculate start of next buffer, and return value.

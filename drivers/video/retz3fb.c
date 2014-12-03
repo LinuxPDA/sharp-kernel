@@ -1348,8 +1348,7 @@ int __init retz3fb_setup(char *options)
 	if (!options || !*options)
 		return 0;
 
-	for (this_opt = strtok(options, ","); this_opt;
-	     this_opt = strtok(NULL, ",")){
+	while (this_opt = strsep(&options, ",")) {
 		if (!strcmp(this_opt, "inverse")) {
 			z3fb_inverse = 1;
 			fb_invert_cmaps();
@@ -1534,6 +1533,8 @@ static int __init get_video_mode(const char *name)
 
 
 #ifdef MODULE
+MODULE_LICENSE("GPL");
+
 int init_module(void)
 {
 	return retz3fb_init();

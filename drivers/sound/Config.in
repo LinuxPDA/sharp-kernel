@@ -6,15 +6,32 @@
 
 # Prompt user for primary drivers.
 
-dep_tristate '  C-Media PCI (CMI8338/8378)' CONFIG_SOUND_CMPCI $CONFIG_SOUND $CONFIG_PCI
+dep_tristate '  BT878 audio dma' CONFIG_SOUND_BT878 $CONFIG_SOUND
+dep_tristate '  C-Media PCI (CMI8338/8738)' CONFIG_SOUND_CMPCI $CONFIG_SOUND $CONFIG_PCI
 if [ "$CONFIG_SOUND_CMPCI" = "y" -o "$CONFIG_SOUND_CMPCI" = "m" ]; then
-    bool '    Enable S/PDIF loop for CMI8738' CONFIG_SOUND_CMPCI_SPDIFLOOP
-    bool '    Enable 4 channel mode for CMI8738' CONFIG_SOUND_CMPCI_4CH
-    if [ "$CONFIG_SOUND_CMPCI_4CH" = "y" ]; then
-        bool '    Separate rear out jack' CONFIG_SOUND_CMPCI_REAR
+    bool '    Enable legacy FM' CONFIG_SOUND_CMPCI_FM
+    if [ "$CONFIG_SOUND_CMPCI_FM" = "y" ]; then
+	define_hex CONFIG_SOUND_CMPCI_FMIO 388
+        hex '    FM I/O 388, 3C8, 3E0, 3E8' CONFIG_SOUND_CMPCI_FMIO 388
+    fi
+    bool '    Enable legacy MPU-401' CONFIG_SOUND_CMPCI_MIDI
+    if [ "$CONFIG_SOUND_CMPCI_MIDI" = "y" ]; then
+        hex '    MPU-401 I/O 330, 320, 310, 300' CONFIG_SOUND_CMPCI_MPUIO 330
+    fi
+    bool '    Enable joystick' CONFIG_SOUND_CMPCI_JOYSTICK
+    bool '    Support CMI8738 based audio cards' CONFIG_SOUND_CMPCI_CM8738
+    if [ "$CONFIG_SOUND_CMPCI_CM8738" = "y" ]; then
+	bool '      Inverse S/PDIF in for CMI8738' CONFIG_SOUND_CMPCI_SPDIFINVERSE
+	bool '      Enable S/PDIF loop for CMI8738' CONFIG_SOUND_CMPCI_SPDIFLOOP
+	int  '      Number of speakers 2, 4, 5, 6' CONFIG_SOUND_CMPCI_SPEAKERS 2
+	if [ "$CONFIG_SOUND_CMPCI_SPEAKERS" != "2" ]; then
+	    bool '        Use Line-in as Read-out' CONFIG_SOUND_CMPCI_LINE_REAR
+	    bool '        Use Line-in as Bass' CONFIG_SOUND_CMPCI_LINE_BASS
+	fi
     fi
 fi
 dep_tristate '  Creative SBLive! (EMU10K1)' CONFIG_SOUND_EMU10K1 $CONFIG_SOUND $CONFIG_PCI
+dep_mbool    '    Creative SBLive! MIDI' CONFIG_MIDI_EMU10K1 $CONFIG_SOUND_EMU10K1 $CONFIG_EXPERIMENTAL
 dep_tristate '  Crystal SoundFusion (CS4280/461x)' CONFIG_SOUND_FUSION $CONFIG_SOUND
 dep_tristate '  Crystal Sound CS4281' CONFIG_SOUND_CS4281 $CONFIG_SOUND
 dep_tristate '  Ensoniq AudioPCI (ES1370)' CONFIG_SOUND_ES1370 $CONFIG_SOUND $CONFIG_PCI
@@ -23,11 +40,14 @@ dep_tristate '  ESS Technology Solo1' CONFIG_SOUND_ESSSOLO1 $CONFIG_SOUND
 dep_tristate '  ESS Maestro, Maestro2, Maestro2E driver' CONFIG_SOUND_MAESTRO $CONFIG_SOUND
 dep_tristate '  ESS Maestro3/Allegro driver (EXPERIMENTAL)' CONFIG_SOUND_MAESTRO3 $CONFIG_SOUND $CONFIG_PCI $CONFIG_EXPERIMENTAL
 dep_tristate '  Intel ICH (i8xx) audio support' CONFIG_SOUND_ICH $CONFIG_PCI
+dep_tristate '  RME Hammerfall (RME96XX) support' CONFIG_SOUND_RME96XX $CONFIG_SOUND $CONFIG_PCI $CONFIG_EXPERIMENTAL
 dep_tristate '  S3 SonicVibes' CONFIG_SOUND_SONICVIBES $CONFIG_SOUND
 if [ "$CONFIG_VISWS" = "y" ]; then
     dep_tristate '  SGI Visual Workstation Sound' CONFIG_SOUND_VWSND $CONFIG_SOUND
 fi
-
+if [ "$CONFIG_DDB5477" = "y" ]; then
+    dep_tristate '  NEC Vrc5477 AC97 sound' CONFIG_SOUND_VRC5477 $CONFIG_SOUND
+fi
 dep_tristate '  Trident 4DWave DX/NX, SiS 7018 or ALi 5451 PCI Audio Core' CONFIG_SOUND_TRIDENT $CONFIG_SOUND
 
 dep_tristate '  Support for Turtle Beach MultiSound Classic, Tahiti, Monterey' CONFIG_SOUND_MSNDCLAS $CONFIG_SOUND
@@ -181,3 +201,13 @@ if [ "$CONFIG_SOUND_OSS" = "y" -o "$CONFIG_SOUND_OSS" = "m" ]; then
 fi
 
 dep_tristate '  TV card (bt848) mixer support' CONFIG_SOUND_TVMIXER $CONFIG_SOUND $CONFIG_I2C
+
+# A cross directory dependence. The sound modules will need gameport.o compiled in,
+# but it resides in the drivers/char/joystick directory. This define_tristate takes
+# care of that. --Vojtech
+
+if [ "$CONFIG_INPUT_GAMEPORT" != "n" ]; then
+  if [ "$CONFIG_SOUND_ESSSOLO1" = "y" -o "$CONFIG_SOUND_ES1370" = "y" -o "$CONFIG_SOUND_ES1371" = "y" -o "$CONFIG_SOUND_SONICVIBES" = "y" ]; then
+    define_tristate CONFIG_INPUT_GAMEPORT y
+  fi
+fi

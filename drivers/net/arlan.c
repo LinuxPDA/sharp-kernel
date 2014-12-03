@@ -1144,7 +1144,7 @@ static int arlan_change_mtu(struct net_device *dev, int new_mtu)
 	struct arlan_conf_stru *conf = ((struct arlan_private *) dev->priv)->Conf;
 
 	ARLAN_DEBUG_ENTRY("arlan_change_mtu");
-	if ((new_mtu < 68) || (new_mtu > 2032))
+	if (new_mtu > 2032)
 		return -EINVAL;
 	dev->mtu = new_mtu;
 	if (new_mtu < 256)
@@ -1435,7 +1435,7 @@ extern inline void arlan_queue_retransmit(struct net_device *dev)
 	ARLAN_DEBUG_EXIT("arlan_queue_retransmit");
 };
 
-extern inline void RetryOrFail(struct net_device *dev)
+static inline void RetryOrFail(struct net_device *dev)
 {
 	struct arlan_private *priv = ((struct arlan_private *) dev->priv);
 
@@ -2079,3 +2079,4 @@ void cleanup_module(void)
 
 
 #endif
+MODULE_LICENSE("GPL");

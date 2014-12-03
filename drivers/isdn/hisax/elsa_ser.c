@@ -1,10 +1,12 @@
-/* $Id: elsa_ser.c,v 2.10.6.2 2001/06/09 15:14:17 kai Exp $
+/* $Id: elsa_ser.c,v 2.10.6.4 2001/09/23 22:24:47 kai Exp $
  *
  * stuff for the serial modem on ELSA cards
  *
- * This file is (c) under GNU General Public License
+ * This software may be used and distributed according to the terms
+ * of the GNU General Public License, incorporated herein by reference.
  *
  */
+
 #include <linux/config.h>
 #include <linux/serial.h>
 #include <linux/serial_reg.h>
@@ -13,10 +15,6 @@
 #define WAKEUP_CHARS	(MAX_MODEM_BUF/2)
 #define RS_ISR_PASS_LIMIT 256
 #define BASE_BAUD ( 1843200 / 16 )
-
-#ifndef MIN
-#define MIN(a,b)	((a) < (b) ? (a) : (b))
-#endif
 
 //#define SERIAL_DEBUG_OPEN 1
 //#define SERIAL_DEBUG_INTR 1
@@ -257,7 +255,7 @@ inline int
 write_modem(struct BCState *bcs) {
 	int ret=0;
 	struct IsdnCardState *cs = bcs->cs;
-	int count, len, fp, buflen;
+	int count, len, fp;
 	long flags;
 	
 	if (!bcs->tx_skb)
@@ -266,12 +264,14 @@ write_modem(struct BCState *bcs) {
 		return 0;
 	save_flags(flags);
 	cli();
-	buflen = MAX_MODEM_BUF - cs->hw.elsa.transcnt;
-	len = MIN(buflen, bcs->tx_skb->len);		
+	len = bcs->tx_skb->len;
+	if (len > MAX_MODEM_BUF - cs->hw.elsa.transcnt)
+		len = MAX_MODEM_BUF - cs->hw.elsa.transcnt;
 	fp = cs->hw.elsa.transcnt + cs->hw.elsa.transp;
 	fp &= (MAX_MODEM_BUF -1);
-	count = MIN(len, MAX_MODEM_BUF - fp);
-	if (count < len) {
+	count = len;
+	if (count > MAX_MODEM_BUF - fp) {
+		count = MAX_MODEM_BUF - fp;
 		memcpy(cs->hw.elsa.transbuf + fp, bcs->tx_skb->data, count);
 		skb_pull(bcs->tx_skb, count);
 		cs->hw.elsa.transcnt += count;
@@ -472,8 +472,9 @@ modem_write_cmd(struct IsdnCardState *cs, u_char *buf, int len) {
 	}
 	fp = cs->hw.elsa.transcnt + cs->hw.elsa.transp;
 	fp &= (MAX_MODEM_BUF -1);
-	count = MIN(len, MAX_MODEM_BUF - fp);
-	if (count < len) {
+	count = len;
+	if (count > MAX_MODEM_BUF - fp) {
+		count = MAX_MODEM_BUF - fp;
 		memcpy(cs->hw.elsa.transbuf + fp, msg, count);
 		cs->hw.elsa.transcnt += count;
 		msg += count;

@@ -3,6 +3,11 @@
 
 #include <linux/fs.h>
 #include <linux/config.h>
+#include <linux/locks.h>
+#include <linux/kdev_t.h>
+#include <linux/types.h>
+
+#include <asm/semaphore.h>
 
 #define DEVFS_SUPER_MAGIC                0x1373
 
@@ -25,17 +30,15 @@
 					 is closed, ownership reverts back to
 					 <<uid>> and <<gid>> and the protection
 					 is set to read-write for all        */
-#define DEVFS_FL_SHOW_UNREG     0x002 /* Show unregistered entries in
-					 directory listings                  */
-#define DEVFS_FL_HIDE           0x004 /* Do not show entry in directory list */
-#define DEVFS_FL_AUTO_DEVNUM    0x008 /* Automatically generate device number
+#define DEVFS_FL_HIDE           0x002 /* Do not show entry in directory list */
+#define DEVFS_FL_AUTO_DEVNUM    0x004 /* Automatically generate device number
 				       */
-#define DEVFS_FL_AOPEN_NOTIFY   0x010 /* Asynchronously notify devfsd on open
+#define DEVFS_FL_AOPEN_NOTIFY   0x008 /* Asynchronously notify devfsd on open
 				       */
-#define DEVFS_FL_REMOVABLE      0x020 /* This is a removable media device    */
-#define DEVFS_FL_WAIT           0x040 /* Wait for devfsd to finish           */
-#define DEVFS_FL_NO_PERSISTENCE 0x080 /* Forget changes after unregister     */
-#define DEVFS_FL_CURRENT_OWNER  0x100 /* Set initial ownership to current    */
+#define DEVFS_FL_REMOVABLE      0x010 /* This is a removable media device    */
+#define DEVFS_FL_WAIT           0x020 /* Wait for devfsd to finish           */
+#define DEVFS_FL_NO_PERSISTENCE 0x040 /* Forget changes after unregister     */
+#define DEVFS_FL_CURRENT_OWNER  0x080 /* Set initial ownership to current    */
 #define DEVFS_FL_DEFAULT        DEVFS_FL_NONE
 
 
@@ -53,6 +56,19 @@ typedef struct devfs_entry * devfs_handle_t;
 
 
 #ifdef CONFIG_DEVFS_FS
+
+struct unique_numspace
+{
+    spinlock_t init_lock;
+    unsigned char sem_initialised;
+    unsigned int num_free;          /*  Num free in bits       */
+    unsigned int length;            /*  Array length in bytes  */
+    __u32 *bits;
+    struct semaphore semaphore;
+};
+
+#define UNIQUE_NUMBERSPACE_INITIALISER {SPIN_LOCK_UNLOCKED, 0, 0, 0, NULL}
+
 extern devfs_handle_t devfs_register (devfs_handle_t dir, const char *name,
 				      unsigned int flags,
 				      unsigned int major, unsigned int minor,
@@ -95,10 +111,26 @@ extern void devfs_register_series (devfs_handle_t dir, const char *format,
 				   unsigned int flags, unsigned int major,
 				   unsigned int minor_start,
 				   umode_t mode, void *ops, void *info);
+extern int devfs_alloc_major (char type);
+extern void devfs_dealloc_major (char type, int major);
+extern kdev_t devfs_alloc_devnum (char type);
+extern void devfs_dealloc_devnum (char type, kdev_t devnum);
+extern int devfs_alloc_unique_number (struct unique_numspace *space);
+extern void devfs_dealloc_unique_number (struct unique_numspace *space,
+					 int number);
 
 extern void mount_devfs_fs (void);
 extern void devfs_make_root (const char *name);
+
 #else  /*  CONFIG_DEVFS_FS  */
+
+struct unique_numspace
+{
+    char dummy;
+};
+
+#define UNIQUE_NUMBERSPACE_INITIALISER {0}
+
 static inline devfs_handle_t devfs_register (devfs_handle_t dir,
 					     const char *name,
 					     unsigned int flags,
@@ -228,6 +260,37 @@ static inline void devfs_register_series (devfs_handle_t dir,
 					  unsigned int major,
 					  unsigned int minor_start,
 					  umode_t mode, void *ops, void *info)
+{
+    return;
+}
+
+static inline int devfs_alloc_major (char type)
+{
+    return -1;
+}
+
+static inline void devfs_dealloc_major (char type, int major)
+{
+    return;
+}
+
+static inline kdev_t devfs_alloc_devnum (char type)
+{
+    return NODEV;
+}
+
+static inline void devfs_dealloc_devnum (char type, kdev_t devnum)
+{
+    return;
+}
+
+static inline int devfs_alloc_unique_number (struct unique_numspace *space)
+{
+    return -1;
+}
+
+static inline void devfs_dealloc_unique_number (struct unique_numspace *space,
+						int number)
 {
     return;
 }

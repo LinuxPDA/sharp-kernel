@@ -53,6 +53,9 @@
  *
  * 28-10-2000 Added pnplegacy support
  * 	Daniel Church <dchurch@mbhs.edu>
+ *
+ * 01-10-2001 Added a new flavor of Creative SB AWE64 PnP (CTL00E9).
+ *      Jerome Cornet <jcornet@free.fr>
  */
 
 #include <linux/config.h>
@@ -211,6 +214,7 @@ static int pnplegacy	= 0;
 #endif
 
 MODULE_DESCRIPTION("Soundblaster driver");
+MODULE_LICENSE("GPL");
 
 MODULE_PARM(io,		"i");
 MODULE_PARM(irq,	"i");
@@ -299,7 +303,27 @@ static struct {
 		0,0,0,0,
 		0,1,1,-1},
 	{"Sound Blaster 16", 
+		ISAPNP_VENDOR('C','T','L'), ISAPNP_DEVICE(0x002c), 
+		ISAPNP_VENDOR('C','T','L'), ISAPNP_FUNCTION(0x0031),
+		0,0,0,0,
+		0,1,1,-1},
+	{"Sound Blaster 16", 
+		ISAPNP_VENDOR('C','T','L'), ISAPNP_DEVICE(0x002c), 
+		ISAPNP_VENDOR('C','T','L'), ISAPNP_FUNCTION(0x0031),
+		0,0,0,0,
+		0,1,1,-1},
+	{"Sound Blaster 16", 
 		ISAPNP_VENDOR('C','T','L'), ISAPNP_DEVICE(0x00ed), 
+		ISAPNP_VENDOR('C','T','L'), ISAPNP_FUNCTION(0x0041),
+		0,0,0,0,
+		0,1,1,-1},
+	{"Sound Blaster 16", 
+		ISAPNP_VENDOR('C','T','L'), ISAPNP_DEVICE(0x0086), 
+		ISAPNP_VENDOR('C','T','L'), ISAPNP_FUNCTION(0x0041),
+		0,0,0,0,
+		0,1,1,-1},
+	{"Sound Blaster 16", 
+		ISAPNP_VENDOR('C','T','L'), ISAPNP_DEVICE(0x0086), 
 		ISAPNP_VENDOR('C','T','L'), ISAPNP_FUNCTION(0x0041),
 		0,0,0,0,
 		0,1,1,-1},
@@ -410,6 +434,11 @@ static struct {
 		0,1,1,-1},
 	{"Sound Blaster AWE 64",
 		ISAPNP_VENDOR('C','T','L'), ISAPNP_DEVICE(0x00E4), 
+		ISAPNP_VENDOR('C','T','L'), ISAPNP_FUNCTION(0x0045),
+		0,0,0,0,
+		0,1,1,-1},
+	{"Sound Blaster AWE 64",
+		ISAPNP_VENDOR('C','T','L'), ISAPNP_DEVICE(0x00E9), 
 		ISAPNP_VENDOR('C','T','L'), ISAPNP_FUNCTION(0x0045),
 		0,0,0,0,
 		0,1,1,-1},
@@ -524,7 +553,19 @@ static struct isapnp_device_id id_table[] __devinitdata = {
 	{	ISAPNP_VENDOR('C','T','L'), ISAPNP_DEVICE(0x002b), 
 		ISAPNP_VENDOR('C','T','L'), ISAPNP_FUNCTION(0x0031), 0 },
 
+	{	ISAPNP_VENDOR('C','T','L'), ISAPNP_DEVICE(0x002c), 
+		ISAPNP_VENDOR('C','T','L'), ISAPNP_FUNCTION(0x0031), 0 },
+
+	{	ISAPNP_VENDOR('C','T','L'), ISAPNP_DEVICE(0x002c), 
+		ISAPNP_VENDOR('C','T','L'), ISAPNP_FUNCTION(0x0031), 0 },
+
 	{	ISAPNP_VENDOR('C','T','L'), ISAPNP_DEVICE(0x00ed), 
+		ISAPNP_VENDOR('C','T','L'), ISAPNP_FUNCTION(0x0041), 0 },
+
+	{	ISAPNP_VENDOR('C','T','L'), ISAPNP_DEVICE(0x0086), 
+		ISAPNP_VENDOR('C','T','L'), ISAPNP_FUNCTION(0x0041), 0 },
+
+	{	ISAPNP_VENDOR('C','T','L'), ISAPNP_DEVICE(0x0086), 
 		ISAPNP_VENDOR('C','T','L'), ISAPNP_FUNCTION(0x0041), 0 },
 
 	{	ISAPNP_VENDOR('C','T','L'), ISAPNP_DEVICE(0x0051), 
@@ -588,6 +629,9 @@ static struct isapnp_device_id id_table[] __devinitdata = {
 		ISAPNP_VENDOR('C','T','L'), ISAPNP_FUNCTION(0x0045), 0 },
 
 	{	ISAPNP_VENDOR('C','T','L'), ISAPNP_DEVICE(0x00E4), 
+		ISAPNP_VENDOR('C','T','L'), ISAPNP_FUNCTION(0x0045), 0 },
+
+	{	ISAPNP_VENDOR('C','T','L'), ISAPNP_DEVICE(0x00E9),
 		ISAPNP_VENDOR('C','T','L'), ISAPNP_FUNCTION(0x0045), 0 },
 
 	{	ISAPNP_VENDOR('E','S','S'), ISAPNP_DEVICE(0x0968), 

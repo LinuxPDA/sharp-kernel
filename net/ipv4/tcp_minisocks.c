@@ -5,7 +5,7 @@
  *
  *		Implementation of the Transmission Control Protocol(TCP).
  *
- * Version:	$Id: tcp_minisocks.c,v 1.9 2001/03/06 22:42:56 davem Exp $
+ * Version:	$Id: tcp_minisocks.c,v 1.14 2001/09/21 21:27:34 davem Exp $
  *
  * Authors:	Ross Biro, <bir7@leland.Stanford.Edu>
  *		Fred N. van Kempen, <waltje@uWalt.NL.Mugnet.ORG>
@@ -371,7 +371,7 @@ void tcp_time_wait(struct sock *sk, int state, int timeo)
 		tw->family	= sk->family;
 		tw->reuse	= sk->reuse;
 		tw->rcv_wscale	= tp->rcv_wscale;
-		atomic_set(&tw->refcnt, 0);
+		atomic_set(&tw->refcnt, 1);
 
 		tw->hashent	= sk->hashent;
 		tw->rcv_nxt	= tp->rcv_nxt;
@@ -407,6 +407,7 @@ void tcp_time_wait(struct sock *sk, int state, int timeo)
 		}
 
 		tcp_tw_schedule(tw, timeo);
+		tcp_tw_put(tw);
 	} else {
 		/* Sorry, if we're out of memory, just CLOSE this
 		 * socket up.  We've got bigger problems than
@@ -765,7 +766,7 @@ struct sock *tcp_create_openreq_child(struct sock *sk, struct open_request *req,
 			newtp->rcv_wscale = req->rcv_wscale;
 		} else {
 			newtp->snd_wscale = newtp->rcv_wscale = 0;
-			newtp->window_clamp = min(newtp->window_clamp,65535);
+			newtp->window_clamp = min(newtp->window_clamp, 65535U);
 		}
 		newtp->snd_wnd = ntohs(skb->h.th->window) << newtp->snd_wscale;
 		newtp->max_window = newtp->snd_wnd;

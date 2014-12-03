@@ -1,6 +1,8 @@
-/*  support.h - Header file for specific support.c
+/*
+ * support.h - Header file for specific support.c
  *
- *  Copyright (C) 1997 Régis Duchesne
+ * Copyright (C) 1997 Régis Duchesne
+ * Copyright (c) 2001 Anton Altaparmakov (AIA)
  */
 
 /* Debug levels */
@@ -17,13 +19,22 @@
 #define DEBUG_NAME1  1024
 #define DEBUG_NAME2  2048
 
+#ifdef DEBUG
 void ntfs_debug(int mask, const char *fmt, ...);
+#else
+#define ntfs_debug(mask, fmt...)	do {} while (0)
+#endif
 
 #include <linux/slab.h>
+#include <linux/vmalloc.h>
 
 #define ntfs_malloc(size)  kmalloc(size, GFP_KERNEL)
 
 #define ntfs_free(ptr)     kfree(ptr)
+
+#define ntfs_vmalloc(size)	vmalloc_32(size)
+
+#define ntfs_vfree(ptr)		vfree(ptr)
 
 void ntfs_bzero(void *s, int n);
 

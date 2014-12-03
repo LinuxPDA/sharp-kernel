@@ -318,7 +318,7 @@ static void sticon_putcs(struct vc_data *conp, const unsigned short *s,
 	int count, int ypos, int xpos)
 {
 	while(count--) {
-		sti_putc(&default_sti, *s++, ypos, xpos++);
+		sti_putc(&default_sti, scr_readw(s++), ypos, xpos++);
 	}
 }
 
@@ -402,16 +402,6 @@ static int sticon_set_origin(struct vc_data *conp)
 	return 0;
 }
 
-static u16 *sticon_screen_pos(struct vc_data *conp, int offset)
-{
-	return NULL;
-}
-
-static unsigned long sticon_getxy(struct vc_data *conp, unsigned long pos, int *px, int *py)
-{
-	return 0;
-}
-
 static u8 sticon_build_attr(struct vc_data *conp, u8 color, u8 intens, u8 blink, u8 underline, u8 reverse)
 {
 	u8 attr = ((color & 0x70) >> 1) | ((color & 7));
@@ -440,11 +430,7 @@ static struct consw sti_con = {
 	con_set_palette:	sticon_set_palette,
 	con_scrolldelta:	sticon_scrolldelta,
 	con_set_origin: 	sticon_set_origin,
-	con_save_screen:	NULL,
 	con_build_attr:		sticon_build_attr,
-	con_invert_region:	NULL,
-	con_screen_pos:		sticon_screen_pos,
-	con_getxy:		sticon_getxy,
 };
 
 #include <asm/pgalloc.h>	/* need cache flush routines */
@@ -473,8 +459,9 @@ static void __init sti_rom_copy(unsigned long base, unsigned long offset,
 		offset++;
 		dest++;
 	}
-	__flush_dcache_range(dest, count);
-	__flush_icache_range(dest, count);
+
+	flush_kernel_dcache_range((unsigned long)dest, count);
+	flush_icache_range((unsigned long)dest, dest + count);
 }
 
 static void dump_sti_rom(struct sti_rom *rom)
@@ -904,3 +891,5 @@ static int __init sti_init(void)
 }
 
 module_init(sti_init)
+
+MODULE_LICENSE("GPL");

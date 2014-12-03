@@ -73,6 +73,12 @@
 #define GPIO_BOTH_EDGES         3
 #ifndef __ASSEMBLY__
 extern void set_GPIO_IRQ_edge( int gpio_mask, int edge_mask );
+
+/*
+ * Return the current CPU clock frequency in units of 100kHz
+ */
+extern unsigned short get_cclk_frequency(void);
+
 #endif
 
 
@@ -90,6 +96,24 @@ extern void set_GPIO_IRQ_edge( int gpio_mask, int edge_mask );
 #define machine_has_neponset()	(0)
 #endif
 
+
+#ifdef CONFIG_SA1100_HUW_WEBPANEL
+#include "huw_webpanel.h"
+#endif
+
+#ifdef CONFIG_SA1100_PFS168
+#include "pfs168.h"
+#endif
+
+
+#ifdef CONFIG_SA1100_YOPY
+#include "yopy.h"
+#endif
+
+#ifdef CONFIG_SA1100_FREEBIRD
+#include "freebird.h"
+#endif
+
 #ifdef CONFIG_SA1100_CERF
 #include "cerf.h"
 #endif
@@ -98,14 +122,45 @@ extern void set_GPIO_IRQ_edge( int gpio_mask, int edge_mask );
 #include "empeg.h"
 #endif
 
-#ifdef CONFIG_SA1100_BITSY
-#include "bitsy.h"
+#ifdef CONFIG_SA1100_H3600
+#include "h3600.h"
+#endif
+
+#ifdef CONFIG_SA1100_ITSY
+#include "itsy.h"
 #endif
 
 #if defined(CONFIG_SA1100_GRAPHICSCLIENT)
 #include "graphicsclient.h"
 #endif
 
+#if defined(CONFIG_SA1100_OMNIMETER)
+#include "omnimeter.h"
+#endif
+
+#if defined(CONFIG_SA1100_JORNADA720)
+#include "jornada720.h"
+#endif
+
+#if defined(CONFIG_SA1100_PLEB)
+#include "pleb.h"
+#endif
+
+#if defined(CONFIG_SA1100_LART)
+#include "lart.h"
+#endif
+
+#ifdef CONFIG_SA1100_SIMPAD
+#include "simpad.h"
+#endif
+
+#if defined(CONFIG_SA1100_GRAPHICSMASTER)
+#include "graphicsmaster.h"
+#endif
+
+#if defined(CONFIG_SA1100_ADSBITSY)
+#include "adsbitsy.h"
+#endif
 
 #ifdef CONFIG_SA1101
 
@@ -121,6 +176,17 @@ extern void set_GPIO_IRQ_edge( int gpio_mask, int edge_mask );
 
 #endif
 
+#if defined(CONFIG_SA1100_OMNIMETER)
+#include "omnimeter.h"
+#endif
+
+#if defined(CONFIG_SA1100_JORNADA720)
+#include "jornada720.h"
+#endif
+
+#if defined(CONFIG_SA1100_FLEXANET)
+#include "flexanet.h"
+#endif
 
 #ifdef CONFIG_SA1111
 

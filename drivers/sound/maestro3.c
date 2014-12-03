@@ -130,7 +130,7 @@
 #include <linux/sched.h>
 #include <linux/delay.h>
 #include <linux/sound.h>
-#include <linux/malloc.h>
+#include <linux/slab.h>
 #include <linux/soundcard.h>
 #include <linux/pci.h>
 #include <linux/vmalloc.h>
@@ -172,7 +172,7 @@
 #define SND_DEV_DSP16       5 
    
 #ifdef M_DEBUG
-static int debug=0;
+static int debug;
 #define DPMOD   1   /* per module load */
 #define DPSTR   2   /* per 'stream' */
 #define DPSYS   3   /* per syscall */
@@ -365,7 +365,7 @@ ld2(unsigned int x)
     return r;
 }
 
-static struct m3_card *devs = NULL;
+static struct m3_card *devs;
 
 /*
  * I'm not very good at laying out functions in a file :)
@@ -1280,13 +1280,6 @@ static const char invalid_magic[] = KERN_CRIT PFX "invalid magic value in %s\n";
 
 /* --------------------------------------------------------------------- */
 
-static loff_t m3_llseek(struct file *file, loff_t offset, int origin)
-{
-    return -ESPIPE;
-}
-
-/* --------------------------------------------------------------------- */
-
 static int drain_dac(struct m3_state *s, int nonblock)
 {
     DECLARE_WAITQUEUE(wait,current);
@@ -1296,7 +1289,7 @@ static int drain_dac(struct m3_state *s, int nonblock)
 
     if (s->dma_dac.mapped || !s->dma_dac.ready)
         return 0;
-    current->state = TASK_INTERRUPTIBLE;
+    set_current_state(TASK_INTERRUPTIBLE);
     add_wait_queue(&s->dma_dac.wait, &wait);
     for (;;) {
         spin_lock_irqsave(&s->lock, flags);
@@ -1308,7 +1301,7 @@ static int drain_dac(struct m3_state *s, int nonblock)
             break;
         if (nonblock) {
             remove_wait_queue(&s->dma_dac.wait, &wait);
-            current->state = TASK_RUNNING;
+            set_current_state(TASK_RUNNING);
             return -EBUSY;
         }
         tmo = (count * HZ) / s->ratedac;
@@ -1319,7 +1312,7 @@ static int drain_dac(struct m3_state *s, int nonblock)
             DPRINTK(DPCRAP,"dma timed out?? %ld\n",jiffies);
     }
     remove_wait_queue(&s->dma_dac.wait, &wait);
-    current->state = TASK_RUNNING;
+    set_current_state(TASK_RUNNING);
     if (signal_pending(current))
             return -ERESTARTSYS;
     return 0;
@@ -2180,7 +2173,7 @@ static int m3_ioctl_mixdev(struct inode *inode, struct file *file, unsigned int 
 }
 
 static struct file_operations m3_mixer_fops = {
-    llseek:         m3_llseek,
+    llseek:         no_llseek,
     ioctl:          m3_ioctl_mixdev,
     open:           m3_open_mixdev,
     release:        m3_release_mixdev,
@@ -2258,7 +2251,7 @@ static void m3_codec_reset(struct m3_card *card, int busywait)
         if(busywait)  {
             mdelay(delay1);
         } else {
-            current->state = TASK_UNINTERRUPTIBLE;
+            set_current_state(TASK_UNINTERRUPTIBLE);
             schedule_timeout((delay1 * HZ) / 1000);
         }
 
@@ -2271,7 +2264,7 @@ static void m3_codec_reset(struct m3_card *card, int busywait)
         if(busywait) {
             mdelay(delay2);
         } else {
-            current->state = TASK_UNINTERRUPTIBLE;
+            set_current_state(TASK_UNINTERRUPTIBLE);
             schedule_timeout((delay2 * HZ) / 1000);
         }
         if(! try_read_vendor(card))
@@ -2553,7 +2546,7 @@ static void m3_enable_ints(struct m3_card *card)
 }
 
 static struct file_operations m3_audio_fops = {
-    llseek:     &m3_llseek,
+    llseek:     &no_llseek,
     read:       &m3_read,
     write:      &m3_write,
     poll:       &m3_poll,
@@ -2912,6 +2905,8 @@ static int m3_resume(struct pci_dev *pci_dev)
 
 MODULE_AUTHOR("Zach Brown <zab@zabbo.net>");
 MODULE_DESCRIPTION("ESS Maestro3/Allegro Driver");
+MODULE_LICENSE("GPL");
+
 #ifdef M_DEBUG
 MODULE_PARM(debug,"i");
 #endif
@@ -2963,8 +2958,8 @@ void check_suspend(struct m3_card *card)
 
     card->in_suspend++;
     add_wait_queue(&card->suspend_queue, &wait);
-    current->state = TASK_UNINTERRUPTIBLE;
+    set_current_state(TASK_UNINTERRUPTIBLE);
     schedule();
     remove_wait_queue(&card->suspend_queue, &wait);
-    current->state = TASK_RUNNING;
+    set_current_state(TASK_RUNNING);
 }

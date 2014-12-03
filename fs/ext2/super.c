@@ -408,7 +408,6 @@ struct super_block * ext2_read_super (struct super_block * sb, void * data,
 	unsigned long offset = 0;
 	kdev_t dev = sb->s_dev;
 	int blocksize = BLOCK_SIZE;
-	int hblock;
 	int db_count;
 	int i, j;
 
@@ -429,7 +428,10 @@ struct super_block * ext2_read_super (struct super_block * sb, void * data,
 		return NULL;
 	}
 
-	set_blocksize (dev, blocksize);
+	if (set_blocksize(dev, blocksize) < 0) {
+		printk ("EXT2-fs: unable to set blocksize %d\n", blocksize);
+		return NULL;
+	}
 
 	/*
 	 * If the superblock doesn't start on a sector boundary,
@@ -446,20 +448,17 @@ struct super_block * ext2_read_super (struct super_block * sb, void * data,
 		return NULL;
 	}
 	/*
-	 * Note: s_es must be initialized s_es as soon as possible because
-	 * some ext2 macro-instructions depend on its value
+	 * Note: s_es must be initialized as soon as possible because
+	 *       some ext2 macro-instructions depend on its value
 	 */
 	es = (struct ext2_super_block *) (((char *)bh->b_data) + offset);
 	sb->u.ext2_sb.s_es = es;
 	sb->s_magic = le16_to_cpu(es->s_magic);
 	if (sb->s_magic != EXT2_SUPER_MAGIC) {
 		if (!silent)
-			printk ("VFS: Can't find an ext2 filesystem on dev "
-				"%s.\n", bdevname(dev));
-	failed_mount:
-		if (bh)
-			brelse(bh);
-		return NULL;
+			printk ("VFS: Can't find ext2 filesystem on dev %s.\n",
+				bdevname(dev));
+		goto failed_mount;
 	}
 	if (le32_to_cpu(es->s_rev_level) == EXT2_GOOD_OLD_REV &&
 	    (EXT2_HAS_COMPAT_FEATURE(sb, ~0U) ||
@@ -491,24 +490,19 @@ struct super_block * ext2_read_super (struct super_block * sb, void * data,
 
 	sb->s_maxbytes = ext2_max_size(sb->s_blocksize_bits);
 
-	if (sb->s_blocksize != BLOCK_SIZE &&
-	    (sb->s_blocksize == 1024 || sb->s_blocksize == 2048 ||
-	     sb->s_blocksize == 4096)) {
-		/*
-		 * Make sure the blocksize for the filesystem is larger
-		 * than the hardware sectorsize for the machine.
-		 */
-		hblock = get_hardsect_size(dev);
-		if (sb->s_blocksize < hblock) {
+	/* If the blocksize doesn't match, re-read the thing.. */
+	if (sb->s_blocksize != blocksize) {
+		blocksize = sb->s_blocksize;
+		brelse(bh);
+
+		if (set_blocksize(dev, blocksize) < 0) {
 			printk(KERN_ERR "EXT2-fs: blocksize too small for device.\n");
-			goto failed_mount;
+			return NULL;
 		}
 
-		brelse (bh);
-		set_blocksize (dev, sb->s_blocksize);
-		logic_sb_block = (sb_block*BLOCK_SIZE) / sb->s_blocksize;
-		offset = (sb_block*BLOCK_SIZE) % sb->s_blocksize;
-		bh = bread (dev, logic_sb_block, sb->s_blocksize);
+		logic_sb_block = (sb_block*BLOCK_SIZE) / blocksize;
+		offset = (sb_block*BLOCK_SIZE) % blocksize;
+		bh = bread (dev, logic_sb_block, blocksize);
 		if(!bh) {
 			printk("EXT2-fs: Couldn't read superblock on "
 			       "2nd try.\n");
@@ -521,6 +515,7 @@ struct super_block * ext2_read_super (struct super_block * sb, void * data,
 			goto failed_mount;
 		}
 	}
+
 	if (le32_to_cpu(es->s_rev_level) == EXT2_GOOD_OLD_REV) {
 		sb->u.ext2_sb.s_inode_size = EXT2_GOOD_OLD_INODE_SIZE;
 		sb->u.ext2_sb.s_first_ino = EXT2_GOOD_OLD_FIRST_INO;
@@ -622,11 +617,9 @@ struct super_block * ext2_read_super (struct super_block * sb, void * data,
 		}
 	}
 	if (!ext2_check_descriptors (sb)) {
-		for (j = 0; j < db_count; j++)
-			brelse (sb->u.ext2_sb.s_group_desc[j]);
-		kfree(sb->u.ext2_sb.s_group_desc);
-		printk ("EXT2-fs: group descriptors corrupted !\n");
-		goto failed_mount;
+		printk ("EXT2-fs: group descriptors corrupted!\n");
+		db_count = i;
+		goto failed_mount2;
 	}
 	for (i = 0; i < EXT2_MAX_GROUP_LOADED; i++) {
 		sb->u.ext2_sb.s_inode_bitmap_number[i] = 0;
@@ -642,17 +635,25 @@ struct super_block * ext2_read_super (struct super_block * sb, void * data,
 	 */
 	sb->s_op = &ext2_sops;
 	sb->s_root = d_alloc_root(iget(sb, EXT2_ROOT_INO));
-	if (!sb->s_root) {
-		for (i = 0; i < db_count; i++)
-			if (sb->u.ext2_sb.s_group_desc[i])
-				brelse (sb->u.ext2_sb.s_group_desc[i]);
-		kfree(sb->u.ext2_sb.s_group_desc);
-		brelse (bh);
-		printk ("EXT2-fs: get root inode failed\n");
-		return NULL;
+	if (!sb->s_root || !S_ISDIR(sb->s_root->d_inode->i_mode) ||
+	    !sb->s_root->d_inode->i_blocks || !sb->s_root->d_inode->i_size) {
+		if (sb->s_root) {
+			dput(sb->s_root);
+			sb->s_root = NULL;
+			printk ("EXT2-fs: corrupt root inode, run e2fsck\n");
+		} else
+			printk ("EXT2-fs: get root inode failed\n");
+		goto failed_mount2;
 	}
 	ext2_setup_super (sb, es, sb->s_flags & MS_RDONLY);
 	return sb;
+failed_mount2:
+	for (i = 0; i < db_count; i++)
+		brelse(sb->u.ext2_sb.s_group_desc[i]);
+	kfree(sb->u.ext2_sb.s_group_desc);
+failed_mount:
+	brelse(bh);
+	return NULL;
 }
 
 static void ext2_commit_super (struct super_block * sb,

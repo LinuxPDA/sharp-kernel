@@ -78,8 +78,8 @@ P: 1024/85AD9EED AD C0 49 08 91 67 DF D7  FA 04 1A EE 09 E8 44 B0
 D: Unix98 pty support.
 D: APM update to 1.2 spec.
 D: /devfs hacking.
-S: 322 N. Riverside Dr.
-S: Neptune, NJ 07753
+S: 7 Kiwi Loop
+S: Howell, NJ 07731
 S: USA
 
 N: Erik Andersen
@@ -400,13 +400,12 @@ S: Columbus, Ohio 43210
 S: USA
 
 N: Peter Braam
-E: braam@cs.cmu.edu
-W: http://coda.cs.cmu.edu/~braam
-D: Coda Filesystem
-S: Dept of Computer Science
-S: 5000 Forbes Avenue
-S: Pittsburgh, Pennsylvania 15213
-S: USA
+E: braam@clusterfs.com
+W: http://www.clusterfs.com/
+D: Coda & InterMezzo filesystems
+S: 181 McNeil
+S: Canmore, AB
+S: Canada, T1W 2R9
 
 N: Ryan Bradetich
 E: rbradetich@uswest.net
@@ -535,6 +534,12 @@ S: Stanford University
 S: Stanford, California 94305
 S: USA
 
+N: Randolph Chung
+E: tausq@debian.org
+D: Linux/PA-RISC hacker
+S: Fremont, CA 94538
+S: USA
+
 N: Juan Jose Ciarlante
 W: http://juanjox.kernelnotes.org/
 E: jjciarla@raiz.uncu.edu.ar
@@ -598,6 +603,13 @@ S: Alexandra Terrace
 S: Guildford, GU1 3DA
 S: United Kingdom
 
+N: Cristian Mihail Craciunescu
+W: http://www.dnt.ro/~cristi/
+E: cristi@dnt.ro
+D: Support for Xircom PGSDB9 (firmware and host driver)
+S: Bucharest
+S: Romania
+
 N: Laurence Culhane
 E: loz@holmes.demon.co.uk
 D: Wrote the initial alpha SLIP code
@@ -633,10 +645,11 @@ S: Littleton, Massachusetts 01460
 S: USA
 
 N: Frank Davis
+E: fdavis@si.rr.com
 E: fdavis112@juno.com
 D: Various kernel patches
 S: 8 Lakeview Terr.
-S: Kerhonskon, NY 12446
+S: Kerhonkson, NY 12446
 S: USA
 
 N: Wayne Davison
@@ -679,6 +692,25 @@ S: Ottawa, Ontario
 S: K1N 6Z9
 S: CANADA
 
+N: Jeff Dike
+E: jdike@karaya.com
+W: http://user-mode-linux.sourceforge.net
+D: User mode kernel port
+S: RR1 Box 67C
+S: Deering NH 03244
+S: USA
+
+N: Matt Domsch
+E: Matt_Domsch@dell.com
+W: http://www.dell.com/linux
+W: http://domsch.com/linux
+D: Linux/IA-64
+D: Dell PowerEdge server, SCSI layer, misc drivers, and other patches
+S: Dell Computer Corporation
+S: One Dell Way
+S: Round Rock, TX  78681
+S: USA
+
 N: Eddie C. Dost
 E: ecd@skynet.be
 D: Linux/Sparc kernel hacker
@@ -695,7 +727,7 @@ D: PowerPC
 N: Oleg Drokin
 E: green@ccssu.crimea.ua
 W: http://www.ccssu.crimea.ua/~green
-D: Cleaning up sound drivers.
+D: Cleaning up sound drivers, SA1100 Watchdog.
 S: Skvoznoy per., 14a
 S: Evpatoria
 S: Crimea
@@ -724,13 +756,26 @@ S: Blacksburg, Virginia 24061
 S: USA
 
 N: Randy Dunlap
-E: randy.dunlap@intel.com
+E: rddunlap@osdlab.org
 W: http://home.att.net/~randy.dunlap/
+W: http://home.att.net/~rddunlap/
 W: http://www.linux-usb.org
 D: Linux-USB subsystem, USB core/UHCI/printer/storage drivers
-S: 5200 NE Elam Young Pkwy., M/S HF3-77
-S: Hillsboro, Oregon 97124
+D: x86 SMP, ACPI, bootflag hacking
+S: 15275 SW Koll Parkway, Suite H
+S: Beaverton, Oregon 97006
 S: USA
+
+N: Bob Dunlop
+E: rjd@xyzzy.clara.co.uk
+E: bob.dunlop@farsite.co.uk
+W: www.farsite.co.uk
+D: FarSync card device driver
+S: FarSite Communications Ltd
+S: Tempus Business Centre
+S: 60 Kingsclere Road
+S: Basingstoke       RG21 6XG
+S: UK
 
 N: Cyrus Durgin
 E: cider@speakeasy.org
@@ -799,7 +844,6 @@ S: Palo Alto, CA 94304
 S: USA
 
 N: Johannes Erdfelt
-E: jerdfelt@valinux.com
 E: johannes@erdfelt.com
 D: Linux/IA-64 bootloader and kernel goop, USB
 S: 6350 Stoneridge Mall Road
@@ -916,6 +960,15 @@ S: 1150 Ringwood Court
 S: San Jose, California 95131
 S: USA
 
+N: Fernando Fuganti
+E: fuganti@conectiva.com.br
+E: fuganti@netbank.com.br
+D: random kernel hacker, ZF MachZ Watchdog driver
+S: Conectiva S.A.
+S: R. Tocantins, 89 - Cristo Rei
+S: 80050-430 - Curitiba - Paraná
+S: Brazil
+
 N: Nigel Gamble
 E: nigel@nrg.org
 E: nigel@sgi.com
@@ -946,6 +999,11 @@ N: Philip Gladstone
 E: philip@raptor.com
 D: Kernel / timekeeping stuff
   
+N: Jan-Benedict Glaw
+E: jbglaw@lug-owl.de
+D: SRM environment driver (for Alpha systems)
+P: 1024D/8399E1BB 250D 3BCF 7127 0D8C A444  A961 1DBD 5E75 8399 E1BB
+
 N: Richard E. Gooch
 E: rgooch@atnf.csiro.au
 D: parent process death signal to children
@@ -956,6 +1014,12 @@ S: CSIRO Australia Telescope National Facility
 S: P.O. Box 76, Epping
 S: New South Wales, 2121
 S: Australia
+
+N: Carlos E. Gorges 
+E: carlos@techlinux.com.br
+D: fix smp support on cmpci driver
+P: 2048G/EA3C4B19 FF31 33A6 0362 4915 B7EB  E541 17D0 0379 EA3C 4B19
+S: Brazil
 
 N: Dmitry S. Gorodchanin
 E: pgmdsg@ibi.com
@@ -1056,6 +1120,11 @@ S: PO-Box 297
 S: 2400 AG, Alphen aan den Rijn
 S: The Netherlands
 
+N: Enver Haase
+E: ehaase@inf.fu-berlin.de
+W: http://www.inf.fu-berlin.de/~ehaase
+D: Driver for the Commodore A2232 serial board
+
 N: Bruno Haible
 E: haible@ma2s2.mathematik.uni-karlsruhe.de
 D: SysV FS, shm swapping, memory management fixes
@@ -1095,7 +1164,7 @@ D: Selection mechanism
 
 N: Andre Hedrick
 E: andre@linux-ide.org
-E: ahedrick@atipa.com
+E: andre@aslab.com
 E: andre@suse.com
 W: http://www.linux-ide.org/
 D: Random SMP kernel hacker...
@@ -1106,8 +1175,8 @@ D: ATA-Disconnect
 D: ATA-Smart Kernel Daemon
 S: Linux ATA Development (LAD)
 S: Concord, CA
-S: Atipa Linux Solutions
-S: 6000 Connecticut  Kansas City, MO  64120
+S: ASL, Inc. 1-877-ASL-3535
+S: 1757 Houret Court, Milpitas, CA 95035
 S: SuSE Linux, Inc.
 S: 580 Second Street, Suite 210  Oakland, CA  94607
 S: USA
@@ -1269,12 +1338,11 @@ S: Pittsburgh, PA 15203-1250
 S: USA
 
 N: Gareth Hughes
-E: gareth@valinux.com
-E: gareth@precisioninsight.com
+E: gareth.hughes@acm.org
 D: Pentium III FXSR, SSE support
-S: 11/187 West Street
-S: Crows Nest NSW 2065
-S: Australia
+D: Author/maintainer of most DRM drivers (especially ATI, MGA)
+D: Core DRM templates, general DRM and 3D-related hacking
+S: No fixed address
 
 N: Kenn Humborg
 E: kenn@wombat.ie
@@ -1994,10 +2062,11 @@ S: Richardson, Texas 75081
 S: USA
 
 N: Patrick Mochel
-E: mochel@transmeta.com
+E: pat@osdl.org
+E: mochelp@infinity.powertie.org
 D: PCI Power Management, ACPI work
-S: 3940 Freedom Circle
-S: Santa Clara, CA 95054
+S: 15275 SW Koll Parkway, Suite H
+S: Beaverton, OR 97006 
 S: USA
 
 N: Eberhard Moenkeberg
@@ -2253,6 +2322,15 @@ N: Ken Pizzini
 E: ken@halcyon.com
 D: CDROM driver "sonycd535" (Sony CDU-535/531)
 
+N: Stelian Pop
+E: stelian.pop@fr.alcove.com
+P: 1024D/EDBB6147 7B36 0E07 04BC 11DC A7A0  D3F7 7185 9E7A EDBB 6147
+D: sonypi, meye drivers, mct_u232 usb serial hacks
+S: Alcôve
+S: 153, bd. Anatole France 
+S: 93200 Saint Denis
+S: France
+
 N: Frederic Potter 
 E: fpotter@cirpack.com
 D: Some PCI kernel support
@@ -2349,14 +2427,15 @@ S: 75019 Paris
 S: France
 
 N: Rik van Riel
-E: riel@nl.linux.org
-W: http://www.nl.linux.org/~riel/
+E: riel@conectiva.com.br
+W: http://www.surriel.com/
 D: Linux-MM site, Documentation/sysctl/*, swap/mm readaround
 D: clustering contributor, kswapd fixes, random kernel hacker,
-D: nl.linux.org maintainer, minor scheduler additions
-S: IJsselstraat 23a
-S: 9725 GA  Groningen
-S: The Netherlands
+D: nl.linux.org administrator, minor scheduler additions
+S: Conectiva S.A.
+S: R. Tocantins, 89 - Cristo Rei
+S: 80050-430 - Curitiba - Paraná
+S: Brazil
 
 N: Pekka Riikonen
 E: priikone@poseidon.pspt.fi
@@ -2455,6 +2534,15 @@ D: netfilter, ipchains with Michael Neuling.
 S: 52 Moore St
 S: Turner ACT 2612
 S: Australia
+
+N: Richard Russon (FlatCap)
+E: kernel@flatcap.org
+W: http://www.flatcap.org
+D: NTFS support
+D: LDM support (Win2000/XP Logical Disk Manager/Dynamic Disks)
+S: 50 Swansea Road
+S: Reading
+S: United Kingdom
 
 N: Bill Ryder
 E: bryder@sgi.com
@@ -2862,6 +2950,7 @@ S: Belgium
 N: Petr Vandrovec
 E: vandrove@vc.cvut.cz
 D: Small contributions to ncpfs
+D: Matrox framebuffer driver
 S: Chudenicka 8
 S: 10200 Prague 10, Hostivar
 S: Czech Republic

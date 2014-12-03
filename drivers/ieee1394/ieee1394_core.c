@@ -17,6 +17,7 @@
 #include <linux/init.h>
 #include <linux/slab.h>
 #include <linux/interrupt.h>
+#include <linux/module.h>
 #include <asm/bitops.h>
 #include <asm/byteorder.h>
 #include <asm/semaphore.h>
@@ -28,11 +29,23 @@
 #include "highlevel.h"
 #include "ieee1394_transactions.h"
 #include "csr.h"
-#include "guid.h"
+#include "nodemgr.h"
+#include "ieee1394_hotplug.h"
 
+/*
+ * Disable the nodemgr detection and config rom reading functionality.
+ */
+MODULE_PARM(disable_nodemgr, "i");
+MODULE_PARM_DESC(disable_nodemgr, "Disable nodemgr functionality.");
+static int disable_nodemgr = 0;
 
-atomic_t hpsb_generation = ATOMIC_INIT(0);
+/* We are GPL, so treat us special */
+MODULE_LICENSE("GPL");
 
+static kmem_cache_t *hpsb_packet_cache;
+
+/* Some globals used */
+const char *hpsb_speedto_str[] = { "S100", "S200", "S400" };
 
 static void dump_packet(const char *text, quadlet_t *data, int size)
 {
@@ -72,25 +85,20 @@ static void dump_packet(const char *text, quadlet_t *data, int size)
 struct hpsb_packet *alloc_hpsb_packet(size_t data_size)
 {
         struct hpsb_packet *packet = NULL;
-        void *header = NULL, *data = NULL;
+        void *data = NULL;
         int kmflags = in_interrupt() ? GFP_ATOMIC : GFP_KERNEL;
 
-        packet = kmalloc(sizeof(struct hpsb_packet), kmflags);
-        header = kmalloc(5 * 4, kmflags);
-        if (header == NULL || packet == NULL) {
-                kfree(header);
-                kfree(packet);
+        packet = kmem_cache_alloc(hpsb_packet_cache, kmflags);
+        if (packet == NULL)
                 return NULL;
-        }
 
         memset(packet, 0, sizeof(struct hpsb_packet));
-        packet->header = header;
+        packet->header = packet->embedded_header;
 
         if (data_size) {
                 data = kmalloc(data_size + 8, kmflags);
                 if (data == NULL) {
-                        kfree(header);
-                        kfree(packet);
+			kmem_cache_free(hpsb_packet_cache, packet);
                         return NULL;
                 }
 
@@ -101,8 +109,8 @@ struct hpsb_packet *alloc_hpsb_packet(size_t data_size)
         INIT_TQ_HEAD(packet->complete_tq);
         INIT_LIST_HEAD(&packet->list);
         sema_init(&packet->state_change, 0);
-        packet->state = unused;
-        packet->generation = get_hpsb_generation();
+        packet->state = hpsb_unused;
+        packet->generation = -1;
         packet->data_be = 1;
 
         return packet;
@@ -118,24 +126,21 @@ struct hpsb_packet *alloc_hpsb_packet(size_t data_size)
  */
 void free_hpsb_packet(struct hpsb_packet *packet)
 {
-        if (packet == NULL) {
-                return;
-        }
+        if (!packet) return;
 
         kfree(packet->data);
-        kfree(packet->header);
-        kfree(packet);
+        kmem_cache_free(hpsb_packet_cache, packet);
 }
 
 
-int hpsb_reset_bus(struct hpsb_host *host)
+int hpsb_reset_bus(struct hpsb_host *host, int type)
 {
         if (!host->initialized) {
                 return 1;
         }
 
-        if (!hpsb_bus_reset(host)) {
-                host->template->devctl(host, RESET_BUS, 0);
+        if (!host->in_bus_reset) {
+                host->template->devctl(host, RESET_BUS, type);
                 return 0;
         } else {
                 return 1;
@@ -297,14 +302,17 @@ static void build_speed_map(struct hpsb_host *host, int nodecount)
         }
 }
 
+
 void hpsb_selfid_received(struct hpsb_host *host, quadlet_t sid)
 {
         if (host->in_bus_reset) {
-                HPSB_DEBUG("including selfid 0x%x", sid);
+#ifdef CONFIG_IEEE1394_VERBOSEDEBUG
+                HPSB_INFO("Including SelfID 0x%x", sid);
+#endif
                 host->topology_map[host->selfid_count++] = sid;
         } else {
-                /* FIXME - info on which host */
-                HPSB_NOTICE("spurious selfid packet (0x%8.8x) received", sid);
+                HPSB_NOTICE("Spurious SelfID packet (0x%08x) received from bus %d",
+			    sid, (host->node_id & BUS_MASK) >> 6);
         }
 }
 
@@ -318,13 +326,12 @@ void hpsb_selfid_complete(struct hpsb_host *host, int phyid, int isroot)
         if (!host->node_count) {
                 if (host->reset_retries++ < 20) {
                         /* selfid stage did not complete without error */
-                        HPSB_NOTICE("error in SelfID stage - resetting");
-                        hpsb_reset_bus(host);
+                        HPSB_NOTICE("Error in SelfID stage, resetting");
+                        hpsb_reset_bus(host, LONG_RESET);
                         return;
                 } else {
-                        HPSB_NOTICE("stopping out-of-control reset loop");
-                        HPSB_NOTICE("warning - topology map and speed map will "
-                                    "therefore not be valid");
+                        HPSB_NOTICE("Stopping out-of-control reset loop");
+                        HPSB_NOTICE("Warning - topology map and speed map will not be valid");
                 }
         } else {
                 build_speed_map(host, host->node_count);
@@ -339,7 +346,7 @@ void hpsb_selfid_complete(struct hpsb_host *host, int phyid, int isroot)
         }
 
         host->reset_retries = 0;
-        inc_hpsb_generation();
+        atomic_inc(&host->generation);
         if (isroot) host->template->devctl(host, ACT_CYCLE_MASTER, 1);
         highlevel_host_reset(host);
 }
@@ -359,14 +366,14 @@ void hpsb_packet_sent(struct hpsb_host *host, struct hpsb_packet *packet,
         }
 
         if (ackcode != ACK_PENDING || !packet->expect_response) {
-                packet->state = complete;
+                packet->state = hpsb_complete;
                 up(&packet->state_change);
                 up(&packet->state_change);
                 run_task_queue(&packet->complete_tq);
                 return;
         }
 
-        packet->state = pending;
+        packet->state = hpsb_pending;
         packet->sendtime = jiffies;
 
         spin_lock_irqsave(&host->pending_pkt_lock, flags);
@@ -396,13 +403,13 @@ int hpsb_send_packet(struct hpsb_packet *packet)
         struct hpsb_host *host = packet->host;
 
         if (!host->initialized || host->in_bus_reset 
-            || (packet->generation != get_hpsb_generation())) {
+            || (packet->generation != get_hpsb_generation(host))) {
                 return 0;
         }
 
-        packet->state = queued;
+        packet->state = hpsb_queued;
 
-        if (packet->type == async && packet->node_id != ALL_NODES) {
+        if (packet->type == hpsb_async && packet->node_id != ALL_NODES) {
                 packet->speed_code =
                         host->speed_map[(host->node_id & NODE_MASK) * 64
                                        + (packet->node_id & NODE_MASK)];
@@ -448,18 +455,16 @@ void handle_packet_response(struct hpsb_host *host, int tcode, quadlet_t *data,
 
         spin_lock_irqsave(&host->pending_pkt_lock, flags);
 
-        lh = host->pending_packets.next;
-        while (lh != &host->pending_packets) {
+        list_for_each(lh, &host->pending_packets) {
                 packet = list_entry(lh, struct hpsb_packet, list);
                 if ((packet->tlabel == tlabel)
                     && (packet->node_id == (data[1] >> 16))){
                         break;
                 }
-                lh = lh->next;
         }
 
         if (lh == &host->pending_packets) {
-                HPSB_INFO("unsolicited response packet received - np");
+                HPSB_DEBUG("unsolicited response packet received - np");
                 dump_packet("contents:", data, 16);
                 spin_unlock_irqrestore(&host->pending_pkt_lock, flags);
                 return;
@@ -512,14 +517,14 @@ void handle_packet_response(struct hpsb_host *host, int tcode, quadlet_t *data,
                 break;
         }
 
-        packet->state = complete;
+        packet->state = hpsb_complete;
         up(&packet->state_change);
         run_task_queue(&packet->complete_tq);
 }
 
 
-struct hpsb_packet *create_reply_packet(struct hpsb_host *host, quadlet_t *data,
-                                        size_t dsize)
+static struct hpsb_packet *create_reply_packet(struct hpsb_host *host,
+					       quadlet_t *data, size_t dsize)
 {
         struct hpsb_packet *p;
 
@@ -531,12 +536,14 @@ struct hpsb_packet *create_reply_packet(struct hpsb_host *host, quadlet_t *data,
                 return NULL;
         }
 
-        p->type = async;
-        p->state = unused;
+        p->type = hpsb_async;
+        p->state = hpsb_unused;
         p->host = host;
         p->node_id = data[1] >> 16;
         p->tlabel = (data[0] >> 10) & 0x3f;
         p->no_waiter = 1;
+
+	p->generation = get_hpsb_generation(host);
 
         if (dsize % 4) {
                 p->data[dsize / 4] = 0;
@@ -549,12 +556,13 @@ struct hpsb_packet *create_reply_packet(struct hpsb_host *host, quadlet_t *data,
                 packet = create_reply_packet(host, data, length); \
                 if (packet == NULL) break
 
-void handle_incoming_packet(struct hpsb_host *host, int tcode, quadlet_t *data,
-                            size_t size, int write_acked)
+static void handle_incoming_packet(struct hpsb_host *host, int tcode,
+				   quadlet_t *data, size_t size, int write_acked)
 {
         struct hpsb_packet *packet;
         int length, rcode, extcode;
-        int source = data[1] >> 16;
+        nodeid_t source = data[1] >> 16;
+	nodeid_t dest = data[0] >> 16;
         u64 addr;
 
         /* big FIXME - no error checking is done for an out of bounds length */
@@ -562,7 +570,8 @@ void handle_incoming_packet(struct hpsb_host *host, int tcode, quadlet_t *data,
         switch (tcode) {
         case TCODE_WRITEQ:
                 addr = (((u64)(data[1] & 0xffff)) << 32) | data[2];
-                rcode = highlevel_write(host, source, data+3, addr, 4);
+                rcode = highlevel_write(host, source, dest, data+3,
+					addr, 4);
 
                 if (!write_acked
                     && ((data[0] >> 16) & NODE_MASK) != NODE_MASK) {
@@ -575,8 +584,8 @@ void handle_incoming_packet(struct hpsb_host *host, int tcode, quadlet_t *data,
 
         case TCODE_WRITEB:
                 addr = (((u64)(data[1] & 0xffff)) << 32) | data[2];
-                rcode = highlevel_write(host, source, data+4, addr,
-                                        data[3]>>16);
+                rcode = highlevel_write(host, source, dest, data+4,
+					addr, data[3]>>16);
 
                 if (!write_acked
                     && ((data[0] >> 16) & NODE_MASK) != NODE_MASK) {
@@ -725,12 +734,9 @@ void abort_requests(struct hpsb_host *host)
         INIT_LIST_HEAD(&host->pending_packets);
         spin_unlock_irqrestore(&host->pending_pkt_lock, flags);
 
-        lh = llist.next;
-
-        while (lh != &llist) {
+        list_for_each(lh, &llist) {
                 packet = list_entry(lh, struct hpsb_packet, list);
-                lh = lh->next;
-                packet->state = complete;
+                packet->state = hpsb_complete;
                 packet->ack_code = ACKX_ABORTED;
                 up(&packet->state_change);
                 run_task_queue(&packet->complete_tq);
@@ -742,7 +748,7 @@ void abort_timedouts(struct hpsb_host *host)
         unsigned long flags;
         struct hpsb_packet *packet;
         unsigned long expire;
-        struct list_head *lh;
+        struct list_head *lh, *next;
         LIST_HEAD(expiredlist);
 
         spin_lock_irqsave(&host->csr.lock, flags);
@@ -755,11 +761,10 @@ void abort_timedouts(struct hpsb_host *host)
 
 
         spin_lock_irqsave(&host->pending_pkt_lock, flags);
-        lh = host->pending_packets.next;
 
-        while (lh != &host->pending_packets) {
+	for (lh = host->pending_packets.next; lh != &host->pending_packets; lh = next) {
                 packet = list_entry(lh, struct hpsb_packet, list);
-                lh = lh->next;
+		next = lh->next;
                 if (time_before(packet->sendtime + expire, jiffies)) {
                         list_del(&packet->list);
                         list_add(&packet->list, &expiredlist);
@@ -771,11 +776,9 @@ void abort_timedouts(struct hpsb_host *host)
         }
         spin_unlock_irqrestore(&host->pending_pkt_lock, flags);
 
-        lh = expiredlist.next;
-        while (lh != &expiredlist) {
+        list_for_each(lh, &expiredlist) {
                 packet = list_entry(lh, struct hpsb_packet, list);
-                lh = lh->next;
-                packet->state = complete;
+                packet->state = hpsb_complete;
                 packet->ack_code = ACKX_TIMEOUT;
                 up(&packet->state_change);
                 run_task_queue(&packet->complete_tq);
@@ -783,31 +786,93 @@ void abort_timedouts(struct hpsb_host *host)
 }
 
 
-#ifndef MODULE
-
-void __init ieee1394_init(void)
+static int __init ieee1394_init(void)
 {
-        register_builtin_lowlevels();
-        init_hpsb_highlevel();
-        init_csr();
-        init_ieee1394_guid();
+	hpsb_packet_cache = kmem_cache_create("hpsb_packet", sizeof(struct hpsb_packet),
+					      0, 0, NULL, NULL);
+	init_hpsb_highlevel();
+	init_csr();
+	if (!disable_nodemgr)
+		init_ieee1394_nodemgr();
+	else
+		HPSB_INFO("nodemgr functionality disabled");
+
+	return 0;
 }
 
-#else
-
-int init_module(void)
+static void __exit ieee1394_cleanup(void)
 {
-        init_hpsb_highlevel();
-        init_csr();
-        init_ieee1394_guid();
+	if (!disable_nodemgr)
+		cleanup_ieee1394_nodemgr();
 
-        return 0;
+	cleanup_csr();
+	kmem_cache_destroy(hpsb_packet_cache);
 }
 
-void cleanup_module(void)
-{
-        cleanup_ieee1394_guid();
-        cleanup_csr();
-}
+module_init(ieee1394_init);
+module_exit(ieee1394_cleanup);
 
-#endif
+/* Exported symbols */
+EXPORT_SYMBOL(hpsb_register_lowlevel);
+EXPORT_SYMBOL(hpsb_unregister_lowlevel);
+EXPORT_SYMBOL(hpsb_get_host);
+EXPORT_SYMBOL(hpsb_inc_host_usage);
+EXPORT_SYMBOL(hpsb_dec_host_usage);
+EXPORT_SYMBOL(hpsb_speedto_str);
+
+EXPORT_SYMBOL(alloc_hpsb_packet);
+EXPORT_SYMBOL(free_hpsb_packet);
+EXPORT_SYMBOL(hpsb_send_packet);
+EXPORT_SYMBOL(hpsb_reset_bus);
+EXPORT_SYMBOL(hpsb_bus_reset);
+EXPORT_SYMBOL(hpsb_selfid_received);
+EXPORT_SYMBOL(hpsb_selfid_complete);
+EXPORT_SYMBOL(hpsb_packet_sent);
+EXPORT_SYMBOL(hpsb_packet_received);
+
+EXPORT_SYMBOL(get_tlabel);
+EXPORT_SYMBOL(free_tlabel);
+EXPORT_SYMBOL(fill_async_readquad);
+EXPORT_SYMBOL(fill_async_readquad_resp);
+EXPORT_SYMBOL(fill_async_readblock);
+EXPORT_SYMBOL(fill_async_readblock_resp);
+EXPORT_SYMBOL(fill_async_writequad);
+EXPORT_SYMBOL(fill_async_writeblock);
+EXPORT_SYMBOL(fill_async_write_resp);
+EXPORT_SYMBOL(fill_async_lock);
+EXPORT_SYMBOL(fill_async_lock_resp);
+EXPORT_SYMBOL(fill_iso_packet);
+EXPORT_SYMBOL(fill_phy_packet);
+EXPORT_SYMBOL(hpsb_make_readqpacket);
+EXPORT_SYMBOL(hpsb_make_readbpacket);
+EXPORT_SYMBOL(hpsb_make_writeqpacket);
+EXPORT_SYMBOL(hpsb_make_writebpacket);
+EXPORT_SYMBOL(hpsb_make_lockpacket);
+EXPORT_SYMBOL(hpsb_make_phypacket);
+EXPORT_SYMBOL(hpsb_packet_success);
+EXPORT_SYMBOL(hpsb_make_packet);
+EXPORT_SYMBOL(hpsb_read);
+EXPORT_SYMBOL(hpsb_write);
+EXPORT_SYMBOL(hpsb_lock);
+
+EXPORT_SYMBOL(hpsb_register_highlevel);
+EXPORT_SYMBOL(hpsb_unregister_highlevel);
+EXPORT_SYMBOL(hpsb_register_addrspace);
+EXPORT_SYMBOL(hpsb_listen_channel);
+EXPORT_SYMBOL(hpsb_unlisten_channel);
+EXPORT_SYMBOL(highlevel_read);
+EXPORT_SYMBOL(highlevel_write);
+EXPORT_SYMBOL(highlevel_lock);
+EXPORT_SYMBOL(highlevel_lock64);
+EXPORT_SYMBOL(highlevel_add_host);
+EXPORT_SYMBOL(highlevel_remove_host);
+EXPORT_SYMBOL(highlevel_host_reset);
+EXPORT_SYMBOL(highlevel_add_one_host);
+
+EXPORT_SYMBOL(hpsb_guid_get_entry);
+EXPORT_SYMBOL(hpsb_nodeid_get_entry);
+EXPORT_SYMBOL(hpsb_get_host_by_ne);
+EXPORT_SYMBOL(hpsb_guid_fill_packet);
+EXPORT_SYMBOL(hpsb_register_protocol);
+EXPORT_SYMBOL(hpsb_unregister_protocol);
+EXPORT_SYMBOL(hpsb_release_unit_directory);

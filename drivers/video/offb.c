@@ -32,7 +32,9 @@
 #endif
 #include <asm/io.h>
 #include <asm/prom.h>
+#ifdef CONFIG_BOOTX_TEXT
 #include <asm/bootx.h>
+#endif
 
 #include <video/fbcon.h>
 #include <video/fbcon-cfb8.h>
@@ -49,7 +51,8 @@ enum {
 	cmap_m64,	/* ATI Mach64 */
 	cmap_r128,	/* ATI Rage128 */
 	cmap_M3A,	/* ATI Rage Mobility M3 Head A */
-	cmap_M3B	/* ATI Rage Mobility M3 Head B */
+	cmap_M3B,	/* ATI Rage Mobility M3 Head B */
+	cmap_radeon	/* ATI Radeon */
 };
 
 struct fb_info_offb {
@@ -94,8 +97,9 @@ static int offb_get_cmap(struct fb_cmap *cmap, int kspc, int con,
 			struct fb_info *info);
 static int offb_set_cmap(struct fb_cmap *cmap, int kspc, int con,
 			struct fb_info *info);
-
+#ifdef CONFIG_BOOTX_TEXT
 extern boot_infos_t *boot_infos;
+#endif
 
 static void offb_init_nodriver(struct device_node *);
 static void offb_init_fb(const char *name, const char *full_name, int width,
@@ -252,6 +256,7 @@ int __init offb_init(void)
 {
     struct device_node *dp;
     unsigned int dpy;
+#ifdef CONFIG_BOOTX_TEXT
     struct device_node *displays = find_type_devices("display");
     struct device_node *macos_display = NULL;
 
@@ -314,6 +319,7 @@ int __init offb_init(void)
 		     boot_infos->dispDeviceDepth,
 		     boot_infos->dispDeviceRowBytes, addr, NULL);
     }
+#endif
 
     for (dpy = 0; dpy < prom_num_displays; dpy++) {
 	if ((dp = find_path_device(prom_display_paths[dpy])))
@@ -425,7 +431,8 @@ static void __init offb_init_fb(const char *name, const char *full_name,
 		unsigned long regbase = dp->addrs[2].address;
 		info->cmap_adr = ioremap(regbase, 0x1FFF);
 		info->cmap_type = cmap_r128;
-	} else if (dp && !strncmp(name, "ATY,RageM3pA", 12)) {
+	} else if (dp && (!strncmp(name, "ATY,RageM3pA", 12)
+		|| !strncmp(name, "ATY,RageM3p12A", 14))) {
 		unsigned long regbase = dp->parent->addrs[2].address;
 		info->cmap_adr = ioremap(regbase, 0x1FFF);
 		info->cmap_type = cmap_M3A;
@@ -433,6 +440,10 @@ static void __init offb_init_fb(const char *name, const char *full_name,
 		unsigned long regbase = dp->parent->addrs[2].address;
 		info->cmap_adr = ioremap(regbase, 0x1FFF);
 		info->cmap_type = cmap_M3B;
+	} else if (dp && !strncmp(name, "ATY,Rage6", 9)) {
+		unsigned long regbase = dp->addrs[1].address;
+		info->cmap_adr = ioremap(regbase, 0x1FFF);
+		info->cmap_type = cmap_radeon;
 	} else if (!strncmp(name, "ATY,", 4)) {
 		unsigned long base = address & 0xff000000UL;
 		info->cmap_adr = ioremap(base + 0x7ff000, 0x1000) + 0xcc0;
@@ -669,6 +680,10 @@ static void offbcon_blank(int blank, struct fb_info *info)
 	    	out_8(info2->cmap_adr + 0xb0, i);
 	    	out_le32((unsigned *)(info2->cmap_adr + 0xb4), 0);
 	    	break;
+	    case cmap_radeon:
+    	        out_8(info2->cmap_adr + 0xb0, i);
+	    	out_le32((unsigned *)(info2->cmap_adr + 0xb4), 0);
+	    	break;
 	    }
 	}
     else
@@ -748,6 +763,12 @@ static int offb_setcolreg(u_int regno, u_int red, u_int green, u_int blue,
   	out_le32((unsigned *)(info2->cmap_adr + 0xb4),
     		(red << 16 | green << 8 | blue));
     	break;
+    case cmap_radeon:
+	/* Set palette index & data (could be smarter) */
+	out_8(info2->cmap_adr + 0xb0, regno);
+  	out_le32((unsigned *)(info2->cmap_adr + 0xb4),
+    		(red << 16 | green << 8 | blue));
+	break;
     }
 
     if (regno < 16)
@@ -783,3 +804,5 @@ static void do_install_cmap(int con, struct fb_info *info)
 	fb_set_cmap(fb_default_cmap(size), 1, offb_setcolreg, info);
     }
 }
+
+MODULE_LICENSE("GPL");

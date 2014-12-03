@@ -116,6 +116,7 @@
  *	20010320 check return value of scsi_register()
  *	20010320 Version 0.4.3
  *	20010408 Identify version on module load.
+ *	20011003 Fix multiple requests
  */
 
 #include <linux/module.h>
@@ -500,7 +501,6 @@ void mts_int_submit_urb (struct urb* transfer,
 		      context
 		);
 
-	transfer->transfer_flags = USB_ASYNC_UNLINK;
 	transfer->status = 0;
 
 	res = usb_submit_urb( transfer );
@@ -520,7 +520,6 @@ static void mts_transfer_cleanup( struct urb *transfer )
 
 	if ( context->final_callback )
 		context->final_callback(context->srb);
-	up( &context->instance->lock );
 
 }
 
@@ -710,7 +709,6 @@ int mts_scsi_queuecommand( Scsi_Cmnd *srb, mts_scsi_cmnd_callback callback )
 		goto out;
 	}
 
-	down(&desc->lock);
 	
 	FILL_BULK_URB(&desc->urb,
 		      desc->usb_dev,
@@ -733,7 +731,6 @@ int mts_scsi_queuecommand( Scsi_Cmnd *srb, mts_scsi_cmnd_callback callback )
 
 		if(callback)
 			callback(srb);
-	        up(&desc->lock);
 
 	}
 
@@ -808,6 +805,7 @@ const static struct vendor_product mts_supported_products[] =
 	{ "ScanMaker V6USL",	mts_sup_unknown},
 	{ "ScanMaker V6USL",	mts_sup_unknown},
 	{ "Scanmaker V6UL",	mts_sup_unknown},
+	{ "Scanmaker V6UPL",	mts_sup_alpha},
 };
 
 /* The entries of microtek_table must correspond, line-by-line to
@@ -823,6 +821,7 @@ static struct usb_device_id mts_usb_ids [] =
 	{ USB_DEVICE(0x5da, 0x00a3) },
 	{ USB_DEVICE(0x5da, 0x80a3) },
 	{ USB_DEVICE(0x5da, 0x80ac) },
+	{ USB_DEVICE(0x5da, 0x00b6) },
 	{ }						/* Terminating entry */
 };
 
@@ -1062,4 +1061,5 @@ module_exit(microtek_drv_exit);
 
 MODULE_AUTHOR( DRIVER_AUTHOR );
 MODULE_DESCRIPTION( DRIVER_DESC );
+MODULE_LICENSE("GPL");
 

@@ -41,9 +41,6 @@ extern void mda_console_init(void);
 #if defined(CONFIG_S390_TAPE) && defined(CONFIG_S390_TAPE_CHAR)
 extern void tapechar_init(void);
 #endif
-#if defined(CONFIG_ADB)
-extern void adbdev_init(void);
-#endif
      
 static ssize_t do_write_mem(struct file * file, void *p, unsigned long realp,
 			    const char * buf, size_t count, loff_t *ppos)
@@ -134,7 +131,7 @@ static inline pgprot_t pgprot_noncached(pgprot_t _prot)
 {
 	unsigned long prot = pgprot_val(_prot);
 
-#if defined(__i386__)
+#if defined(__i386__) || defined(__x86_64__)
 	/* On PPro and successors, PCD alone doesn't always mean 
 	    uncached because of interactions with the MTRRs. PCD | PWT
 	    means definitely uncached. */ 
@@ -153,8 +150,6 @@ static inline pgprot_t pgprot_noncached(pgprot_t _prot)
 	/* Use no-cache mode, serialized */
 	else if (MMU_IS_040 || MMU_IS_060)
 		prot = (prot & _CACHEMASK040) | _PAGE_NOCACHE_S;
-#elif defined(__mips__)
-	prot = (prot & ~_CACHE_MASK) | _CACHE_UNCACHED;
 #endif
 
 	return __pgprot(prot);
@@ -260,7 +255,9 @@ static ssize_t read_kmem(struct file *file, char *buf,
 			if (len > PAGE_SIZE)
 				len = PAGE_SIZE;
 			len = vread(kbuf, (char *)p, len);
-			if (len && copy_to_user(buf, kbuf, len)) {
+			if (!len)
+				break;
+			if (copy_to_user(buf, kbuf, len)) {
 				free_page((unsigned long)kbuf);
 				return -EFAULT;
 			}
@@ -626,9 +623,6 @@ int __init chr_dev_init(void)
 	mda_console_init();
 #endif
 	tty_init();
-#ifdef CONFIG_PRINTER
-	lp_init();
-#endif
 #ifdef CONFIG_M68K_PRINTER
 	lp_m68k_init();
 #endif
@@ -641,9 +635,6 @@ int __init chr_dev_init(void)
 #endif
 #if defined(CONFIG_S390_TAPE) && defined(CONFIG_S390_TAPE_CHAR)
 	tapechar_init();
-#endif
-#if defined(CONFIG_ADB)
-	adbdev_init();
 #endif
 	return 0;
 }

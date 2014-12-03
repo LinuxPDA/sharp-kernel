@@ -1,10 +1,12 @@
-/*
- * $Id: b1dma.c,v 1.11.6.6 2001/05/17 21:15:33 kai Exp $
+/* $Id: b1dma.c,v 1.11.6.8 2001/09/23 22:24:33 kai Exp $
  * 
  * Common module for AVM B1 cards that support dma with AMCC
  * 
- * (c) Copyright 2000 by Carsten Paeth (calle@calle.in-berlin.de)
+ * Copyright 2000 by Carsten Paeth <calle@calle.de>
  * 
+ * This software may be used and distributed according to the terms
+ * of the GNU General Public License, incorporated herein by reference.
+ *
  */
 
 #include <linux/config.h>
@@ -26,11 +28,17 @@
 #include "capicmd.h"
 #include "capiutil.h"
 
-static char *revision = "$Revision: 1.11.6.6 $";
+#if BITS_PER_LONG != 32
+#error FIXME: driver requires 32-bit platform
+#endif
+
+static char *revision = "$Revision: 1.11.6.8 $";
 
 /* ------------------------------------------------------------- */
 
-MODULE_AUTHOR("Carsten Paeth <calle@calle.in-berlin.de>");
+MODULE_DESCRIPTION("CAPI4Linux: DMA support for active AVM cards");
+MODULE_AUTHOR("Carsten Paeth");
+MODULE_LICENSE("GPL");
 
 static int suppress_pollack = 0;
 MODULE_PARM(suppress_pollack, "0-1i");

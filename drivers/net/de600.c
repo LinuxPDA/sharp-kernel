@@ -16,7 +16,7 @@ static const char version[] =
  *
  *	Adapted to the sample network driver core for linux,
  *	written by: Donald Becker <becker@super.org>
- *	C/O Supercomputing Research Ctr., 17100 Science Dr., Bowie MD 20715
+ *		(Now at <becker@scyld.com>)
  *
  *	compile-command:
  *	"gcc -D__KERNEL__  -Wall -Wstrict-prototypes -O6 -fomit-frame-pointer \
@@ -801,7 +801,6 @@ adapter_init(struct net_device *dev)
  * This differs from the standard function, that can return an
  * arbitrarily small window!
  */
-#define min(a,b)	((a)<(b)?(a):(b))
 static unsigned long
 de600_rspace(struct sock *sk)
 {
@@ -815,7 +814,7 @@ de600_rspace(struct sock *sk)
  */
 
 	if (atomic_read(&sk->rmem_alloc) >= sk->rcvbuf-2*DE600_MIN_WINDOW) return(0);
-	amt = min((sk->rcvbuf-atomic_read(&sk->rmem_alloc))/2/*-DE600_MIN_WINDOW*/, DE600_MAX_WINDOW);
+	amt = min_t(int, (sk->rcvbuf-atomic_read(&sk->rmem_alloc))/2/*-DE600_MIN_WINDOW*/, DE600_MAX_WINDOW);
 	if (amt < 0) return(0);
 	return(amt);
   }
@@ -842,6 +841,9 @@ cleanup_module(void)
 	release_region(DE600_IO, 3);
 }
 #endif /* MODULE */
+
+MODULE_LICENSE("GPL");
+
 /*
  * Local variables:
  *  kernel-compile-command: "gcc -D__KERNEL__ -Ilinux/include -I../../net/inet -Wall -Wstrict-prototypes -O2 -m486 -c de600.c"

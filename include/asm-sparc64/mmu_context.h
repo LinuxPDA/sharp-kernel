@@ -1,8 +1,25 @@
-/* $Id: mmu_context.h,v 1.47 2001/03/22 07:26:04 davem Exp $ */
+/* $Id: mmu_context.h,v 1.51 2001/08/17 04:55:09 kanoj Exp $ */
 #ifndef __SPARC64_MMU_CONTEXT_H
 #define __SPARC64_MMU_CONTEXT_H
 
 /* Derived heavily from Linus's Alpha/AXP ASN code... */
+
+#include <asm/page.h>
+
+/*
+ * For the 8k pagesize kernel, use only 10 hw context bits to optimize some shifts in
+ * the fast tlbmiss handlers, instead of all 13 bits (specifically for vpte offset
+ * calculation). For other pagesizes, this optimization in the tlbhandlers can not be 
+ * done; but still, all 13 bits can not be used because the tlb handlers use "andcc"
+ * instruction which sign extends 13 bit arguments.
+ */
+#if PAGE_SHIFT == 13
+#define CTX_VERSION_SHIFT	10
+#define TAG_CONTEXT_BITS	0x3ff
+#else
+#define CTX_VERSION_SHIFT	12
+#define TAG_CONTEXT_BITS	0xfff
+#endif
 
 #ifndef __ASSEMBLY__
 
@@ -18,7 +35,6 @@ extern spinlock_t ctx_alloc_lock;
 extern unsigned long tlb_context_cache;
 extern unsigned long mmu_context_bmap[];
 
-#define CTX_VERSION_SHIFT	(PAGE_SHIFT - 3)
 #define CTX_VERSION_MASK	((~0UL) << CTX_VERSION_SHIFT)
 #define CTX_FIRST_VERSION	((1UL << CTX_VERSION_SHIFT) + 1UL)
 #define CTX_VALID(__ctx)	\

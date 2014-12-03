@@ -2828,7 +2828,7 @@ static struct tty_ldisc strip_ldisc = {
  * STRIP driver
  */
 
-static const char signon[] __initdata = KERN_INFO "STRIP: Version %s (unlimited channels)\n";
+static char signon[] __initdata = KERN_INFO "STRIP: Version %s (unlimited channels)\n";
 
 static int __init strip_init_driver(void)
 {
@@ -2871,5 +2871,7 @@ module_exit(strip_exit_driver);
 
 MODULE_AUTHOR("Stuart Cheshire <cheshire@cs.stanford.edu>");
 MODULE_DESCRIPTION("Starmode Radio IP (STRIP) Device Driver");
+MODULE_LICENSE("BSD without advertisement clause");
+
 MODULE_SUPPORTED_DEVICE("Starmode Radio IP (STRIP) modem");
 

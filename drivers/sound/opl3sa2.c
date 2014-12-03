@@ -164,6 +164,8 @@ static int __initdata multiple; /* = 0 */
 
 MODULE_DESCRIPTION("Module for OPL3-SA2 and SA3 sound cards (uses AD1848 MSS driver).");
 MODULE_AUTHOR("Scott Murray <scott@spiteful.org>");
+MODULE_LICENSE("GPL");
+
 
 MODULE_PARM(io, "i");
 MODULE_PARM_DESC(io, "Set I/O base of OPL3-SA2 or SA3 card (usually 0x370.  Address must be even and must be from 0x100 to 0xFFE)");
@@ -810,7 +812,7 @@ static void __exit unload_opl3sa2(struct address_info* hw_config, int card)
 struct isapnp_device_id isapnp_opl3sa2_list[] __initdata = {
 	{	ISAPNP_ANY_ID, ISAPNP_ANY_ID,
 		ISAPNP_VENDOR('Y','M','H'), ISAPNP_FUNCTION(0x0021),
-		NULL },
+		0 },
 	{0}
 };
 
@@ -860,9 +862,9 @@ static int __init opl3sa2_isapnp_probe(struct address_info* hw_cfg,
 
 	/* Our own config: */
 	hw_cfg->io_base = dev->resource[4].start;
-	hw_cfg->irq     = 0;
-	hw_cfg->dma     = -1;
-	hw_cfg->dma2    = -1;
+	hw_cfg->irq     = dev->irq_resource[0].start;
+	hw_cfg->dma     = dev->dma_resource[0].start;
+	hw_cfg->dma2    = dev->dma_resource[1].start;
 	
 	/* The MSS config: */
 	mss_cfg->io_base      = dev->resource[1].start;
@@ -942,9 +944,9 @@ static int __init init_opl3sa2(void)
 			 *  give pretty output from conf_printf. :)
 			 */
 			cfg[card].io_base = io;
-			cfg[card].irq     = 0;
-			cfg[card].dma     = -1;
-			cfg[card].dma2    = -1;
+			cfg[card].irq     = irq;
+			cfg[card].dma     = dma;
+			cfg[card].dma2    = dma2;
 	
 			/* The MSS config: */
 			cfg_mss[card].io_base      = mss_io;

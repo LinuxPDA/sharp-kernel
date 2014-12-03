@@ -1,4 +1,4 @@
-/* $Id: ptrace.c,v 1.6 2000/06/08 23:44:50 gniibe Exp $
+/* $Id: ptrace.c,v 1.13 2001/10/01 02:21:50 gniibe Exp $
  *
  * linux/arch/sh/kernel/ptrace.c
  *
@@ -122,24 +122,39 @@ ubc_set_tracing(int asid, unsigned long nextpc1, unsigned nextpc2)
 {
 	ctrl_outl(nextpc1, UBC_BARA);
 	ctrl_outb(asid, UBC_BASRA);
-#if defined(CONFIG_CPU_SUBTYPE_SH7709)
-	ctrl_outl(0x0fff, UBC_BAMRA);
-#else
-	ctrl_outb(BAMR_12, UBC_BAMRA);
-#endif
-	ctrl_outw(BBR_INST | BBR_READ, UBC_BBRA);
+	if(UBC_TYPE_SH7729){
+		ctrl_outl(0x0fff, UBC_BAMRA);
+		ctrl_outw(BBR_INST | BBR_READ | BBR_CPU, UBC_BBRA);
+	}else{
+		ctrl_outb(BAMR_12, UBC_BAMRA);
+		ctrl_outw(BBR_INST | BBR_READ, UBC_BBRA);
+	}
 
 	if (nextpc2 != (unsigned long) -1) {
 		ctrl_outl(nextpc2, UBC_BARB);
 		ctrl_outb(asid, UBC_BASRB);
-#if defined(CONFIG_CPU_SUBTYPE_SH7709)
-		ctrl_outl(0x0fff, UBC_BAMRA);
-#else
-		ctrl_outb(BAMR_12, UBC_BAMRB);
-#endif
-		ctrl_outw(BBR_INST | BBR_READ, UBC_BBRB);
+		if(UBC_TYPE_SH7729){
+			ctrl_outl(0x0fff, UBC_BAMRB);
+			ctrl_outw(BBR_INST | BBR_READ | BBR_CPU, UBC_BBRB);
+		}else{
+			ctrl_outb(BAMR_12, UBC_BAMRB);
+			ctrl_outw(BBR_INST | BBR_READ, UBC_BBRB);
+		}
 	}
-	ctrl_outw(BRCR_PCBA | BRCR_PCBB, UBC_BRCR);
+	if(UBC_TYPE_SH7729)
+		ctrl_outl(BRCR_PCBA | BRCR_PCBB | BRCR_PCTE, UBC_BRCR);
+	else
+		ctrl_outw(BRCR_PCBA | BRCR_PCBB, UBC_BRCR);
+}
+
+/*
+ * Called by kernel/ptrace.c when detaching..
+ *
+ * Make sure single step bits etc are not set.
+ */
+void ptrace_disable(struct task_struct *child)
+{
+	/* nothing to do.. */
 }
 
 asmlinkage int sys_ptrace(long request, long pid, long addr, long data)
@@ -173,34 +188,7 @@ asmlinkage int sys_ptrace(long request, long pid, long addr, long data)
 		goto out_tsk;
 
 	if (request == PTRACE_ATTACH) {
-		if (child == tsk)
-			goto out_tsk;
-		if(((tsk->uid != child->euid) ||
-		    (tsk->uid != child->suid) ||
-		    (tsk->uid != child->uid) ||
-	 	    (tsk->gid != child->egid) ||
-	 	    (tsk->gid != child->sgid) ||
-	 	    (!cap_issubset(child->cap_permitted, tsk->cap_permitted)) ||
-	 	    (tsk->gid != child->gid)) && !capable(CAP_SYS_PTRACE))
-			goto out_tsk;
-		rmb();
-		if (!child->dumpable && !capable(CAP_SYS_PTRACE))
-			goto out_tsk;
-		/* the same process cannot be attached many times */
-		if (child->ptrace & PT_PTRACED)
-			goto out_tsk;
-		child->ptrace |= PT_PTRACED;
-
-		write_lock_irq(&tasklist_lock);
-		if (child->p_pptr != tsk) {
-			REMOVE_LINKS(child);
-			child->p_pptr = tsk;
-			SET_LINKS(child);
-		}
-		write_unlock_irq(&tasklist_lock);
-
-		send_sig(SIGSTOP, child, 1);
-		ret = 0;
+		ret = ptrace_attach(child);
 		goto out_tsk;
 	}
 	ret = -ESRCH;
@@ -364,21 +352,9 @@ asmlinkage int sys_ptrace(long request, long pid, long addr, long data)
 		break;
 	}
 
-	case PTRACE_DETACH: { /* detach a process that was attached. */
-		ret = -EIO;
-		if ((unsigned long) data > _NSIG)
-			break;
-		child->ptrace = 0;
-		child->exit_code = data;
-		write_lock_irq(&tasklist_lock);
-		REMOVE_LINKS(child);
-		child->p_pptr = child->p_opptr;
-		SET_LINKS(child);
-		write_unlock_irq(&tasklist_lock);
-		wake_up_process(child);
-		ret = 0;
+	case PTRACE_DETACH: /* detach a process that was attached. */
+		ret = ptrace_detach(child, data);
 		break;
-	}
 
 	case PTRACE_SETOPTIONS: {
 		if (data & PTRACE_O_TRACESYSGOOD)

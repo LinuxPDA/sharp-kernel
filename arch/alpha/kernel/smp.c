@@ -1,5 +1,13 @@
 /*
  *	linux/arch/alpha/kernel/smp.c
+ *
+ *      2001-07-09 Phil Ezolt (Phillip.Ezolt@compaq.com)
+ *            Renamed modified smp_call_function to smp_call_function_on_cpu()
+ *            Created an function that conforms to the old calling convention
+ *            of smp_call_function().
+ *
+ *            This is helpful for DCPI.
+ *
  */
 
 #include <linux/errno.h>
@@ -163,13 +171,6 @@ smp_callin(void)
 	/* Set interrupt vector.  */
 	wrent(entInt, 0);
 
-	/* Setup the scheduler for this processor.  */
-	init_idle();
-
-	/* ??? This should be in init_idle.  */
-	atomic_inc(&init_mm.mm_count);
-	current->active_mm = &init_mm;
-
 	/* Get our local ticker going. */
 	smp_setup_percpu_timer(cpuid);
 
@@ -199,6 +200,12 @@ smp_callin(void)
 	DBGS(("smp_callin: commencing CPU %d current %p\n",
 	      cpuid, current));
 
+	/* Setup the scheduler for this processor.  */
+	init_idle();
+
+	/* ??? This should be in init_idle.  */
+	atomic_inc(&init_mm.mm_count);
+	current->active_mm = &init_mm;
 	/* Do nothing.  */
 	cpu_idle();
 }
@@ -211,13 +218,14 @@ smp_callin(void)
  * We are not told how much cache there is, so we have to guess.
  */
 static void __init
-smp_tune_scheduling (void)
+smp_tune_scheduling (int cpuid)
 {
 	struct percpu_struct *cpu;
 	unsigned long on_chip_cache;
 	unsigned long freq;
 
-	cpu = (struct percpu_struct*)((char*)hwrpb + hwrpb->processor_offset);
+	cpu = (struct percpu_struct*)((char*)hwrpb + hwrpb->processor_offset
+				      + cpuid * hwrpb->processor_size);
 	switch (cpu->type)
 	{
 	case EV45_CPU:
@@ -599,7 +607,7 @@ smp_boot_cpus(void)
 	current->processor = boot_cpuid;
 
 	smp_store_cpu_info(boot_cpuid);
-	smp_tune_scheduling();
+	smp_tune_scheduling(boot_cpuid);
 	smp_setup_percpu_timer(boot_cpuid);
 
 	init_idle();
@@ -866,23 +874,31 @@ smp_send_stop(void)
  */
 
 int
-smp_call_function (void (*func) (void *info), void *info, int retry, int wait)
+smp_call_function_on_cpu (void (*func) (void *info), void *info, int retry,
+			  int wait, unsigned long to_whom)
 {
-	unsigned long to_whom = cpu_present_mask ^ (1UL << smp_processor_id());
 	struct smp_call_struct data;
 	long timeout;
+	int num_cpus_to_call;
+	long i,j;
 	
 	data.func = func;
 	data.info = info;
 	data.wait = wait;
-	atomic_set(&data.unstarted_count, smp_num_cpus - 1);
-	atomic_set(&data.unfinished_count, smp_num_cpus - 1);
+
+	to_whom &= ~(1L << smp_processor_id());
+	for (i = 0, j = 1, num_cpus_to_call = 0; i < NR_CPUS; ++i, j <<= 1)
+		if (to_whom & j)
+			num_cpus_to_call++;
+
+	atomic_set(&data.unstarted_count, num_cpus_to_call);
+	atomic_set(&data.unfinished_count, num_cpus_to_call);
 
 	/* Acquire the smp_call_function_data mutex.  */
 	if (pointer_lock(&smp_call_function_data, &data, retry))
 		return -EBUSY;
 
-	/* Send a message to all other CPUs.  */
+	/* Send a message to the requested CPUs.  */
 	send_ipi_message(to_whom, IPI_CALL_FUNC);
 
 	/* Wait for a minimal response.  */
@@ -904,6 +920,13 @@ smp_call_function (void (*func) (void *info), void *info, int retry, int wait)
 	}
 
 	return 0;
+}
+
+int
+smp_call_function (void (*func) (void *info), void *info, int retry, int wait)
+{
+	return smp_call_function_on_cpu (func, info, retry, wait,
+					 cpu_present_mask);
 }
 
 static void

@@ -32,8 +32,6 @@
 #include <linux/smp.h>
 #include <linux/smp_lock.h>
 
-extern long sys_call_table[];
-
 static int	nfsctl_svc(struct nfsctl_svc *data);
 static int	nfsctl_addclient(struct nfsctl_client *data);
 static int	nfsctl_delclient(struct nfsctl_client *data);
@@ -311,6 +309,7 @@ done:
 /* New-style module support since 2.1.18 */
 EXPORT_NO_SYMBOLS;
 MODULE_AUTHOR("Olaf Kirch <okir@monad.swb.de>");
+MODULE_LICENSE("GPL");
 
 struct nfsd_linkage nfsd_linkage_s = {
 	do_nfsservctl: handle_sys_nfsservctl,

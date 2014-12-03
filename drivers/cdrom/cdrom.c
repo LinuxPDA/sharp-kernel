@@ -331,6 +331,7 @@ static void cdrom_sysctl_register(void);
 #endif /* CONFIG_SYSCTL */ 
 static struct cdrom_device_info *topCdromPtr;
 static devfs_handle_t devfs_handle;
+static struct unique_numspace cdrom_numspace = UNIQUE_NUMBERSPACE_INITIALISER;
 
 struct block_device_operations cdrom_fops =
 {
@@ -354,7 +355,6 @@ int register_cdrom(struct cdrom_device_info *cdi)
         struct cdrom_device_ops *cdo = cdi->ops;
         int *change_capability = (int *)&cdo->capability; /* hack */
 	char vname[16];
-	static unsigned int cdrom_counter;
 
 	cdinfo(CD_OPEN, "entering register_cdrom\n"); 
 
@@ -395,7 +395,8 @@ int register_cdrom(struct cdrom_device_info *cdi)
 
 	if (!devfs_handle)
 		devfs_handle = devfs_mk_dir (NULL, "cdroms", NULL);
-	sprintf (vname, "cdrom%u", cdrom_counter++);
+	cdi->number = devfs_alloc_unique_number (&cdrom_numspace);
+	sprintf (vname, "cdrom%d", cdi->number);
 	if (cdi->de) {
 		int pos;
 		devfs_handle_t slave;
@@ -450,6 +451,7 @@ int unregister_cdrom(struct cdrom_device_info *unreg)
 		topCdromPtr = cdi->next;
 	cdi->ops->n_minors--;
 	devfs_unregister (cdi->de);
+	devfs_dealloc_unique_number (&cdrom_numspace, cdi->number);
 	cdinfo(CD_REG_UNREG, "drive \"/dev/%s\" unregistered\n", cdi->name);
 	return 0;
 }
@@ -2244,8 +2246,13 @@ int cdrom_get_track_info(kdev_t dev, __u16 track, __u8 type,
 	if ((ret = cdo->generic_packet(cdi, &cgc)))
 		return ret;
 	
-	cgc.cmd[8] = cgc.buflen = be16_to_cpu(ti->track_information_length) +
+	cgc.buflen = be16_to_cpu(ti->track_information_length) +
 		     sizeof(ti->track_information_length);
+
+	if (cgc.buflen > sizeof(track_information))
+		cgc.buflen = sizeof(track_information);
+
+	cgc.cmd[8] = cgc.buflen;
 	return cdo->generic_packet(cdi, &cgc);
 }
 
@@ -2652,3 +2659,4 @@ static void __exit cdrom_exit(void)
 
 module_init(cdrom_init);
 module_exit(cdrom_exit);
+MODULE_LICENSE("GPL");

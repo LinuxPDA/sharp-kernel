@@ -44,6 +44,7 @@
 #include <linux/delay.h>
 #include <linux/proc_fs.h>
 #include <linux/smp_lock.h>
+#include <linux/module.h>
 
 /*
  * This ought to be moved into include/asm/dma.h
@@ -200,11 +201,6 @@ static ssize_t sound_write(struct file *file, const char *buf, size_t count, lof
 	}
 	unlock_kernel();
 	return ret;
-}
-
-static long long sound_lseek(struct file *file, long long offset, int orig)
-{
-	return -ESPIPE;
 }
 
 static int sound_open(struct inode *inode, struct file *file)
@@ -499,7 +495,7 @@ static int sound_mmap(struct file *file, struct vm_area_struct *vma)
 
 struct file_operations oss_sound_fops = {
 	owner:		THIS_MODULE,
-	llseek:		sound_lseek,
+	llseek:		no_llseek,
 	read:		sound_read,
 	write:		sound_write,
 	poll:		sound_poll,
@@ -650,6 +646,7 @@ static void __exit oss_cleanup(void)
 
 module_init(oss_init);
 module_exit(oss_cleanup);
+MODULE_LICENSE("GPL");
 
 
 int sound_alloc_dma(int chn, char *deviceID)

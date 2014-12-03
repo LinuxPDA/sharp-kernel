@@ -83,6 +83,7 @@ void pwc_construct(struct pwc_device *pdev)
 		break;
 	case 730:
 	case 740:
+	case 750:
 		pdev->view_min.x = 160;
 		pdev->view_min.y = 120;
 		pdev->view_max.x = 640;
@@ -96,6 +97,8 @@ void pwc_construct(struct pwc_device *pdev)
 	}
 	pdev->view_min.size = pdev->view_min.x * pdev->view_min.y;
 	pdev->view_max.size = pdev->view_max.x * pdev->view_max.y;
+	/* length of image, in YUV format */
+	pdev->len_per_image = (pdev->view_max.size * 3) / 2;
 }
 
 

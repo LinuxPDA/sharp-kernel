@@ -1,4 +1,4 @@
-/*  $Id: process.c,v 1.118 2001/06/03 13:41:13 ecd Exp $
+/*  $Id: process.c,v 1.122 2001/10/18 09:06:36 davem Exp $
  *  arch/sparc64/kernel/process.c
  *
  *  Copyright (C) 1995, 1996 David S. Miller (davem@caip.rutgers.edu)
@@ -282,8 +282,8 @@ void __show_regs(struct pt_regs * regs)
 	       local_irq_count(smp_processor_id()),
 	       irqs_running());
 #endif
-	printk("TSTATE: %016lx TPC: %016lx TNPC: %016lx Y: %08x\n", regs->tstate,
-	       regs->tpc, regs->tnpc, regs->y);
+	printk("TSTATE: %016lx TPC: %016lx TNPC: %016lx Y: %08x    %s\n", regs->tstate,
+	       regs->tpc, regs->tnpc, regs->y, print_tainted());
 	printk("g0: %016lx g1: %016lx g2: %016lx g3: %016lx\n",
 	       regs->u_regs[0], regs->u_regs[1], regs->u_regs[2],
 	       regs->u_regs[3]);
@@ -349,8 +349,8 @@ void show_regs(struct pt_regs *regs)
 
 void show_regs32(struct pt_regs32 *regs)
 {
-	printk("PSR: %08x PC: %08x NPC: %08x Y: %08x\n", regs->psr,
-	       regs->pc, regs->npc, regs->y);
+	printk("PSR: %08x PC: %08x NPC: %08x Y: %08x    %s\n", regs->psr,
+	       regs->pc, regs->npc, regs->y, print_tainted());
 	printk("g0: %08x g1: %08x g2: %08x g3: %08x ",
 	       regs->u_regs[0], regs->u_regs[1], regs->u_regs[2],
 	       regs->u_regs[3]);
@@ -585,7 +585,7 @@ int copy_thread(int nr, unsigned long clone_flags, unsigned long sp,
 	char *child_trap_frame;
 
 	/* Calculate offset to stack_frame & pt_regs */
-	child_trap_frame = ((char *)p) + ((PAGE_SIZE << 1) - (TRACEREG_SZ+REGWIN_SZ));
+	child_trap_frame = ((char *)p) + (THREAD_SIZE - (TRACEREG_SZ+REGWIN_SZ));
 	memcpy(child_trap_frame, (((struct reg_window *)regs)-1), (TRACEREG_SZ+REGWIN_SZ));
 	t->ksp = ((unsigned long) child_trap_frame) - STACK_BIAS;
 	t->flags |= SPARC_FLAG_NEWCHILD;

@@ -1,4 +1,4 @@
-# $Id: Makefile,v 1.18 2001/04/17 13:58:38 orjanf Exp $
+# $Id: Makefile,v 1.22 2001/10/01 14:42:38 bjornw Exp $
 # cris/Makefile
 #
 # This file is included by the global makefile so that you can add your own
@@ -29,28 +29,36 @@ LD = if [ ! -e $(LD_SCRIPT).tmp -o $(LD_SCRIPT) -nt $(LD_SCRIPT).tmp ]; then \
               -e s/@CONFIG_ETRAX_DRAM_SIZE_M@/$(CONFIG_ETRAX_DRAM_SIZE)/ \
               < $(LD_SCRIPT) > $(LD_SCRIPT).tmp; \
      else true; \
-     fi && $(CROSS_COMPILE)ld -mcriself
+     fi && $(CROSS_COMPILE)gcc -mlinux -nostdlib
 
-LINKFLAGS =-qmagic -mcriself -T $(LD_SCRIPT).tmp
+LINKFLAGS = -mlinux -T $(LD_SCRIPT).tmp
 
 # objcopy is used to make binary images from the resulting linked file
 
 OBJCOPY := $(CROSS_COMPILE)objcopy -O binary -R .note -R .comment -S
 
 # normally, gcc on a linux box adds __linux__ but we do it "manually"
-# gcc-cris defaults to a.out, we need ELF, so -melf
+# -mlinux enables -march=v10, -fno-underscores among others
 
-CFLAGS := $(CFLAGS) -march=v10 -fno-strict-aliasing -pipe -D__linux__
+CFLAGS := $(CFLAGS) -mlinux -fno-strict-aliasing -pipe -D__linux__
 
 ifdef CONFIG_ETRAX_KGDB
 CFLAGS := $(subst -fomit-frame-pointer,,$(CFLAGS)) -g
 CFLAGS += -fno-omit-frame-pointer
 endif
 
+AFLAGS += -mlinux
+
 HEAD := arch/cris/kernel/head.o
 
-SUBDIRS += arch/cris/kernel arch/cris/mm arch/cris/lib arch/cris/drivers arch/cris/boot/rescue
-CORE_FILES += arch/cris/kernel/kernel.o arch/cris/mm/mm.o arch/cris/drivers/drivers.o
+SUBDIRS += arch/cris/kernel arch/cris/mm arch/cris/lib arch/cris/drivers
+ifdef CONFIG_ETRAX_AXISFLASHMAP
+# only build this if axis flash map is used, because they depend on
+# each others config options
+SUBDIRS += arch/cris/boot/rescue
+endif
+CORE_FILES += arch/cris/kernel/kernel.o arch/cris/mm/mm.o
+DRIVERS += arch/cris/drivers/drivers.o
 LIBGCC = $(shell $(CC) $(CFLAGS) -print-file-name=libgcc.a)
 LIBS := $(TOPDIR)/arch/cris/lib/lib.a $(LIBS) $(TOPDIR)/arch/cris/lib/lib.a $(LIBGCC)
 

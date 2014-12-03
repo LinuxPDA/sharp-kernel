@@ -17,12 +17,13 @@
 *  		module.
 *****************************************************************************/
 
+#include <linux/module.h>
 #include <linux/version.h>
 #include <linux/kernel.h>	/* printk(), and other useful stuff */
 #include <linux/stddef.h>	/* offsetof(), etc. */
 #include <linux/errno.h>	/* return codes */
 #include <linux/string.h>	/* inline memset(), etc. */
-#include <linux/malloc.h>	/* kmalloc(), kfree() */
+#include <linux/slab.h>	/* kmalloc(), kfree() */
 #include <linux/wanrouter.h>	/* WAN router definitions */
 #include <linux/wanpipe.h>	/* WANPIPE common user API definitions */
 #include <linux/if_arp.h>	/* ARPHRD_* defines */
@@ -375,13 +376,13 @@ int wsppp_init (sdla_t* card, wandev_conf_t* conf)
 		/* For Primary Port 0 */
 		card->wandev.mtu =
 			(conf->mtu >= MIN_LGTH_CHDLC_DATA_CFG) ?
-			min(conf->mtu, PRI_MAX_NO_DATA_BYTES_IN_FRAME) :
+			min_t(unsigned int, conf->mtu, PRI_MAX_NO_DATA_BYTES_IN_FRAME) :
 			CHDLC_DFLT_DATA_LEN;
 	} else if(port_num == WANOPT_SEC) { 
 		/* For Secondary Port 1 */
 		card->wandev.mtu =
 			(conf->mtu >= MIN_LGTH_CHDLC_DATA_CFG) ?
-			min(conf->mtu, SEC_MAX_NO_DATA_BYTES_IN_FRAME) :
+			min_t(unsigned int, conf->mtu, SEC_MAX_NO_DATA_BYTES_IN_FRAME) :
 			CHDLC_DFLT_DATA_LEN;
 	}
 
@@ -2472,5 +2473,7 @@ static void send_ppp_term_request (netdevice_t *dev)
 	}
 }
 
+
+MODULE_LICENSE("GPL");
 
 /****** End ****************************************************************/

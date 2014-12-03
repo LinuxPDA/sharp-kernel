@@ -31,6 +31,7 @@
 #include <linux/interrupt.h>
 #include <linux/delay.h>
 #include <linux/smp_lock.h>
+#include <linux/completion.h>
 
 
 #define __KERNEL_SYSCALLS__
@@ -377,12 +378,15 @@ static Scsi_Cmnd *__scsi_end_request(Scsi_Cmnd * SCpnt,
 			nsect = bh->b_size >> 9;
 			blk_finished_io(nsect);
 			req->bh = bh->b_reqnext;
-			req->nr_sectors -= nsect;
-			req->sector += nsect;
 			bh->b_reqnext = NULL;
 			sectors -= nsect;
 			bh->b_end_io(bh, uptodate);
 			if ((bh = req->bh) != NULL) {
+				req->hard_sector += nsect;
+				req->hard_nr_sectors -= nsect;
+				req->sector += nsect;
+				req->nr_sectors -= nsect;
+
 				req->current_nr_sectors = bh->b_size >> 9;
 				if (req->nr_sectors < req->current_nr_sectors) {
 					req->nr_sectors = req->current_nr_sectors;
@@ -419,8 +423,8 @@ static Scsi_Cmnd *__scsi_end_request(Scsi_Cmnd * SCpnt,
 	 * request, wake them up.  Typically used to wake up processes trying
 	 * to swap a page into memory.
 	 */
-	if (req->sem != NULL) {
-		up(req->sem);
+	if (req->waiting != NULL) {
+		complete(req->waiting);
 	}
 	add_blkdev_randomness(MAJOR(req->rq_dev));
 
@@ -492,13 +496,16 @@ static void scsi_release_buffers(Scsi_Cmnd * SCpnt)
 	 */
 	if (SCpnt->use_sg) {
 		struct scatterlist *sgpnt;
+		void **bbpnt;
 		int i;
 
 		sgpnt = (struct scatterlist *) SCpnt->request_buffer;
+		bbpnt = SCpnt->bounce_buffers;
 
-		for (i = 0; i < SCpnt->use_sg; i++) {
-			if (sgpnt[i].alt_address) {
-				scsi_free(sgpnt[i].address, sgpnt[i].length);
+		if (bbpnt) {
+			for (i = 0; i < SCpnt->use_sg; i++) {
+				if (bbpnt[i])
+					scsi_free(sgpnt[i].address, sgpnt[i].length);
 			}
 		}
 		scsi_free(SCpnt->request_buffer, SCpnt->sglist_len);
@@ -564,18 +571,22 @@ void scsi_io_completion(Scsi_Cmnd * SCpnt, int good_sectors,
 	 */
 	if (SCpnt->use_sg) {
 		struct scatterlist *sgpnt;
+		void **bbpnt;
 		int i;
 
 		sgpnt = (struct scatterlist *) SCpnt->buffer;
+		bbpnt = SCpnt->bounce_buffers;
 
-		for (i = 0; i < SCpnt->use_sg; i++) {
-			if (sgpnt[i].alt_address) {
-				if (SCpnt->request.cmd == READ) {
-					memcpy(sgpnt[i].alt_address, 
-					       sgpnt[i].address,
-					       sgpnt[i].length);
+		if (bbpnt) {
+			for (i = 0; i < SCpnt->use_sg; i++) {
+				if (bbpnt[i]) {
+					if (SCpnt->request.cmd == READ) {
+						memcpy(bbpnt[i],
+						       sgpnt[i].address,
+						       sgpnt[i].length);
+					}
+					scsi_free(sgpnt[i].address, sgpnt[i].length);
 				}
-				scsi_free(sgpnt[i].address, sgpnt[i].length);
 			}
 		}
 		scsi_free(SCpnt->buffer, SCpnt->sglist_len);
@@ -651,24 +662,34 @@ void scsi_io_completion(Scsi_Cmnd * SCpnt, int good_sectors,
 			}
 #endif
 		}
-		if ((SCpnt->sense_buffer[0] & 0x7f) == 0x70
-		    && (SCpnt->sense_buffer[2] & 0xf) == UNIT_ATTENTION) {
-			if (SCpnt->device->removable) {
-				/* detected disc change.  set a bit and quietly refuse
-				 * further access.
-				 */
-				SCpnt->device->changed = 1;
-				SCpnt = scsi_end_request(SCpnt, 0, this_count);
-				return;
-			} else {
-				/*
-				 * Must have been a power glitch, or a
-				 * bus reset.  Could not have been a
-				 * media change, so we just retry the
-				 * request and see what happens.  
-				 */
+		if ((SCpnt->sense_buffer[0] & 0x7f) == 0x70) {
+			/*
+			 * If the device is in the process of becoming ready,
+			 * retry.
+			 */
+			if (SCpnt->sense_buffer[12] == 0x04 &&
+			    SCpnt->sense_buffer[13] == 0x01) {
 				scsi_queue_next_request(q, SCpnt);
 				return;
+			}
+			if ((SCpnt->sense_buffer[2] & 0xf) == UNIT_ATTENTION) {
+				if (SCpnt->device->removable) {
+					/* detected disc change.  set a bit 
+					 * and quietly refuse further access.
+		 			 */
+					SCpnt->device->changed = 1;
+					SCpnt = scsi_end_request(SCpnt, 0, this_count);
+					return;
+				} else {
+					/*
+				 	* Must have been a power glitch, or a
+				 	* bus reset.  Could not have been a
+				 	* media change, so we just retry the
+				 	* request and see what happens.  
+				 	*/
+					scsi_queue_next_request(q, SCpnt);
+					return;
+				}
 			}
 		}
 		/* If we had an ILLEGAL REQUEST returned, then we may have
@@ -712,6 +733,15 @@ void scsi_io_completion(Scsi_Cmnd * SCpnt, int good_sectors,
 			break;
 		}
 	}			/* driver byte != 0 */
+	if (host_byte(result) == DID_RESET) {
+		/*
+		 * Third party bus reset or reset for error
+		 * recovery reasons.  Just retry the request
+		 * and see what happens.  
+		 */
+		scsi_queue_next_request(q, SCpnt);
+		return;
+	}
 	if (result) {
 		struct Scsi_Device_Template *STpnt;
 

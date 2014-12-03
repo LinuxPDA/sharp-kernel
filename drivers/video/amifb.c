@@ -592,9 +592,6 @@ static u_short maxfmode, chipset;
 	((((long)((unsigned long long)x1 >> 8) % x2) << 8) / x2))
 #endif
 
-#define min(a, b)	((a) < (b) ? (a) : (b))
-#define max(a, b)	((a) > (b) ? (a) : (b))
-
 #define highw(x)	((u_long)(x)>>16 & 0xffff)
 #define loww(x)		((u_long)(x) & 0xffff)
 
@@ -914,7 +911,7 @@ static struct fb_videomode ami_modedb[] __initdata = {
 
 #define NUM_TOTAL_MODES  ARRAY_SIZE(ami_modedb)
 
-static const char *mode_option __initdata = NULL;
+static char *mode_option __initdata = NULL;
 static int round_down_bpp = 1;	/* for mode probing */
 
 	/*
@@ -1195,7 +1192,7 @@ int __init amifb_setup(char *options)
 	if (!options || !*options)
 		return 0;
 
-	for (this_opt = strtok(options, ","); this_opt; this_opt = strtok(NULL, ",")) {
+	while (this_opt = strsep(&options, ",")) {
 		if (!strcmp(this_opt, "inverse")) {
 			amifb_inverse = 1;
 			fb_invert_cmaps();
@@ -3337,6 +3334,8 @@ static void ami_rebuild_copper(void)
 
 
 #ifdef MODULE
+MODULE_LICENSE("GPL");
+
 int init_module(void)
 {
 	return amifb_init();

@@ -90,16 +90,14 @@ struct thread_struct
         __u32   error_code;            /* error-code of last prog-excep.   */
         __u32   trap_no;
         per_struct per_info;/* Must be aligned on an 4 byte boundary*/
-	addr_t  ieee_instruction_pointer; 
 	/* Used to give failing instruction back to user for ieee exceptions */
+	addr_t  ieee_instruction_pointer; 
 	unsigned long flags;            /* various flags */
+        /* pfault_wait is used to block the process on a pfault event */
+	addr_t  pfault_wait;
 };
 
 typedef struct thread_struct thread_struct;
-
-#define INIT_MMAP \
-{ &init_mm, 0, 0, NULL, PAGE_SHARED, \
-VM_READ | VM_WRITE | VM_EXEC, 1, NULL,NULL }
 
 #define INIT_THREAD { (struct pt_regs *) 0,                       \
                     { 0,{{0},{0},{0},{0},{0},{0},{0},{0},{0},{0}, \
@@ -109,7 +107,7 @@ VM_READ | VM_WRITE | VM_EXEC, 1, NULL,NULL }
               (__pa((addr_t) &swapper_pg_dir[0]) + _REGION_TABLE),\
                      0,0,0,                                       \
                      (per_struct) {{{{0,}}},0,0,0,0,{{0,}}},      \
-		     0					          \
+		     0, 0, 0				          \
 } 
 
 /* need to define ... */
@@ -160,6 +158,8 @@ unsigned long get_wchan(struct task_struct *p);
 
 #define init_task       (init_task_union.task)
 #define init_stack      (init_task_union.stack)
+
+#define cpu_relax()	do { } while (0)
 
 /*
  * Set of msr bits that gdb can change on behalf of a process.
@@ -220,7 +220,7 @@ static inline void disabled_wait(addr_t code)
                       "    stctg 0,15,0x380(1)\n" /* store control registers */
                       "    oi    0x384(1),0x10\n" /* fake protection bit */
                       "    lpswe 0(%0)"
-                      : : "a" (dw_psw), "a" (&ctl_buf) : "0", "1");
+                      : : "a" (dw_psw), "a" (&ctl_buf) : "cc", "0", "1");
 }
 
 #endif                                 /* __ASM_S390_PROCESSOR_H           */

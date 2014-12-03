@@ -9,6 +9,8 @@
 #include <linux/interrupt.h>
 #include <linux/smp_lock.h>
 #include <linux/module.h>
+#include <linux/completion.h>
+#include <linux/personality.h>
 #include <linux/tty.h>
 #ifdef CONFIG_BSD_PROCESS_ACCT
 #include <linux/acct.h>
@@ -147,28 +149,21 @@ static inline int has_stopped_jobs(int pgrp)
 }
 
 /*
- * When we die, we re-parent all our children.
- * Try to give them to another thread in our process
- * group, and if no such member exists, give it to
+ * When we die, we re-parent all our children to
  * the global child reaper process (ie "init")
  */
 static inline void forget_original_parent(struct task_struct * father)
 {
-	struct task_struct * p, *reaper;
+	struct task_struct * p;
 
 	read_lock(&tasklist_lock);
-
-	/* Next in our thread group */
-	reaper = next_thread(father);
-	if (reaper == father)
-		reaper = child_reaper;
 
 	for_each_task(p) {
 		if (p->p_opptr == father) {
 			/* We dont want people slaying init */
 			p->exit_signal = SIGCHLD;
 			p->self_exec_id++;
-			p->p_opptr = reaper;
+			p->p_opptr = child_reaper;
 			if (p->pdeath_signal) send_sig(p->pdeath_signal, p, 0);
 		}
 	}
@@ -473,10 +468,10 @@ fake_volatile:
 	goto fake_volatile;
 }
 
-NORET_TYPE void up_and_exit(struct semaphore *sem, long code)
+NORET_TYPE void complete_and_exit(struct completion *comp, long code)
 {
-	if (sem)
-		up(sem);
+	if (comp)
+		complete(comp);
 	
 	do_exit(code);
 }

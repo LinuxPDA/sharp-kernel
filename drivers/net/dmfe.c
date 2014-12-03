@@ -61,7 +61,7 @@
 #include <linux/ptrace.h>
 #include <linux/errno.h>
 #include <linux/ioport.h>
-#include <linux/malloc.h>
+#include <linux/slab.h>
 #include <linux/interrupt.h>
 #include <linux/pci.h>
 #include <linux/init.h>
@@ -127,8 +127,8 @@
 #define DMFE_TXTH_1K	0xC000		/* TX TH 1K  byte */
 
 #define DMFE_TIMER_WUT  (jiffies + HZ * 1)/* timer wakeup time : 1 second */
-#define DMFE_TX_TIMEOUT (HZ * 1.5)	/* tx packet time-out time 1.5 s" */
-#define DMFE_TX_KICK 	(HZ * 0.5)	/* tx packet Kick-out time 0.5 s" */
+#define DMFE_TX_TIMEOUT ((3*HZ)/2)	/* tx packet time-out time 1.5 s" */
+#define DMFE_TX_KICK 	(HZ/2)	/* tx packet Kick-out time 0.5 s" */
 
 #define DMFE_DBUG(dbug_now, msg, value) if (dmfe_debug || (dbug_now)) printk(KERN_ERR "<DMFE>: %s %lx\n", (msg), (long) (value))
 
@@ -2000,6 +2000,7 @@ static struct pci_device_id dmfe_pci_tbl[] __devinitdata = {
 };
 MODULE_DEVICE_TABLE(pci, dmfe_pci_tbl);
 
+
 static struct pci_driver dmfe_driver = {
 	name:		"dmfe",
 	id_table:	dmfe_pci_tbl,
@@ -2009,6 +2010,8 @@ static struct pci_driver dmfe_driver = {
 
 MODULE_AUTHOR("Sten Wang, sten_wang@davicom.com.tw");
 MODULE_DESCRIPTION("Davicom DM910X fast ethernet driver");
+MODULE_LICENSE("GPL");
+
 MODULE_PARM(debug, "i");
 MODULE_PARM(mode, "i");
 MODULE_PARM(cr6set, "i");

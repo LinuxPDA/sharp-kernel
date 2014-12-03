@@ -261,9 +261,8 @@ iplstart:
 	l     %r1,0xb8                         # load ipl subchannel number
         la    %r2,IPL_BS                       # load start address
         bas   %r14,.Lloader                    # load rest of ipl image
-        l     %r12,.Lparm                      # pointer to parameter area
-        st    %r1,__LC_IPLDEV                  # store ipl device number
-        st    %r1,IPL_DEVICE+4-PARMAREA(%r12)
+        larl  %r12,_pstart                     # pointer to parameter area
+        st    %r1,IPL_DEVICE+4-PARMAREA(%r12)  # store ipl device number
 
 #
 # load parameter file from ipl device
@@ -304,7 +303,6 @@ iplstart:
         slr   %r0,%r0
         b     .Lcntlp
 .Ldelspc:
-        ic    %r0,0(%r3)
         ic    %r0,0(%r2,%r3)
         chi   %r0,0x20                         # is it a space ?
         be    .Lcntlp
@@ -354,7 +352,6 @@ iplstart:
         l     %r1,.Lstartup
         br    %r1
 
-.Lparm:	.long  PARMAREA
 .Lstartup: .long startup
 .Lcvtab:.long  _ebcasc                         # ebcdic to ascii table
 .Lreset:.byte  0xc3,0xc8,0xc1,0xd5,0xc7,0xc5,0x40,0xd9,0xc4,0xd9,0x40
@@ -460,57 +457,103 @@ start:
 #
         .org  0x10000
 startup:basr  %r13,0                     # get base
-.LPG1:  n     %r13,.Lhighoff-.LPG1(%r13) # remove high order bit
+.LPG1:  sll   %r13,1                     # remove high order bit
+        srl   %r13,1
         lhi   %r1,1                      # mode 1 = esame
         slr   %r0,%r0                    # set cpuid to zero
         sigp  %r1,%r0,0x12               # switch to esame mode
 	sam64				 # switch to 64 bit mode
 	lctlg %c0,%c15,.Lctl-.LPG1(%r13) # load control registers
-	lg    %r12,.Lparm1-.LPG1(%r13)   # pointer to parameter area
+	larl  %r12,_pstart               # pointer to parameter area
+					 # move IPL device to lowcore
+        mvc   __LC_IPLDEV(4),IPL_DEVICE+4-PARMAREA(%r12)
+					 # set program check new psw mask
+	mvc   __LC_PGM_NEW_PSW(8),.Lpcmsk-.LPG1(%r13)
+
 
 #
-# find out memory size.
+# find memory chunks.
 #
-	mvc   0x1d0(16),.Lpcmem-.LPG1(%r13) # setup program check handler
-        lghi  %r2,1
-        sllg  %r2,%r2,17                 # test in increments of 128KB
-	lgr   %r1,%r2
-	aghi  %r1,-8                     # test last word in the segment
-.Lloop:	
-	lg    %r0,0(%r1)                 # test 128KB segment
-	stg   %r0,0(%r1)
-	agr   %r1,%r2                    # add 128KB
-	bno   .Lloop-.LPG1(%r13)         # r1 < 0x80000000 -> loop
-.Lchkmem:
-	ng    %r1,.L4malign-.LPG1(%r13)  # align to multiples of 4M
-	lg    %r2,.Lmemsize-.LPG1(%r13)  # address of variable memory_size
-	stg   %r1,0(%r2)                 # store memory size
+	larl  %r1,.Lchkmem               # set program check address
+	stg   %r1,__LC_PGM_NEW_PSW+8
+	la    %r1,1                      # test in increments of 128KB
+	sllg  %r1,%r1,17
+	larl  %r3,memory_chunk
+	slgr  %r4,%r4                    # set start of chunk to zero
+	slgr  %r5,%r5                    # set end of chunk to zero
+	slr  %r6,%r6			 # set access code to zero
+.Lloop:
+	tprot 0(%r5),0			 # test protection of first byte
+	ipm   %r7
+	srl   %r7,28
+	clr   %r6,%r7			 # compare cc with last access code
+	je    .Lsame
+	clgr  %r4,%r5			 # chunk size > 0?
+	je    .Lsize0
+	stg   %r4,0(%r3)		 # store start address of chunk
+	lgr   %r0,%r5
+	slgr  %r0,%r4
+	stg   %r0,8(%r3)		 # store size of chunk
+	st    %r6,20(%r3)		 # store type of chunk
+	la    %r3,24(%r3)
+	lgr   %r4,%r5			 # set start to end
+	larl  %r8,memory_size
+	stg   %r5,0(%r8)                 # store memory size
+.Lsize0:
+	lr    %r6,%r7			 # set access code to last cc
+.Lsame:
+	algr  %r5,%r1			 # add 128KB to end of chunk
+	brc   12,.Lloop
+.Lchkmem:				 # > 16EB or tprot got a program check
+	clgr  %r4,%r5			 # chunk size > 0?
+	je    .Ldonemem
+	stg   %r4,0(%r3)		 # store start address of chunk
+	lgr   %r0,%r5
+	slgr  %r0,%r4
+	stg   %r0,8(%r3)		 # store size of chunk
+	st    %r6,20(%r3)		 # store type of chunk
+	la    %r3,24(%r3)
+	lgr   %r4,%r5
+	larl  %r8,memory_size
+	stg   %r5,0(%r8)                 # store memory size
+#
+# Running native the HSA is located at 2GB and we will get an
+# addressing exception trying to access it. We have to restart
+# the scan at 2GB to find out if the machine has more than 2GB.
+#
+	lghi  %r4,1
+	sllg  %r4,%r4,31
+	clgr  %r5,%r4
+	jhe   .Ldonemem
+	lgr   %r5,%r4
+	j     .Lloop
+.Ldonemem:		
 
-	lg    %r12,.Lmflags-.LPG1(%r13)  # get address of machine_flags
+	larl  %r12,machine_flags
 #
 # find out if we are running under VM
 #
         stidp  __LC_CPUID               # store cpuid
 	tm     __LC_CPUID,0xff          # running under VM ?
-	bno    .Lnovm-.LPG1(%r13)
+	bno    0f-.LPG1(%r13)
         oi     7(%r12),1                # set VM flag
-.Lnovm:
-        lh     %r0,__LC_CPUID+4         # get cpu version
+0:      lh     %r0,__LC_CPUID+4         # get cpu version
         chi    %r0,0x7490               # running on a P/390 ?
-        bne    .Lnop390-.LPG1(%r13)
+        bne    1f-.LPG1(%r13)
         oi     7(%r12),4                # set P/390 flag
-.Lnop390:
+1:
 
 #
 # find out if we have the MVPG instruction
 #
-       mvc    __LC_PGM_NEW_PSW(16),.Lpcmvpg-.LPG1(%r13)
-       sgr    %r0,%r0
-       lghi   %r1,0
-       lghi   %r2,0
-       mvpg   %r1,%r2                   # Test CSP instruction
-       oi     7(%r12),16                # set MVPG flag
-.Lchkmvpg:
+	la     %r1,0f-.LPG1(%r13)       # set program check address
+	stg    %r1,__LC_PGM_NEW_PSW+8
+	sgr    %r0,%r0
+	lghi   %r1,0
+	lghi   %r2,0
+	mvpg   %r1,%r2                  # test MVPG instruction
+	oi     7(%r12),16               # set MVPG flag
+0:
 
         lpswe .Lentry-.LPG1(13)         # jump to _stext in primary-space,
                                         # virtual and never return ...
@@ -518,7 +561,7 @@ startup:basr  %r13,0                     # get base
 .Lentry:.quad  0x0000000180000000,_stext
 .Lctl:  .quad  0x04b50002               # cr0: various things
         .quad  0                        # cr1: primary space segment table
-        .quad  0                        # cr2: access register translation
+        .quad  .Lduct                   # cr2: dispatchable unit control table
         .quad  0                        # cr3: instruction authorization
         .quad  0                        # cr4: instruction authorization
         .quad  0                        # cr5:  various things
@@ -532,21 +575,20 @@ startup:basr  %r13,0                     # get base
         .quad  0                        # cr13: home space segment table
         .quad  0xc0000000               # cr14: machine check handling off
         .quad  0                        # cr15: linkage stack operations
-.Lpcmem:.quad  0x0000000180000000,.Lchkmem
-.Lpcmvpg:.quad 0x0000000180000000,.Lchkmvpg
-.Lflt0: .double 0
-.Lparm1:.quad  PARMAREA
-.Lhighoff:.long 0x7fffffff
+.Lpcmsk:.quad  0x0000000180000000
 .L4malign:.quad 0xffffffffffc00000
-.Lbigmem:.quad 0x04000000
-.Lmaxchunk:.quad  0x00ffffff
-.Lmemsize:.quad memory_size
-.Lmflags:.quad machine_flags
+.Lscan2g:.quad 0x80000000 + 0x20000 - 8 # 2GB + 128K - 8
+
+	.org PARMAREA-64
+.Lduct:	.long 0,0,0,0,0,0,0,0
+	.long 0,0,0,0,0,0,0,0
 
 #
 # params at 10400 (setup.h)
 #
 	.org   PARMAREA
+	.global _pstart
+_pstart:
 	.quad  0                        # IPL_DEVICE
         .quad  RAMDISK_ORIGIN           # INITRD_START
         .quad  RAMDISK_SIZE             # INITRD_SIZE
@@ -554,32 +596,33 @@ startup:basr  %r13,0                     # get base
         .org   COMMAND_LINE
     	.byte  "root=/dev/ram0 ro"
         .byte  0
+	.org   0x11000
+	.global _pend
+_pend:	
 
+#ifdef CONFIG_SHARED_KERNEL
+	.org   0x100000
+#endif
+	
 #
 # startup-code, running in virtual mode
 #
-        .org   0x10800
         .globl _stext
 _stext:	basr  %r13,0                    # get base
 .LPG2:
 #
-# Setup lowcore
+# Setup stack
 #
-        l     %r1,__LC_IPLDEV           # load ipl device number
-        spx   .Lprefix-.LPG2(%r13)      # set prefix to linux lowcore
-        st    %r1,__LC_IPLDEV           # store ipl device number
-        lg    %r15,.Linittu-.LPG2(%r13)
+	larl  %r15,init_task_union
         aghi  %r15,16384                # init_task_union + 16384
         stg   %r15,__LC_KERNEL_STACK    # set end of kernel stack
         aghi  %r15,-160
         xc    0(8,%r15),0(%r15)         # set backchain to zero
-        lghi  %r0,-1
-        stg   %r0,__LC_KERNEL_LEVEL     # set interrupt count to -1
 #
 # clear bss memory
 #
-        lg    %r2,.Lbss_bgn-.LPG2(%r13) # start of bss
-        lg    %r3,.Lbss_end-.LPG2(%r13) # end of bss
+	larl  %r2,__bss_start           # start of bss segment
+        larl  %r3,_end                  # end of bss segment
         sgr   %r3,%r2                   # length of bss
         sgr   %r4,%r4                   #
         sgr   %r5,%r5                   # set src,length and pad to zero
@@ -587,8 +630,8 @@ _stext:	basr  %r13,0                    # get base
         jo    .-4                       # branch back, if not finish
 # check control registers
         stctg  %c0,%c15,0(%r15)
-        oc     6(1,%r15),.Locbits+5-.LPG2(%r13) # enable sigp external ints.
-        oc     4(1,%r15),.Locbits+4-.LPG2(%r13) # low addresss proctection
+	oi     6(%r15),0x20             # enable sigp external interrupts
+	oi     4(%r15),0x10             # switch on low address proctection
         lctlg  %c0,%c15,0(%r15)
 
 #
@@ -600,15 +643,7 @@ _stext:	basr  %r13,0                    # get base
         basr  %r13,0
 	lpswe .Ldw-.(%r13)           # load disabled wait psw
 #
-.Lstart:    .quad  start_kernel
             .align 8
-.Lprefix:   .long  init_S390_lowcore	
-.Linittu:   .quad  init_task_union
-.Lbss_bgn:  .quad  __bss_start
-.Lbss_end:  .quad  _end
-.Locbits:   .quad  0x0102040810204080
-            .align 4
+.Ldw:       .quad  0x0002000180000000,0x0000000000000000
 .Laregs:    .long  0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0
-	    .align 8
-.Ldw:      .quad  0x0002000180000000,0x0000000000000000
 

@@ -524,7 +524,7 @@ net_rx(struct net_device *dev)
 		lp->stats.rx_dropped++;
 		return;
 	}
-	skb->len = length;
+	skb_put(skb, length);
 	skb->dev = dev;
 
 	memcpy_fromio(skb->data, dev->mem_start + PP_RxFrame, length);
@@ -627,6 +627,7 @@ static int debug;
 
 MODULE_PARM(debug, "i");
 MODULE_PARM_DESC(debug, "CS89[02]0 debug level (0-5)");
+MODULE_LICENSE("GPL");
 
 EXPORT_NO_SYMBOLS;
 

@@ -1,9 +1,11 @@
-/*
- * $Id: capi.c,v 1.44.6.12 2001/06/09 15:14:15 kai Exp $
+/* $Id: capi.c,v 1.44.6.15 2001/09/28 08:05:29 kai Exp $
  *
  * CAPI 2.0 Interface for Linux
  *
- * Copyright 1996 by Carsten Paeth (calle@calle.in-berlin.de)
+ * Copyright 1996 by Carsten Paeth <calle@calle.de>
+ *
+ * This software may be used and distributed according to the terms
+ * of the GNU General Public License, incorporated herein by reference.
  *
  */
 
@@ -43,9 +45,11 @@
 #include "capifs.h"
 #endif
 
-static char *revision = "$Revision: 1.44.6.12 $";
+static char *revision = "$Revision: 1.44.6.15 $";
 
-MODULE_AUTHOR("Carsten Paeth (calle@calle.in-berlin.de)");
+MODULE_DESCRIPTION("CAPI4Linux: Userspace /dev/capi20 interface");
+MODULE_AUTHOR("Carsten Paeth");
+MODULE_LICENSE("GPL");
 
 #undef _DEBUG_REFCOUNT		/* alloc/free and open/close debug */
 #undef _DEBUG_TTYFUNCS		/* call to tty_driver */
@@ -697,12 +701,6 @@ static void capi_signal(__u16 applid, void *param)
 
 /* -------- file_operations for capidev ----------------------------- */
 
-static loff_t
-capi_llseek(struct file *file, loff_t offset, int origin)
-{
-	return -ESPIPE;
-}
-
 static ssize_t
 capi_read(struct file *file, char *buf, size_t count, loff_t *ppos)
 {
@@ -774,7 +772,7 @@ capi_write(struct file *file, const char *buf, size_t count, loff_t *ppos)
 
 	if ((retval = copy_from_user(skb_put(skb, count), buf, count))) {
 		kfree_skb(skb);
-		return retval;
+		return -EFAULT;
 	}
 	mlen = CAPIMSG_LEN(skb->data);
 	if (CAPIMSG_CMD(skb->data) == CAPI_DATA_B3_REQ) {
@@ -1073,7 +1071,7 @@ capi_release(struct inode *inode, struct file *file)
 static struct file_operations capi_fops =
 {
 	owner:		THIS_MODULE,
-	llseek:		capi_llseek,
+	llseek:		no_llseek,
 	read:		capi_read,
 	write:		capi_write,
 	poll:		capi_poll,
@@ -1108,12 +1106,6 @@ capinc_raw_open(struct inode *inode, struct file *file)
 	file->private_data = (void *)mp;
 	handle_minor_recv(mp);
 	return 0;
-}
-
-static loff_t
-capinc_raw_llseek(struct file *file, loff_t offset, int origin)
-{
-	return -ESPIPE;
 }
 
 static ssize_t
@@ -1194,7 +1186,7 @@ capinc_raw_write(struct file *file, const char *buf, size_t count, loff_t *ppos)
 	skb_reserve(skb, CAPI_DATA_B3_REQ_LEN);
 	if ((retval = copy_from_user(skb_put(skb, count), buf, count))) {
 		kfree_skb(skb);
-		return retval;
+		return -EFAULT;
 	}
 
 	while (skb_queue_len(&mp->outqueue) > CAPINC_MAX_SENDQUEUE) {
@@ -1269,7 +1261,7 @@ capinc_raw_release(struct inode *inode, struct file *file)
 static struct file_operations capinc_raw_fops =
 {
 	owner:		THIS_MODULE,
-	llseek:		capinc_raw_llseek,
+	llseek:		no_llseek,
 	read:		capinc_raw_read,
 	write:		capinc_raw_write,
 	poll:		capinc_raw_poll,
@@ -1372,7 +1364,7 @@ int capinc_tty_write(struct tty_struct * tty, int from_user,
 #ifdef _DEBUG_TTYFUNCS
 			printk(KERN_DEBUG "capinc_tty_write: copy_from_user=%d\n", retval);
 #endif
-			return retval;
+			return -EFAULT;
 		}
 	} else {
 		memcpy(skb_put(skb, count), buf, count);

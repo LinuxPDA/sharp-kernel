@@ -12,13 +12,14 @@
 
 #include <linux/config.h>
 #include <asm/system.h>
+#include <asm/page.h>
 #include <asm/ptrace.h>
 
 /*
  * Default implementation of macro that returns current
  * instruction pointer ("program counter").
  */
-#define current_text_addr() ({void *pc; __asm__ ("move.d pc,%0" : "=rm" (pc)); pc; })
+#define current_text_addr() ({void *pc; __asm__ ("move.d $pc,%0" : "=rm" (pc)); pc; })
 
 /* CRIS has no problems with write protection */
 
@@ -77,16 +78,6 @@ struct thread_struct {
 
 #define current_regs() user_regs(current)
 
-/* INIT_MMAP is the kernels map of memory, between KSEG_C and KSEG_D */
-
-#ifdef CONFIG_CRIS_LOW_MAP
-#define INIT_MMAP { &init_mm, KSEG_6, KSEG_7, NULL, PAGE_SHARED, \
-			     VM_READ | VM_WRITE | VM_EXEC, 1, NULL, NULL }
-#else
-#define INIT_MMAP { &init_mm, KSEG_C, KSEG_D, NULL, PAGE_SHARED, \
-			     VM_READ | VM_WRITE | VM_EXEC, 1, NULL, NULL }
-#endif
-
 #define INIT_THREAD  { \
    0, 0, 0x20 }  /* ccr = int enable, nothing else */
 
@@ -100,7 +91,7 @@ extern int kernel_thread(int (*fn)(void *), void * arg, unsigned long flags);
 #define start_thread(regs, ip, usp) do { \
 	set_fs(USER_DS);      \
 	regs->irp = ip;       \
-	regs->dccr |= 1 << 8; \
+	regs->dccr |= 1 << U_DCCR_BITNR; \
 	wrusp(usp);           \
 } while(0)
 
@@ -150,5 +141,7 @@ extern inline unsigned long thread_saved_pc(struct thread_struct *t)
 
 #define init_task       (init_task_union.task)
 #define init_stack      (init_task_union.stack)
+
+#define cpu_relax()	do { } while (0)
 
 #endif /* __ASM_CRIS_PROCESSOR_H */

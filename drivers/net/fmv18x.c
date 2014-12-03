@@ -3,9 +3,10 @@
 	Original: at1700.c (1993-94 by Donald Becker).
 		Copyright 1993 United States Government as represented by the
 		Director, National Security Agency.
-		The author may be reached as becker@CESDIS.gsfc.nasa.gov, or C/O
-		Center of Excellence in Space Data and Information Sciences
-		   Code 930.5, Goddard Space Flight Center, Greenbelt MD 20771
+		The author may be reached as becker@scyld.com, or C/O
+			Scyld Computing Corporation
+			410 Severn Ave., Suite 210
+			Annapolis MD 21403
 
 	Modified by Yutaka TAMIYA (tamy@flab.fujitsu.co.jp)
 		Copyright 1994 Fujitsu Laboratories Ltd.
@@ -631,6 +632,7 @@ MODULE_PARM(net_debug, "i");
 MODULE_PARM_DESC(io, "FMV-18X I/O address");
 MODULE_PARM_DESC(irq, "FMV-18X IRQ number");
 MODULE_PARM_DESC(net_debug, "FMV-18X debug level (0-1,5-6)");
+MODULE_LICENSE("GPL");
 
 int init_module(void)
 {

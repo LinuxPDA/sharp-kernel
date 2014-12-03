@@ -15,8 +15,8 @@
 */
 
 #define DRV_NAME	"tulip"
-#define DRV_VERSION	"0.9.15-pre6"
-#define DRV_RELDATE	"July 2, 2001"
+#define DRV_VERSION	"0.9.15-pre8"
+#define DRV_RELDATE	"Oct 11, 2001"
 
 #include <linux/config.h>
 #include <linux/module.h>
@@ -77,7 +77,7 @@ static int rx_copybreak = 100;
 	ToDo: Non-Intel setting could be better.
 */
 
-#if defined(__alpha__) || defined(__ia64__)
+#if defined(__alpha__) || defined(__ia64__) || defined(__x86_64__)
 static int csr0 = 0x01A00000 | 0xE000;
 #elif defined(__i386__) || defined(__powerpc__)
 static int csr0 = 0x01A00000 | 0x8000;
@@ -101,6 +101,7 @@ static int csr0 = 0x00A00000 | 0x4800;
 
 MODULE_AUTHOR("The Linux Kernel Team");
 MODULE_DESCRIPTION("Digital 21*4* Tulip ethernet driver");
+MODULE_LICENSE("GPL");
 MODULE_PARM(tulip_debug, "i");
 MODULE_PARM(max_interrupt_work, "i");
 MODULE_PARM(rx_copybreak, "i");
@@ -742,7 +743,7 @@ tulip_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	return 0;
 }
 
-static void tulip_release_unconsumed_tx_buffers(struct tulip_private *tp)
+static void tulip_clean_tx_ring(struct tulip_private *tp)
 {
 	unsigned int dirty_tx;
 
@@ -751,10 +752,12 @@ static void tulip_release_unconsumed_tx_buffers(struct tulip_private *tp)
 		int entry = dirty_tx % TX_RING_SIZE;
 		int status = le32_to_cpu(tp->tx_ring[entry].status);
 
-		if (status > 0)
-			break;		/* It has been Txed */
+		if (status < 0) {
+			tp->stats.tx_errors++;	/* It wasn't Txed */
+			tp->tx_ring[entry].status = 0;
+		}
 
-		/* Check for Rx filter setup frames. */
+		/* Check for Tx filter setup frames. */
 		if (tp->tx_buffers[entry].skb == NULL) {
 			/* test because dummy frames not mapped */
 			if (tp->tx_buffers[entry].mapping)
@@ -764,7 +767,6 @@ static void tulip_release_unconsumed_tx_buffers(struct tulip_private *tp)
 					PCI_DMA_TODEVICE);
 			continue;
 		}
-		tp->stats.tx_errors++;
 
 		pci_unmap_single(tp->pdev, tp->tx_buffers[entry].mapping,
 				tp->tx_buffers[entry].skb->len,
@@ -797,7 +799,7 @@ static void tulip_down (struct net_device *dev)
 	tulip_refill_rx(dev);
 
 	/* release any unconsumed transmit buffers */
-	tulip_release_unconsumed_tx_buffers(tp);
+	tulip_clean_tx_ring(tp);
 
 	/* 21040 -- Leave the card in 10baseT state. */
 	if (tp->chip_id == DC21040)
@@ -1259,7 +1261,7 @@ static void __devinit tulip_mwi_config (struct pci_dev *pdev,
 	if (tulip_debug > 3)
 		printk(KERN_DEBUG "%s: tulip_mwi_config()\n", pdev->slot_name);
 
-	tp->csr0 = 0;
+	tp->csr0 = csr0 = 0;
 
 	/* check for sane cache line size. from acenic.c. */
 	pci_read_config_byte(pdev, PCI_CACHE_LINE_SIZE, &cache);
@@ -1419,6 +1421,10 @@ static int __devinit tulip_init_one (struct pci_dev *pdev,
 	if (chip_idx == LC82C168)
 		csr0 &= ~0xfff10000; /* zero reserved bits 31:20, 16 */
 
+	/* DM9102A has troubles with MRM, clear bit 24 too. */
+	if (pdev->vendor == 0x1282 && pdev->device == 0x9102)
+		csr0 &= ~0x01200000;
+
 	/*
 	 *	And back to business
 	 */
@@ -1434,7 +1440,7 @@ static int __devinit tulip_init_one (struct pci_dev *pdev,
 	ioaddr = pci_resource_start (pdev, 0);
 	irq = pdev->irq;
 
-	/* init_etherdev ensures aligned and zeroed private structures */
+	/* alloc_etherdev ensures aligned and zeroed private structures */
 	dev = alloc_etherdev (sizeof (*tp));
 	if (!dev) {
 		printk (KERN_ERR PFX "ether device alloc failed, aborting\n");
@@ -1461,13 +1467,11 @@ static int __devinit tulip_init_one (struct pci_dev *pdev,
 		goto err_out_free_res;
 #endif
 
-	pci_set_master(pdev);
-
 	pci_read_config_byte (pdev, PCI_REVISION_ID, &chip_rev);
 
 	/*
 	 * initialize private data structure 'tp'
-	 * it is zeroed and aligned in init_etherdev
+	 * it is zeroed and aligned in alloc_etherdev
 	 */
 	tp = dev->priv;
 
@@ -1498,10 +1502,16 @@ static int __devinit tulip_init_one (struct pci_dev *pdev,
 #ifdef CONFIG_TULIP_MWI
 	if (!force_csr0 && (tp->flags & HAS_PCI_MWI))
 		tulip_mwi_config (pdev, dev);
+#else
+	/* MWI is broken for DC21143 rev 65... */
+	if (chip_idx == DC21143 && chip_rev == 65)
+		tp->csr0 &= ~MWI;
 #endif
 
 	/* Stop the chip's Tx and Rx processes. */
 	tulip_stop_rxtx(tp);
+
+	pci_set_master(pdev);
 
 	/* Clear the missed-packet counter. */
 	inl(ioaddr + CSR8);
@@ -1761,9 +1771,9 @@ err_out_mtable:
 		kfree (tp->mtable);
 #ifndef USE_IO_OPS
 	iounmap((void *)ioaddr);
-#endif
 
 err_out_free_res:
+#endif
 	pci_release_regions (pdev);
 
 err_out_free_netdev:

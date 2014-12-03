@@ -124,9 +124,7 @@
  * Release ICM slot by clearing first byte on 24F.
  */
 
-#ifdef MODULE
 #include <linux/module.h>
-#endif
 
 #include <linux/stddef.h>
 #include <linux/string.h>
@@ -259,7 +257,7 @@ static struct ultrastor_config
 } config = {0};
 
 /* Set this to 1 to reset the SCSI bus on error.  */
-int ultrastor_bus_reset = 0;
+int ultrastor_bus_reset;
 
 
 /* Allowed BIOS base addresses (NULL indicates reserved) */
@@ -602,6 +600,12 @@ static int ultrastor_24f_detect(Scsi_Host_Template * tpnt)
       tpnt->sg_tablesize = ULTRASTOR_24F_MAX_SG;
 
       shpnt = scsi_register(tpnt, 0);
+      if (!shpnt) {
+             printk(KERN_WARNING "(ultrastor:) Could not register scsi device. Aborting registration.\n");
+             free_irq(config.interrupt, do_ultrastor_interrupt);
+             return FALSE;
+      }
+
       shpnt->irq = config.interrupt;
       shpnt->dma_channel = config.dma_channel;
       shpnt->io_port = config.port_address;
@@ -1160,6 +1164,8 @@ static void do_ultrastor_interrupt(int irq, void *dev_id, struct pt_regs *regs)
     ultrastor_interrupt(irq, dev_id, regs);
     spin_unlock_irqrestore(&io_request_lock, flags);
 }
+
+MODULE_LICENSE("GPL");
 
 /* Eventually this will go into an include file, but this will be later */
 static Scsi_Host_Template driver_template = ULTRASTOR_14F;

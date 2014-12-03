@@ -20,7 +20,7 @@
     Director, National Security Agency.  This software may be used and
     distributed according to the terms of the GNU General Public License,
     incorporated herein by reference.
-    Donald Becker may be reached at becker@cesdis1.gsfc.nasa.gov
+    Donald Becker may be reached at becker@scyld.com.
 
     Based also on Keith Moore's changes to Don Becker's code, for IBM
     CCAE support.  Drivers merged back together, and shared-memory
@@ -1522,3 +1522,4 @@ static void __exit exit_pcnet_cs(void)
 
 module_init(init_pcnet_cs);
 module_exit(exit_pcnet_cs);
+MODULE_LICENSE("GPL");

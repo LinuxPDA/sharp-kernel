@@ -5,7 +5,7 @@
  *
  *		Implementation of the Transmission Control Protocol(TCP).
  *
- * Version:	$Id: tcp_input.c,v 1.232 2001/05/24 22:32:49 davem Exp $
+ * Version:	$Id: tcp_input.c,v 1.237 2001/09/21 21:27:34 davem Exp $
  *
  * Authors:	Ross Biro, <bir7@leland.Stanford.Edu>
  *		Fred N. van Kempen, <waltje@uWalt.NL.Mugnet.ORG>
@@ -321,7 +321,7 @@ static void tcp_init_buffer_space(struct sock *sk)
 static void tcp_clamp_window(struct sock *sk, struct tcp_opt *tp)
 {
 	struct sk_buff *skb;
-	int app_win = tp->rcv_nxt - tp->copied_seq;
+	unsigned int app_win = tp->rcv_nxt - tp->copied_seq;
 	int ofo_win = 0;
 
 	tp->ack.quick = 0;
@@ -346,11 +346,11 @@ static void tcp_clamp_window(struct sock *sk, struct tcp_opt *tp)
 			app_win >>= 1;
 		if (app_win > tp->ack.rcv_mss)
 			app_win -= tp->ack.rcv_mss;
-		app_win = max(app_win, 2*tp->advmss);
+		app_win = max(app_win, 2U*tp->advmss);
 
 		if (!ofo_win)
 			tp->window_clamp = min(tp->window_clamp, app_win);
-		tp->rcv_ssthresh = min(tp->window_clamp, 2*tp->advmss);
+		tp->rcv_ssthresh = min(tp->window_clamp, 2U*tp->advmss);
 	}
 }
 
@@ -617,7 +617,7 @@ __u32 tcp_init_cwnd(struct tcp_opt *tp)
 	else if (cwnd > tp->snd_ssthresh)
 		cwnd = tp->snd_ssthresh;
 
-	return min(cwnd, tp->snd_cwnd_clamp);
+	return min_t(__u32, cwnd, tp->snd_cwnd_clamp);
 }
 
 /* Initialize metrics on socket. */
@@ -1019,7 +1019,7 @@ void tcp_enter_loss(struct sock *sk, int how)
 	}
 	tcp_sync_left_out(tp);
 
-	tp->reordering = min(tp->reordering, sysctl_tcp_reordering);
+	tp->reordering = min_t(unsigned int, tp->reordering, sysctl_tcp_reordering);
 	tp->ca_state = TCP_CA_Loss;
 	tp->high_seq = tp->snd_nxt;
 	TCP_ECN_queue_cwr(tp);
@@ -1177,7 +1177,7 @@ tcp_time_to_recover(struct sock *sk, struct tcp_opt *tp)
 	 * recovery more?
 	 */
 	if (tp->packets_out <= tp->reordering &&
-	    tp->sacked_out >= max(tp->packets_out/2, sysctl_tcp_reordering) &&
+	    tp->sacked_out >= max_t(__u32, tp->packets_out/2, sysctl_tcp_reordering) &&
 	    !tcp_may_send_now(sk, tp)) {
 		/* We have nothing to send. This connection is limited
 		 * either by receiver window or by application.
@@ -1194,7 +1194,10 @@ tcp_time_to_recover(struct sock *sk, struct tcp_opt *tp)
  */
 static void tcp_check_reno_reordering(struct tcp_opt *tp, int addend)
 {
-	int holes = min(max(tp->lost_out, 1), tp->packets_out);
+	u32 holes;
+
+	holes = max(tp->lost_out, 1U);
+	holes = min(holes, tp->packets_out);
 
 	if (tp->sacked_out + holes > tp->packets_out) {
 		tp->sacked_out = tp->packets_out - holes;
@@ -1339,6 +1342,7 @@ static void tcp_undo_cwr(struct tcp_opt *tp, int undo)
 {
 	if (tp->prior_ssthresh) {
 		tp->snd_cwnd = max(tp->snd_cwnd, tp->snd_ssthresh<<1);
+
 		if (undo && tp->prior_ssthresh > tp->snd_ssthresh) {
 			tp->snd_ssthresh = tp->prior_ssthresh;
 			TCP_ECN_withdraw_cwr(tp);
@@ -2537,7 +2541,7 @@ static void tcp_data_queue(struct sock *sk, struct sk_buff *skb)
 
 	if (tp->dsack) {
 		tp->dsack = 0;
-		tp->eff_sacks = min(tp->num_sacks, 4-tp->tstamp_ok);
+		tp->eff_sacks = min_t(unsigned int, tp->num_sacks, 4-tp->tstamp_ok);
 	}
 
 	/*  Queue data for delivery to the user.
@@ -2554,7 +2558,7 @@ static void tcp_data_queue(struct sock *sk, struct sk_buff *skb)
 		    tp->ucopy.len &&
 		    sk->lock.users &&
 		    !tp->urg_data) {
-			int chunk = min(skb->len, tp->ucopy.len);
+			int chunk = min_t(unsigned int, skb->len, tp->ucopy.len);
 
 			__set_current_state(TASK_RUNNING);
 
@@ -2882,7 +2886,7 @@ static int tcp_prune_queue(struct sock *sk)
 	if (atomic_read(&sk->rmem_alloc) >= sk->rcvbuf)
 		tcp_clamp_window(sk, tp);
 	else if (tcp_memory_pressure)
-		tp->rcv_ssthresh = min(tp->rcv_ssthresh, 4*tp->advmss);
+		tp->rcv_ssthresh = min(tp->rcv_ssthresh, 4U*tp->advmss);
 
 	tcp_collapse_ofo_queue(sk);
 	tcp_collapse(sk, sk->receive_queue.next,
@@ -2937,7 +2941,7 @@ void tcp_cwnd_application_limited(struct sock *sk)
 	if (tp->ca_state == TCP_CA_Open &&
 	    sk->socket && !test_bit(SOCK_NOSPACE, &sk->socket->flags)) {
 		/* Limited by application or receiver window. */
-		u32 win_used = max(tp->snd_cwnd_used, 2);
+		u32 win_used = max(tp->snd_cwnd_used, 2U);
 		if (win_used < tp->snd_cwnd) {
 			tp->snd_ssthresh = tcp_current_ssthresh(tp);
 			tp->snd_cwnd = (tp->snd_cwnd+win_used)>>1;
@@ -2963,7 +2967,7 @@ static void tcp_new_space(struct sock *sk)
 		int sndmem, demanded;
 
 		sndmem = tp->mss_clamp+MAX_TCP_HEADER+16+sizeof(struct sk_buff);
-		demanded = max(tp->snd_cwnd, tp->reordering+1);
+		demanded = max_t(unsigned int, tp->snd_cwnd, tp->reordering+1);
 		sndmem *= 2*demanded;
 		if (sndmem > sk->sndbuf)
 			sk->sndbuf = min(sndmem, sysctl_tcp_wmem[2]);
@@ -3516,7 +3520,7 @@ static int tcp_rcv_synsent_state_process(struct sock *sk, struct sk_buff *skb,
 
 		if (tp->wscale_ok == 0) {
 			tp->snd_wscale = tp->rcv_wscale = 0;
-			tp->window_clamp = min(tp->window_clamp,65535);
+			tp->window_clamp = min(tp->window_clamp, 65535U);
 		}
 
 		if (tp->saw_tstamp) {

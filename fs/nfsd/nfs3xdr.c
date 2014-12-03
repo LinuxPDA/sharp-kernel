@@ -83,12 +83,11 @@ decode_filename(u32 *p, char **namp, int *lenp)
 	char		*name;
 	int		i;
 
-	if ((p = xdr_decode_string(p, namp, lenp, NFS3_MAXNAMLEN)) != NULL) {
+	if ((p = xdr_decode_string_inplace(p, namp, lenp, NFS3_MAXNAMLEN)) != NULL) {
 		for (i = 0, name = *namp; i < *lenp; i++, name++) {
 			if (*name == '\0' || *name == '/')
 				return NULL;
 		}
-		*name = '\0';
 	}
 
 	return p;
@@ -105,7 +104,6 @@ decode_pathname(u32 *p, char **namp, int *lenp)
 			if (*name == '\0')
 				return NULL;
 		}
-		*name = '\0';
 	}
 
 	return p;
@@ -159,11 +157,6 @@ static inline u32 *
 encode_fattr3(struct svc_rqst *rqstp, u32 *p, struct dentry *dentry)
 {
 	struct inode	*inode = dentry->d_inode;
-
-	if (!inode) {
-		printk("nfsd: NULL inode in %s:%d", __FILE__, __LINE__);
-		return NULL;
-	}
 
 	*p++ = htonl(nfs3_ftypes[(inode->i_mode & S_IFMT) >> 12]);
 	*p++ = htonl((u32) inode->i_mode);
@@ -515,9 +508,8 @@ int
 nfs3svc_encode_attrstat(struct svc_rqst *rqstp, u32 *p,
 					struct nfsd3_attrstat *resp)
 {
-	if (resp->status == 0
-	 && !(p = encode_fattr3(rqstp, p, resp->fh.fh_dentry)))
-		return 0;
+	if (resp->status == 0)
+		p = encode_fattr3(rqstp, p, resp->fh.fh_dentry);
 	return xdr_ressize_check(rqstp, p);
 }
 
@@ -526,8 +518,7 @@ int
 nfs3svc_encode_wccstat(struct svc_rqst *rqstp, u32 *p,
 					struct nfsd3_attrstat *resp)
 {
-	if (!(p = encode_wcc_data(rqstp, p, &resp->fh)))
-		return 0;
+	p = encode_wcc_data(rqstp, p, &resp->fh);
 	return xdr_ressize_check(rqstp, p);
 }
 
@@ -737,14 +728,14 @@ noexec:
 
 int
 nfs3svc_encode_entry(struct readdir_cd *cd, const char *name,
-		     int namlen, off_t offset, ino_t ino, unsigned int d_type)
+		     int namlen, loff_t offset, ino_t ino, unsigned int d_type)
 {
 	return encode_entry(cd, name, namlen, offset, ino, d_type, 0);
 }
 
 int
 nfs3svc_encode_entry_plus(struct readdir_cd *cd, const char *name,
-			  int namlen, off_t offset, ino_t ino, unsigned int d_type)
+			  int namlen, loff_t offset, ino_t ino, unsigned int d_type)
 {
 	return encode_entry(cd, name, namlen, offset, ino, d_type, 1);
 }

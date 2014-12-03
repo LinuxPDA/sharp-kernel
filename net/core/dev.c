@@ -552,12 +552,22 @@ int dev_alloc_name(struct net_device *dev, const char *name)
 {
 	int i;
 	char buf[32];
+	char *p;
 
 	/*
-	 *	If you need over 100 please also fix the algorithm...
+	 * Verify the string as this thing may have come from
+	 * the user.  There must be one "%d" and no other "%"
+	 * characters.
+	 */
+	p = strchr(name, '%');
+	if (!p || p[1] != 'd' || strchr(p+2, '%'))
+		return -EINVAL;
+
+	/*
+	 * If you need over 100 please also fix the algorithm...
 	 */
 	for (i = 0; i < 100; i++) {
-		sprintf(buf,name,i);
+		snprintf(buf,sizeof(buf),name,i);
 		if (__dev_get_by_name(buf) == NULL) {
 			strcpy(dev->name, buf);
 			return i;
@@ -1217,7 +1227,8 @@ int netif_rx(struct sk_buff *skb)
 enqueue:
 			dev_hold(skb->dev);
 			__skb_queue_tail(&queue->input_pkt_queue,skb);
-			__cpu_raise_softirq(this_cpu, NET_RX_SOFTIRQ);
+			/* Runs from irqs or BH's, no need to wake BH */
+			cpu_raise_softirq(this_cpu, NET_RX_SOFTIRQ);
 			local_irq_restore(flags);
 #ifndef OFFLINE_SAMPLE
 			get_sample_stats(this_cpu);
@@ -1527,7 +1538,8 @@ softnet_break:
 
 	local_irq_disable();
 	netdev_rx_stat[this_cpu].time_squeeze++;
-	__cpu_raise_softirq(this_cpu, NET_RX_SOFTIRQ);
+	/* This already runs in BH context, no need to wake up BH's */
+	cpu_raise_softirq(this_cpu, NET_RX_SOFTIRQ);
 	local_irq_enable();
 
 	NET_PROFILE_LEAVE(softnet_process);
@@ -1792,7 +1804,7 @@ static int sprintf_wireless_stats(char *buffer, struct net_device *dev)
 
 	if (stats != (struct iw_statistics *) NULL) {
 		size = sprintf(buffer,
-			       "%6s: %04x  %3d%c  %3d%c  %3d%c  %6d %6d %6d\n",
+			       "%6s: %04x  %3d%c  %3d%c  %3d%c  %6d %6d %6d %6d %6d   %6d\n",
 			       dev->name,
 			       stats->status,
 			       stats->qual.qual,
@@ -1803,7 +1815,10 @@ static int sprintf_wireless_stats(char *buffer, struct net_device *dev)
 			       stats->qual.updated & 4 ? '.' : ' ',
 			       stats->discard.nwid,
 			       stats->discard.code,
-			       stats->discard.misc);
+			       stats->discard.fragment,
+			       stats->discard.retries,
+			       stats->discard.misc,
+			       stats->miss.beacon);
 		stats->qual.updated = 0;
 	}
 	else
@@ -1827,8 +1842,8 @@ static int dev_get_wireless_info(char * buffer, char **start, off_t offset,
 	struct net_device *	dev;
 
 	size = sprintf(buffer,
-		       "Inter-| sta-|   Quality        |   Discarded packets\n"
-		       " face | tus | link level noise |  nwid  crypt   misc\n"
+		       "Inter-| sta-|   Quality        |   Discarded packets               | Missed\n"
+		       " face | tus | link level noise |  nwid  crypt   frag  retry   misc | beacon\n"
 			);
 	
 	pos += size;
@@ -1859,6 +1874,33 @@ static int dev_get_wireless_info(char * buffer, char **start, off_t offset,
 	return len;
 }
 #endif	/* CONFIG_PROC_FS */
+
+/*
+ *	Allow programatic access to /proc/net/wireless even if /proc
+ *	doesn't exist... Also more efficient...
+ */
+static inline int dev_iwstats(struct net_device *dev, struct ifreq *ifr)
+{
+	/* Get stats from the driver */
+	struct iw_statistics *stats = (dev->get_wireless_stats ?
+				       dev->get_wireless_stats(dev) :
+				       (struct iw_statistics *) NULL);
+
+	if (stats != (struct iw_statistics *) NULL) {
+		struct iwreq *	wrq = (struct iwreq *)ifr;
+
+		/* Copy statistics to the user buffer */
+		if(copy_to_user(wrq->u.data.pointer, stats,
+				sizeof(struct iw_statistics)))
+			return -EFAULT;
+
+		/* Check if we need to clear the update flag */
+		if(wrq->u.data.flags != 0)
+			stats->qual.updated = 0;
+		return(0);
+	} else
+		return -EOPNOTSUPP;
+}
 #endif	/* WIRELESS_EXT */
 
 /**
@@ -2158,6 +2200,11 @@ static int dev_ifsioc(struct ifreq *ifr, unsigned int cmd)
 			notifier_call_chain(&netdev_chain, NETDEV_CHANGENAME, dev);
 			return 0;
 
+#ifdef WIRELESS_EXT
+		case SIOCGIWSTATS:
+			return dev_iwstats(dev, ifr);
+#endif	/* WIRELESS_EXT */
+
 		/*
 		 *	Unknown or private ioctl
 		 */
@@ -2165,7 +2212,10 @@ static int dev_ifsioc(struct ifreq *ifr, unsigned int cmd)
 		default:
 			if ((cmd >= SIOCDEVPRIVATE &&
 			    cmd <= SIOCDEVPRIVATE + 15) ||
-			    cmd == SIOCETHTOOL) {
+			    cmd == SIOCETHTOOL ||
+			    cmd == SIOCGMIIPHY ||
+			    cmd == SIOCGMIIREG ||
+			    cmd == SIOCSMIIREG) {
 				if (dev->do_ioctl) {
 					if (!netif_device_present(dev))
 						return -ENODEV;
@@ -2272,6 +2322,32 @@ int dev_ioctl(unsigned int cmd, void *arg)
 		 *	These ioctl calls:
 		 *	- require superuser power.
 		 *	- require strict serialization.
+		 *	- return a value
+		 */
+		 
+		case SIOCETHTOOL:
+		case SIOCGMIIPHY:
+		case SIOCGMIIREG:
+			if (!capable(CAP_NET_ADMIN))
+				return -EPERM;
+			dev_load(ifr.ifr_name);
+			dev_probe_lock();
+			rtnl_lock();
+			ret = dev_ifsioc(&ifr, cmd);
+			rtnl_unlock();
+			dev_probe_unlock();
+			if (!ret) {
+				if (colon)
+					*colon = ':';
+				if (copy_to_user(arg, &ifr, sizeof(struct ifreq)))
+					return -EFAULT;
+			}
+			return ret;
+
+		/*
+		 *	These ioctl calls:
+		 *	- require superuser power.
+		 *	- require strict serialization.
 		 *	- do not return a value
 		 */
 		 
@@ -2286,7 +2362,7 @@ int dev_ioctl(unsigned int cmd, void *arg)
 		case SIOCSIFHWBROADCAST:
 		case SIOCSIFTXQLEN:
 		case SIOCSIFNAME:
-		case SIOCETHTOOL:
+		case SIOCSMIIREG:
 			if (!capable(CAP_NET_ADMIN))
 				return -EPERM;
 			dev_load(ifr.ifr_name);
@@ -2414,8 +2490,12 @@ int register_netdevice(struct net_device *dev)
 	dev->iflink = -1;
 
 	/* Init, if this function is available */
-	if (dev->init && dev->init(dev) != 0)
+	if (dev->init && dev->init(dev) != 0) {
+#ifdef CONFIG_NET_DIVERT
+		free_divert_blk(dev);
+#endif
 		return -EIO;
+	}
 
 	dev->ifindex = dev_new_index();
 	if (dev->iflink == -1)
@@ -2424,6 +2504,9 @@ int register_netdevice(struct net_device *dev)
 	/* Check for existence, and append to tail of chain */
 	for (dp=&dev_base; (d=*dp) != NULL; dp=&d->next) {
 		if (d == dev || strcmp(d->name, dev->name) == 0) {
+#ifdef CONFIG_NET_DIVERT
+			free_divert_blk(dev);
+#endif
 			return -EEXIST;
 		}
 	}
@@ -2650,10 +2733,6 @@ int __init net_dev_init(void)
 	if (!dev_boot_phase)
 		return 0;
 
-#ifdef CONFIG_NET_SCHED
-	pktsched_init();
-#endif
-
 #ifdef CONFIG_NET_DIVERT
 	dv_init();
 #endif /* CONFIG_NET_DIVERT */
@@ -2767,6 +2846,10 @@ int __init net_dev_init(void)
 
 	dst_init();
 	dev_mcast_init();
+
+#ifdef CONFIG_NET_SCHED
+	pktsched_init();
+#endif
 
 	/*
 	 *	Initialise network devices

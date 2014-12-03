@@ -29,6 +29,7 @@
 #include <linux/smp_lock.h>
 #include <asm/system.h>
 #include <asm/uaccess.h>
+#include <linux/module.h>
 
 extern struct inode_operations affs_symlink_inode_operations;
 extern struct timezone sys_tz;
@@ -120,8 +121,15 @@ affs_read_inode(struct inode *inode)
 		inode->i_fop = &affs_dir_operations;
 		break;
 	case ST_LINKDIR:
+#if 0
 		affs_warning(sb, "read_inode", "inode is LINKDIR");
 		goto bad_inode;
+#else
+		inode->i_mode |= S_IFDIR;
+		inode->i_op = NULL;
+		inode->i_fop = NULL;
+		break;
+#endif
 	case ST_LINKFILE:
 		affs_warning(sb, "read_inode", "inode is LINKFILE");
 		goto bad_inode;
@@ -207,7 +215,7 @@ affs_write_inode(struct inode *inode, int unused)
 		}
 	}
 	affs_fix_checksum(sb, bh);
-	mark_buffer_dirty(bh);
+	mark_buffer_dirty_inode(bh, inode);
 	affs_brelse(bh);
 	unlock_kernel();
 }
@@ -293,7 +301,7 @@ affs_new_inode(struct inode *dir)
 	u32			 block;
 	struct buffer_head	*bh;
 
-	if (!dir || !(inode = get_empty_inode()))
+	if (!(inode = new_inode(sb)))
 		goto err_inode;
 
 	if (!(block = affs_alloc_block(dir, dir->i_ino)))
@@ -302,11 +310,9 @@ affs_new_inode(struct inode *dir)
 	bh = affs_getzeroblk(sb, block);
 	if (!bh)
 		goto err_bh;
-	mark_buffer_dirty(bh);
+	mark_buffer_dirty_inode(bh, inode);
 	affs_brelse(bh);
 
-	inode->i_sb      = sb;
-	inode->i_dev     = sb->s_dev;
 	inode->i_uid     = current->fsuid;
 	inode->i_gid     = current->fsgid;
 	inode->i_ino     = block;
@@ -352,6 +358,7 @@ affs_add_entry(struct inode *dir, struct inode *inode, struct dentry *dentry, s3
 	if (!bh)
 		goto done;
 
+	affs_lock_link(inode);
 	switch (type) {
 	case ST_LINKFILE:
 	case ST_LINKDIR:
@@ -377,25 +384,25 @@ affs_add_entry(struct inode *dir, struct inode *inode, struct dentry *dentry, s3
 
 	if (inode_bh) {
 		u32 chain;
-		down(&AFFS_INODE->i_link_lock);
 	       	chain = AFFS_TAIL(sb, inode_bh)->link_chain;
 		AFFS_TAIL(sb, bh)->original = cpu_to_be32(inode->i_ino);
 		AFFS_TAIL(sb, bh)->link_chain = chain;
 		AFFS_TAIL(sb, inode_bh)->link_chain = cpu_to_be32(block);
 		affs_adjust_checksum(inode_bh, block - be32_to_cpu(chain));
-		mark_buffer_dirty(inode_bh);
+		mark_buffer_dirty_inode(inode_bh, inode);
 		inode->i_nlink = 2;
 		atomic_inc(&inode->i_count);
-		up(&AFFS_INODE->i_link_lock);
 	}
 	affs_fix_checksum(sb, bh);
-	mark_buffer_dirty(bh);
-
-	down(&AFFS_DIR->i_hash_lock);
-	retval = affs_insert_hash(dir, bh);
-	up(&AFFS_DIR->i_hash_lock);
-
+	mark_buffer_dirty_inode(bh, inode);
 	dentry->d_fsdata = (void *)bh->b_blocknr;
+
+	affs_lock_dir(dir);
+	retval = affs_insert_hash(dir, bh);
+	mark_buffer_dirty_inode(bh, inode);
+	affs_unlock_dir(dir);
+	affs_unlock_link(inode);
+
 	d_instantiate(dentry, inode);
 done:
 	affs_brelse(inode_bh);
@@ -404,5 +411,7 @@ done:
 err:
 	if (block)
 		affs_free_block(sb, block);
+	affs_unlock_link(inode);
 	goto done;
 }
+MODULE_LICENSE("GPL");

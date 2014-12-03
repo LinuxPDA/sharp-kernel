@@ -5,12 +5,12 @@
 
 #include <asm/arch/hardware.h>
 
-extern inline void pcibios_set_master(struct pci_dev *dev)
+static inline void pcibios_set_master(struct pci_dev *dev)
 {
 	/* No special bus mastering setup handling */
 }
 
-extern inline void pcibios_penalize_isa_irq(int irq)
+static inline void pcibios_penalize_isa_irq(int irq)
 {
 	/* We don't do dynamic PCI IRQ allocation */
 }
@@ -37,7 +37,7 @@ extern void *pci_alloc_consistent(struct pci_dev *hwdev, size_t size, dma_addr_t
  * References to the memory and mappings associated with cpu_addr/dma_addr
  * past this call are illegal.
  */
-extern inline void
+static inline void
 pci_free_consistent(struct pci_dev *hwdev, size_t size, void *vaddr,
 		    dma_addr_t dma_handle)
 {
@@ -50,9 +50,20 @@ pci_free_consistent(struct pci_dev *hwdev, size_t size, void *vaddr,
  * Once the device is given the dma address, the device owns this memory
  * until either pci_unmap_single or pci_dma_sync_single is performed.
  */
-extern inline dma_addr_t
+static inline dma_addr_t
 pci_map_single(struct pci_dev *hwdev, void *ptr, size_t size, int direction)
 {
+#ifdef CONFIG_SA1111
+	extern dma_addr_t sa1111_map_single(struct pci_dev *, void *, size_t, int);
+
+	/*
+	 * for SA1111 these functions are "magic" and relocate buffers.  We
+	 * only need to do these if hwdev is non-null; otherwise we expect
+	 * the buffer to already be suitable for DMA.
+	 */
+	if (hwdev != NULL)
+		return sa1111_map_single(hwdev, ptr, size, direction);
+#endif
 	consistent_sync(ptr, size, direction);
 	return virt_to_bus(ptr);
 }
@@ -64,9 +75,15 @@ pci_map_single(struct pci_dev *hwdev, void *ptr, size_t size, int direction)
  * After this call, reads by the cpu to the buffer are guarenteed to see
  * whatever the device wrote there.
  */
-extern inline void
+static inline void
 pci_unmap_single(struct pci_dev *hwdev, dma_addr_t dma_addr, size_t size, int direction)
 {
+#ifdef CONFIG_SA1111
+	extern void sa1111_unmap_single(struct pci_dev *, dma_addr_t, size_t, int);
+
+	if (hwdev != NULL)
+		sa1111_unmap_single(hwdev, dma_addr, size, direction);
+#endif
 	/* nothing to do */
 }
 
@@ -85,7 +102,7 @@ pci_unmap_single(struct pci_dev *hwdev, dma_addr_t dma_addr, size_t size, int di
  * Device ownership issues as mentioned above for pci_map_single are
  * the same here.
  */
-extern inline int
+static inline int
 pci_map_sg(struct pci_dev *hwdev, struct scatterlist *sg, int nents, int direction)
 {
 	int i;
@@ -102,7 +119,7 @@ pci_map_sg(struct pci_dev *hwdev, struct scatterlist *sg, int nents, int directi
  * Again, cpu read rules concerning calls here are the same as for
  * pci_unmap_single() above.
  */
-extern inline void
+static inline void
 pci_unmap_sg(struct pci_dev *hwdev, struct scatterlist *sg, int nents, int direction)
 {
 	/* nothing to do */
@@ -117,7 +134,7 @@ pci_unmap_sg(struct pci_dev *hwdev, struct scatterlist *sg, int nents, int direc
  * next point you give the PCI dma address back to the card, the
  * device again owns the buffer.
  */
-extern inline void
+static inline void
 pci_dma_sync_single(struct pci_dev *hwdev, dma_addr_t dma_handle, size_t size, int direction)
 {
 	consistent_sync(bus_to_virt(dma_handle), size, direction);
@@ -129,7 +146,7 @@ pci_dma_sync_single(struct pci_dev *hwdev, dma_addr_t dma_handle, size_t size, i
  * The same as pci_dma_sync_single but for a scatter-gather list,
  * same rules and usage.
  */
-extern inline void
+static inline void
 pci_dma_sync_sg(struct pci_dev *hwdev, struct scatterlist *sg, int nelems, int direction)
 {
 	int i;
@@ -143,7 +160,7 @@ pci_dma_sync_sg(struct pci_dev *hwdev, struct scatterlist *sg, int nelems, int d
  * only drive the low 24-bits during PCI bus mastering, then
  * you would pass 0x00ffffff as the mask to this function.
  */
-extern inline int pci_dma_supported(struct pci_dev *hwdev, dma_addr_t mask)
+static inline int pci_dma_supported(struct pci_dev *hwdev, u64 mask)
 {
 	return 1;
 }

@@ -1,26 +1,12 @@
-
 /*
- *
  * Copyright (C) Eicon Technology Corporation, 2000.
  *
  * Eicon File Revision :    1.15  
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2, or (at your option)
- * any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY OF ANY KIND WHATSOEVER INCLUDING ANY 
- * implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  
- * See the GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ * This software may be used and distributed according to the terms
+ * of the GNU General Public License, incorporated herein by reference.
  *
  */
-
 
 #include "eicon.h"
 #include "sys.h"
@@ -36,9 +22,6 @@
 #define DIVAS_START_CMD		0x03
 #define DIVAS_IRQ_RESET		0xC18
 #define DIVAS_IRQ_RESET_VAL	0xFE
-
-#define	PCI_LATENCY	PCI_LATENCY_TIMER
-#define PCI_INTERRUPT	PCI_INTERRUPT_LINE
 
 #define TEST_INT_DIVAS		0x11
 #define TEST_INT_DIVAS_BRI	0x12
@@ -78,7 +61,7 @@ DESCRIPTOR DIDD_Table[32];
 
 void    DIVA_DIDD_Read( DESCRIPTOR *table, int tablelength )
 {
-        bzero(table, tablelength);
+        memset(table, 0, tablelength);
 
         if (tablelength > sizeof(DIDD_Table))
           tablelength = sizeof(DIDD_Table);
@@ -89,7 +72,7 @@ void    DIVA_DIDD_Read( DESCRIPTOR *table, int tablelength )
         }
 
         if (tablelength > 0)
-          bcopy((void *)DIDD_Table, (void *)table, tablelength);
+          memcpy((void *)table, (void *)DIDD_Table, tablelength);
 
 	return;
 }
@@ -99,7 +82,7 @@ void 	DIVA_DIDD_Write(DESCRIPTOR *table, int tablelength)
         if (tablelength > sizeof(DIDD_Table))
           tablelength = sizeof(DIDD_Table);
 
-	bcopy((void *)table, (void *)DIDD_Table, tablelength);
+	memcpy((void *)DIDD_Table, (void *)table, tablelength);
 
 	return;
 }
@@ -109,7 +92,7 @@ void    init_idi_tab(void)
 {
     DESCRIPTOR d[32];
 
-    bzero(d, sizeof(d));
+    memset(d, 0, sizeof(d));
 
     d[0].type = IDI_DIMAINT;  /* identify the DIMAINT entry */
     d[0].channels = 0; /* zero channels associated with dimaint*/
@@ -478,7 +461,6 @@ void card_isr (void *dev_id)
 int DivasCardNew(dia_card_t *card_info)
 {
 	card_t *card;
-	byte b;
 	static boolean_t first_call = TRUE;
 	boolean_t NeedISRandReset = FALSE;
 
@@ -566,10 +548,6 @@ int DivasCardNew(dia_card_t *card_info)
 			UxCardHandleFree(card->hw);
 			return -1;
 		}
-
-		b = card->cfg.irq;
-
-		UxPciConfigWrite(card->hw, sizeof(b), PCI_INTERRUPT_LINE, &b);
 
 		if (card_info->card_type != DIA_CARD_TYPE_DIVA_SERVER_Q)
 		{
@@ -670,7 +648,7 @@ static int idi_register(card_t *card, byte channels)
 		return -1;
 	}
 
-	bzero(card->e_tbl, sizeof(E_INFO) * num_entities);
+	memset(card->e_tbl, 0, sizeof(E_INFO) * num_entities);
 	card->e_max = num_entities;
 
     DIVA_DIDD_Read(d, sizeof(d));

@@ -5,7 +5,7 @@
  *
  *		Implementation of the Transmission Control Protocol(TCP).
  *
- * Version:	$Id: tcp_output.c,v 1.136 2001/03/06 22:42:56 davem Exp $
+ * Version:	$Id: tcp_output.c,v 1.142 2001/09/21 21:27:34 davem Exp $
  *
  * Authors:	Ross Biro, <bir7@leland.Stanford.Edu>
  *		Fred N. van Kempen, <waltje@uWalt.NL.Mugnet.ORG>
@@ -526,7 +526,7 @@ int tcp_sync_mss(struct sock *sk, u32 pmtu)
 
 	/* Bound mss with half of window */
 	if (tp->max_window && mss_now > (tp->max_window>>1))
-		mss_now = max((tp->max_window>>1), 68 - tp->tcp_header_len);
+		mss_now = max((tp->max_window>>1), 68U - tp->tcp_header_len);
 
 	/* And store cached results */
 	tp->pmtu_cookie = pmtu;
@@ -651,7 +651,7 @@ u32 __tcp_select_window(struct sock *sk)
 	 */
 	int mss = tp->ack.rcv_mss;
 	int free_space = tcp_space(sk);
-	int full_space = min(tp->window_clamp, tcp_full_space(sk));
+	int full_space = min_t(int, tp->window_clamp, tcp_full_space(sk));
 	int window;
 
 	if (mss > full_space)
@@ -661,7 +661,7 @@ u32 __tcp_select_window(struct sock *sk)
 		tp->ack.quick = 0;
 
 		if (tcp_memory_pressure)
-			tp->rcv_ssthresh = min(tp->rcv_ssthresh, 4*tp->advmss);
+			tp->rcv_ssthresh = min(tp->rcv_ssthresh, 4U*tp->advmss);
 
 		if (free_space < mss)
 			return 0;

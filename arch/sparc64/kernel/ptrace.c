@@ -25,6 +25,7 @@
 #include <asm/uaccess.h>
 #include <asm/psrcompat.h>
 #include <asm/visasm.h>
+#include <asm/spitfire.h>
 
 #define MAGIC_CONSTANT 0x80000000
 
@@ -105,6 +106,16 @@ char *pt_rq [] = {
 };
 #endif
 
+/*
+ * Called by kernel/ptrace.c when detaching..
+ *
+ * Make sure single step bits etc are not set.
+ */
+void ptrace_disable(struct task_struct *child)
+{
+	/* nothing to do */
+}
+
 asmlinkage void do_ptrace(struct pt_regs *regs)
 {
 	int request = regs->u_regs[UREG_I0];
@@ -168,40 +179,10 @@ asmlinkage void do_ptrace(struct pt_regs *regs)
 
 	if ((current->personality == PER_SUNOS && request == PTRACE_SUNATTACH)
 	    || (current->personality != PER_SUNOS && request == PTRACE_ATTACH)) {
-		unsigned long flags;
-
-		if (child == current) {
-			/* Try this under SunOS/Solaris, bwa haha
-			 * You'll never be able to kill the process. ;-)
-			 */
+		if (ptrace_attach(child)) {
 			pt_error_return(regs, EPERM);
 			goto out_tsk;
 		}
-		if ((!child->dumpable ||
-		     (current->uid != child->euid) ||
-		     (current->uid != child->uid) ||
-		     (current->uid != child->suid) ||
-		     (current->gid != child->egid) ||
-		     (current->gid != child->sgid) ||
-		     (!cap_issubset(child->cap_permitted, current->cap_permitted)) ||
-		     (current->gid != child->gid)) && !capable(CAP_SYS_PTRACE)) {
-			pt_error_return(regs, EPERM);
-			goto out_tsk;
-		}
-		/* the same process cannot be attached many times */
-		if (child->ptrace & PT_PTRACED) {
-			pt_error_return(regs, EPERM);
-			goto out_tsk;
-		}
-		child->ptrace |= PT_PTRACED;
-		write_lock_irqsave(&tasklist_lock, flags);
-		if (child->p_pptr != current) {
-			REMOVE_LINKS(child);
-			child->p_pptr = current;
-			SET_LINKS(child);
-		}
-		write_unlock_irqrestore(&tasklist_lock, flags);
-		send_sig(SIGSTOP, child, 1);
 		pt_succ_return(regs, 0);
 		goto out_tsk;
 	}
@@ -592,22 +573,11 @@ asmlinkage void do_ptrace(struct pt_regs *regs)
 	}
 
 	case PTRACE_SUNDETACH: { /* detach a process that was attached. */
-		unsigned long flags;
-
-		if ((unsigned long) data > _NSIG) {
+		int error = ptrace_detach(child, data);
+		if (error) {
 			pt_error_return(regs, EIO);
 			goto out_tsk;
 		}
-		child->ptrace &= ~(PT_PTRACED|PT_TRACESYS);
-		child->exit_code = data;
-
-		write_lock_irqsave(&tasklist_lock, flags);
-		REMOVE_LINKS(child);
-		child->p_pptr = child->p_opptr;
-		SET_LINKS(child);
-		write_unlock_irqrestore(&tasklist_lock, flags);
-
-		wake_up_process(child);
 		pt_succ_return(regs, 0);
 		goto out_tsk;
 	}
@@ -627,7 +597,7 @@ flush_and_out:
 				spitfire_put_dcache_tag(va, 0x0);
 			/* No need to mess with I-cache on Cheetah. */
 		} else {
-			for (va =  0; va < (PAGE_SIZE << 1); va += 32)
+			for (va =  0; va < L1DCACHE_SIZE; va += 32)
 				spitfire_put_dcache_tag(va, 0x0);
 			if (request == PTRACE_PEEKTEXT ||
 			    request == PTRACE_POKETEXT ||

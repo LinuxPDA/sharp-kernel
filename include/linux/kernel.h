@@ -10,6 +10,7 @@
 #include <stdarg.h>
 #include <linux/linkage.h>
 #include <linux/stddef.h>
+#include <linux/types.h>
 
 /* Optimization barrier */
 /* The "volatile" is due to gcc bugs */
@@ -45,14 +46,14 @@
 #define FASTCALL(x)	x
 #endif
 
-struct semaphore;
+struct completion;
 
 extern struct notifier_block *panic_notifier_list;
 NORET_TYPE void panic(const char * fmt, ...)
 	__attribute__ ((NORET_AND format (printf, 1, 2)));
 NORET_TYPE void do_exit(long error_code)
 	ATTRIB_NORET;
-NORET_TYPE void up_and_exit(struct semaphore *, long)
+NORET_TYPE void complete_and_exit(struct completion *, long)
 	ATTRIB_NORET;
 extern int abs(int);
 extern unsigned long simple_strtoul(const char *,char **,unsigned int);
@@ -61,6 +62,13 @@ extern unsigned long long simple_strtoull(const char *,char **,unsigned int);
 extern long long simple_strtoll(const char *,char **,unsigned int);
 extern int sprintf(char * buf, const char * fmt, ...);
 extern int vsprintf(char *buf, const char *, va_list);
+extern int snprintf(char * buf, size_t size, const char *fmt, ...);
+extern int vsnprintf(char *buf, size_t size, const char *fmt, va_list args);
+
+extern int sscanf(const char *, const char *, ...)
+	__attribute__ ((format (scanf,2,3)));
+extern int vsscanf(const char *, const char *, va_list);
+
 extern int get_option(char **str, int *pint);
 extern char *get_options(char *str, int nints, int *ints);
 extern unsigned long long memparse(char *ptr, char **retptr);
@@ -84,6 +92,12 @@ static inline void console_verbose(void)
 	if (console_loglevel)
 		console_loglevel = 15;
 }
+
+extern void bust_spinlocks(int yes);
+extern int oops_in_progress;		/* If set, an oops, panic(), BUG() or die() is in progress */
+
+extern int tainted;
+extern const char *print_tainted(void);
 
 #if DEBUG
 #define pr_debug(fmt,arg...) \
@@ -111,6 +125,34 @@ static inline void console_verbose(void)
 	((unsigned char *)&addr)[2], \
 	((unsigned char *)&addr)[1], \
 	((unsigned char *)&addr)[0]
+
+/*
+ * min()/max() macros that also do
+ * strict type-checking.. See the
+ * "unnecessary" pointer comparison.
+ */
+#define min(x,y) ({ \
+	const typeof(x) _x = (x);	\
+	const typeof(y) _y = (y);	\
+	(void) (&_x == &_y);		\
+	_x < _y ? _x : _y; })
+
+#define max(x,y) ({ \
+	const typeof(x) _x = (x);	\
+	const typeof(y) _y = (y);	\
+	(void) (&_x == &_y);		\
+	_x > _y ? _x : _y; })
+
+/*
+ * ..and if you can't take the strict
+ * types, you can specify one yourself.
+ *
+ * Or not use min/max at all, of course.
+ */
+#define min_t(type,x,y) \
+	({ type __x = (x); type __y = (y); __x < __y ? __x: __y; })
+#define max_t(type,x,y) \
+	({ type __x = (x); type __y = (y); __x > __y ? __x: __y; })
 
 #endif /* __KERNEL__ */
 

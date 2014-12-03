@@ -1,5 +1,5 @@
 /*
- * BK Id: SCCS/s.prep_setup.c 1.20 05/21/01 09:19:50 trini
+ * BK Id: SCCS/s.prep_setup.c 1.38 09/15/01 09:13:52 trini
  */
 /*
  *  linux/arch/ppc/kernel/setup.c
@@ -7,6 +7,9 @@
  *  Copyright (C) 1995  Linus Torvalds
  *  Adapted from 'alpha' version by Gary Thomas
  *  Modified by Cort Dougan (cort@cs.nmt.edu)
+ *
+ * Support for PReP (Motorola MTX/MVME)
+ * by Troy Benjegerdes (hozer@drgw.net)
  */
 
 /*
@@ -14,6 +17,7 @@
  */
 
 #include <linux/config.h>
+#include <linux/delay.h>
 #include <linux/module.h>
 #include <linux/errno.h>
 #include <linux/sched.h>
@@ -37,7 +41,7 @@
 #include <linux/pci.h>
 #include <linux/ide.h>
 
-#include <asm/init.h>
+#include <asm/sections.h>
 #include <asm/mmu.h>
 #include <asm/processor.h>
 #include <asm/residual.h>
@@ -77,6 +81,7 @@ extern void prep_nvram_write_val(int addr,
 extern unsigned char rs_nvram_read_val(int addr);
 extern void rs_nvram_write_val(int addr,
 				 unsigned char val);
+extern void ibm_prep_init(void);
 
 extern int pckbd_setkeycode(unsigned int scancode, unsigned int keycode);
 extern int pckbd_getkeycode(unsigned int scancode);
@@ -99,7 +104,6 @@ int _prep_type;
 kdev_t boot_dev;
 /* used in nasty hack for sound - see prep_setup_arch() -- Cort */
 long ppc_cs4232_dma, ppc_cs4232_dma2;
-unsigned long empty_zero_page[1024];
 
 extern PTE *Hash, *Hash_end;
 extern unsigned long Hash_size, Hash_mask;
@@ -148,7 +152,7 @@ prep_get_cpuinfo(char *buffer)
 		}
 		len += sprintf(buffer+len,"%sKb,",
 			       (((*(unsigned char *)0x8000080d)>>2)&1)?"512":"256");
-		len += sprintf(buffer+len,"%sync\n",
+		len += sprintf(buffer+len,"%ssync\n",
 			       ((*(unsigned char *)0x8000080d)>>7) ? "":"a");
 		break;
 	case _PREP_Motorola:
@@ -329,13 +333,20 @@ prep_setup_arch(void)
 
 	/*print_residual_device_info();*/
 
-	raven_init();
+	switch (_prep_type) {
+	case _PREP_Motorola:
+		raven_init();
+		break;
+	case _PREP_IBM:
+		ibm_prep_init();
+		break;
+	}
 
 #ifdef CONFIG_VGA_CONSOLE
 	/* remap the VGA memory */
 	vgacon_remap_base = 0xf0000000;
 	/*vgacon_remap_base = ioremap(0xc0000000, 0xba000);*/
-        conswitchp = &vga_con;
+	conswitchp = &vga_con;
 #elif defined(CONFIG_DUMMY_CONSOLE)
 	conswitchp = &dummy_con;
 #endif
@@ -496,21 +507,20 @@ void __init mk48t59_calibrate_decr(void)
 void __prep
 prep_restart(char *cmd)
 {
-        unsigned long i = 10000;
-
+	unsigned long i = 10000;
 
 	__cli();
 
-        /* set exception prefix high - to the prom */
-        _nmask_and_or_msr(0, MSR_IP);
+	/* set exception prefix high - to the prom */
+	_nmask_and_or_msr(0, MSR_IP);
 
-        /* make sure bit 0 (reset) is a 0 */
-        outb( inb(0x92) & ~1L , 0x92 );
-        /* signal a reset to system control port A - soft reset */
-        outb( inb(0x92) | 1 , 0x92 );
+	/* make sure bit 0 (reset) is a 0 */
+	outb( inb(0x92) & ~1L , 0x92 );
+	/* signal a reset to system control port A - soft reset */
+	outb( inb(0x92) | 1 , 0x92 );
 
-        while ( i != 0 ) i++;
-        panic("restart failed\n");
+	while ( i != 0 ) i++;
+	panic("restart failed\n");
 }
 
 /*
@@ -542,27 +552,92 @@ prep_direct_restart(char *cmd)
 void __prep
 prep_halt(void)
 {
-        unsigned long flags;
+	unsigned long flags;
 	__cli();
 	/* set exception prefix high - to the prom */
 	save_flags( flags );
 	restore_flags( flags|MSR_IP );
-	
+
 	/* make sure bit 0 (reset) is a 0 */
 	outb( inb(0x92) & ~1L , 0x92 );
 	/* signal a reset to system control port A - soft reset */
 	outb( inb(0x92) | 1 , 0x92 );
-                
+
 	while ( 1 ) ;
 	/*
 	 * Not reached
 	 */
 }
 
+/*
+ * On IBM PReP's, power management is handled by a Signetics 87c750 behind the
+ * Utah component on the ISA bus. To access the 750 you must write a series of
+ * nibbles to port 0x82a (decoded by the Utah). This is described somewhat in
+ * the IBM Carolina Technical Specification.
+ * -Hollis
+ */
+static void __prep
+utah_sig87c750_setbit(unsigned int bytenum, unsigned int bitnum, int value)
+{
+	/*
+	 * byte1: 0 0 0 1 0  d  a5 a4
+	 * byte2: 0 0 0 1 a3 a2 a1 a0
+	 *
+	 * d = the bit's value, enabled or disabled
+	 * (a5 a4 a3) = the byte number, minus 20
+	 * (a2 a1 a0) = the bit number
+	 *
+	 * example: set the 5th bit of byte 21 (21.5)
+	 *     a5 a4 a3 = 001 (byte 1)
+	 *     a2 a1 a0 = 101 (bit 5)
+	 *
+	 *     byte1 = 0001 0100 (0x14)
+	 *     byte2 = 0001 1101 (0x1d)
+	 */
+	unsigned char byte1=0x10, byte2=0x10;
+	const unsigned int pm_reg_1=0x82a; /* ISA address */
+
+	/* the 750's '20.0' is accessed as '0.0' through Utah (which adds 20) */
+	bytenum -= 20;
+
+	byte1 |= (!!value) << 2;		/* set d */
+	byte1 |= (bytenum >> 1) & 0x3;	/* set a5, a4 */
+
+	byte2 |= (bytenum & 0x1) << 3;	/* set a3 */
+	byte2 |= bitnum & 0x7;			/* set a2, a1, a0 */
+
+	outb(byte1, pm_reg_1);		/* first nibble */
+	mb();
+	udelay(100);				/* important: let controller recover */
+
+	outb(byte2, pm_reg_1);		/* second nibble */
+	mb();
+	udelay(100);				/* important: let controller recover */
+}
+
 void __prep
 prep_power_off(void)
 {
-	prep_halt();
+	if ( _prep_type == _PREP_IBM) {
+		/* tested on:
+		 * 		Carolina's: 7248-43P, 6070 (PowerSeries 850)
+		 * should work on:
+		 * 		Carolina: 6050 (PowerSeries 830)
+		 * 		7043-140 (Tiger 1)
+		 */
+		unsigned long flags;
+		__cli();
+		/* set exception prefix high - to the prom */
+		save_flags( flags );
+		restore_flags( flags|MSR_IP );
+
+		utah_sig87c750_setbit(21, 5, 1); /* set bit 21.5, "PMEXEC_OFF" */
+
+		while ( 1 ) ;
+		/* not reached */
+	} else {
+		prep_halt();
+	}
 }
 
 int __prep
@@ -598,23 +673,6 @@ prep_irq_cannonicalize(u_int irq)
 	}
 }
 
-#if 0
-void __prep
-prep_do_IRQ(struct pt_regs *regs, int cpu)
-{
-        int irq;
-
-	if ( (irq = i8259_irq(0)) < 0 )
-	{
-		printk(KERN_DEBUG "Bogus interrupt from PC = %lx\n",
-		       regs->nip);
-		ppc_spurious_interrupts++;
-		return;
-	}
-        ppc_irq_dispatch_handler( regs, irq );
-}
-#endif
-
 int __prep
 prep_get_irq(struct pt_regs *regs)
 {
@@ -637,18 +695,6 @@ prep_init_IRQ(void)
 /*
  * IDE stuff.
  */
-void __prep
-prep_ide_insw(ide_ioreg_t port, void *buf, int ns)
-{
-	_insw((unsigned short *)((port)+_IO_BASE), buf, ns);
-}
-
-void __prep
-prep_ide_outsw(ide_ioreg_t port, void *buf, int ns)
-{
-	_outsw((unsigned short *)((port)+_IO_BASE), buf, ns);
-}
-
 int __prep
 prep_ide_default_irq(ide_ioreg_t base)
 {
@@ -657,8 +703,9 @@ prep_ide_default_irq(ide_ioreg_t base)
 		case 0x170: return 13;
 		case 0x1e8: return 11;
 		case 0x168: return 10;
-		default:
-                        return 0;
+		case 0xfff0: return 14;		/* MCP(N)750 ide0 */
+		case 0xffe0: return 15;		/* MCP(N)750 ide1 */
+		default: return 0;
 	}
 }
 
@@ -716,6 +763,45 @@ prep_ide_init_hwif_ports (hw_regs_t *hw, ide_ioreg_t data_port, ide_ioreg_t ctrl
 }
 #endif
 
+#ifdef CONFIG_SMP
+/* PReP (MTX) support */
+static int
+smp_prep_probe(void)
+{
+	extern int mot_multi;
+
+	if (mot_multi) {
+		openpic_request_IPIs();
+		smp_hw_index[1] = 1;
+		return 2;
+	}
+
+	return 1;
+}
+
+static void
+smp_prep_kick_cpu(int nr)
+{
+	*(unsigned long *)KERNELBASE = nr;
+	asm volatile("dcbf 0,%0"::"r"(KERNELBASE):"memory");
+	printk("CPU1 reset, waiting\n");
+}
+
+static void
+smp_prep_setup_cpu(int cpu_nr)
+{
+	if (OpenPIC_Addr)
+		do_openpic_setup_cpu();
+}
+
+static struct smp_ops_t prep_smp_ops = {
+	smp_openpic_message_pass,
+	smp_prep_probe,
+	smp_prep_kick_cpu,
+	smp_prep_setup_cpu,
+};
+#endif /* CONFIG_SMP */
+
 /*
  * This finds the amount of physical ram and does necessary
  * setup for prep.  This is pretty architecture specific so
@@ -724,29 +810,39 @@ prep_ide_init_hwif_ports (hw_regs_t *hw, ide_ioreg_t data_port, ide_ioreg_t ctrl
  */
 unsigned long __init prep_find_end_of_memory(void)
 {
-	unsigned long total;
+	unsigned long total = 0;
+	extern unsigned int boot_mem_size;
+
 #ifdef CONFIG_PREP_RESIDUAL	
 	total = res->TotalMemory;
-#else
-	total = 0;
 #endif	
 
-	if (total == 0 )
-	{
+	if (total == 0 && boot_mem_size != 0)
+		total = boot_mem_size;
+
+	if (total == 0) {
 		/*
 		 * I need a way to probe the amount of memory if the residual
 		 * data doesn't contain it. -- Cort
 		 */
-		printk("Ramsize from residual data was 0 -- Probing for value\n");
 		total = 0x02000000;
-		printk("Ramsize default to be %ldM\n", total>>20);
+		printk(KERN_INFO "Ramsize from residual data was 0"
+		       " -- defaulting to %ldM\n", total>>20);
 	}
 
 	return (total);
 }
 
-unsigned long *MotSave_SmpIar;
-unsigned char *MotSave_CpusState[2];
+/*
+ * Setup the bat mappings we're going to load that cover
+ * the io areas.  RAM was mapped by mapin_ram().
+ * -- Cort
+ */
+void __init prep_map_io(void)
+{
+	io_block_mapping(0x80000000, PREP_ISA_IO_BASE, 0x10000000, _PAGE_IO);
+	io_block_mapping(0xf0000000, PREP_ISA_MEM_BASE, 0x08000000, _PAGE_IO);
+}
 
 void __init
 prep_init2(void)
@@ -774,13 +870,6 @@ prep_init(unsigned long r3, unsigned long r4, unsigned long r5,
 	{
 		memcpy((void *)res,(void *)(r3+KERNELBASE),
 		       sizeof(RESIDUAL));
-
-		/* These need to be saved for the Motorola Prep 
-		 * MVME4600 and Dual MTX boards.
-		 */
-		MotSave_SmpIar = &old_res->VitalProductData.SmpIar;
-		MotSave_CpusState[0] = &old_res->Cpus[0].CpuState;
-		MotSave_CpusState[1] = &old_res->Cpus[1].CpuState;
 	}
 #endif
 
@@ -848,19 +937,16 @@ prep_init(unsigned long r3, unsigned long r4, unsigned long r5,
 	}
 
 	ppc_md.find_end_of_memory = prep_find_end_of_memory;
+	ppc_md.setup_io_mappings = prep_map_io;
 
 #if defined(CONFIG_BLK_DEV_IDE) || defined(CONFIG_BLK_DEV_IDE_MODULE)
-        ppc_ide_md.insw = prep_ide_insw;
-        ppc_ide_md.outsw = prep_ide_outsw;
         ppc_ide_md.default_irq = prep_ide_default_irq;
         ppc_ide_md.default_io_base = prep_ide_default_io_base;
         ppc_ide_md.ide_check_region = prep_ide_check_region;
         ppc_ide_md.ide_request_region = prep_ide_request_region;
         ppc_ide_md.ide_release_region = prep_ide_release_region;
-        ppc_ide_md.fix_driveid = NULL;
         ppc_ide_md.ide_init_hwif = prep_ide_init_hwif_ports;
-#endif		
-        ppc_ide_md.io_base = _IO_BASE;
+#endif
 
 #ifdef CONFIG_VT
 	ppc_md.kbd_setkeycode    = pckbd_setkeycode;
@@ -874,4 +960,8 @@ prep_init(unsigned long r3, unsigned long r4, unsigned long r5,
 	SYSRQ_KEY = 0x54;
 #endif
 #endif
+
+#ifdef CONFIG_SMP
+	ppc_md.smp_ops		 = &prep_smp_ops;
+#endif /* CONFIG_SMP */
 }

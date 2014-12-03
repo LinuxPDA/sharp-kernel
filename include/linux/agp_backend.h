@@ -46,6 +46,7 @@ enum chipset_type {
 	INTEL_GX,
 	INTEL_I810,
 	INTEL_I815,
+	INTEL_I830_M,
 	INTEL_I840,
 	INTEL_I850,
 	VIA_GENERIC,
@@ -58,6 +59,8 @@ enum chipset_type {
 	SIS_GENERIC,
 	AMD_GENERIC,
 	AMD_IRONGATE,
+	AMD_761,
+	AMD_762,
 	ALI_M1541,
 	ALI_M1621,
 	ALI_M1631,
@@ -85,6 +88,8 @@ typedef struct _agp_kern_info {
 	size_t aper_size;
 	int max_memory;		/* In pages */
 	int current_memory;
+	int cant_use_aperture;
+	unsigned long page_mask;
 } agp_kern_info;
 
 /* 

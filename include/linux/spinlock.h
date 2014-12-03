@@ -30,17 +30,23 @@
 #define write_unlock_irqrestore(lock, flags)	do { write_unlock(lock); local_irq_restore(flags); } while (0)
 #define write_unlock_irq(lock)			do { write_unlock(lock); local_irq_enable();       } while (0)
 #define write_unlock_bh(lock)			do { write_unlock(lock); local_bh_enable();        } while (0)
+#define spin_trylock_bh(lock)			({ int __r; local_bh_disable();\
+						__r = spin_trylock(lock);      \
+						if (!__r) local_bh_enable();   \
+						__r; })
 
 #ifdef CONFIG_SMP
 #include <asm/spinlock.h>
 
-#else /* !SMP */
+#elif !defined(spin_lock_init) /* !SMP and spin_lock_init not previously
+                                  defined (e.g. by including asm/spinlock.h */
 
 #define DEBUG_SPINLOCKS	0	/* 0 == no debugging, 1 == maintain lock state, 2 == full debug */
 
 #if (DEBUG_SPINLOCKS < 1)
 
 #define atomic_dec_and_lock(atomic,lock) atomic_dec_and_test(atomic)
+#define ATOMIC_DEC_AND_LOCK
 
 /*
  * Your basic spinlocks, allowing only a single CPU anywhere
@@ -127,7 +133,7 @@ typedef struct {
 #endif /* !SMP */
 
 /* "lock on reference count zero" */
-#ifndef atomic_dec_and_lock
+#ifndef ATOMIC_DEC_AND_LOCK
 #include <asm/atomic.h>
 extern int atomic_dec_and_lock(atomic_t *atomic, spinlock_t *lock);
 #endif

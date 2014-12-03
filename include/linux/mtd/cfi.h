@@ -1,7 +1,7 @@
 
 /* Common Flash Interface structures 
  * See http://support.intel.com/design/flash/technote/index.htm
- * $Id: cfi.h,v 1.21 2001/06/03 01:32:57 nico Exp $
+ * $Id: cfi.h,v 1.25 2001/09/04 07:06:21 dwmw2 Exp $
  */
 
 #ifndef __MTD_CFI_H__
@@ -10,6 +10,7 @@
 #include <linux/config.h>
 #include <linux/delay.h>
 #include <linux/types.h>
+#include <linux/interrupt.h>
 #include <linux/mtd/flashchip.h>
 #include <linux/mtd/cfi_endian.h>
 
@@ -243,7 +244,7 @@ struct cfi_private {
 	struct mtd_info *(*cmdset_setup)(struct map_info *);
 	struct cfi_ident *cfiq; /* For now only one. We insist that all devs
 				  must be of the same type. */
-	__u8 mfr, id;
+	int mfr, id;
 	int numchips;
 	unsigned long chipshift; /* Because they're of the same type */
 	const char *im_name;	 /* inter_module name for cmdset_setup */
@@ -364,15 +365,16 @@ static inline __u8 cfi_read_query(struct map_info *map, __u32 addr)
 	}
 }
 
-#ifndef min
-#define min(x,y) ( (x)<(y)?(x):(y) )
-#endif
-
 static inline void cfi_udelay(int us)
 {
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,2,0)
-	if (current->need_resched)
-		schedule();
+	if (current->need_resched) {
+		unsigned long t = us * HZ / 1000000;
+		if (t < 1)
+			t = 1;
+		set_current_state(TASK_UNINTERRUPTIBLE);
+		schedule_timeout(t);
+	}
 	else
 #endif
 		udelay(us);

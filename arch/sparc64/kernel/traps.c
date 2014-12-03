@@ -1,4 +1,4 @@
-/* $Id: traps.c,v 1.76 2001/04/03 13:46:31 davem Exp $
+/* $Id: traps.c,v 1.79 2001/09/21 02:14:39 kanoj Exp $
  * arch/sparc64/kernel/traps.c
  *
  * Copyright (C) 1995,1997 David S. Miller (davem@caip.rutgers.edu)
@@ -31,6 +31,7 @@
 #include <asm/estate.h>
 #include <asm/chafsr.h>
 #include <asm/psrcompat.h>
+#include <asm/processor.h>
 #ifdef CONFIG_KMOD
 #include <linux/kmod.h>
 #endif
@@ -514,21 +515,6 @@ static void cheetah_flush_ecache_line(unsigned long physaddr)
 			     : "r" (physaddr), "r" (alias),
 			       "i" (ASI_PHYS_USE_EC));
 }
-
-#ifdef CONFIG_SMP
-unsigned long cheetah_tune_scheduling(void)
-{
-	unsigned long tick1, tick2, raw;
-
-	__asm__ __volatile__("rd %%tick, %0" : "=r" (tick1));
-	cheetah_flush_ecache();
-	__asm__ __volatile__("rd %%tick, %0" : "=r" (tick2));
-
-	raw = (tick2 - tick1);
-
-	return (raw - (raw >> 2));
-}
-#endif
 
 /* Unfortunately, the diagnostic access to the I-cache tags we need to
  * use to clear the thing interferes with I-cache coherency transactions.
@@ -1431,7 +1417,7 @@ void show_trace_task(struct task_struct *tsk)
 	do {
 		/* Bogus frame pointer? */
 		if (fp < (task_base + sizeof(struct task_struct)) ||
-		    fp >= (task_base + (2 * PAGE_SIZE)))
+		    fp >= (task_base + THREAD_SIZE))
 			break;
 		rw = (struct reg_window *)fp;
 		pc = rw->ins[7];
@@ -1650,44 +1636,6 @@ void do_tof_tl1(struct pt_regs *regs)
 {
 	die_if_kernel("TL1: Tag Overflow Exception", regs);
 }
-
-#ifdef CONFIG_EC_FLUSH_TRAP
-void cache_flush_trap(struct pt_regs *regs)
-{
-#ifndef CONFIG_SMP
-	unsigned node = linux_cpus[get_cpuid()].prom_node;
-#else
-#error cache_flush_trap not supported on sparc64/SMP yet
-#endif
-
-#if 0
-/* Broken */
-	int size = prom_getintdefault(node, "ecache-size", 512*1024);
-	int i, j;
-	unsigned long addr;
-	struct page *page, *end;
-
-	regs->tpc = regs->tnpc;
-	regs->tnpc = regs->tnpc + 4;
-	if (!capable(CAP_SYS_ADMIN)) return;
-	size >>= PAGE_SHIFT;
-	addr = PAGE_OFFSET - PAGE_SIZE;
-	page = mem_map - 1;
-	end = mem_map + max_mapnr;
-	for (i = 0; i < size; i++) {
-		do {
-			addr += PAGE_SIZE;
-			page++;
-			if (page >= end)
-				return;
-		} while (!PageReserved(page));
-		/* E-Cache line size is 64B. Let us pollute it :)) */
-		for (j = 0; j < PAGE_SIZE; j += 64)
-			__asm__ __volatile__ ("ldx [%0 + %1], %%g1" : : "r" (j), "r" (addr) : "g1");
-	}
-#endif
-}
-#endif
 
 void do_getpsr(struct pt_regs *regs)
 {

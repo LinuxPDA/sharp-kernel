@@ -29,8 +29,8 @@
 #include "nm256.h"
 #include "nm256_coeff.h"
 
-int nm256_debug = 0;
-static int force_load = 0;
+int nm256_debug;
+static int force_load;
 
 /* 
  * The size of the playback reserve.  When the playback buffer has less
@@ -131,8 +131,8 @@ nm256_find_card_for_mixer (int dev)
     return NULL;
 }
 
-static int usecache = 0;
-static int buffertop = 0;
+static int usecache;
+static int buffertop;
 
 /* Check to see if we're using the bank of cached coefficients. */
 int
@@ -1653,6 +1653,8 @@ static struct pci_device_id nm256_pci_tbl[] __devinitdata = {
 	{0,}
 };
 MODULE_DEVICE_TABLE(pci, nm256_pci_tbl);
+MODULE_LICENSE("GPL");
+
 
 struct pci_driver nm256_pci_driver = {
 	name:"nm256_audio",

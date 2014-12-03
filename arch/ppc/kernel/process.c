@@ -1,5 +1,5 @@
 /*
- * BK Id: SCCS/s.process.c 1.19 06/15/01 13:56:56 paulus
+ * BK Id: SCCS/s.process.c 1.31 10/02/01 09:51:41 paulus
  */
 /*
  *  linux/arch/ppc/kernel/process.c
@@ -48,7 +48,6 @@ extern unsigned long _get_SP(void);
 
 struct task_struct *last_task_used_math = NULL;
 struct task_struct *last_task_used_altivec = NULL;
-static struct vm_area_struct init_mmap = INIT_MMAP;
 static struct fs_struct init_fs = INIT_FS;
 static struct files_struct init_files = INIT_FILES;
 static struct signal_struct init_signals = INIT_SIGNALS;
@@ -59,11 +58,9 @@ union task_union __attribute((aligned(16))) init_task_union = {
 };
 /* only used to get secondary processor up */
 struct task_struct *current_set[NR_CPUS] = {&init_task, };
-char *sysmap = NULL; 
-unsigned long sysmap_size = 0;
 
-#undef SHOW_TASK_SWITCHES 1
-#undef CHECK_STACK 1
+#undef SHOW_TASK_SWITCHES
+#undef CHECK_STACK
 
 #if defined(CHECK_STACK)
 unsigned long
@@ -163,7 +160,6 @@ enable_kernel_altivec(void)
 #else
 	giveup_altivec(last_task_used_altivec);
 #endif /* __SMP __ */
-	printk("MSR_VEC in enable_altivec_kernel\n");
 }
 #endif /* CONFIG_ALTIVEC */
 
@@ -203,12 +199,6 @@ _switch_to(struct task_struct *prev, struct task_struct *new,
 	check_stack(new);
 #endif
 
-#ifdef SHOW_TASK_SWITCHES
-	printk("%s/%d -> %s/%d NIP %08lx cpu %d root %x/%x\n",
-	       prev->comm,prev->pid,
-	       new->comm,new->pid,new->thread.regs->nip,new->processor,
-	       new->fs->root,prev->fs->root);
-#endif
 #ifdef CONFIG_SMP
 	/* avoid complexity of lazy save/restore of fpu
 	 * by just saving it every time we switch out if
@@ -236,12 +226,14 @@ _switch_to(struct task_struct *prev, struct task_struct *new,
 	if ((prev->thread.regs && (prev->thread.regs->msr & MSR_VEC)))
 		giveup_altivec(prev);
 #endif /* CONFIG_ALTIVEC */	
-	current_set[smp_processor_id()] = new;
 #endif /* CONFIG_SMP */
+
+	current_set[smp_processor_id()] = new;
+
 	/* Avoid the trap.  On smp this this never happens since
 	 * we don't set last_task_used_altivec -- Cort
 	 */
-	if ( last_task_used_altivec == new )
+	if (new->thread.regs && last_task_used_altivec == new)
 		new->thread.regs->msr |= MSR_VEC;
 	new_thread = &new->thread;
 	old_thread = &current->thread;
@@ -253,8 +245,8 @@ void show_regs(struct pt_regs * regs)
 {
 	int i;
 
-	printk("NIP: %08lX XER: %08lX LR: %08lX SP: %08lX REGS: %p TRAP: %04lx\n",
-	       regs->nip, regs->xer, regs->link, regs->gpr[1], regs,regs->trap);
+	printk("NIP: %08lX XER: %08lX LR: %08lX SP: %08lX REGS: %p TRAP: %04lx    %s\n",
+	       regs->nip, regs->xer, regs->link, regs->gpr[1], regs,regs->trap, print_tainted());
 	printk("MSR: %08lx EE: %01x PR: %01x FP: %01x ME: %01x IR/DR: %01x%01x\n",
 	       regs->msr, regs->msr&MSR_EE ? 1 : 0, regs->msr&MSR_PR ? 1 : 0,
 	       regs->msr & MSR_FP ? 1 : 0,regs->msr&MSR_ME ? 1 : 0,
@@ -329,48 +321,51 @@ release_thread(struct task_struct *t)
 int
 copy_thread(int nr, unsigned long clone_flags, unsigned long usp,
 	    unsigned long unused,
-	    struct task_struct * p, struct pt_regs * regs)
+	    struct task_struct *p, struct pt_regs *regs)
 {
-	unsigned long msr;
-	struct pt_regs * childregs, *kregs;
+	struct pt_regs *childregs, *kregs;
 	extern void ret_from_fork(void);
-	
+	unsigned long sp = (unsigned long)p + sizeof(union task_union);
+	unsigned long childframe;
+
 	/* Copy registers */
-	childregs = ((struct pt_regs *)
-		     ((unsigned long)p + sizeof(union task_union)
-		      - STACK_FRAME_OVERHEAD)) - 2;
+	sp -= sizeof(struct pt_regs);
+	childregs = (struct pt_regs *) sp;
 	*childregs = *regs;
-	if ((childregs->msr & MSR_PR) == 0)
-		childregs->gpr[2] = (unsigned long) p;	/* `current' in new task */
+	if ((childregs->msr & MSR_PR) == 0) {
+		/* for kernel thread, set `current' and stackptr in new task */
+		childregs->gpr[1] = sp + sizeof(struct pt_regs);
+		childregs->gpr[2] = (unsigned long) p;
+	}
 	childregs->gpr[3] = 0;  /* Result from fork() */
 	p->thread.regs = childregs;
-	p->thread.ksp = (unsigned long) childregs - STACK_FRAME_OVERHEAD;
-	p->thread.ksp -= sizeof(struct pt_regs ) + STACK_FRAME_OVERHEAD;
-	kregs = (struct pt_regs *)(p->thread.ksp + STACK_FRAME_OVERHEAD);
+	sp -= STACK_FRAME_OVERHEAD;
+	childframe = sp;
+
+	/*
+	 * The way this works is that at some point in the future
+	 * some task will call _switch to switch to the new task.
+	 * That will pop off the stack frame created below and start
+	 * the new task running at ret_from_fork.  The new task will
+	 * do some house keeping and then return from the fork or clone
+	 * system call, using the stack frame created above.
+	 */
+	sp -= sizeof(struct pt_regs);
+	kregs = (struct pt_regs *) sp;
+	sp -= STACK_FRAME_OVERHEAD;
+	p->thread.ksp = sp;
 	kregs->nip = (unsigned long)ret_from_fork;
-	asm volatile("mfmsr %0" : "=r" (msr):);
-	kregs->msr = msr;
-	kregs->gpr[1] = (unsigned long)childregs - STACK_FRAME_OVERHEAD;
-	kregs->gpr[2] = (unsigned long)p;
-	
-	if (usp >= (unsigned long) regs) {
-		/* Stack is in kernel space - must adjust */
-		childregs->gpr[1] = (unsigned long)(childregs + 1);
-	} else {
-		/* Provided stack is in user space */
-		childregs->gpr[1] = usp;
-	}
-	p->thread.last_syscall = -1;
-	  
+
 	/*
 	 * copy fpu info - assume lazy fpu switch now always
 	 *  -- Cort
 	 */
-	if (regs->msr & MSR_FP)
+	if (regs->msr & MSR_FP) {
 		giveup_fpu(current);
+		childregs->msr &= ~(MSR_FP | MSR_FE0 | MSR_FE1);
+	}
 	memcpy(&p->thread.fpr, &current->thread.fpr, sizeof(p->thread.fpr));
 	p->thread.fpscr = current->thread.fpscr;
-	childregs->msr &= ~MSR_FP;
 
 #ifdef CONFIG_ALTIVEC
 	/*
@@ -379,11 +374,12 @@ copy_thread(int nr, unsigned long clone_flags, unsigned long usp,
 	 */
 	if (regs->msr & MSR_VEC)
 		giveup_altivec(current);
-
 	memcpy(&p->thread.vr, &current->thread.vr, sizeof(p->thread.vr));
 	p->thread.vscr = current->thread.vscr;
 	childregs->msr &= ~MSR_VEC;
 #endif /* CONFIG_ALTIVEC */
+
+	p->thread.last_syscall = -1;
 
 	return 0;
 }
@@ -394,6 +390,8 @@ copy_thread(int nr, unsigned long clone_flags, unsigned long usp,
 void start_thread(struct pt_regs *regs, unsigned long nip, unsigned long sp)
 {
 	set_fs(USER_DS);
+	memset(regs->gpr, 0, sizeof(regs->gpr));
+	memset(&regs->ctr, 0, 5 * sizeof(regs->ctr));
 	regs->nip = nip;
 	regs->gpr[1] = sp;
 	regs->msr = MSR_USER;
@@ -407,38 +405,13 @@ void start_thread(struct pt_regs *regs, unsigned long nip, unsigned long sp)
 int sys_clone(int p1, int p2, int p3, int p4, int p5, int p6,
 	      struct pt_regs *regs)
 {
-	unsigned long clone_flags = p1;
-	int res;
-	lock_kernel();
-	res = do_fork(clone_flags, regs->gpr[1], regs, 0);
-#ifdef CONFIG_SMP
-	/* When we clone the idle task we keep the same pid but
-	 * the return value of 0 for both causes problems.
-	 * -- Cort
-	 */
-	if ((current->pid == 0) && (current == &init_task))
-		res = 1;
-#endif /* CONFIG_SMP */
-	unlock_kernel();
-	return res;
+	return do_fork(p1, regs->gpr[1], regs, 0);
 }
 
 int sys_fork(int p1, int p2, int p3, int p4, int p5, int p6,
 	     struct pt_regs *regs)
 {
-
-	int res;
-	
-	res = do_fork(SIGCHLD, regs->gpr[1], regs, 0);
-#ifdef CONFIG_SMP
-	/* When we clone the idle task we keep the same pid but
-	 * the return value of 0 for both causes problems.
-	 * -- Cort
-	 */
-	if ((current->pid == 0) && (current == &init_task))
-		res = 1;
-#endif /* CONFIG_SMP */
-	return res;
+	return do_fork(SIGCHLD, regs->gpr[1], regs, 0);
 }
 
 int sys_vfork(int p1, int p2, int p3, int p4, int p5, int p6,

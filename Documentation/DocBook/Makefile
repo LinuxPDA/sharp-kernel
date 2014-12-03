@@ -1,7 +1,7 @@
 BOOKS	:= wanbook.sgml z8530book.sgml mcabook.sgml videobook.sgml \
 	   kernel-api.sgml parportbook.sgml kernel-hacking.sgml \
 	   kernel-locking.sgml via-audio.sgml mousedrivers.sgml sis900.sgml \
-	   deviceiobook.sgml procfs-guide.sgml
+	   deviceiobook.sgml procfs-guide.sgml tulip-user.sgml
 
 PS	:=	$(patsubst %.sgml, %.ps, $(BOOKS))
 PDF	:=	$(patsubst %.sgml, %.pdf, $(BOOKS))
@@ -24,10 +24,10 @@ pdf:	$(PDF)
 html:	$(HTML)
 
 %.eps: %.fig
-	-fig2dev -Leps $< $@
+	fig2dev -Leps $< $@
 
 %.jpeg: %.fig
-	-fig2dev -Ljpeg $< $@
+	fig2dev -Ljpeg $< $@
 
 %.sgml: %.c
 	echo "<programlisting>" > $@
@@ -62,6 +62,9 @@ via-audio.sgml: via-audio.tmpl $(TOPDIR)/drivers/sound/via82cxxx_audio.c
 	$(TOPDIR)/scripts/docgen $(TOPDIR)/drivers/sound/via82cxxx_audio.c \
 		<via-audio.tmpl >via-audio.sgml
 
+tulip-user.sgml: tulip-user.tmpl
+	$(TOPDIR)/scripts/docgen <$< >$@
+
 sis900.sgml: sis900.tmpl $(TOPDIR)/drivers/net/sis900.c
 	$(TOPDIR)/scripts/docgen $(TOPDIR)/drivers/net/sis900.c \
 		<sis900.tmpl >sis900.sgml
@@ -85,6 +88,7 @@ APISOURCES :=	$(TOPDIR)/drivers/media/video/videodev.c \
 		$(TOPDIR)/arch/i386/kernel/mca.c \
 		$(TOPDIR)/arch/i386/kernel/mtrr.c \
 		$(TOPDIR)/drivers/char/misc.c \
+		$(TOPDIR)/kernel/printk.c \
 		$(TOPDIR)/drivers/net/net_init.c \
 		$(TOPDIR)/drivers/net/8390.c \
 		$(TOPDIR)/drivers/char/serial.c \
@@ -126,7 +130,7 @@ kernel-api-man: $(APISOURCES)
 		$(PERL) $(TOPDIR)/scripts/split-man $(TOPDIR)/Documentation/man
 
 parportbook: $(JPG-parportbook)
-parportbook.ps: $(EPS-parportbook)
+parportbook.ps parportbook.pdf: $(EPS-parportbook)
 parportbook.sgml: parportbook.tmpl $(TOPDIR)/drivers/parport/init.c
 	$(TOPDIR)/scripts/docgen $(TOPDIR)/drivers/parport/init.c <$< >$@
 
@@ -137,17 +141,18 @@ LOG	:=	$(patsubst %.sgml, %.log, $(BOOKS))
 OUT	:=	$(patsubst %.sgml, %.out, $(BOOKS))
 
 clean:
-	-$(RM) core *~
-	-$(RM) $(BOOKS)
-	-$(RM) $(DVI) $(AUX) $(TEX) $(LOG) $(OUT)
-	-$(RM) $(JPG-parportbook) $(EPS-parportbook)
-	-$(RM) $(C-procfs-example)
+	rm -f core *~
+	rm -f $(BOOKS)
+	rm -f $(DVI) $(AUX) $(TEX) $(LOG) $(OUT)
+	rm -f $(JPG-parportbook) $(EPS-parportbook)
+	rm -f $(C-procfs-example)
 
 mrproper: clean
-	-$(RM) $(PS) $(PDF)
-	-$(RM) -r $(HTML)
-	-$(RM) .depend
-	-$(RM) $(TOPDIR)/scripts/mkdep-docbook
+	rm -f $(PS) $(PDF)
+	rm -f -r $(HTML)
+	rm -f .depend
+	rm -f $(TOPDIR)/scripts/mkdep-docbook
+	rm -rf DBTOHTML_OUTPUT*
 
 %.ps : %.sgml
 	@(which db2ps > /dev/null 2>&1) || \
@@ -165,7 +170,7 @@ mrproper: clean
 	@(which db2html > /dev/null 2>&1) || \
 	 (echo "*** You need to install DocBook stylesheets ***"; \
 	  exit 1)
-	-$(RM) -r $@
+	rm -rf $@
 	db2html $<
 	if [ ! -z "$(JPG-$@)" ]; then cp $(JPG-$@) $@; fi
 

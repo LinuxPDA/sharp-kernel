@@ -8,7 +8,6 @@
  *
  */
 
-#define EXPORT_SYMTAB
 #undef  SISFBDEBUG
 
 #include <linux/config.h>
@@ -594,7 +593,7 @@ static void sisfb_set_disp(int con, struct fb_var_screeninfo *var)
 	struct fb_fix_screeninfo fix;
 	struct display *display;
 	struct display_switch *sw;
-	u32 flags;
+	long flags;
 
 	if (con >= 0)
 		display = &fb_display[con];
@@ -1696,7 +1695,7 @@ static int sisfb_mmap(struct fb_info *info, struct file *file,
 	off += start;
 	vma->vm_pgoff = off >> PAGE_SHIFT;
 
-#if defined(__i386__)
+#if defined(__i386__) || defined(__x86_64__)
 	if (boot_cpu_data.x86 > 3)
 		pgprot_val(vma->vm_page_prot) |= _PAGE_PCD;
 #endif
@@ -1727,8 +1726,7 @@ int sisfb_setup(char *options)
 	if (!options || !*options)
 		return 0;
 
-	for (this_opt = strtok(options, ","); this_opt;
-	     this_opt = strtok(NULL, ",")) {
+	while (this_opt = strsep(&options, ",")) {
 		if (!*this_opt)
 			continue;
 

@@ -49,18 +49,9 @@ void set_rtc_time(struct rtc_time *t)
 {
 	unsigned long nowtime;
 
-	printk(KERN_INFO "rtc.c:set_rtc_time: %04d-%02d-%02d %02d:%02d:%02d.\n", t->tm_year+1900, t->tm_mon+1, t->tm_mday, t->tm_hour, t->tm_min, t->tm_sec);
-
 	nowtime = mktime(t->tm_year+1900, t->tm_mon+1, t->tm_mday, t->tm_hour, t->tm_min, t->tm_sec);
 
-	printk(KERN_INFO "rtc.c:set_rtc_time: set rtc time to %ld seconds.\n", nowtime);
-
 	(ppc_md.set_rtc_time)(nowtime);
-}
-
-static loff_t rtc_lseek(struct file *file, loff_t offset, int origin)
-{
-	return -ESPIPE;
 }
 
 static int rtc_ioctl(struct inode *inode, struct file *file, unsigned int cmd,
@@ -125,7 +116,7 @@ static int rtc_release(struct inode *inode, struct file *file)
 
 static struct file_operations rtc_fops = {
 	owner:		THIS_MODULE,
-	llseek:		rtc_lseek,
+	llseek:		no_llseek,
 	ioctl:		rtc_ioctl,
 	open:		rtc_open,
 	release:	rtc_release
@@ -155,3 +146,4 @@ static void __exit rtc_exit(void)
 
 module_init(rtc_init);
 module_exit(rtc_exit);
+MODULE_LICENSE("GPL");

@@ -10,7 +10,7 @@
  * the Free Software Foundation; either version 2 of the License, or
  * (at your option) any later version.
  *
- * $Id: jffs_fm.c,v 1.18 2000/08/21 10:41:45 dwmw2 Exp $
+ * $Id: jffs_fm.c,v 1.27 2001/09/20 12:29:47 dwmw2 Exp $
  *
  * Ported to Linux 2.3.x and MTD:
  * Copyright (C) 2000  Alexander Larsson (alex@cendio.se), Cendio Systems AB
@@ -26,6 +26,8 @@
 static int jffs_mark_obsolete(struct jffs_fmcontrol *fmc, __u32 fm_offset);
 #endif
 
+extern kmem_cache_t     *fm_cache;
+extern kmem_cache_t     *node_cache;
 
 /* This function creates a new shiny flash memory control structure.  */
 struct jffs_fmcontrol *
@@ -46,13 +48,14 @@ jffs_build_begin(struct jffs_control *c, kdev_t dev)
 
 	mtd = get_mtd_device(NULL, MINOR(dev));
 
-	if (!mtd)
+	if (!mtd) {
+		kfree(fmc);
+		DJM(no_jffs_fmcontrol--);
 		return NULL;
+	}
 	
 	/* Retrieve the size of the flash memory.  */
-	fmc->flash_start = 0;
 	fmc->flash_size = mtd->size;
-	D3(printk("  fmc->flash_start = 0x%08x\n", fmc->flash_start));
 	D3(printk("  fmc->flash_size = %d bytes\n", fmc->flash_size));
 
 	fmc->used_size = 0;
@@ -68,8 +71,11 @@ jffs_build_begin(struct jffs_control *c, kdev_t dev)
 		   to write out larger nodes than the ones it's obsoleting.
 		   We should fix it so it doesn't have to write the name
 		   _every_ time. Later.
+	   + another 2 sectors because people keep getting GC stuck and
+	           we don't know why. This scares me - I want formal proof
+		   of correctness of whatever number we put here. dwmw2.
 	*/
-	fmc->min_free_size = fmc->sector_size << 1;
+	fmc->min_free_size = fmc->sector_size << 2;
 	fmc->mtd = mtd;
 	fmc->c = c;
 	fmc->head = 0;
@@ -114,8 +120,7 @@ jffs_cleanup_fmcontrol(struct jffs_fmcontrol *fmc)
 
 		while ((cur = next)) {
 			next = next->next;
-			kfree(cur);
-			DJM(no_jffs_fm--);
+			jffs_free_fm(cur);
 		}
 		put_mtd_device(fmc->mtd);
 		kfree(fmc);
@@ -132,7 +137,7 @@ jffs_free_size1(struct jffs_fmcontrol *fmc)
 {
 	__u32 head;
 	__u32 tail;
-	__u32 end = fmc->flash_start + fmc->flash_size;
+	__u32 end = fmc->flash_size;
 
 	if (!fmc->head) {
 		/* There is nothing on the flash.  */
@@ -143,11 +148,11 @@ jffs_free_size1(struct jffs_fmcontrol *fmc)
 	head = fmc->head->offset;
 	tail = fmc->tail->offset + fmc->tail->size;
 	if (tail == end) {
-		tail = fmc->flash_start;
+		tail = 0;
 	}
 	ASSERT(else if (tail > end) {
 		printk(KERN_WARNING "jffs_free_size1(): tail > end\n");
-		tail = fmc->flash_start;
+		tail = 0;
 	});
 
 	if (head <= tail) {
@@ -175,12 +180,12 @@ jffs_free_size2(struct jffs_fmcontrol *fmc)
 	if (fmc->head) {
 		__u32 head = fmc->head->offset;
 		__u32 tail = fmc->tail->offset + fmc->tail->size;
-		if (tail == fmc->flash_start + fmc->flash_size) {
-			tail = fmc->flash_start;
+		if (tail == fmc->flash_size) {
+			tail = 0;
 		}
 
 		if (tail >= head) {
-			return head - fmc->flash_start;
+			return head;
 		}
 	}
 	return 0;
@@ -203,12 +208,10 @@ jffs_fmalloc(struct jffs_fmcontrol *fmc, __u32 size, struct jffs_node *node,
 
 	*result = 0;
 
-	if (!(fm = (struct jffs_fm*)kmalloc(sizeof(struct jffs_fm),
-					    GFP_KERNEL))) {
+	if (!(fm = jffs_alloc_fm())) {
 		D(printk("jffs_fmalloc(): kmalloc() failed! (fm)\n"));
 		return -ENOMEM;
 	}
-	DJM(no_jffs_fm++);
 
 	free_chunk_size1 = jffs_free_size1(fmc);
 	free_chunk_size2 = jffs_free_size2(fmc);
@@ -227,8 +230,7 @@ jffs_fmalloc(struct jffs_fmcontrol *fmc, __u32 size, struct jffs_node *node,
 					  GFP_KERNEL))) {
 			D(printk("jffs_fmalloc(): kmalloc() failed! "
 				 "(node_ref)\n"));
-			kfree(fm);
-			DJM(no_jffs_fm--);
+			jffs_free_fm(fm);
 			return -ENOMEM;
 		}
 		DJM(no_jffs_node_ref++);
@@ -236,22 +238,19 @@ jffs_fmalloc(struct jffs_fmcontrol *fmc, __u32 size, struct jffs_node *node,
 		fm->nodes->next = 0;
 		if (fmc->tail) {
 			fm->offset = fmc->tail->offset + fmc->tail->size;
-			if (fm->offset
-			    == fmc->flash_start + fmc->flash_size) {
-				fm->offset = fmc->flash_start;
+			if (fm->offset == fmc->flash_size) {
+				fm->offset = 0;
 			}
-			ASSERT(else if (fm->offset
-					> fmc->flash_start
-					  + fmc->flash_size) {
+			ASSERT(else if (fm->offset > fmc->flash_size) {
 				printk(KERN_WARNING "jffs_fmalloc(): "
 				       "offset > flash_end\n");
-				fm->offset = fmc->flash_start;
+				fm->offset = 0;
 			});
 		}
 		else {
 			/* There don't have to be files in the file
 			   system yet.  */
-			fm->offset = fmc->flash_start;
+			fm->offset = 0;
 		}
 		fm->size = size;
 		fmc->free_size -= size;
@@ -260,8 +259,7 @@ jffs_fmalloc(struct jffs_fmcontrol *fmc, __u32 size, struct jffs_node *node,
 	else if (size > free_chunk_size2) {
 		printk(KERN_WARNING "JFFS: Tried to allocate a too "
 		       "large flash memory chunk. (size = %u)\n", size);
-		kfree(fm);
-		DJM(no_jffs_fm--);
+		jffs_free_fm(fm);
 		return -ENOSPC;
 	}
 	else {
@@ -347,7 +345,6 @@ jffs_fmfree(struct jffs_fmcontrol *fmc, struct jffs_fm *fm, struct jffs_node *no
 			return -1;
 		}
 #endif
-		fmc->c->sb->s_dirt = 1;
 	}
 
 	ASSERT(if (!del) {
@@ -369,13 +366,11 @@ jffs_fmalloced(struct jffs_fmcontrol *fmc, __u32 offset, __u32 size,
 
 	D3(printk("jffs_fmalloced()\n"));
 
-	if (!(fm = (struct jffs_fm *)kmalloc(sizeof(struct jffs_fm),
-					     GFP_KERNEL))) {
+	if (!(fm = jffs_alloc_fm())) {
 		D(printk("jffs_fmalloced(0x%p, %u, %u, 0x%p): failed!\n",
 			 fmc, offset, size, node));
 		return 0;
 	}
-	DJM(no_jffs_fm++);
 	fm->offset = offset;
 	fm->size = size;
 	fm->prev = 0;
@@ -388,8 +383,7 @@ jffs_fmalloced(struct jffs_fmcontrol *fmc, __u32 offset, __u32 size,
 				  kmalloc(sizeof(struct jffs_node_ref),
 					  GFP_KERNEL))) {
 			D(printk("jffs_fmalloced(): !fm->nodes\n"));
-			kfree(fm);
-			DJM(no_jffs_fm--);
+			jffs_free_fm(fm);
 			return 0;
 		}
 		DJM(no_jffs_node_ref++);
@@ -466,6 +460,7 @@ jffs_fmfree_partly(struct jffs_fmcontrol *fmc, struct jffs_fm *fm, __u32 size)
 	fmc->used_size -= fm->size;
 	if (fm == fmc->tail) {
 		fm->size -= size;
+		fmc->free_size += size;
 	}
 	fmc->dirty_size += fm->size;
 }
@@ -532,8 +527,7 @@ jffs_sync_erase(struct jffs_fmcontrol *fmc, int erased_size)
 			fm = fm->next;
 			fm->prev = 0;
 			fmc->head = fm;
-			kfree(del);
-			DJM(no_jffs_fm--);
+			jffs_free_fm(del);
 		}
 		else {
 			fm->size -= erased_size;
@@ -628,11 +622,11 @@ jffs_flash_erasable_size(struct mtd_info *mtd, __u32 offset, __u32 size)
 		return -1;
 	}
 	else if (offset > mtd->size) {
-		printk(KERN_WARNING "jffs_flash_erasable_size given offset off the end of device (%x > %lx)\n", offset, mtd->size);
+		printk(KERN_WARNING "jffs_flash_erasable_size given offset off the end of device (%x > %x)\n", offset, mtd->size);
 		return -2;
 	}
 	else if (offset + size > mtd->size) {
-		printk(KERN_WARNING "jffs_flash_erasable_size() given length which runs off the end of device (ofs %x + len %x = %x, > %lx)\n", offset,size, offset+size, mtd->size);
+		printk(KERN_WARNING "jffs_flash_erasable_size() given length which runs off the end of device (ofs %x + len %x = %x, > %x)\n", offset,size, offset+size, mtd->size);
 		return -3;
 	}
 
@@ -661,7 +655,7 @@ jffs_erasable_size(struct jffs_fmcontrol *fmc)
 
 	/* Calculate how much space that is dirty.  */
 	for (fm = fmc->head; fm && !fm->nodes; fm = fm->next) {
-		if (size && fm->offset == fmc->flash_start) {
+		if (size && fm->offset == 0) {
 			/* We have reached the beginning of the flash.  */
 			break;
 		}
@@ -671,14 +665,13 @@ jffs_erasable_size(struct jffs_fmcontrol *fmc)
 	/* Someone's signature contained this:
 	   There's a fine line between fishing and just standing on
 	   the shore like an idiot...  */
-	ret = jffs_flash_erasable_size(fmc->mtd,
-				       fmc->head->offset - fmc->flash_start, size);
+	ret = jffs_flash_erasable_size(fmc->mtd, fmc->head->offset, size);
 
 	ASSERT(if (ret < 0) {
 		printk("jffs_erasable_size: flash_erasable_size() "
 		       "returned something less than zero (%ld).\n", ret);
 		printk("jffs_erasable_size: offset = 0x%08x\n",
-		       fmc->head->offset - fmc->flash_start);
+		       fmc->head->offset);
 	});
 
 	/* If there is dirt on the flash (which is the reason to why
@@ -702,21 +695,58 @@ jffs_erasable_size(struct jffs_fmcontrol *fmc)
 			if (del->next) {
 				del->next->prev = head;
 			}
-			kfree(del);
-			DJM(no_jffs_fm--);
+			jffs_free_fm(del);
 		}
 	}
 
 	return (ret >= 0 ? ret : 0);
 }
 
+struct jffs_fm *jffs_alloc_fm(void)
+{
+	struct jffs_fm *fm;
+
+	fm = kmem_cache_alloc(fm_cache,GFP_KERNEL);
+	DJM(if (fm) no_jffs_fm++;);
+	
+	return fm;
+}
+
+void jffs_free_fm(struct jffs_fm *n)
+{
+	kmem_cache_free(fm_cache,n);
+	DJM(no_jffs_fm--);
+}
+
+
+
+struct jffs_node *jffs_alloc_node(void)
+{
+	struct jffs_node *n;
+
+	n = (struct jffs_node *)kmem_cache_alloc(node_cache,GFP_KERNEL);
+	if(n != NULL)
+		no_jffs_node++;
+	return n;
+}
+
+void jffs_free_node(struct jffs_node *n)
+{
+	kmem_cache_free(node_cache,n);
+	no_jffs_node--;
+}
+
+
+int jffs_get_node_inuse(void)
+{
+	return no_jffs_node;
+}
 
 void
 jffs_print_fmcontrol(struct jffs_fmcontrol *fmc)
 {
 	D(printk("struct jffs_fmcontrol: 0x%p\n", fmc));
 	D(printk("{\n"));
-	D(printk("        0x%08x, /* flash_start  */\n", fmc->flash_start));
 	D(printk("        %u, /* flash_size  */\n", fmc->flash_size));
 	D(printk("        %u, /* used_size  */\n", fmc->used_size));
 	D(printk("        %u, /* dirty_size  */\n", fmc->dirty_size));

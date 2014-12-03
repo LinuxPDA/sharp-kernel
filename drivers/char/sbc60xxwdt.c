@@ -178,7 +178,7 @@ static ssize_t fop_write(struct file * file, const char * buf, size_t count, lof
 			char c;
 			if(get_user(c, buf+ofs))
 				return -EFAULT;
-			if(buf[ofs] == 'V')
+			if(c == 'V')
 				wdt_expect_close = 1;
 		}
 		/* Well, anyhow someone wrote to us, we should return that favour */
@@ -229,11 +229,6 @@ static int fop_close(struct inode * inode, struct file * file)
 	return 0;
 }
 
-static long long fop_llseek(struct file *file, long long offset, int origin)
-{
-	return -ESPIPE;
-}
-
 static int fop_ioctl(struct inode *inode, struct file *file, unsigned int cmd,
 	unsigned long arg)
 {
@@ -258,7 +253,7 @@ static int fop_ioctl(struct inode *inode, struct file *file, unsigned int cmd,
 
 static struct file_operations wdt_fops = {
 	owner:		THIS_MODULE,
-	llseek:		fop_llseek,
+	llseek:		no_llseek,
 	read:		fop_read,
 	write:		fop_write,
 	open:		fop_open,
@@ -345,3 +340,6 @@ err_out:
 
 module_init(sbc60xxwdt_init);
 module_exit(sbc60xxwdt_unload);
+
+MODULE_LICENSE("GPL");
+EXPORT_NO_SYMBOLS;

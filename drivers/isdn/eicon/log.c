@@ -1,29 +1,13 @@
-   
 /*
+ * Source file for diva log facility
  *
  * Copyright (C) Eicon Technology Corporation, 2000.
  *
  * Eicon File Revision :    1.5  
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2, or (at your option)
- * any later version.
+ * This software may be used and distributed according to the terms
+ * of the GNU General Public License, incorporated herein by reference.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY OF ANY KIND WHATSOEVER INCLUDING ANY 
- * implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  
- * See the GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
- *
- */
-
-
-/*
- * Source file for diva log facility
  */
 
 #include "sys.h"
@@ -96,7 +80,7 @@ void	DivasLogFifoWrite(char *entry, int length)
 	}
 
 	m_count++;
-	bzero(new_klog,sizeof(KNODE));
+	memset(new_klog, 0, sizeof(KNODE));
 
 	/* Set head & tail to point to the new Msg Struct */
 	head=tail=new_klog;
@@ -112,7 +96,7 @@ void	DivasLogFifoWrite(char *entry, int length)
 	}
 
 	m_count++;
-	bzero(new_klog,sizeof(KNODE));
+	memset(new_klog, 0, sizeof(KNODE));
 
 	/* Let last Msg Struct point to new Msg Struct & inc tail */
 	tail->next=new_klog;
@@ -125,7 +109,7 @@ void	DivasLogFifoWrite(char *entry, int length)
         length = sizeof(klog_t);
     }
 
-    bcopy(entry,&tail->klog,length);
+    memcpy(&tail->klog, entry, length);
 
     return;
 }
@@ -155,7 +139,7 @@ void	DivasLogIdi(card_t *card, ENTITY *e, int request)
 {
 	klog_t		klog;
 
-	bzero(&klog, sizeof(klog));
+	memset(&klog, 0, sizeof(klog));
 
 	klog.time_stamp = UxTimeGet();
 
@@ -166,7 +150,7 @@ void	DivasLogIdi(card_t *card, ENTITY *e, int request)
 
 	klog.type = request ? KLOG_IDI_REQ : KLOG_IDI_CALLBACK;
 	klog.code = 0;
-	bcopy(e, klog.buffer, klog.length);
+	memcpy(klog.buffer, e, klog.length);
 
     /* send to the log driver and return */
 

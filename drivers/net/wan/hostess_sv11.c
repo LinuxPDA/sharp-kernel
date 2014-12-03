@@ -1,5 +1,3 @@
-#define LINUX_21
-
 /*
  *	Comtrol SV11 card driver
  *
@@ -186,7 +184,6 @@ static int hostess_queue_xmit(struct sk_buff *skb, struct net_device *d)
 	return z8530_queue_xmit(&sv11->sync.chanA, skb);
 }
 
-#ifdef LINUX_21
 static int hostess_neigh_setup(struct neighbour *n)
 {
 	if (n->nud_state == NUD_NONE) {
@@ -205,15 +202,6 @@ static int hostess_neigh_setup_dev(struct net_device *dev, struct neigh_parms *p
 	}
 	return 0;
 }
-
-#else
-
-static int return_0(struct net_device *d)
-{
-	return 0;
-}
-
-#endif
 
 /*
  *	Description block for a Comtrol Hostess SV11 card
@@ -345,11 +333,7 @@ static struct sv11_device *sv11_init(int iobase, int irq)
 		d->get_stats = hostess_get_stats;
 		d->set_multicast_list = NULL;
 		d->do_ioctl = hostess_ioctl;
-#ifdef LINUX_21			
 		d->neigh_setup = hostess_neigh_setup_dev;
-#else
-		d->init = return_0;
-#endif
 		d->set_mac_address = NULL;
 		
 		if(register_netdev(d)==-1)
@@ -400,7 +384,6 @@ static void sv11_shutdown(struct sv11_device *dev)
 static int io=0x200;
 static int irq=9;
 
-#ifdef LINUX_21
 MODULE_PARM(io,"i");
 MODULE_PARM_DESC(io, "The I/O base of the Comtrol Hostess SV11 card");
 MODULE_PARM(dma,"i");
@@ -408,16 +391,16 @@ MODULE_PARM_DESC(dma, "Set this to 1 to use DMA1/DMA3 for TX/RX");
 MODULE_PARM(irq,"i");
 MODULE_PARM_DESC(irq, "The interrupt line setting for the Comtrol Hostess SV11 card");
 
-MODULE_AUTHOR("Bulding Number Three Ltd");
+MODULE_AUTHOR("Alan Cox");
+MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("Modular driver for the Comtrol Hostess SV11");
-#endif
 
 static struct sv11_device *sv11_unit;
 
 int init_module(void)
 {
 	printk(KERN_INFO "SV-11 Z85230 Synchronous Driver v 0.02.\n");
-	printk(KERN_INFO "(c) Copyright 1998, Building Number Three Ltd.\n");	
+	printk(KERN_INFO "(c) Copyright 2001, Red Hat Inc.\n");	
 	if((sv11_unit=sv11_init(io,irq))==NULL)
 		return -ENODEV;
 	return 0;

@@ -170,7 +170,7 @@ struct sgi_int2_regs {
 #endif
 #define INT2_TCLEAR_T0CLR      0x1        /* Clear timer0 IRQ */
 #define INT2_TCLEAR_T1CLR      0x2        /* Clear timer1 IRQ */
-/* I am guesing there are only two unused registers here 
+/* I am guessing there are only two unused registers here 
  * but I could be wrong...			- andrewb
  */
 /*	u32 _unused[3]; */
@@ -199,7 +199,6 @@ extern struct sgi_ioc_ints *ioc_icontrol;
 extern struct sgi_ioc_timers *ioc_timers;
 extern volatile unsigned char *ioc_tclear;
 
-extern void sgint_init(void);
 extern void indy_timer_init(void);
 
 #endif /* _ASM_SGI_SGINT23_H */

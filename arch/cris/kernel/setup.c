@@ -1,4 +1,4 @@
-/* $Id: setup.c,v 1.14 2001/04/03 12:54:12 starvik Exp $
+/* $Id: setup.c,v 1.21 2001/10/01 14:45:35 bjornw Exp $
  *
  *  linux/arch/cris/kernel/setup.c
  *
@@ -162,11 +162,21 @@ setup_arch(char **cmdline_p)
 
 	paging_init();
 
-	/* we dont use a command line yet, so just let it be an empty string 
-	   to start with */
-        
+	/* We dont use a command line yet, so just re-initialize it without
+	   saving anything that might be there.  */
+
 	*cmdline_p = command_line;
-	strcpy(command_line, "root=/dev/rom"); /* use the appended romdisk as root */
+
+	if (romfs_in_flash) {
+		strncpy(command_line, "root=", COMMAND_LINE_SIZE);
+		strncpy(command_line+5, CONFIG_ETRAX_ROOT_DEVICE,
+			COMMAND_LINE_SIZE-5);
+
+		/* Save command line copy for /proc/cmdline */
+
+		memcpy(saved_command_line, command_line, COMMAND_LINE_SIZE);
+		saved_command_line[COMMAND_LINE_SIZE-1] = '\0';
+	}
 
 	/* give credit for the CRIS port */
 
@@ -190,14 +200,10 @@ static struct cpu_info {
 	unsigned short cache;
 	unsigned short flags;
 } cpu_info[] = {
+	/* The first four models will never ever run this code and are
+	   only here for display.  */
 	{ "ETRAX 1",   0, 0 },
-	{ "ETRAX 2",   0, 0 },	/* Don't say it HAS_TOKENRING - there are
-				   lethal bugs in that chip that
-				   prevents T-R from ever working.
-				   Never go there, and never lead anyone
-				   into believing it can work.  BTW:
-				   Anyone working on a T-R network
-				   driver? :-) :-) :-) :-/ */
+	{ "ETRAX 2",   0, 0 },
 	{ "ETRAX 3",   0, HAS_TOKENRING },
 	{ "ETRAX 4",   0, HAS_TOKENRING | HAS_SCSI },
 	{ "Unknown",   0, 0 },
@@ -217,15 +223,10 @@ static struct cpu_info {
 int get_cpuinfo(char *buffer)
 {
 	int revision;
-#ifndef CONFIG_SVINTO_SIM
-	unsigned char tmp;
 
-	__asm__ volatile ("move vr,%0" : "=rm" (tmp));
-	revision = tmp;
-#else
-        /* Fake a revision for the simulator */
-	revision = 7;
-#endif
+	/* read the version register in the CPU and print some stuff */
+
+	revision = rdvr();
 
 	return sprintf(buffer,
 		       "cpu\t\t: CRIS\n"
@@ -253,7 +254,7 @@ int get_cpuinfo(char *buffer)
 		       cpu_info[revision].flags & HAS_SCSI ? "yes" : "no",
 		       cpu_info[revision].flags & HAS_ATA ? "yes" : "no",
 		       cpu_info[revision].flags & HAS_USB ? "yes" : "no",
-		       (loops_per_jiffy * HZ + 500) / 100000,
-		       ((loops_per_jiffy * HZ + 500) / 1000) % 100);
+		       (loops_per_jiffy * HZ + 500) / 500000,
+		       ((loops_per_jiffy * HZ + 500) / 5000) % 100);
 }
 #endif /* CONFIG_PROC_FS */

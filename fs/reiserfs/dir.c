@@ -2,8 +2,6 @@
  * Copyright 2000 by Hans Reiser, licensing governed by reiserfs/README
  */
 
-#ifdef __KERNEL__
-
 #include <linux/config.h>
 #include <linux/string.h>
 #include <linux/errno.h>
@@ -12,12 +10,6 @@
 #include <linux/stat.h>
 #include <linux/smp_lock.h>
 #include <asm/uaccess.h>
-
-#else
-
-#include "nokernel.h"
-
-#endif
 
 extern struct key  MIN_KEY;
 
@@ -47,22 +39,10 @@ struct inode_operations reiserfs_dir_inode_operations = {
 };
 
 int reiserfs_dir_fsync(struct file *filp, struct dentry *dentry, int datasync) {
-  int ret = 0 ;
-  int windex ;
-  struct reiserfs_transaction_handle th ;
-
   lock_kernel();
-
-  journal_begin(&th, dentry->d_inode->i_sb, 1) ;
-  windex = push_journal_writer("dir_fsync") ;
-  reiserfs_prepare_for_journal(th.t_super, SB_BUFFER_WITH_SB(th.t_super), 1) ;
-  journal_mark_dirty(&th, dentry->d_inode->i_sb, SB_BUFFER_WITH_SB (dentry->d_inode->i_sb)) ;
-  pop_journal_writer(windex) ;
-  journal_end_sync(&th, dentry->d_inode->i_sb, 1) ;
-
-  unlock_kernel();
-
-  return ret ;
+  reiserfs_commit_for_inode(dentry->d_inode) ;
+  unlock_kernel() ;
+  return 0 ;
 }
 
 
@@ -110,24 +90,18 @@ static int reiserfs_readdir (struct file * filp, void * dirent, filldir_t filldi
 	ih = de.de_ih;
 	store_ih (&tmp_ih, ih);
 		
-#ifdef CONFIG_REISERFS_CHECK
 	/* we must have found item, that is item of this directory, */
-	if (COMP_SHORT_KEYS (&(ih->ih_key), &pos_key))
-	    reiserfs_panic (inode->i_sb, "vs-9000: reiserfs_readdir: "
-			    "found item %h does not match to dir we readdir %k",
-			    ih, &pos_key);
-      
-	if (item_num > B_NR_ITEMS (bh) - 1)
-	    reiserfs_panic (inode->i_sb, "vs-9005: reiserfs_readdir: "
-			    "item_num == %d, item amount == %d",
-			    item_num, B_NR_ITEMS (bh));
+	RFALSE( COMP_SHORT_KEYS (&(ih->ih_key), &pos_key),
+		"vs-9000: found item %h does not match to dir we readdir %k",
+		ih, &pos_key);
+	RFALSE( item_num > B_NR_ITEMS (bh) - 1,
+		"vs-9005 item_num == %d, item amount == %d", 
+		item_num, B_NR_ITEMS (bh));
       
 	/* and entry must be not more than number of entries in the item */
-	if (I_ENTRY_COUNT (ih) < entry_num)
-	    reiserfs_panic (inode->i_sb, "vs-9010: reiserfs_readdir: "
-			    "entry number is too big %d (%d)",
-			    entry_num, I_ENTRY_COUNT (ih));
-#endif	/* CONFIG_REISERFS_CHECK */
+	RFALSE( I_ENTRY_COUNT (ih) < entry_num,
+		"vs-9010: entry number is too big %d (%d)", 
+		entry_num, I_ENTRY_COUNT (ih));
 
 	if (search_res == POSITION_FOUND || entry_num < I_ENTRY_COUNT (ih)) {
 	    /* go through all entries in the directory item beginning from the entry, that has been found */
@@ -172,7 +146,7 @@ static int reiserfs_readdir (struct file * filp, void * dirent, filldir_t filldi
 		// user space buffer is swapped out. At that time
 		// entry can move to somewhere else
 		memcpy (local_buf, d_name, d_reclen);
-		if (filldir (dirent, d_name, d_reclen, d_off, d_ino, 
+		if (filldir (dirent, local_buf, d_reclen, d_off, d_ino, 
 		             DT_UNKNOWN) < 0) {
 		    if (local_buf != small_buf) {
 			kfree(local_buf) ;
@@ -187,8 +161,6 @@ static int reiserfs_readdir (struct file * filp, void * dirent, filldir_t filldi
 		next_pos = deh_offset (deh) + 1;
 
 		if (item_moved (&tmp_ih, &path_to_entry)) {
-		    reiserfs_warning ("vs-9020: reiserfs_readdir "
-				      "things are moving under hands. Researching..\n");
 		    goto research;
 		}
 	    } /* for */
@@ -202,10 +174,6 @@ static int reiserfs_readdir (struct file * filp, void * dirent, filldir_t filldi
 	   delimiting key check is it directory end */
 	rkey = get_rkey (&path_to_entry, inode->i_sb);
 	if (! comp_le_keys (rkey, &MIN_KEY)) {
-#ifdef CONFIG_REISERFS_CHECK
-	    reiserfs_warning ("vs-9025: reiserfs_readdir:"
-			      "get_rkey failed. Researching..\n");
-#endif
 	    /* set pos_key to key, that is the smallest and greater
 	       that key of the last entry in the item */
 	    set_cpu_key_k_offset (&pos_key, next_pos);
@@ -230,24 +198,3 @@ static int reiserfs_readdir (struct file * filp, void * dirent, filldir_t filldi
     reiserfs_check_path(&path_to_entry) ;
     return 0;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

@@ -22,6 +22,7 @@
 #include <linux/pm.h>
 #include <linux/kmod.h>		/* for hotplug_path */
 #include <linux/bitops.h>
+#include <linux/delay.h>
 
 #include <asm/page.h>
 #include <asm/dma.h>	/* isa_dma_bridge_buggy */
@@ -279,7 +280,7 @@ pci_set_power_state(struct pci_dev *dev, int state)
 	 * This doesn't affect PME_Status, disables PME_En, and
 	 * sets PowerState to 0.
 	 */
-	if (dev->current_state == 3)
+	if (dev->current_state >= 3)
 		pmcsr = 0;
 	else {
 		pci_read_config_word(dev, pm + PCI_PM_CTRL, &pmcsr);
@@ -290,6 +291,15 @@ pci_set_power_state(struct pci_dev *dev, int state)
 	/* enter specified state */
 	pci_write_config_word(dev, pm + PCI_PM_CTRL, pmcsr);
 
+	/* Mandatory power management transition delays */
+	/* see PCI PM 1.1 5.6.1 table 18 */
+	if(state == 3 || dev->current_state == 3)
+	{
+		set_current_state(TASK_UNINTERRUPTIBLE);
+		schedule_timeout(HZ/100);
+	}
+	else if(state == 2 || dev->current_state == 2)
+		udelay(200);
 	dev->current_state = state;
 
 	return 0;
@@ -297,8 +307,8 @@ pci_set_power_state(struct pci_dev *dev, int state)
 
 /**
  * pci_save_state - save the PCI configuration space of a device before suspending
- * @dev - PCI device that we're dealing with
- * @buffer - buffer to hold config space context
+ * @dev: - PCI device that we're dealing with
+ * @buffer: - buffer to hold config space context
  *
  * @buffer must be large enough to hold the entire PCI 2.2 config space 
  * (>= 64 bytes).
@@ -317,8 +327,8 @@ pci_save_state(struct pci_dev *dev, u32 *buffer)
 
 /** 
  * pci_restore_state - Restore the saved state of a PCI device
- * @dev - PCI device that we're dealing with
- * @buffer - saved PCI config space
+ * @dev: - PCI device that we're dealing with
+ * @buffer: - saved PCI config space
  *
  */
 int 
@@ -386,8 +396,9 @@ pci_disable_device(struct pci_dev *dev)
 
 /**
  * pci_enable_wake - enable device to generate PME# when suspended
- * @dev - PCI device to operate on
- * @enable - Flag to enable or disable generation
+ * @dev: - PCI device to operate on
+ * @state: - Current state of device.
+ * @enable: - Flag to enable or disable generation
  * 
  * Set the bits in the device's PM Capabilities to generate PME# when
  * the system is suspended. 
@@ -479,6 +490,7 @@ void pci_release_regions(struct pci_dev *pdev)
 /**
  *	pci_request_regions - Reserved PCI I/O and memory resources
  *	@pdev: PCI device whose resources are to be reserved
+ *	@res_name: Name to be associated with resource.
  *
  *	Mark all PCI regions associated with PCI device @pdev as
  *	being reserved by owner @res_name.  Do not access any
@@ -822,17 +834,27 @@ pci_set_master(struct pci_dev *dev)
 }
 
 int
-pci_set_dma_mask(struct pci_dev *dev, dma_addr_t mask)
+pci_set_dma_mask(struct pci_dev *dev, u64 mask)
 {
-    if(! pci_dma_supported(dev, mask))
-        return -EIO;
+	if (!pci_dma_supported(dev, mask))
+		return -EIO;
 
-    dev->dma_mask = mask;
+	dev->dma_mask = mask;
 
-    return 0;
+	return 0;
 }
     
+int
+pci_dac_set_dma_mask(struct pci_dev *dev, u64 mask)
+{
+	if (!pci_dac_dma_supported(dev, mask))
+		return -EIO;
 
+	dev->dma_mask = mask;
+
+	return 0;
+}
+    
 /*
  * Translate the low bits of the PCI base
  * to the resource type
@@ -933,8 +955,7 @@ void __init pci_read_bridge_bases(struct pci_bus *child)
 {
 	struct pci_dev *dev = child->self;
 	u8 io_base_lo, io_limit_lo;
-	u16 mem_base_lo, mem_limit_lo, io_base_hi, io_limit_hi;
-	u32 mem_base_hi, mem_limit_hi;
+	u16 mem_base_lo, mem_limit_lo;
 	unsigned long base, limit;
 	struct resource *res;
 	int i;
@@ -948,10 +969,17 @@ void __init pci_read_bridge_bases(struct pci_bus *child)
 	res = child->resource[0];
 	pci_read_config_byte(dev, PCI_IO_BASE, &io_base_lo);
 	pci_read_config_byte(dev, PCI_IO_LIMIT, &io_limit_lo);
-	pci_read_config_word(dev, PCI_IO_BASE_UPPER16, &io_base_hi);
-	pci_read_config_word(dev, PCI_IO_LIMIT_UPPER16, &io_limit_hi);
-	base = ((io_base_lo & PCI_IO_RANGE_MASK) << 8) | (io_base_hi << 16);
-	limit = ((io_limit_lo & PCI_IO_RANGE_MASK) << 8) | (io_limit_hi << 16);
+	base = (io_base_lo & PCI_IO_RANGE_MASK) << 8;
+	limit = (io_limit_lo & PCI_IO_RANGE_MASK) << 8;
+
+	if ((base & PCI_IO_RANGE_TYPE_MASK) == PCI_IO_RANGE_TYPE_32) {
+		u16 io_base_hi, io_limit_hi;
+		pci_read_config_word(dev, PCI_IO_BASE_UPPER16, &io_base_hi);
+		pci_read_config_word(dev, PCI_IO_LIMIT_UPPER16, &io_limit_hi);
+		base |= (io_base_hi << 16);
+		limit |= (io_limit_hi << 16);
+	}
+
 	if (base && base <= limit) {
 		res->flags = (io_base_lo & PCI_IO_RANGE_TYPE_MASK) | IORESOURCE_IO;
 		res->start = base;
@@ -985,19 +1013,23 @@ void __init pci_read_bridge_bases(struct pci_bus *child)
 	res = child->resource[2];
 	pci_read_config_word(dev, PCI_PREF_MEMORY_BASE, &mem_base_lo);
 	pci_read_config_word(dev, PCI_PREF_MEMORY_LIMIT, &mem_limit_lo);
-	pci_read_config_dword(dev, PCI_PREF_BASE_UPPER32, &mem_base_hi);
-	pci_read_config_dword(dev, PCI_PREF_LIMIT_UPPER32, &mem_limit_hi);
-	base = (mem_base_lo & PCI_MEMORY_RANGE_MASK) << 16;
-	limit = (mem_limit_lo & PCI_MEMORY_RANGE_MASK) << 16;
+	base = (mem_base_lo & PCI_PREF_RANGE_MASK) << 16;
+	limit = (mem_limit_lo & PCI_PREF_RANGE_MASK) << 16;
+
+	if ((mem_base_lo & PCI_PREF_RANGE_TYPE_MASK) == PCI_PREF_RANGE_TYPE_64) {
+		u32 mem_base_hi, mem_limit_hi;
+		pci_read_config_dword(dev, PCI_PREF_BASE_UPPER32, &mem_base_hi);
+		pci_read_config_dword(dev, PCI_PREF_LIMIT_UPPER32, &mem_limit_hi);
 #if BITS_PER_LONG == 64
-	base |= ((long) mem_base_hi) << 32;
-	limit |= ((long) mem_limit_hi) << 32;
+		base |= ((long) mem_base_hi) << 32;
+		limit |= ((long) mem_limit_hi) << 32;
 #else
-	if (mem_base_hi || mem_limit_hi) {
-		printk(KERN_ERR "PCI: Unable to handle 64-bit address space for %s\n", child->name);
-		return;
-	}
+		if (mem_base_hi || mem_limit_hi) {
+			printk(KERN_ERR "PCI: Unable to handle 64-bit address space for %s\n", child->name);
+			return;
+		}
 #endif
+	}
 	if (base && base <= limit) {
 		res->flags = (mem_base_lo & PCI_MEMORY_RANGE_TYPE_MASK) | IORESOURCE_MEM | IORESOURCE_PREFETCH;
 		res->start = base;
@@ -1175,6 +1207,9 @@ int pci_setup_device(struct pci_dev * dev)
 	class >>= 8;
 
 	DBG("Found %02x:%02x [%04x/%04x] %06x %02x\n", dev->bus->number, dev->devfn, dev->vendor, dev->device, class, dev->hdr_type);
+
+	/* "Unknown power state" */
+	dev->current_state = 4;
 
 	switch (dev->hdr_type) {		    /* header type */
 	case PCI_HEADER_TYPE_NORMAL:		    /* standard header */
@@ -1653,7 +1688,8 @@ pool_alloc_page (struct pci_pool *pool, int mem_flags)
 	if (!page)
 		return 0;
 	page->vaddr = pci_alloc_consistent (pool->dev,
-				pool->allocation, &page->dma);
+					    pool->allocation,
+					    &page->dma);
 	if (page->vaddr) {
 		memset (page->bitmap, 0xff, mapsize);	// bit set == free
 		if (pool->flags & SLAB_POISON)
@@ -1839,14 +1875,14 @@ pci_pool_free (struct pci_pool *pool, void *vaddr, dma_addr_t dma)
 	if ((page = pool_find_page (pool, dma)) == 0) {
 		printk (KERN_ERR "pci_pool_free %s/%s, %p/%x (bad dma)\n",
 			pool->dev ? pool->dev->slot_name : NULL,
-			pool->name, vaddr, dma);
+			pool->name, vaddr, (int) (dma & 0xffffffff));
 		return;
 	}
 #ifdef	CONFIG_PCIPOOL_DEBUG
 	if (((dma - page->dma) + (void *)page->vaddr) != vaddr) {
 		printk (KERN_ERR "pci_pool_free %s/%s, %p (bad vaddr)/%x\n",
 			pool->dev ? pool->dev->slot_name : NULL,
-			pool->name, vaddr, dma);
+			pool->name, vaddr, (int) (dma & 0xffffffff));
 		return;
 	}
 #endif
@@ -1931,6 +1967,7 @@ EXPORT_SYMBOL(pci_find_slot);
 EXPORT_SYMBOL(pci_find_subsys);
 EXPORT_SYMBOL(pci_set_master);
 EXPORT_SYMBOL(pci_set_dma_mask);
+EXPORT_SYMBOL(pci_dac_set_dma_mask);
 EXPORT_SYMBOL(pci_assign_resource);
 EXPORT_SYMBOL(pci_register_driver);
 EXPORT_SYMBOL(pci_unregister_driver);

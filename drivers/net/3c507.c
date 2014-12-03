@@ -8,9 +8,11 @@
 	This software may be used and distributed according to the terms
 	of the GNU General Public License, incorporated herein by reference.
 
-	The author may be reached as becker@CESDIS.gsfc.nasa.gov, or C/O
-	Center of Excellence in Space Data and Information Sciences
-	   Code 930.5, Goddard Space Flight Center, Greenbelt MD 20771
+	The author may be reached as becker@scyld.com, or C/O
+	Scyld Computing Corporation
+	410 Severn Ave., Suite 210
+	Annapolis MD 21403
+
 
 	Thanks go to jennings@Montrouge.SMR.slb.com ( Patrick Jennings)
 	and jrs@world.std.com (Rick Sladkey) for testing and bugfixes.
@@ -124,6 +126,7 @@ struct net_local {
 	ushort tx_head;
 	ushort tx_cmd_link;
 	ushort tx_reap;
+	ushort tx_pkts_in_ring;
 	spinlock_t lock;
 };
 
@@ -192,7 +195,7 @@ struct net_local {
 #define DUMP_DATA	0x56	/* A 170 byte buffer for dump and Set-MC into. */
 
 #define TX_BUF_START	0x0100
-#define NUM_TX_BUFS 	4
+#define NUM_TX_BUFS 	5
 #define TX_BUF_SIZE 	(1518+14+20+16) /* packet+header+TBD */
 
 #define RX_BUF_START	0x2000
@@ -461,6 +464,7 @@ static void el16_tx_timeout (struct net_device *dev)
 			printk ("Resetting board.\n");
 		/* Completely reset the adaptor. */
 		init_82586_mem (dev);
+		lp->tx_pkts_in_ring = 0;
 	} else {
 		/* Issue the channel attention signal and hope it "gets better". */
 		if (net_debug > 1)
@@ -536,30 +540,34 @@ static void el16_interrupt(int irq, void *dev_id, struct pt_regs *regs)
 	outb(0x80, ioaddr + MISC_CTRL);
 
 	/* Reap the Tx packet buffers. */
-	while (lp->tx_reap != lp->tx_head) {
+	while (lp->tx_pkts_in_ring) {
 	  unsigned short tx_status = isa_readw(shmem+lp->tx_reap);
-
-	  if (tx_status == 0) {
-		if (net_debug > 5)  printk("Couldn't reap %#x.\n", lp->tx_reap);
+	  if (!(tx_status & 0x8000)) {
+		if (net_debug > 5) 
+			printk("Tx command incomplete (%#x).\n", lp->tx_reap);
 		break;
 	  }
-	  if (tx_status & 0x2000) {
-		lp->stats.tx_packets++;
-		lp->stats.collisions += tx_status & 0xf;
-		netif_wake_queue(dev);
-	  } else {
+	  /* Tx unsuccessful or some interesting status bit set. */
+	  if (!(tx_status & 0x2000) || (tx_status & 0x0f3f)) {
 		lp->stats.tx_errors++;
 		if (tx_status & 0x0600)  lp->stats.tx_carrier_errors++;
 		if (tx_status & 0x0100)  lp->stats.tx_fifo_errors++;
 		if (!(tx_status & 0x0040))  lp->stats.tx_heartbeat_errors++;
 		if (tx_status & 0x0020)  lp->stats.tx_aborted_errors++;
+		lp->stats.collisions += tx_status & 0xf;
 	  }
+	  lp->stats.tx_packets++;
 	  if (net_debug > 5)
 		  printk("Reaped %x, Tx status %04x.\n" , lp->tx_reap, tx_status);
 	  lp->tx_reap += TX_BUF_SIZE;
 	  if (lp->tx_reap > RX_BUF_START - TX_BUF_SIZE)
 		lp->tx_reap = TX_BUF_START;
-	  if (++boguscount > 4)
+
+	  lp->tx_pkts_in_ring--;
+	  /* There is always more space in the Tx ring buffer now. */
+	  netif_wake_queue(dev);
+
+	  if (++boguscount > 10)
 		break;
 	}
 
@@ -780,7 +788,8 @@ static void hardware_send_packet(struct net_device *dev, void *buf, short length
 			   dev->name, ioaddr, length, tx_block, lp->tx_head);
 	}
 
-	if (lp->tx_head != lp->tx_reap)
+	/* Grimly block further packets if there has been insufficient reaping. */
+	if (++lp->tx_pkts_in_ring < NUM_TX_BUFS) 
 		netif_wake_queue(dev);
 }
 
@@ -890,6 +899,8 @@ cleanup_module(void)
 	release_region(dev_3c507.base_addr, EL16_IO_EXTENT);
 }
 #endif /* MODULE */
+MODULE_LICENSE("GPL");
+
 
 /*
  * Local variables:

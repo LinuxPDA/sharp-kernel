@@ -227,7 +227,7 @@ tbf_dequeue(struct Qdisc* sch)
 		}
 
 		if (!netif_queue_stopped(sch->dev)) {
-			long delay = PSCHED_US2JIFFIE(max(-toks, -ptoks));
+			long delay = PSCHED_US2JIFFIE(max_t(long, -toks, -ptoks));
 
 			if (delay == 0)
 				delay = 1;
@@ -427,3 +427,4 @@ void cleanup_module(void)
 	unregister_qdisc(&tbf_qdisc_ops);
 }
 #endif
+MODULE_LICENSE("GPL");

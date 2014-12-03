@@ -3,55 +3,45 @@
  *
  * (C) 1999 Nicolas Pitre <nico@cam.org>
  *
- * Reorganised to use machine_is_*() macros.
+ * Reorganised to be machine independent.
  */
 
 #include "hardware.h"
-#include "serial_reg.h"
-
-#include <asm/mach-types.h>
-
-/* Assabet's Status Control "Register" */
-unsigned long SCR_value;
-
-/* sa1100_setup() will perform any special initialization for UART, etc. */
-extern void sa1100_setup( int arch_id );
-#define arch_decomp_setup()	sa1100_setup(arch_id)
 
 /*
  * The following code assumes the serial port has already been
- * initialized by the bootloader or such...
+ * initialized by the bootloader.  We search for the first enabled
+ * port in the most probable order.  If you didn't setup a port in
+ * your bootloader then nothing will appear (which might be desired).
  */
+
+#define UART(x)		(*(volatile unsigned long *)(serial_port + (x)))
+
 static void puts( const char *s )
 {
-	volatile unsigned long *serial_port;
+	unsigned long serial_port;
 
-	if (machine_is_assabet()) {
-		if( machine_has_neponset() )
-			serial_port = (unsigned long *)_Ser3UTCR0;
-		else
-			serial_port = (unsigned long *)_Ser1UTCR0;
-	} else if (machine_is_brutus()||machine_is_nanoengine() ||
-		machine_is_pangolin())
-		serial_port = (unsigned long *)_Ser1UTCR0;
-	else if (machine_is_empeg() || machine_is_bitsy() ||
-		 machine_is_victor() || machine_is_lart() ||
-		 machine_is_sherman() )
-		serial_port = (unsigned long *)_Ser3UTCR0;
-	else
+	do {
+		serial_port = _Ser3UTCR0;
+		if (UART(UTCR3) & UTCR3_TXE) break;
+		serial_port = _Ser1UTCR0;
+		if (UART(UTCR3) & UTCR3_TXE) break;
+		serial_port = _Ser2UTCR0;
+		if (UART(UTCR3) & UTCR3_TXE) break;
 		return;
+	} while (0);
 
 	for (; *s; s++) {
 		/* wait for space in the UART's transmiter */
-		while (!(serial_port[UTSR1] & UTSR1_TNF));
+		while (!(UART(UTSR1) & UTSR1_TNF));
 
 		/* send the character out. */
-		serial_port[UART_TX] = *s;
+		UART(UTDR) = *s;
 
 		/* if a LF, also do CR... */
 		if (*s == 10) {
-			while (!(serial_port[UTSR1] & UTSR1_TNF));
-			serial_port[UART_TX] = 13;
+			while (!(UART(UTSR1) & UTSR1_TNF));
+			UART(UTDR) = 13;
 		}
 	}
 }
@@ -59,4 +49,5 @@ static void puts( const char *s )
 /*
  * Nothing to do for these
  */
+#define arch_decomp_setup()
 #define arch_decomp_wdog()

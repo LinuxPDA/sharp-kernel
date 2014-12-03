@@ -610,9 +610,7 @@ static void pc_close(struct tty_struct * tty, struct file * filp)
 		                      ASYNC_CALLOUT_ACTIVE | ASYNC_CLOSING);
 		wake_up_interruptible(&ch->close_wait);
 
-#ifdef MODULE
 		MOD_DEC_USE_COUNT;
-#endif
 
 		restore_flags(flags);
 
@@ -700,10 +698,8 @@ static void pc_hangup(struct tty_struct *tty)
 
 		shutdown(ch);
 
-#ifdef MODULE
 		if (ch->count)
 			MOD_DEC_USE_COUNT;
-#endif /* MODULE */
 		
 
 		ch->tty   = NULL;
@@ -1397,11 +1393,8 @@ static int pc_open(struct tty_struct *tty, struct file * filp)
 		return(-ENODEV);
 	}
 
-#ifdef MODULE
 
 	MOD_INC_USE_COUNT;
-
-#endif
 
 	ch = &digi_channels[line];
 	boardnum = ch->boardnum;
@@ -1579,7 +1572,8 @@ void cleanup_module()
 	cli();
 
 	if ((tty_unregister_driver(&pc_driver)) ||  
-	    (tty_unregister_driver(&pc_callout)))
+	    (tty_unregister_driver(&pc_callout)) ||
+	    (tty_unregister_driver(&pc_info)))
 	{
 		printk(KERN_WARNING "<Error> - DIGI : cleanup_module failed to un-register tty driver\n");
 		restore_flags(flags);
@@ -4106,3 +4100,5 @@ int __init init_PCI (void)
 } /* End init_PCI */
 
 #endif /* ENABLE_PCI */
+
+MODULE_LICENSE("GPL");

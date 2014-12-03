@@ -213,6 +213,8 @@ static int isapnp = 0;
 
 MODULE_AUTHOR("Takashi Iwai <iwai@ww.uni-erlangen.de>");
 MODULE_DESCRIPTION("SB AWE32/64 WaveTable driver");
+MODULE_LICENSE("GPL");
+
 MODULE_PARM(io, "i");
 MODULE_PARM_DESC(io, "base i/o port of Emu8000");
 MODULE_PARM(memsize, "i");
@@ -4873,7 +4875,7 @@ awe_detect(void)
 /* any three numbers you like */
 #define UNIQUE_ID1	0x1234
 #define UNIQUE_ID2	0x4321
-#define UNIQUE_ID3	0xFFFF
+#define UNIQUE_ID3	0xABCD
 
 static void __init
 awe_check_dram(void)

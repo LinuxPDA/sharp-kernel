@@ -65,6 +65,7 @@
 
 MODULE_DESCRIPTION("Intel CPU (IA-32) microcode update driver");
 MODULE_AUTHOR("Tigran Aivazian <tigran@veritas.com>");
+MODULE_LICENSE("GPL");
 EXPORT_NO_SYMBOLS;
 
 #define MICRO_DEBUG 0
@@ -126,6 +127,7 @@ static int __init microcode_init(void)
 		printk(KERN_ERR "microcode: failed to devfs_register()\n");
 		goto out;
 	}
+	error = 0;
 	printk(KERN_INFO 
 		"IA-32 Microcode Update Driver: v%s <tigran@veritas.com>\n", 
 		MICROCODE_VERSION);

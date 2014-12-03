@@ -91,6 +91,7 @@ static struct superio_struct {	/* For Super-IO chips autodetection */
 } superios[NR_SUPERIOS] __devinitdata = { {0,},};
 
 static int user_specified __devinitdata = 0;
+static int verbose_probing;
 static int registered_parport;
 
 /* frob_control, but for ECR */
@@ -1244,10 +1245,10 @@ struct parport_operations parport_pc_ops =
 static void __devinit show_parconfig_smsc37c669(int io, int key)
 {
 	int cr1,cr4,cra,cr23,cr26,cr27,i=0;
-	char *modes[]={ "SPP and Bidirectional (PS/2)",	
-			"EPP and SPP",
-			"ECP",
-			"ECP and EPP"};
+	static const char *modes[]={ "SPP and Bidirectional (PS/2)",	
+				     "EPP and SPP",
+				     "ECP",
+				     "ECP and EPP" };
 
 	outb(key,io);
 	outb(key,io);
@@ -1265,23 +1266,25 @@ static void __devinit show_parconfig_smsc37c669(int io, int key)
 	cr27=inb(io+1);
 	outb(0xaa,io);
 
-	printk (KERN_INFO "SMSC 37c669 LPT Config: cr_1=0x%02x, 4=0x%02x, "
-		"A=0x%2x, 23=0x%02x, 26=0x%02x, 27=0x%02x\n",
-		cr1,cr4,cra,cr23,cr26,cr27);
-
-	/* The documentation calls DMA and IRQ-Lines by letters, so
-	   the board maker can/will wire them
-	   appropriately/randomly...  G=reserved H=IDE-irq, */
-	printk (KERN_INFO "SMSC LPT Config: io=0x%04x, irq=%c, dma=%c, "
-		"fifo threshold=%d\n", cr23*4,
-		(cr27 &0x0f) ? 'A'-1+(cr27 &0x0f): '-',
-		(cr26 &0x0f) ? 'A'-1+(cr26 &0x0f): '-', cra & 0x0f);
-	printk(KERN_INFO "SMSC LPT Config: enabled=%s power=%s\n",
-	       (cr23*4 >=0x100) ?"yes":"no", (cr1 & 4) ? "yes" : "no");
-	printk(KERN_INFO "SMSC LPT Config: Port mode=%s, EPP version =%s\n",
-	       (cr1 & 0x08 ) ? "Standard mode only (SPP)" : modes[cr4 & 0x03], 
-	       (cr4 & 0x40) ? "1.7" : "1.9");
-
+	if (verbose_probing) {
+		printk (KERN_INFO "SMSC 37c669 LPT Config: cr_1=0x%02x, 4=0x%02x, "
+			"A=0x%2x, 23=0x%02x, 26=0x%02x, 27=0x%02x\n",
+			cr1,cr4,cra,cr23,cr26,cr27);
+		
+		/* The documentation calls DMA and IRQ-Lines by letters, so
+		   the board maker can/will wire them
+		   appropriately/randomly...  G=reserved H=IDE-irq, */
+		printk (KERN_INFO "SMSC LPT Config: io=0x%04x, irq=%c, dma=%c, "
+			"fifo threshold=%d\n", cr23*4,
+			(cr27 &0x0f) ? 'A'-1+(cr27 &0x0f): '-',
+			(cr26 &0x0f) ? 'A'-1+(cr26 &0x0f): '-', cra & 0x0f);
+		printk(KERN_INFO "SMSC LPT Config: enabled=%s power=%s\n",
+		       (cr23*4 >=0x100) ?"yes":"no", (cr1 & 4) ? "yes" : "no");
+		printk(KERN_INFO "SMSC LPT Config: Port mode=%s, EPP version =%s\n",
+		       (cr1 & 0x08 ) ? "Standard mode only (SPP)" : modes[cr4 & 0x03], 
+		       (cr4 & 0x40) ? "1.7" : "1.9");
+	}
+		
 	/* Heuristics !  BIOS setup for this mainboard device limits
 	   the choices to standard settings, i.e. io-address and IRQ
 	   are related, however DMA can be 1 or 3, assume DMA_A=DMA1,
@@ -1319,15 +1322,16 @@ static void __devinit show_parconfig_smsc37c669(int io, int key)
 static void __devinit show_parconfig_winbond(int io, int key)
 {
 	int cr30,cr60,cr61,cr70,cr74,crf0,i=0;
-	char *modes[]={ "Standard (SPP) and Bidirectional(PS/2)", /* 0 */
-			"EPP-1.9 and SPP",
-			"ECP",
-			"ECP and EPP-1.9",
-			"Standard (SPP)",
-			"EPP-1.7 and SPP",		/* 5 */
-			"undefined!",
-			"ECP and EPP-1.7"};
-	char *irqtypes[]={"pulsed low, high-Z", "follows nACK"};
+	static const char *modes[] = {
+		"Standard (SPP) and Bidirectional(PS/2)", /* 0 */
+		"EPP-1.9 and SPP",
+		"ECP",
+		"ECP and EPP-1.9",
+		"Standard (SPP)",
+		"EPP-1.7 and SPP",		/* 5 */
+		"undefined!",
+		"ECP and EPP-1.7" };
+	static char *irqtypes[] = { "pulsed low, high-Z", "follows nACK" };
 		
 	/* The registers are called compatible-PnP because the
            register layout is modelled after ISA-PnP, the access
@@ -1350,17 +1354,19 @@ static void __devinit show_parconfig_winbond(int io, int key)
 	crf0=inb(io+1);
 	outb(0xaa,io);
 
-	printk(KERN_INFO "Winbond LPT Config: cr_30=%02x 60,61=%02x%02x "
-	       "70=%02x 74=%02x, f0=%02x\n", cr30,cr60,cr61,cr70,cr74,crf0);
-	printk(KERN_INFO "Winbond LPT Config: active=%s, io=0x%02x%02x irq=%d, ", 
-	       (cr30 & 0x01) ? "yes":"no", cr60,cr61,cr70&0x0f );
-	if ((cr74 & 0x07) > 3)
-		printk("dma=none\n");
-	else
-		printk("dma=%d\n",cr74 & 0x07);
-	printk(KERN_INFO "Winbond LPT Config: irqtype=%s, ECP fifo threshold=%d\n",
-	       irqtypes[crf0>>7], (crf0>>3)&0x0f);
-	printk(KERN_INFO "Winbond LPT Config: Port mode=%s\n", modes[crf0 & 0x07]);
+	if (verbose_probing) {
+		printk(KERN_INFO "Winbond LPT Config: cr_30=%02x 60,61=%02x%02x "
+		       "70=%02x 74=%02x, f0=%02x\n", cr30,cr60,cr61,cr70,cr74,crf0);
+		printk(KERN_INFO "Winbond LPT Config: active=%s, io=0x%02x%02x irq=%d, ", 
+		       (cr30 & 0x01) ? "yes":"no", cr60,cr61,cr70&0x0f );
+		if ((cr74 & 0x07) > 3)
+			printk("dma=none\n");
+		else
+			printk("dma=%d\n",cr74 & 0x07);
+		printk(KERN_INFO "Winbond LPT Config: irqtype=%s, ECP fifo threshold=%d\n",
+		       irqtypes[crf0>>7], (crf0>>3)&0x0f);
+		printk(KERN_INFO "Winbond LPT Config: Port mode=%s\n", modes[crf0 & 0x07]);
+	}
 
 	if(cr30 & 0x01) { /* the settings can be interrogated later ... */
 		while((superios[i].io!= 0) && (i<NR_SUPERIOS))
@@ -1378,7 +1384,7 @@ static void __devinit show_parconfig_winbond(int io, int key)
 
 static void __devinit decode_winbond(int efer, int key, int devid, int devrev, int oldid)
 {
-	char *type=NULL;
+	const char *type = "unknown";
 	int id,progif=2;
 
 	if (devid == devrev)
@@ -1386,8 +1392,6 @@ static void __devinit decode_winbond(int efer, int key, int devid, int devrev, i
                    non-winbond register */
 		return;
 
-	printk(KERN_INFO "Winbond chip at EFER=0x%x key=0x%02x devid=%02x devrev=%02x "
-	       "oldid=%02x\n", efer,key,devid,devrev,oldid);
 	id=(devid<<8) | devrev;
 
 	/* Values are from public data sheets pdf files, I can just
@@ -1405,19 +1409,18 @@ static void __devinit decode_winbond(int efer, int key, int devid, int devrev, i
 	else if ((oldid &0x0f ) == 0x0d) { type="83877ATF"; progif=1;}
 	else progif=0;
 
-	if(type==NULL) 
-		printk(KERN_INFO "Winbond unknown chip type\n");
-	else	
-	 	printk(KERN_INFO "Winbond chip type %s\n",type);
+	if (verbose_probing)
+		printk(KERN_INFO "Winbond chip at EFER=0x%x key=0x%02x "
+		       "devid=%02x devrev=%02x oldid=%02x type=%s\n", 
+		       efer, key, devid, devrev, oldid, type);
 
-	if(progif==2)
+	if (progif == 2)
 		show_parconfig_winbond(efer,key);
-	return;
 }
 
 static void __devinit decode_smsc(int efer, int key, int devid, int devrev)
 {
-        char *type=NULL;
+        const char *type = "unknown";
 	void (*func)(int io, int key);
         int id;
 
@@ -1427,8 +1430,6 @@ static void __devinit decode_smsc(int efer, int key, int devid, int devrev)
 		return;
 
 	func=NULL;
-        printk(KERN_INFO "SMSC chip at EFER=0x%x key=0x%02x devid=%02x devrev=%02x\n",
-	       efer,key,devid,devrev);
         id=(devid<<8) | devrev;
 
 	if	(id==0x0302) {type="37c669"; func=show_parconfig_smsc37c669;}
@@ -1436,13 +1437,13 @@ static void __devinit decode_smsc(int efer, int key, int devid, int devrev)
 	else if	(devid==0x65) type="37c665GT";
 	else if	(devid==0x66) type="37c666GT";
 
-	if(type==NULL)
-                printk(KERN_INFO "SMSC unknown chip type\n");
-        else
-                printk(KERN_INFO "SMSC chip type %s\n",type);
+	if (verbose_probing)
+		printk(KERN_INFO "SMSC chip at EFER=0x%x "
+		       "key=0x%02x devid=%02x devrev=%02x type=%s\n",
+		       efer, key, devid, devrev, type);
 
-	if(func) (func)(efer,key);
-	return;
+	if (func)
+		func(efer,key);
 }
 
 
@@ -1540,8 +1541,8 @@ static void __devinit smsc_check(int io, int key)
 
 static void __devinit detect_and_report_winbond (void)
 { 
-	printk(KERN_DEBUG "Winbond Super-IO detection, now testing ports 3F0,370,250,4E,2E ...\n");
-
+	if (verbose_probing)
+		printk(KERN_DEBUG "Winbond Super-IO detection, now testing ports 3F0,370,250,4E,2E ...\n");
 	winbond_check(0x3f0,0x87);
 	winbond_check(0x370,0x87);
 	winbond_check(0x2e ,0x87);
@@ -1553,7 +1554,8 @@ static void __devinit detect_and_report_winbond (void)
 
 static void __devinit detect_and_report_smsc (void)
 {
-	printk(KERN_DEBUG "SMSC Super-IO detection, now testing Ports 2F0, 370 ...\n");
+	if (verbose_probing)
+		printk(KERN_DEBUG "SMSC Super-IO detection, now testing Ports 2F0, 370 ...\n");
 	smsc_check(0x3f0,0x55);
 	smsc_check(0x370,0x55);
 	smsc_check(0x3f0,0x44);
@@ -1627,7 +1629,7 @@ static int __devinit parport_SPP_supported(struct parport *pb)
 	if (user_specified)
 		/* That didn't work, but the user thinks there's a
 		 * port here. */
-		printk (KERN_DEBUG "parport 0x%lx (WARNING): CTR: "
+		printk (KERN_INFO "parport 0x%lx (WARNING): CTR: "
 			"wrote 0x%02x, read 0x%02x\n", pb->base, w, r);
 
 	/* Try the data register.  The data lines aren't tri-stated at
@@ -1646,9 +1648,9 @@ static int __devinit parport_SPP_supported(struct parport *pb)
 	if (user_specified) {
 		/* Didn't work, but the user is convinced this is the
 		 * place. */
-		printk (KERN_DEBUG "parport 0x%lx (WARNING): DATA: "
+		printk (KERN_INFO "parport 0x%lx (WARNING): DATA: "
 			"wrote 0x%02x, read 0x%02x\n", pb->base, w, r);
-		printk (KERN_DEBUG "parport 0x%lx: You gave this address, "
+		printk (KERN_INFO "parport 0x%lx: You gave this address, "
 			"but there is probably no parallel port there!\n",
 			pb->base);
 	}
@@ -1760,9 +1762,8 @@ static int __devinit parport_ECP_supported(struct parport *pb)
 	int config, configb;
 	int pword;
 	struct parport_pc_private *priv = pb->private_data;
-	int intrline[]={0,7,9,10,11,14,15,5}; /* Translate ECP
-                                                 intrLine to ISA irq
-                                                 value */
+	/* Translate ECP intrLine to ISA irq value */	
+	static const int intrline[]= { 0, 7, 9, 10, 11, 14, 15, 5 }; 
 
 	/* If there is no ECR, we have no hope of supporting ECP. */
 	if (!priv->ecr)
@@ -1784,7 +1785,8 @@ static int __devinit parport_ECP_supported(struct parport *pb)
 	}
 
 	priv->fifo_depth = i;
-	printk (KERN_INFO "0x%lx: FIFO is %d bytes\n", pb->base, i);
+	if (verbose_probing)
+		printk (KERN_DEBUG "0x%lx: FIFO is %d bytes\n", pb->base, i);
 
 	/* Find out writeIntrThreshold */
 	frob_econtrol (pb, 1<<2, 1<<2);
@@ -1796,10 +1798,11 @@ static int __devinit parport_ECP_supported(struct parport *pb)
 			break;
 	}
 
-	if (i <= priv->fifo_depth)
-		printk (KERN_INFO "0x%lx: writeIntrThreshold is %d\n",
-			pb->base, i);
-	else
+	if (i <= priv->fifo_depth) {
+		if (verbose_probing)
+			printk (KERN_DEBUG "0x%lx: writeIntrThreshold is %d\n",
+				pb->base, i);
+	} else
 		/* Number of bytes we know we can write if we get an
                    interrupt. */
 		i = 0;
@@ -1818,10 +1821,11 @@ static int __devinit parport_ECP_supported(struct parport *pb)
 			break;
 	}
 
-	if (i <= priv->fifo_depth)
-		printk (KERN_INFO "0x%lx: readIntrThreshold is %d\n",
-			pb->base, i);
-	else
+	if (i <= priv->fifo_depth) {
+		if (verbose_probing)
+			printk (KERN_INFO "0x%lx: readIntrThreshold is %d\n",
+				pb->base, i);
+	} else
 		/* Number of bytes we can read if we get an interrupt. */
 		i = 0;
 
@@ -1850,28 +1854,30 @@ static int __devinit parport_ECP_supported(struct parport *pb)
 		pword = 1;
 	}
 	priv->pword = pword;
-	printk (KERN_DEBUG "0x%lx: PWord is %d bits\n", pb->base, 8 * pword);
 
-	printk (KERN_DEBUG "0x%lx: Interrupts are ISA-%s\n", pb->base,
-		config & 0x80 ? "Level" : "Pulses");
+	if (verbose_probing) {
+		printk (KERN_DEBUG "0x%lx: PWord is %d bits\n", pb->base, 8 * pword);
+		
+		printk (KERN_DEBUG "0x%lx: Interrupts are ISA-%s\n", pb->base,
+			config & 0x80 ? "Level" : "Pulses");
 
-	configb = inb (CONFIGB (pb));
-	printk (KERN_DEBUG "0x%lx: ECP port cfgA=0x%02x cfgB=0x%02x\n",
-		pb->base, config, configb);
-        printk (KERN_DEBUG "0x%lx: ECP settings irq=", pb->base);
-	if ((configb >>3) & 0x07)
-		printk("%d",intrline[(configb >>3) & 0x07]);
-	else
-		printk("<none or set by other means>");
-	printk (" dma=");
-	if( (configb & 0x03 ) == 0x00)
-		printk("<none or set by other means>\n");
-	else
-		printk("%d\n",configb & 0x07);
+		configb = inb (CONFIGB (pb));
+		printk (KERN_DEBUG "0x%lx: ECP port cfgA=0x%02x cfgB=0x%02x\n",
+			pb->base, config, configb);
+		printk (KERN_DEBUG "0x%lx: ECP settings irq=", pb->base);
+		if ((configb >>3) & 0x07)
+			printk("%d",intrline[(configb >>3) & 0x07]);
+		else
+			printk("<none or set by other means>");
+		printk (" dma=");
+		if( (configb & 0x03 ) == 0x00)
+			printk("<none or set by other means>\n");
+		else
+			printk("%d\n",configb & 0x07);
+	}
 
 	/* Go back to mode 000 */
 	frob_econtrol (pb, 0xe0, ECR_SPP << 5);
-	pb->modes |= PARPORT_MODE_ECP | PARPORT_MODE_COMPAT;
 
 	return 1;
 }
@@ -2191,10 +2197,10 @@ struct parport *parport_pc_probe_port (unsigned long int base,
 	p->ops = ops;
 	p->private_data = priv;
 	p->physport = p;
-	if (base_hi && !check_region(base_hi,3)) {
+
+	if (base_hi && !check_region(base_hi,3))
 		parport_ECR_present(p);
-		parport_ECP_supported(p);
-	}
+
 	if (base != 0x3bc) {
 		if (!check_region(base+0x3, 5)) {
 			if (!parport_EPP_supported(p))
@@ -2204,6 +2210,7 @@ struct parport *parport_pc_probe_port (unsigned long int base,
 	if (!parport_SPP_supported (p)) {
 		/* No port. */
 		kfree (priv);
+		kfree (ops);
 		return NULL;
 	}
 	if (priv->ecr)
@@ -2250,8 +2257,10 @@ struct parport *parport_pc_probe_port (unsigned long int base,
 		p->dma = PARPORT_DMA_NONE;
 
 #ifdef CONFIG_PARPORT_PC_FIFO
-	if (p->dma != PARPORT_DMA_NOFIFO &&
+	if (parport_ECP_supported(p) &&
+	    p->dma != PARPORT_DMA_NOFIFO &&
 	    priv->fifo_depth > 0 && p->irq != PARPORT_IRQ_NONE) {
+		p->modes |= PARPORT_MODE_ECP | PARPORT_MODE_COMPAT;
 		p->ops->compat_write_data = parport_pc_compat_write_block_pio;
 #ifdef CONFIG_PARPORT_1284
 		p->ops->ecp_write_data = parport_pc_ecp_write_block_pio;
@@ -2519,7 +2528,6 @@ enum parport_pc_pci_cards {
 	lava_parallel_dual_b,
 	boca_ioppar,
 	plx_9050,
-	afavlab_tk9902,
 	timedia_4078a,
 	timedia_4079h,
 	timedia_4085h,
@@ -2545,6 +2553,12 @@ enum parport_pc_pci_cards {
 	timedia_9018a,
 	syba_2p_epp,
 	syba_1p_ecp,
+	titan_010l,
+	titan_1284p2,
+	avlab_1p,
+	avlab_2p,
+	oxsemi_954,
+	oxsemi_840,
 };
 
 
@@ -2583,7 +2597,6 @@ static struct parport_pc_pci {
 	/* lava_parallel_dual_b */	{ 1, { { 0, -1 }, } },
 	/* boca_ioppar */		{ 1, { { 0, -1 }, } },
 	/* plx_9050 */			{ 2, { { 4, -1 }, { 5, -1 }, } },
-	/* afavlab_tk9902 */		{ 1, { { 0, 1 }, } },
 	/* timedia_4078a */		{ 1, { { 2, -1 }, } },
 	/* timedia_4079h */             { 1, { { 2, 3 }, } },
 	/* timedia_4085h */             { 2, { { 2, -1 }, { 4, -1 }, } },
@@ -2611,6 +2624,14 @@ static struct parport_pc_pci {
                                            a 1K io window */
 	/* syba_2p_epp AP138B */	{ 2, { { 0, 0x078 }, { 0, 0x178 }, } },
 	/* syba_1p_ecp W83787 */	{ 1, { { 0, 0x078 }, } },
+	/* titan_010l */		{ 1, { { 3, -1 }, } },
+	/* titan_1284p2 */		{ 2, { { 0, 1 }, { 2, 3 }, } },
+	/* avlab_1p		*/	{ 1, { { 0, 1}, } },
+	/* avlab_2p		*/	{ 2, { { 0, 1}, { 2, 3 },} },
+	/* The Oxford Semi cards are unusual: 954 doesn't support ECP,
+	 * and 840 locks up if you write 1 to bit 2! */
+	/* oxsemi_954 */		{ 1, { { 0, -1 }, } },
+	/* oxsemi_840 */		{ 1, { { 0, -1 }, } },
 };
 
 static struct pci_device_id parport_pc_pci_tbl[] __devinitdata = {
@@ -2666,8 +2687,6 @@ static struct pci_device_id parport_pc_pci_tbl[] __devinitdata = {
 	  PCI_ANY_ID, PCI_ANY_ID, 0, 0, boca_ioppar },
 	{ PCI_VENDOR_ID_PLX, PCI_DEVICE_ID_PLX_9050,
 	  PCI_SUBVENDOR_ID_EXSYS, PCI_SUBDEVICE_ID_EXSYS_4014, 0,0, plx_9050 },
-	{ PCI_VENDOR_ID_AFAVLAB, PCI_DEVICE_ID_AFAVLAB_TK9902,
-	  PCI_ANY_ID, PCI_ANY_ID, 0, 0, afavlab_tk9902 },
 	/* PCI_VENDOR_ID_TIMEDIA/SUNIX has many differing cards ...*/
 	{ 0x1409, 0x7168, 0x1409, 0x4078, 0, 0, timedia_4078a },
 	{ 0x1409, 0x7168, 0x1409, 0x4079, 0, 0, timedia_4079h },
@@ -2696,6 +2715,16 @@ static struct pci_device_id parport_pc_pci_tbl[] __devinitdata = {
 	  PCI_ANY_ID, PCI_ANY_ID, 0, 0, syba_2p_epp },
 	{ PCI_VENDOR_ID_SYBA, PCI_DEVICE_ID_SYBA_1P_ECP,
 	  PCI_ANY_ID, PCI_ANY_ID, 0, 0, syba_1p_ecp },
+	{ PCI_VENDOR_ID_TITAN, PCI_DEVICE_ID_TITAN_010L,
+	  PCI_ANY_ID, PCI_ANY_ID, 0, 0, titan_010l },
+	{ 0x9710, 0x9815, 0x1000, 0x0020, 0, 0, titan_1284p2 },
+	/* PCI_VENDOR_ID_AVLAB/Intek21 has another bunch of cards ...*/
+	{ 0x14db, 0x2120, PCI_ANY_ID, PCI_ANY_ID, 0, 0, avlab_1p}, /* AFAVLAB_TK9902 */
+	{ 0x14db, 0x2121, PCI_ANY_ID, PCI_ANY_ID, 0, 0, avlab_2p},
+	{ PCI_VENDOR_ID_OXSEMI, PCI_DEVICE_ID_OXSEMI_16PCI954PP,
+	  PCI_ANY_ID, PCI_ANY_ID, 0, 0, oxsemi_954 },
+	{ PCI_VENDOR_ID_OXSEMI, PCI_DEVICE_ID_OXSEMI_12PCI840,
+	  PCI_ANY_ID, PCI_ANY_ID, 0, 0, oxsemi_840 },
 	{ 0, } /* terminate list */
 };
 MODULE_DEVICE_TABLE(pci,parport_pc_pci_tbl);
@@ -2749,17 +2778,20 @@ static int __init parport_pc_init_superio (int autoirq, int autodma)
 {
 	const struct pci_device_id *id;
 	struct pci_dev *pdev;
+	int ret = 0;
 
 	pci_for_each_dev(pdev) {
 		id = pci_match_device (parport_pc_pci_tbl, pdev);
 		if (id == NULL || id->driver_data >= last_sio)
 			continue;
 
-		return parport_pc_superio_info[id->driver_data].probe
-			(pdev, autoirq, autodma);
+		if (parport_pc_superio_info[id->driver_data].probe
+			(pdev, autoirq, autodma)) {
+			ret++;
+		}
 	}
 
-	return 0; /* zero devices found */
+	return ret; /* number of devices found */
 }
 #else
 static struct pci_driver parport_pc_pci_driver;
@@ -2824,7 +2856,8 @@ int __init parport_pc_init (int *io, int *io_hi, int *irq, int *dma)
 		/* Only probe the ports we were given. */
 		user_specified = 1;
 		do {
-			if (!*io_hi) *io_hi = 0x400 + *io;
+			if ((*io_hi) == PARPORT_IOHI_AUTO)
+			       *io_hi = 0x400 + *io;
 			if (parport_pc_probe_port(*(io++), *(io_hi++),
 						  *(irq++), *(dma++), NULL))
 				count++;
@@ -2842,7 +2875,8 @@ EXPORT_SYMBOL (parport_pc_unregister_port);
 
 #ifdef MODULE
 static int io[PARPORT_PC_MAX_PORTS+1] = { [0 ... PARPORT_PC_MAX_PORTS] = 0 };
-static int io_hi[PARPORT_PC_MAX_PORTS+1] = { [0 ... PARPORT_PC_MAX_PORTS] = 0 };
+static int io_hi[PARPORT_PC_MAX_PORTS+1] =
+	{ [0 ... PARPORT_PC_MAX_PORTS] = PARPORT_IOHI_AUTO };
 static int dmaval[PARPORT_PC_MAX_PORTS] = { [0 ... PARPORT_PC_MAX_PORTS-1] = PARPORT_DMA_AUTO };
 static int irqval[PARPORT_PC_MAX_PORTS] = { [0 ... PARPORT_PC_MAX_PORTS-1] = PARPORT_IRQ_PROBEONLY };
 static const char *irq[PARPORT_PC_MAX_PORTS] = { NULL, };
@@ -2850,6 +2884,8 @@ static const char *dma[PARPORT_PC_MAX_PORTS] = { NULL, };
 
 MODULE_AUTHOR("Phil Blundell, Tim Waugh, others");
 MODULE_DESCRIPTION("PC-style parallel port driver");
+MODULE_LICENSE("GPL");
+
 MODULE_PARM_DESC(io, "Base I/O address (SPP regs)");
 MODULE_PARM(io, "1-" __MODULE_STRING(PARPORT_PC_MAX_PORTS) "i");
 MODULE_PARM_DESC(io_hi, "Base I/O address (ECR)");
@@ -2858,6 +2894,8 @@ MODULE_PARM_DESC(irq, "IRQ line");
 MODULE_PARM(irq, "1-" __MODULE_STRING(PARPORT_PC_MAX_PORTS) "s");
 MODULE_PARM_DESC(dma, "DMA channel");
 MODULE_PARM(dma, "1-" __MODULE_STRING(PARPORT_PC_MAX_PORTS) "s");
+MODULE_PARM(verbose_probing, "i");
+MODULE_PARM_DESC(verbose_probing, "Log chit-chat during initialisation");
 
 int init_module(void)
 {	

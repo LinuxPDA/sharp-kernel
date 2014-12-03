@@ -20,6 +20,7 @@
  *                      Juha Laiho, <jlaiho@ichaos.nullnet.fi>
  *              Linux 3C509 driver by
  *                      Donald Becker, <becker@super.org>
+ *			(Now at <becker@scyld.com>)
  *              Crynwr packet driver by
  *                      Krishnan Gopalan and Gregg Stefancik,
  *                      Clemson University Engineering Computer Operations.
@@ -606,7 +607,7 @@ static void receive_packet(struct net_device *dev, int len)
 
 	skb_reserve(skb, 2);
 	target = skb_put(skb, rlen);
-	if (virt_to_bus(target + rlen) >= MAX_DMA_ADDRESS) {
+	if ((unsigned long)(target + rlen) >= MAX_DMA_ADDRESS) {
 		adapter->current_dma.target = target;
 		target = adapter->dma_buffer;
 	} else {
@@ -1026,10 +1027,12 @@ static int send_packet(struct net_device *dev, struct sk_buff *skb)
 	adapter->current_dma.direction = 1;
 	adapter->current_dma.start_time = jiffies;
 
-	target = virt_to_bus(skb->data);
-	if ((target + nlen) >= MAX_DMA_ADDRESS) {
+	if ((unsigned long)(skb->data + nlen) >= MAX_DMA_ADDRESS) {
 		memcpy(adapter->dma_buffer, skb->data, nlen);
 		target = virt_to_bus(adapter->dma_buffer);
+	}
+	else {
+		target = virt_to_bus(skb->data);
 	}
 	adapter->current_dma.skb = skb;
 
@@ -1670,3 +1673,4 @@ void cleanup_module(void)
 }
 
 #endif				/* MODULE */
+MODULE_LICENSE("GPL");

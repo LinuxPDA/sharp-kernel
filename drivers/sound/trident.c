@@ -1,6 +1,10 @@
 /*
+ *	OSS driver for Linux 2.4.x for
  *
- *	Trident 4D-Wave/SiS 7018/ALi 5451 OSS driver for Linux 2.2.x
+ *	Trident 4D-Wave
+ *	SiS 7018
+ *	ALi 5451
+ *	Tvia/IGST CyberPro 5050
  *
  *	Driver: Alan Cox <alan@redhat.com>
  *
@@ -14,6 +18,7 @@
  *	Ollie Lho <ollie@sis.com.tw> SiS 7018 Audio Core Support
  *	Ching-Ling Lee <cling-li@ali.com.tw> ALi 5451 Audio Core Support 
  *	Matt Wu <mattwu@acersoftech.com.cn> ALi 5451 Audio Core Support
+ *	Peter Wächtler <pwaechtler@loewe-komp.de> CyberPro5050 support
  *
  *
  *	This program is free software; you can redistribute it and/or modify
@@ -31,6 +36,36 @@
  *	Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  *
  *  History
+ *  v0.14.9d
+ *  	October 8 2001 Arnaldo Carvalho de Melo <acme@conectiva.com.br>
+ *	use set_current_state, properly release resources on failure in
+ *	trident_probe, get rid of check_region
+ *  v0.14.9c
+ *	August 10 2001 Peter Wächtler <pwaechtler@loewe-komp.de>
+ *	added support for Tvia (formerly Integraphics/IGST) CyberPro5050
+ *	this chip is often found in settop boxes (combined video+audio)
+ *  v0.14.9b
+ *	Switch to static inline not extern inline (gcc 3)
+ *  v0.14.9a
+ *	Aug 6 2001 Alan Cox
+ *	0.14.9 crashed on rmmod due to a timer/bh left running. Simplified
+ *	the existing logic (the BH doesnt help as ac97 is lock_irqsave)
+ *	and used del_timer_sync to clean up
+ *	Fixed a problem where the ALi change broke my generic card
+ *  v0.14.9
+ *	Jul 10 2001 Matt Wu
+ *	Add H/W Volume Control
+ *  v0.14.8a
+ *	July 7 2001 Alan Cox
+ *	Moved Matt Wu's ac97 register cache into the card structure
+ *  v0.14.8
+ *	Apr 30 2001 Matt Wu
+ *	Set EBUF1 and EBUF2 to still mode
+ *	Add dc97/ac97 reset function
+ *	Fix power management: ali_restore_regs
+ *  unreleased 
+ *	Mar 09 2001 Matt Wu
+ *	Add cache for ac97 access
  *  v0.14.7
  *	Feb 06 2001 Matt Wu
  *	Fix ac97 initialization
@@ -39,7 +74,7 @@
  *	Implement multi-channels and S/PDIF in support for ALi 1535+
  *  v0.14.6 
  *	Nov 1 2000 Ching-Ling Lee
- *	Fix the bug of memory leak when swithing 5.1-channels to 2 channels.
+ *	Fix the bug of memory leak when switching 5.1-channels to 2 channels.
  *	Add lock protection into dynamic changing format of data.
  *	Oct 18 2000 Ching-Ling Lee
  *	5.1-channels support for ALi
@@ -104,6 +139,11 @@
  *	Mmap support
  *	"Channel Binding" ioctl extension (done)
  *	new pci device driver interface for 2.4 kernel (done)
+ *
+ *	Lock order (high->low)
+ *		lock	-	hardware lock
+ *		open_sem - 	guard opens
+ *		sem	-	guard dmabuf, write re-entry etc
  */
 
 #include <linux/config.h>
@@ -130,12 +170,17 @@
 #include <asm/hardirq.h>
 #include <linux/bitops.h>
 #include <linux/proc_fs.h>
+#include <linux/interrupt.h>
+
+#if defined CONFIG_ALPHA_NAUTILUS || CONFIG_ALPHA_GENERIC
+#include <asm/hwrpb.h>
+#endif
 
 #include "trident.h"
 
 #include <linux/pm.h>
 
-#define DRIVER_VERSION "0.14.6"
+#define DRIVER_VERSION "0.14.9d"
 
 /* magic numbers to protect our data structures */
 #define TRIDENT_CARD_MAGIC	0x5072696E /* "Prin" */
@@ -163,14 +208,16 @@ enum {
 	TRIDENT_4D_DX = 0,
 	TRIDENT_4D_NX,
 	SIS_7018,
-	ALI_5451
+	ALI_5451,
+	CYBER5050
 };
 
 static char * card_names[] = {
 	"Trident 4DWave DX",
 	"Trident 4DWave NX",
 	"SiS 7018 PCI Audio",
-	"ALi Audio Accelerator"
+	"ALi Audio Accelerator",
+	"Tvia/IGST CyberPro 5050"
 };
 
 static struct pci_device_id trident_pci_tbl [] __devinitdata = {
@@ -182,6 +229,8 @@ static struct pci_device_id trident_pci_tbl [] __devinitdata = {
 	 PCI_ANY_ID, PCI_ANY_ID, 0, 0, SIS_7018},
 	{PCI_VENDOR_ID_ALI, PCI_DEVICE_ID_ALI_5451,
 	 PCI_ANY_ID, PCI_ANY_ID, 0, 0, ALI_5451},
+	{ PCI_VENDOR_ID_INTERG, PCI_DEVICE_ID_INTERG_5050, 
+	 PCI_ANY_ID, PCI_ANY_ID, 0, 0, CYBER5050},
 	{0,}
 };
 
@@ -243,6 +292,9 @@ struct trident_state {
 	int multi_channels_adjust_count;
 	unsigned chans_num;
 	unsigned fmt_flag:1;
+	/* Guard against mmap/write/read races */
+	struct semaphore sem;
+
 };
 
 /* hardware channels */
@@ -296,7 +348,7 @@ struct trident_card {
 	/* The trident has a certain amount of cross channel interaction
 	   so we use a single per card lock */
 	spinlock_t lock;
-
+	
 	/* PCI device stuff */
 	struct pci_dev * pci_dev;
 	u16 pci_id;
@@ -320,9 +372,15 @@ struct trident_card {
 	void (*free_pcm_channel)(struct trident_card *, unsigned int chan);
 	void (*address_interrupt)(struct trident_card *);
 	
-	/* Add by Matt Wu 01-05-2001 for spdif in */
+	/* Added by Matt Wu 01-05-2001 for spdif in */
 	int multi_channel_use_count;
 	int rec_channel_use_count;
+	u16 mixer_regs[64][NR_AC97];	/* Made card local by Alan */
+	int mixer_regs_ready;
+
+	/* Added for hardware volume control */
+	int hwvolctl;
+	struct timer_list timer;
 };
 
 /* table to map from CHANNELMASK to channel attribute for SiS 7018 */
@@ -338,10 +396,13 @@ static int attr2mask [] = {
 	DSP_BIND_I2S, DSP_BIND_CENTER_LFE, DSP_BIND_SURR, DSP_BIND_SPDIF
 };
 
-/* Add by Matt Wu 01-05-2001 for spdif in */
+/* Added by Matt Wu 01-05-2001 for spdif in */
 static int ali_close_multi_channels(void);
 static void ali_delay(struct trident_card *card,int interval);
 static void ali_detect_spdif_rate(struct trident_card *card);
+
+static void ali_ac97_write(struct ac97_codec *codec, u8 reg, u16 val);
+static u16 ali_ac97_read(struct ac97_codec *codec, u8 reg);
 
 static struct trident_card *devs;
 
@@ -351,17 +412,17 @@ static u16 trident_ac97_get(struct ac97_codec *codec, u8 reg);
 static int trident_open_mixdev(struct inode *inode, struct file *file);
 static int trident_ioctl_mixdev(struct inode *inode, struct file *file, unsigned int cmd,
 				unsigned long arg);
-static loff_t trident_llseek(struct file *file, loff_t offset, int origin);
 
-static void ali_ac97_set(struct ac97_codec *codec, u8 reg, u16 val);
-static u16 ali_ac97_get(struct ac97_codec *codec, u8 reg);
+static void ali_ac97_set(struct trident_card *card, int secondary, u8 reg, u16 val);
+static u16 ali_ac97_get(struct trident_card *card, int secondary, u8 reg);
 static void ali_set_spdif_out_rate(struct trident_card *card, unsigned int rate);
 static void ali_enable_special_channel(struct trident_state *stat);
 static struct trident_channel *ali_alloc_rec_pcm_channel(struct trident_card *card);
 static struct trident_channel *ali_alloc_pcm_channel(struct trident_card *card);
-static int ali_pm_callback(struct pm_dev *dev, pm_request_t rqst, void *data);
 static void ali_restore_regs(struct trident_card *card);
 static void ali_save_regs(struct trident_card *card);
+static int trident_suspend(struct pci_dev *dev, u32 unused);
+static int trident_resume(struct pci_dev *dev);
 static void ali_free_pcm_channel(struct trident_card *card, unsigned int channel);
 static int ali_setup_multi_channels(struct trident_card *card, int chan_nums);
 static unsigned int ali_get_spdif_in_rate(struct trident_card *card);
@@ -412,6 +473,7 @@ static int trident_enable_loop_interrupts(struct trident_card * card)
 	case PCI_DEVICE_ID_ALI_5451:
 	case PCI_DEVICE_ID_TRIDENT_4DWAVE_DX:
 	case PCI_DEVICE_ID_TRIDENT_4DWAVE_NX:
+	case PCI_DEVICE_ID_INTERG_5050:
 		global_control |= (ENDLP_IE | MIDLP_IE);
 		break;
 	default:
@@ -422,7 +484,7 @@ static int trident_enable_loop_interrupts(struct trident_card * card)
 
 #ifdef DEBUG
 	printk("trident: Enable Loop Interrupts, globctl = 0x%08X\n",
-	       global_control);
+			inl(TRID_REG(card, T4D_LFO_GC_CIR)));
 #endif
 	return (TRUE);
 }
@@ -453,9 +515,9 @@ static void trident_enable_voice_irq(struct trident_card * card, unsigned int ch
 	outl(reg, TRID_REG(card, addr));
 
 #ifdef DEBUG
-	reg = inl(TRID_REG(card, T4D_AINTEN_B));
-	printk("trident: enabled IRQ on channel %d, AINTEN_B = 0x%08x\n",
-	       channel, reg);
+	reg = inl(TRID_REG(card, addr));
+	printk("trident: enabled IRQ on channel %d, %s = 0x%08x(addr:%X)\n",
+		channel, addr==T4D_AINTEN_B? "AINTEN_B":"AINTEN_A",reg,addr);
 #endif
 }
 
@@ -473,9 +535,9 @@ static void trident_disable_voice_irq(struct trident_card * card, unsigned int c
 	outl(mask, TRID_REG(card, bank->addresses->aint));
 
 #ifdef DEBUG
-	reg = inl(TRID_REG(card, T4D_AINTEN_B));
-	printk("trident: disabled IRQ on channel %d, AINTEN_B = 0x%08x\n",
-	       channel, reg);
+	reg = inl(TRID_REG(card, addr));
+	printk("trident: disabled IRQ on channel %d, %s = 0x%08x(addr:%X)\n",
+		channel, addr==T4D_AINTEN_B? "AINTEN_B":"AINTEN_A",reg,addr);
 #endif
 }
 
@@ -492,9 +554,9 @@ static void trident_start_voice(struct trident_card * card, unsigned int channel
 	outl(mask, TRID_REG(card, addr));
 
 #ifdef DEBUG
-	reg = inl(TRID_REG(card, T4D_START_B));
-	printk("trident: start voice on channel %d, START_B  = 0x%08x\n",
-	       channel, reg);
+	reg = inl(TRID_REG(card, addr));
+	printk("trident: start voice on channel %d, %s = 0x%08x(addr:%X)\n",
+		channel, addr==T4D_START_B? "START_B":"START_A",reg,addr);
 #endif
 }
 
@@ -511,9 +573,9 @@ static void trident_stop_voice(struct trident_card * card, unsigned int channel)
 	outl(mask, TRID_REG(card, addr));
 
 #ifdef DEBUG
-	reg = inl(TRID_REG(card, T4D_STOP_B));
-	printk("trident: stop voice on channel %d,  STOP_B  = 0x%08x\n",
-	       channel, reg);
+	reg = inl(TRID_REG(card, addr));
+	printk("trident: stop voice on channel %d, %s = 0x%08x(addr:%X)\n",
+		channel, addr==T4D_STOP_B? "STOP_B":"STOP_A",reg,addr);
 #endif
 }
 
@@ -531,8 +593,8 @@ static int trident_check_channel_interrupt(struct trident_card * card, unsigned 
 
 #ifdef DEBUG
 	if (reg & mask)
-		printk("trident: channel %d has interrupt, AINT_B = 0x%08x\n",
-		       channel, reg);
+		printk("trident: channel %d has interrupt, %s = 0x%08x\n",
+			channel,reg==T4D_AINT_B? "AINT_B":"AINT_A", reg);
 #endif
 	return (reg & mask) ? TRUE : FALSE;
 }
@@ -570,7 +632,7 @@ static struct trident_channel * trident_alloc_pcm_channel(struct trident_card *c
 		}
 	}
 
-	/* no more free channels avaliable */
+	/* no more free channels available */
 	printk(KERN_ERR "trident: no more channels available on Bank B.\n");
 	return NULL;
 }
@@ -588,7 +650,94 @@ static void trident_free_pcm_channel(struct trident_card *card, unsigned int cha
 	card->banks[bank].bitmap &= ~(1 << (channel));
 }
 
-/* called with spin lock held */
+static struct trident_channel * cyber_alloc_pcm_channel(struct trident_card *card)
+{
+	struct trident_pcm_bank *bank;
+	int idx;
+
+	/* The cyberpro 5050 has only 32 voices and one bank */
+	/* .. at least they are not documented (if you want to call that 
+	 * crap documentation), perhaps broken ? */
+
+	bank = &card->banks[BANK_A];
+
+	for (idx = 31; idx >= 0; idx--) {
+		if (!(bank->bitmap & (1 << idx))) {
+			struct trident_channel *channel = &bank->channels[idx];
+			bank->bitmap |= 1 << idx;
+			channel->num = idx;
+			return channel;
+		}
+	}
+
+	/* no more free channels available */
+	printk(KERN_ERR "cyberpro5050: no more channels available on Bank A.\n");
+	return NULL;
+}
+
+static void cyber_free_pcm_channel(struct trident_card *card, unsigned int channel)
+{
+	if (channel > 31)
+		return;
+	card->banks[BANK_A].bitmap &= ~(1 << (channel));
+}
+
+static inline void cyber_outidx(int port,int idx,int data)
+{
+	outb(idx,port);
+	outb(data,port+1);
+}
+
+static inline int cyber_inidx(int port,int idx)
+{
+	outb(idx,port);
+	return inb(port+1);
+}
+
+static int cyber_init_ritual(struct trident_card *card)
+{
+	/* some black magic, taken from SDK samples */
+	/* remove this and nothing will work */
+	int portDat;
+	int ret = 0;
+	unsigned long flags;
+
+	/*
+ 	 *	Keep interrupts off for the configure - we don't want to
+ 	 *	clash with another cyberpro config event
+ 	 */
+ 
+	save_flags(flags);
+	cli();
+	portDat = cyber_inidx(CYBER_PORT_AUDIO, CYBER_IDX_AUDIO_ENABLE);
+	/* enable, if it was disabled */
+	if( (portDat & CYBER_BMSK_AUENZ) != CYBER_BMSK_AUENZ_ENABLE ) {
+		printk(KERN_INFO "cyberpro5050: enabling audio controller\n" );
+		cyber_outidx( CYBER_PORT_AUDIO, CYBER_IDX_AUDIO_ENABLE,
+			portDat | CYBER_BMSK_AUENZ_ENABLE );
+		/* check again if hardware is enabled now */
+		portDat = cyber_inidx(CYBER_PORT_AUDIO, CYBER_IDX_AUDIO_ENABLE);
+	}
+	if( (portDat & CYBER_BMSK_AUENZ) != CYBER_BMSK_AUENZ_ENABLE )
+	{
+		printk(KERN_ERR "cyberpro5050: initAudioAccess: no success\n" );
+		ret = -1;
+	}
+	else
+	{
+		cyber_outidx( CYBER_PORT_AUDIO, CYBER_IDX_IRQ_ENABLE, CYBER_BMSK_AUDIO_INT_ENABLE );
+		cyber_outidx( CYBER_PORT_AUDIO, 0xbf, 0x01 );
+		cyber_outidx( CYBER_PORT_AUDIO, 0xba, 0x20 );
+		cyber_outidx( CYBER_PORT_AUDIO, 0xbb, 0x08 );
+		cyber_outidx( CYBER_PORT_AUDIO, 0xbf, 0x02 );
+		cyber_outidx( CYBER_PORT_AUDIO, 0xb3, 0x06 );
+		cyber_outidx( CYBER_PORT_AUDIO, 0xbf, 0x00 );
+	}
+	restore_flags(flags);
+	return ret;
+}
+
+/*  called with spin lock held */
 
 static int trident_load_channel_registers(struct trident_card *card, u32 *data, unsigned int channel)
 {
@@ -606,6 +755,11 @@ static int trident_load_channel_registers(struct trident_card *card, u32 *data, 
 		if (i == 3 && card->pci_id == PCI_DEVICE_ID_ALI_5451)
 			continue;
 		outl(data[i], TRID_REG(card, CHANNEL_START + 4*i));
+	}
+	if (card->pci_id == PCI_DEVICE_ID_ALI_5451 ||
+		card->pci_id == PCI_DEVICE_ID_INTERG_5050) {
+		outl(ALI_EMOD_Still, TRID_REG(card, ALI_EBUF1));
+		outl(ALI_EMOD_Still, TRID_REG(card, ALI_EBUF2));
 	}
 	return TRUE;
 }
@@ -629,6 +783,7 @@ static int trident_write_voice_regs(struct trident_state *state)
 		data[3] = 0;
 		break;	
 	case PCI_DEVICE_ID_SI_7018:
+	case PCI_DEVICE_ID_INTERG_5050:
 		data[0] = 0; /* Current Sample Offset */
 		data[2] = (channel->eso << 16) | (channel->delta & 0xffff);
 		data[3] = (channel->attribute << 16) | (channel->fm_vol & 0xffff);
@@ -766,7 +921,7 @@ static void trident_play_setup(struct trident_state *state)
 		channel->control |= CHANNEL_STEREO;
 #ifdef DEBUG
 	printk("trident: trident_play_setup, LBA = 0x%08x, "
-	       "Delat = 0x%08x, ESO = 0x%08x, Control = 0x%08x\n",
+	       "Delta = 0x%08x, ESO = 0x%08x, Control = 0x%08x\n",
 	       channel->lba, channel->delta, channel->eso, channel->control);
 #endif
 	trident_write_voice_regs(state);
@@ -803,6 +958,9 @@ static void trident_rec_setup(struct trident_state *state)
 		outw(w | 0x1000, TRID_REG(card, T4D_MISCINT));
 		/* enable and set record channel */
 		outb(0x80 | channel->num, TRID_REG(card, T4D_REC_CH));
+		break;
+	case PCI_DEVICE_ID_INTERG_5050:
+		/* don't know yet, using special channel 22 in GC1(0xd4)? */
 		break;
 	default:
 		return;
@@ -857,7 +1015,7 @@ static void trident_rec_setup(struct trident_state *state)
 
 /* get current playback/recording dma buffer pointer (byte offset from LBA),
    called with spinlock held! */
-extern __inline__ unsigned trident_get_dma_addr(struct trident_state *state)
+static inline unsigned trident_get_dma_addr(struct trident_state *state)
 {
 	struct dmabuf *dmabuf = &state->dmabuf;
 	u32 cso;
@@ -872,6 +1030,7 @@ extern __inline__ unsigned trident_get_dma_addr(struct trident_state *state)
 	case PCI_DEVICE_ID_ALI_5451:
 	case PCI_DEVICE_ID_SI_7018:
 	case PCI_DEVICE_ID_TRIDENT_4DWAVE_DX:
+	case PCI_DEVICE_ID_INTERG_5050:
 		/* 16 bits ESO, CSO for 7018 and DX */
 		cso = inw(TRID_REG(state->card, CH_DX_CSO_ALPHA_FMS + 2));
 		break;
@@ -895,7 +1054,7 @@ extern __inline__ unsigned trident_get_dma_addr(struct trident_state *state)
 }
 
 /* Stop recording (lock held) */
-extern __inline__ void __stop_adc(struct trident_state *state)
+static inline void __stop_adc(struct trident_state *state)
 {
 	struct dmabuf *dmabuf = &state->dmabuf;
 	unsigned int chan_num = dmabuf->channel->num;
@@ -933,7 +1092,7 @@ static void start_adc(struct trident_state *state)
 }
 
 /* stop playback (lock held) */
-extern __inline__ void __stop_dac(struct trident_state *state)
+static inline void __stop_dac(struct trident_state *state)
 {
 	struct dmabuf *dmabuf = &state->dmabuf;
 	unsigned int chan_num = dmabuf->channel->num;
@@ -989,7 +1148,7 @@ static void start_dac(struct trident_state *state)
 static int alloc_dmabuf(struct trident_state *state)
 {
 	struct dmabuf *dmabuf = &state->dmabuf;
-	void *rawbuf=NULL;
+	void *rawbuf = NULL;
 	int order;
 	struct page *page, *pend;
 
@@ -1203,7 +1362,7 @@ static int drain_dac(struct trident_state *state, int nonblock)
 	for (;;) {
 		/* It seems that we have to set the current state to TASK_INTERRUPTIBLE
 		   every time to make the process really go to sleep */
-		current->state = TASK_INTERRUPTIBLE;
+		set_current_state(TASK_INTERRUPTIBLE);
 
 		spin_lock_irqsave(&state->card->lock, flags);
 		count = dmabuf->count;
@@ -1217,13 +1376,14 @@ static int drain_dac(struct trident_state *state, int nonblock)
 
 		if (nonblock) {
 			remove_wait_queue(&dmabuf->wait, &wait);
-			current->state = TASK_RUNNING;
+			set_current_state(TASK_RUNNING);
 			return -EBUSY;
 		}
 
-		/* No matter how much data left in the buffer, we have to wait untill
+		/* No matter how much data is left in the buffer, we have to wait until
 		   CSO == ESO/2 or CSO == ESO when address engine interrupts */
-	 	if (state->card->pci_id == PCI_DEVICE_ID_ALI_5451)
+	 	if (state->card->pci_id == PCI_DEVICE_ID_ALI_5451 ||
+		    state->card->pci_id == PCI_DEVICE_ID_INTERG_5050)
 		{	
 			diff = dmabuf->swptr - trident_get_dma_addr(state) + dmabuf->dmasize ;
 			diff = diff % (dmabuf->dmasize);
@@ -1234,13 +1394,12 @@ static int drain_dac(struct trident_state *state, int nonblock)
 			tmo = (dmabuf->dmasize * HZ) / dmabuf->rate;
 		}
 		tmo >>= sample_shift[dmabuf->fmt];
-//		printk("trident: diff=%d count= %d/%d total=%d tmo=%d hwptr=%d swptr=%d curptr=%d\n",diff,dmabuf->count,dmabuf->dmasize,dmabuf->total_bytes,tmo,dmabuf->hwptr,dmabuf->swptr,trident_get_dma_addr(state));
 		if (!schedule_timeout(tmo ? tmo : 1) && tmo){
 			break;
 		}
 	}
 	remove_wait_queue(&dmabuf->wait, &wait);
-	current->state = TASK_RUNNING;
+	set_current_state(TASK_RUNNING);
 	if (signal_pending(current))
 		return -ERESTARTSYS;
 
@@ -1383,10 +1542,141 @@ static void trident_address_interrupt(struct trident_card *card)
 	}
 }
 
+static void ali_hwvol_control(struct trident_card *card, int opt)
+{
+	u16 dwTemp, volume[2], mute, diff, *pVol[2];
+
+	dwTemp = ali_ac97_read(card->ac97_codec[0], 0x02);
+	mute = dwTemp & 0x8000;
+	volume[0] = dwTemp & 0x001f;
+	volume[1] = (dwTemp & 0x1f00) >> 8;
+	if (volume[0] < volume [1]) {
+		pVol[0] = &volume[0];
+		pVol[1] = &volume[1];
+	} else {
+		pVol[1] = &volume[0];
+		pVol[0] = &volume[1];
+	}
+	diff = *(pVol[1]) - *(pVol[0]);
+
+	if (opt == 1) {                     // MUTE
+		dwTemp ^= 0x8000;
+		ali_ac97_write(card->ac97_codec[0], 0x02, dwTemp);
+	} else if (opt == 2) {   // Down
+		if (mute)
+			return;
+		if (*(pVol[1]) < 0x001f) {
+			(*pVol[1])++;
+			*(pVol[0]) = *(pVol[1]) - diff;
+		}
+		dwTemp &= 0xe0e0;
+		dwTemp |= (volume[0]) | (volume[1] << 8);
+		ali_ac97_write(card->ac97_codec[0], 0x02, dwTemp);
+		card->ac97_codec[0]->mixer_state[0] = ((32-volume[0])*25/8) | (((32-volume[1])*25/8) << 8);
+	} else if (opt == 4) {   // Up
+		if (mute)
+			return;
+		if (*(pVol[0]) >0) {
+			(*pVol[0])--;
+			*(pVol[1]) = *(pVol[0]) + diff;
+		}
+		dwTemp &= 0xe0e0;
+		dwTemp |= (volume[0]) | (volume[1] << 8);
+		ali_ac97_write(card->ac97_codec[0], 0x02, dwTemp);
+		card->ac97_codec[0]->mixer_state[0] = ((32-volume[0])*25/8) | (((32-volume[1])*25/8) << 8);
+	} 
+	else 
+	{
+		/* Nothing needs doing */
+	}
+}
+
+/*
+ *	Re-enable reporting of vol change after 0.1 seconds
+ */
+
+static void ali_timeout(unsigned long ptr)
+{
+	struct trident_card *card = (struct trident_card *)ptr;
+	u16 temp = 0;
+
+	/* Enable GPIO IRQ (MISCINT bit 18h)*/
+	temp = inw(TRID_REG(card, T4D_MISCINT + 2));
+	temp |= 0x0004;
+	outw(temp, TRID_REG(card, T4D_MISCINT + 2));
+}
+
+/*
+ *	Set up the timer to clear the vol change notification
+ */
+ 
+static void ali_set_timer(struct trident_card *card)
+{
+	/* Add Timer Routine to Enable GPIO IRQ */
+	del_timer(&card->timer);	/* Never queue twice */
+	card->timer.function = ali_timeout;
+	card->timer.data = (unsigned long) card;
+	card->timer.expires = jiffies + HZ/10;
+	add_timer(&card->timer);
+}
+
+/*
+ *	Process a GPIO event
+ */
+ 
+static void ali_queue_task(struct trident_card *card, int opt)
+{
+	u16 temp;
+
+	/* Disable GPIO IRQ (MISCINT bit 18h)*/
+	temp = inw(TRID_REG(card, T4D_MISCINT + 2));
+	temp &= (u16)(~0x0004);
+	outw(temp, TRID_REG(card, T4D_MISCINT + 2));
+
+	/* Adjust the volume */
+	ali_hwvol_control(card, opt);
+	
+	/* Set the timer for 1/10th sec */
+	ali_set_timer(card);
+}
+
+static void cyber_address_interrupt(struct trident_card *card)
+{
+	int i,irq_status;
+	struct trident_state *state;
+
+	/* Update the pointers for all channels we are running. */
+	/* FIXED: read interrupt status only once */
+	irq_status=inl(TRID_REG(card, T4D_AINT_A) );
+#ifdef DEBUG	
+	printk("cyber_address_interrupt: irq_status 0x%X\n",irq_status);
+#endif
+	for (i = 0; i < NR_HW_CH; i++) {
+		if (irq_status & ( 1 << (31 - i)) ) {
+
+			/* clear bit by writing a 1, zeroes are ignored */ 		
+			outl( (1 <<(31-i)), TRID_REG(card, T4D_AINT_A));
+		
+#ifdef DEBUG	
+	printk("cyber_interrupt: channel %d\n", 31-i);
+#endif
+			if ((state = card->states[i]) != NULL) {
+				trident_update_ptr(state);
+			} else {
+				printk("cyber5050: spurious channel irq %d.\n",
+				       31 - i);
+				trident_stop_voice(card, 31 - i);
+				trident_disable_voice_irq(card, 31 - i);
+			}
+		}
+	}
+}
+
 static void trident_interrupt(int irq, void *dev_id, struct pt_regs *regs)
 {
 	struct trident_card *card = (struct trident_card *)dev_id;
 	u32 event;
+	u32 gpio;
 
 	spin_lock(&card->lock);
 	event = inl(TRID_REG(card, T4D_MISCINT));
@@ -1399,15 +1689,25 @@ static void trident_interrupt(int irq, void *dev_id, struct pt_regs *regs)
 		card->address_interrupt(card);
 	}
 
+	if(card->pci_id == PCI_DEVICE_ID_ALI_5451)
+	{
+		/* GPIO IRQ (H/W Volume Control) */
+		event = inl(TRID_REG(card, T4D_MISCINT));
+		if (event & (1<<25)) {
+			gpio = inl(TRID_REG(card, ALI_GPIO));
+			if (!timer_pending(&card->timer)) 
+				ali_queue_task(card, gpio&0x07);
+		}
+		event = inl(TRID_REG(card, T4D_MISCINT));
+		outl(event | (ST_TARGET_REACHED | MIXER_OVERFLOW | MIXER_UNDERFLOW), TRID_REG(card, T4D_MISCINT));
+		spin_unlock(&card->lock);
+		return;
+	}
+
 	/* manually clear interrupt status, bad hardware design, blame T^2 */
 	outl((ST_TARGET_REACHED | MIXER_OVERFLOW | MIXER_UNDERFLOW),
 	     TRID_REG(card, T4D_MISCINT));
 	spin_unlock(&card->lock);
-}
-
-static loff_t trident_llseek(struct file *file, loff_t offset, int origin)
-{
-	return -ESPIPE;
 }
 
 /* in this loop, dmabuf.count signifies the amount of data that is waiting to be copied to
@@ -1416,7 +1716,7 @@ static ssize_t trident_read(struct file *file, char *buffer, size_t count, loff_
 {
 	struct trident_state *state = (struct trident_state *)file->private_data;
 	struct dmabuf *dmabuf = &state->dmabuf;
-	ssize_t ret;
+	ssize_t ret = 0;
 	unsigned long flags;
 	unsigned swptr;
 	int cnt;
@@ -1428,13 +1728,15 @@ static ssize_t trident_read(struct file *file, char *buffer, size_t count, loff_
 	VALIDATE_STATE(state);
 	if (ppos != &file->f_pos)
 		return -ESPIPE;
+		
 	if (dmabuf->mapped)
 		return -ENXIO;
-	if (!dmabuf->ready && (ret = prog_dmabuf(state, 1)))
-		return ret;
 	if (!access_ok(VERIFY_WRITE, buffer, count))
 		return -EFAULT;
-	ret = 0;
+		
+	down(&state->sem);
+	if (!dmabuf->ready && (ret = prog_dmabuf(state, 1)))
+		goto out;
 
 	while (count > 0) {
 		spin_lock_irqsave(&state->card->lock, flags);
@@ -1459,8 +1761,10 @@ static ssize_t trident_read(struct file *file, char *buffer, size_t count, loff_
 			start_adc(state);
 			if (file->f_flags & O_NONBLOCK) {
 				if (!ret) ret = -EAGAIN;
-				return ret;
+				goto out;
 			}
+			
+			up(&state->sem);
 			/* No matter how much space left in the buffer, we have to wait until
 			   CSO == ESO/2 or CSO == ESO when address engine interrupts */
 			tmo = (dmabuf->dmasize * HZ) / (dmabuf->rate * 2);
@@ -1483,15 +1787,22 @@ static ssize_t trident_read(struct file *file, char *buffer, size_t count, loff_
 				   while loop begin and we REALLY have space to record */
 			}
 			if (signal_pending(current)) {
-				ret = ret ? ret : -ERESTARTSYS;
-				return ret;
+				if(!ret) ret = -ERESTARTSYS;
+				goto out;
+			}
+			down(&state->sem);
+			if(dmabuf->mapped)
+			{
+				if(!ret)
+					ret = -ENXIO;
+				goto out;
 			}
 			continue;
 		}
 
 		if (copy_to_user(buffer, dmabuf->rawbuf + swptr, cnt)) {
 			if (!ret) ret = -EFAULT;
-			return ret;
+			goto out;
 		}
 
 		swptr = (swptr + cnt) % dmabuf->dmasize;
@@ -1506,11 +1817,14 @@ static ssize_t trident_read(struct file *file, char *buffer, size_t count, loff_
 		ret += cnt;
 		start_adc(state);
 	}
+out:
+	up(&state->sem);
 	return ret;
 }
 
 /* in this loop, dmabuf.count signifies the amount of data that is waiting to be dma to
    the soundcard.  it is drained by the dma machine and filled by this loop. */
+
 static ssize_t trident_write(struct file *file, const char *buffer, size_t count, loff_t *ppos)
 {
 	struct trident_state *state = (struct trident_state *)file->private_data;
@@ -1528,12 +1842,27 @@ static ssize_t trident_write(struct file *file, const char *buffer, size_t count
 	VALIDATE_STATE(state);
 	if (ppos != &file->f_pos)
 		return -ESPIPE;
+	
+	/*
+	 *	Guard against an mmap or ioctl while writing
+	 */	
+	 
+	down(&state->sem);
+	
 	if (dmabuf->mapped)
-		return -ENXIO;
+	{
+		ret = -ENXIO;
+		goto out;
+	}
 	if (!dmabuf->ready && (ret = prog_dmabuf(state, 0)))
-		return ret;
+		goto out;
+
 	if (!access_ok(VERIFY_READ, buffer, count))
-		return -EFAULT;
+	{
+		ret= -EFAULT;
+		goto out;
+	}
+	
 	ret = 0;
 
 	while (count > 0) {
@@ -1559,7 +1888,7 @@ static ssize_t trident_write(struct file *file, const char *buffer, size_t count
 			start_dac(state);
 			if (file->f_flags & O_NONBLOCK) {
 				if (!ret) ret = -EAGAIN;
-				return ret;
+				goto out;
 			}
 			/* No matter how much data left in the buffer, we have to wait until
 			   CSO == ESO/2 or CSO == ESO when address engine interrupts */
@@ -1567,6 +1896,8 @@ static ssize_t trident_write(struct file *file, const char *buffer, size_t count
 			tmo = (dmabuf->dmasize * HZ) / (dmabuf->rate * 2);
 			tmo >>= sample_shift[dmabuf->fmt];
 			unlock_set_fmt(state);
+			up(&state->sem);
+			
 			/* There are two situations when sleep_on_timeout returns, one is when
 			   the interrupt is serviced correctly and the process is waked up by
 			   ISR ON TIME. Another is when timeout is expired, which means that
@@ -1586,7 +1917,14 @@ static ssize_t trident_write(struct file *file, const char *buffer, size_t count
 			}
 			if (signal_pending(current)) {
 				if (!ret) ret = -ERESTARTSYS;
-				return ret;
+				goto out;
+			}
+			down(&state->sem);
+			if(dmabuf->mapped)
+			{
+				if(!ret)
+					ret = -ENXIO;
+				goto out;
 			}
 			continue;
 		}
@@ -1606,14 +1944,14 @@ static ssize_t trident_write(struct file *file, const char *buffer, size_t count
 				ret += copy_count;
 				if (!ret) ret = -EFAULT;
 				unlock_set_fmt(state);
-				return ret;
+				goto out;
 			}
 		}
 		else {
 			if (copy_from_user(dmabuf->rawbuf + swptr, buffer, cnt)) {
 				if (!ret) ret = -EFAULT;
 				unlock_set_fmt(state);
-				return ret;
+				goto out;
 			}
 			state_cnt = cnt;
 		}
@@ -1632,8 +1970,11 @@ static ssize_t trident_write(struct file *file, const char *buffer, size_t count
 		ret += cnt;
 		start_dac(state);
 	}
+out:
+	up(&state->sem);
 	return ret;
 }
+
 
 /* No kernel lock - we have our own spinlock */
 static unsigned int trident_poll(struct file *file, struct poll_table_struct *wait)
@@ -1645,17 +1986,32 @@ static unsigned int trident_poll(struct file *file, struct poll_table_struct *wa
 
 	VALIDATE_STATE(state);
 
+	/*
+	 *	Guard against a parallel poll and write causing multiple
+	 *	prog_dmabuf events
+	 */
+	 
+	down(&state->sem);
+
 	if (file->f_mode & FMODE_WRITE) {
 		if (!dmabuf->ready && prog_dmabuf(state, 0))
+		{
+			up(&state->sem);
 			return 0;
+		}
 		poll_wait(file, &dmabuf->wait, wait);
 	}
 	if (file->f_mode & FMODE_READ) {
 		if (!dmabuf->ready && prog_dmabuf(state, 1))
+		{
+			up(&state->sem);
 			return 0;
+		}
 		poll_wait(file, &dmabuf->wait, wait);
 	}
 
+	up(&state->sem);
+	
 	spin_lock_irqsave(&state->card->lock, flags);
 	trident_update_ptr(state);
 	if (file->f_mode & FMODE_READ) {
@@ -1685,6 +2041,14 @@ static int trident_mmap(struct file *file, struct vm_area_struct *vma)
 
 	VALIDATE_STATE(state);
 	lock_kernel();
+	
+	/*
+	 *	Lock against poll read write or mmap creating buffers. Also lock
+	 *	a read or write against an mmap.
+	 */
+	 
+	down(&state->sem);
+	
 	if (vma->vm_flags & VM_WRITE) {
 		if ((ret = prog_dmabuf(state, 0)) != 0)
 			goto out;
@@ -1707,6 +2071,7 @@ static int trident_mmap(struct file *file, struct vm_area_struct *vma)
 	dmabuf->mapped = 1;
 	ret = 0;
 out:
+	up(&state->sem);
 	unlock_kernel();
 	return ret;
 }
@@ -1718,7 +2083,7 @@ static int trident_ioctl(struct inode *inode, struct file *file, unsigned int cm
 	unsigned long flags;
 	audio_buf_info abinfo;
 	count_info cinfo;
-	int val, mapped, ret;
+	int val, mapped, ret = 0;
 
 	struct trident_card *card = state->card;
 
@@ -1733,8 +2098,9 @@ static int trident_ioctl(struct inode *inode, struct file *file, unsigned int cm
 	switch (cmd) 
 	{
 	case OSS_GETVERSION:
-		return put_user(SOUND_VERSION, (int *)arg);
-
+		ret = put_user(SOUND_VERSION, (int *)arg);
+		break;
+		
 	case SNDCTL_DSP_RESET:
 		/* FIXME: spin_lock ? */
 		if (file->f_mode & FMODE_WRITE) {
@@ -1751,16 +2117,19 @@ static int trident_ioctl(struct inode *inode, struct file *file, unsigned int cm
 			dmabuf->swptr = dmabuf->hwptr = 0;
 			dmabuf->count = dmabuf->total_bytes = 0;
 		}
-		return 0;
+		break;
 
 	case SNDCTL_DSP_SYNC:
 		if (file->f_mode & FMODE_WRITE)
-			return drain_dac(state, file->f_flags & O_NONBLOCK);
-		return 0;
+			ret = drain_dac(state, file->f_flags & O_NONBLOCK);
+		break;
 
 	case SNDCTL_DSP_SPEED: /* set smaple rate */
 		if (get_user(val, (int *)arg))
-			return -EFAULT;
+		{
+			ret = -EFAULT;
+			break;
+		}
 		if (val >= 0) {
 			if (file->f_mode & FMODE_WRITE) {
 				stop_dac(state);
@@ -1777,11 +2146,15 @@ static int trident_ioctl(struct inode *inode, struct file *file, unsigned int cm
 				spin_unlock_irqrestore(&state->card->lock, flags);
 			}
 		}
-		return put_user(dmabuf->rate, (int *)arg);
+		ret = put_user(dmabuf->rate, (int *)arg);
+		break;
 
 	case SNDCTL_DSP_STEREO: /* set stereo or mono channel */
 		if (get_user(val, (int *)arg))
-			return -EFAULT;
+		{
+			ret = -EFAULT;
+			break;
+		}
 		lock_set_fmt(state);
 		if (file->f_mode & FMODE_WRITE) {
 			stop_dac(state);
@@ -1800,26 +2173,34 @@ static int trident_ioctl(struct inode *inode, struct file *file, unsigned int cm
 				dmabuf->fmt &= ~TRIDENT_FMT_STEREO;
 		}
 		unlock_set_fmt(state);
-		return 0;
+		break;
 
 	case SNDCTL_DSP_GETBLKSIZE:
 		if (file->f_mode & FMODE_WRITE) {
 			if ((val = prog_dmabuf(state, 0)))
-				return val;
-			return put_user(dmabuf->fragsize, (int *)arg);
+				ret = val;
+			else
+				ret = put_user(dmabuf->fragsize, (int *)arg);
+			break;
 		}
 		if (file->f_mode & FMODE_READ) {
 			if ((val = prog_dmabuf(state, 1)))
-				return val;
-			return put_user(dmabuf->fragsize, (int *)arg);
+				ret = val;
+			else
+				ret = put_user(dmabuf->fragsize, (int *)arg);
+			break;
 		}
 
 	case SNDCTL_DSP_GETFMTS: /* Returns a mask of supported sample format*/
-		return put_user(AFMT_S16_LE|AFMT_U16_LE|AFMT_S8|AFMT_U8, (int *)arg);
+		ret = put_user(AFMT_S16_LE|AFMT_U16_LE|AFMT_S8|AFMT_U8, (int *)arg);
+		break;
 
 	case SNDCTL_DSP_SETFMT: /* Select sample format */
 		if (get_user(val, (int *)arg))
-			return -EFAULT;
+		{
+			ret = -EFAULT;
+			break;
+		}
 		lock_set_fmt(state);
 		if (val != AFMT_QUERY) {
 			if (file->f_mode & FMODE_WRITE) {
@@ -1840,12 +2221,16 @@ static int trident_ioctl(struct inode *inode, struct file *file, unsigned int cm
 			}
 		}
 		unlock_set_fmt(state);
-		return put_user((dmabuf->fmt & TRIDENT_FMT_16BIT) ?
+		ret = put_user((dmabuf->fmt & TRIDENT_FMT_16BIT) ?
 				AFMT_S16_LE : AFMT_U8, (int *)arg);
+		break;
 
 	case SNDCTL_DSP_CHANNELS:
 		if (get_user(val, (int *)arg))
-			return -EFAULT;
+		{
+			ret = -EFAULT;
+			break;
+		}
 		if (val != 0) {
 			lock_set_fmt(state);
 			if (file->f_mode & FMODE_WRITE) {
@@ -1866,21 +2251,22 @@ static int trident_ioctl(struct inode *inode, struct file *file, unsigned int cm
 
 						if( card->rec_channel_use_count > 0 )
 						{
-							printk("Err: Record is working on the card!\n");
-							return -EBUSY;
+							printk(KERN_ERR "trident: Record is working on the card!\n");
+							ret = -EBUSY;
+							break;
 						}
 
 						ret = ali_setup_multi_channels(state->card, 6);
 						if (ret < 0) {
 							unlock_set_fmt(state);
-							return ret;
+							break;
 						}
 						down(&state->card->open_sem);
 						ret = ali_allocate_other_states_resources(state, 6);
 						if (ret < 0) {
 							up(&state->card->open_sem);
 							unlock_set_fmt(state);
-							return ret;
+							break;
 						}
 						state->card->multi_channel_use_count ++;
 						up(&state->card->open_sem);
@@ -1905,25 +2291,38 @@ static int trident_ioctl(struct inode *inode, struct file *file, unsigned int cm
 			}
 			unlock_set_fmt(state);
 		}
-		return put_user(val, (int *)arg);
+		ret = put_user(val, (int *)arg);
+		break;
 
 	case SNDCTL_DSP_POST:
-		/* FIXME: the same as RESET ?? */
-		return 0;
+		/* Cause the working fragment to be output */
+		break;
 
 	case SNDCTL_DSP_SUBDIVIDE:
 		if (dmabuf->subdivision)
-			return -EINVAL;
+		{
+			ret = -EINVAL;
+			break;
+		}
 		if (get_user(val, (int *)arg))
-			return -EFAULT;
+		{
+			ret = -EFAULT;
+			break;
+		}
 		if (val != 1 && val != 2 && val != 4)
-			return -EINVAL;
+		{
+			ret = -EINVAL;
+			break;
+		}
 		dmabuf->subdivision = val;
-		return 0;
+		break;
 
 	case SNDCTL_DSP_SETFRAGMENT:
 		if (get_user(val, (int *)arg))
-			return -EFAULT;
+		{
+			ret = -EFAULT;
+			break;
+		}
 
 		dmabuf->ossfragshift = val & 0xffff;
 		dmabuf->ossmaxfrags = (val >> 16) & 0xffff;
@@ -1934,13 +2333,19 @@ static int trident_ioctl(struct inode *inode, struct file *file, unsigned int cm
 		if (dmabuf->ossmaxfrags < 4)
 			dmabuf->ossmaxfrags = 4;
 
-		return 0;
+		break;
 
 	case SNDCTL_DSP_GETOSPACE:
 		if (!(file->f_mode & FMODE_WRITE))
-			return -EINVAL;
+		{
+			ret = -EINVAL;
+			break;
+		}
 		if (!dmabuf->ready && (val = prog_dmabuf(state, 0)) != 0)
-			return val;
+		{ 
+			ret = val;
+			break;
+		}
 		spin_lock_irqsave(&state->card->lock, flags);
 		trident_update_ptr(state);
 		abinfo.fragsize = dmabuf->fragsize;
@@ -1948,13 +2353,20 @@ static int trident_ioctl(struct inode *inode, struct file *file, unsigned int cm
 		abinfo.fragstotal = dmabuf->numfrag;
 		abinfo.fragments = abinfo.bytes >> dmabuf->fragshift;
 		spin_unlock_irqrestore(&state->card->lock, flags);
-		return copy_to_user((void *)arg, &abinfo, sizeof(abinfo)) ? -EFAULT : 0;
+		ret = copy_to_user((void *)arg, &abinfo, sizeof(abinfo)) ? -EFAULT : 0;
+		break;
 
 	case SNDCTL_DSP_GETISPACE:
 		if (!(file->f_mode & FMODE_READ))
-			return -EINVAL;
+		{
+			ret = -EINVAL;
+			break;
+		}
 		if (!dmabuf->ready && (val = prog_dmabuf(state, 1)) != 0)
-			return val;
+		{
+			ret = val;
+			break;
+		}
 		spin_lock_irqsave(&state->card->lock, flags);
 		trident_update_ptr(state);
 		abinfo.fragsize = dmabuf->fragsize;
@@ -1962,15 +2374,17 @@ static int trident_ioctl(struct inode *inode, struct file *file, unsigned int cm
 		abinfo.fragstotal = dmabuf->numfrag;
 		abinfo.fragments = abinfo.bytes >> dmabuf->fragshift;
 		spin_unlock_irqrestore(&state->card->lock, flags);
-		return copy_to_user((void *)arg, &abinfo, sizeof(abinfo)) ? -EFAULT : 0;
+		ret = copy_to_user((void *)arg, &abinfo, sizeof(abinfo)) ? -EFAULT : 0;
+		break;
 
 	case SNDCTL_DSP_NONBLOCK:
 		file->f_flags |= O_NONBLOCK;
-		return 0;
+		break;
 
 	case SNDCTL_DSP_GETCAPS:
-	    return put_user(DSP_CAP_REALTIME|DSP_CAP_TRIGGER|DSP_CAP_MMAP|DSP_CAP_BIND,
+		ret = put_user(DSP_CAP_REALTIME|DSP_CAP_TRIGGER|DSP_CAP_MMAP|DSP_CAP_BIND,
 			    (int *)arg);
+		break;
 
 	case SNDCTL_DSP_GETTRIGGER:
 		val = 0;
@@ -1978,15 +2392,19 @@ static int trident_ioctl(struct inode *inode, struct file *file, unsigned int cm
 			val |= PCM_ENABLE_INPUT;
 		if ((file->f_mode & FMODE_WRITE) && dmabuf->enable)
 			val |= PCM_ENABLE_OUTPUT;
-		return put_user(val, (int *)arg);
+		ret = put_user(val, (int *)arg);
+		break;
 
 	case SNDCTL_DSP_SETTRIGGER:
 		if (get_user(val, (int *)arg))
-			return -EFAULT;
+		{
+			ret = -EFAULT;
+			break;
+		}
 		if (file->f_mode & FMODE_READ) {
 			if (val & PCM_ENABLE_INPUT) {
 				if (!dmabuf->ready && (ret = prog_dmabuf(state, 1)))
-					return ret;
+					break;
 				start_adc(state);
 			} else
 				stop_adc(state);
@@ -1994,18 +2412,24 @@ static int trident_ioctl(struct inode *inode, struct file *file, unsigned int cm
 		if (file->f_mode & FMODE_WRITE) {
 			if (val & PCM_ENABLE_OUTPUT) {
 				if (!dmabuf->ready && (ret = prog_dmabuf(state, 0)))
-					return ret;
+					break;
 				start_dac(state);
 			} else
 				stop_dac(state);
 		}
-		return 0;
+		break;
 
 	case SNDCTL_DSP_GETIPTR:
 		if (!(file->f_mode & FMODE_READ))
-			return -EINVAL;
+		{
+			ret = -EINVAL;
+			break;
+		}
 		if (!dmabuf->ready && (val = prog_dmabuf(state, 1)) != 0)
-			return val;
+		{
+			ret = val;
+			break;
+		}
 		spin_lock_irqsave(&state->card->lock, flags);
 		trident_update_ptr(state);
 		cinfo.bytes = dmabuf->total_bytes;
@@ -2014,13 +2438,21 @@ static int trident_ioctl(struct inode *inode, struct file *file, unsigned int cm
 		if (dmabuf->mapped)
 			dmabuf->count &= dmabuf->fragsize-1;
 		spin_unlock_irqrestore(&state->card->lock, flags);
-		return copy_to_user((void *)arg, &cinfo, sizeof(cinfo));
+		ret = copy_to_user((void *)arg, &cinfo, sizeof(cinfo));
+		break;
 
 	case SNDCTL_DSP_GETOPTR:
 		if (!(file->f_mode & FMODE_WRITE))
-			return -EINVAL;
+		{
+			ret = -EINVAL;
+			break;
+		}
 		if (!dmabuf->ready && (val = prog_dmabuf(state, 0)) != 0)
-			return val;
+		{
+			ret = val;
+			break;
+		}
+		
 		spin_lock_irqsave(&state->card->lock, flags);
 		trident_update_ptr(state);
 		cinfo.bytes = dmabuf->total_bytes;
@@ -2029,43 +2461,62 @@ static int trident_ioctl(struct inode *inode, struct file *file, unsigned int cm
 		if (dmabuf->mapped)
 			dmabuf->count &= dmabuf->fragsize-1;
 		spin_unlock_irqrestore(&state->card->lock, flags);
-		return copy_to_user((void *)arg, &cinfo, sizeof(cinfo));
+		ret = copy_to_user((void *)arg, &cinfo, sizeof(cinfo))?-EFAULT:0;
+		break;
 
 	case SNDCTL_DSP_SETDUPLEX:
-		return -EINVAL;
+		ret = -EINVAL;
+		break;
 
 	case SNDCTL_DSP_GETODELAY:
 		if (!(file->f_mode & FMODE_WRITE))
-			return -EINVAL;
+		{
+			ret = -EINVAL;
+			break;
+		}
 		if (!dmabuf->ready && (val = prog_dmabuf(state, 0)) != 0)
-			return val;
+		{
+			ret = val;
+			break;
+		}
 		spin_lock_irqsave(&state->card->lock, flags);
 		trident_update_ptr(state);
 		val = dmabuf->count;
 		spin_unlock_irqrestore(&state->card->lock, flags);
-		return put_user(val, (int *)arg);
+		ret = put_user(val, (int *)arg);
+		break;
 
 	case SOUND_PCM_READ_RATE:
-		return put_user(dmabuf->rate, (int *)arg);
+		ret = put_user(dmabuf->rate, (int *)arg);
+		break;
 
 	case SOUND_PCM_READ_CHANNELS:
-		return put_user((dmabuf->fmt & TRIDENT_FMT_STEREO) ? 2 : 1,
+		ret = put_user((dmabuf->fmt & TRIDENT_FMT_STEREO) ? 2 : 1,
 				(int *)arg);
+		break;
 
 	case SOUND_PCM_READ_BITS:
-		return put_user((dmabuf->fmt & TRIDENT_FMT_16BIT) ?
+		ret = put_user((dmabuf->fmt & TRIDENT_FMT_16BIT) ?
 				AFMT_S16_LE : AFMT_U8, (int *)arg);
+		break;
 
 	case SNDCTL_DSP_GETCHANNELMASK:
-		return put_user(DSP_BIND_FRONT|DSP_BIND_SURR|DSP_BIND_CENTER_LFE,
+		ret = put_user(DSP_BIND_FRONT|DSP_BIND_SURR|DSP_BIND_CENTER_LFE,
 				(int *)arg);
+		break;
 
 	case SNDCTL_DSP_BIND_CHANNEL:
 		if (state->card->pci_id != PCI_DEVICE_ID_SI_7018)
-			return -EINVAL;
+		{
+			ret = -EINVAL;
+			break;
+		}
 
 		if (get_user(val, (int *)arg))
-			return -EFAULT;
+		{
+			ret = -EFAULT;
+			break;
+		}
 		if (val == DSP_BIND_QUERY) {
 			val = dmabuf->channel->attribute | 0x3c00;
 			val = attr2mask[val >> 8];
@@ -2077,17 +2528,20 @@ static int trident_ioctl(struct inode *inode, struct file *file, unsigned int cm
 				dmabuf->channel->attribute = (CHANNEL_SPC_PB|SRC_ENABLE);
 			dmabuf->channel->attribute |= mask2attr[ffs(val)];
 		}
-		return put_user(val, (int *)arg);
+		ret = put_user(val, (int *)arg);
+		break;
 
 	case SNDCTL_DSP_MAPINBUF:
 	case SNDCTL_DSP_MAPOUTBUF:
 	case SNDCTL_DSP_SETSYNCRO:
 	case SOUND_PCM_WRITE_FILTER:
 	case SOUND_PCM_READ_FILTER:
-		return -EINVAL;
+	default:
+		ret = -EINVAL;
+		break;
 		
 	}
-	return -EINVAL;
+	return ret;
 }
 
 static int trident_open(struct inode *inode, struct file *file)
@@ -2098,7 +2552,16 @@ static int trident_open(struct inode *inode, struct file *file)
 	struct trident_state *state = NULL;
 	struct dmabuf *dmabuf = NULL;
 	
-	/* find an avaiable virtual channel (instance of /dev/dsp) */
+	/* Added by Matt Wu 01-05-2001 */
+	if(file->f_mode & FMODE_READ)
+	{
+		if(card->pci_id == PCI_DEVICE_ID_ALI_5451) {
+			if (card->multi_channel_use_count > 0)
+				return -EBUSY;
+		}
+	}
+
+	/* find an available virtual channel (instance of /dev/dsp) */
 	while (card != NULL) {
 		down(&card->open_sem);
 		if(file->f_mode & FMODE_READ)
@@ -2119,6 +2582,7 @@ static int trident_open(struct inode *inode, struct file *file)
 					return -ENOMEM;
 				}
 				memset(state, 0, sizeof(struct trident_state));
+				init_MUTEX(&state->sem);
 				dmabuf = &state->dmabuf;
 				goto found_virt;
 			}
@@ -2183,7 +2647,10 @@ static int trident_open(struct inode *inode, struct file *file)
 				(CHANNEL_REC|PCM_LR|MONO_MIX);
 		}
 		trident_set_adc_rate(state, 8000);
-		card->rec_channel_use_count ++;
+	
+		/* Added by Matt Wu 01-05-2001 */
+		if(card->pci_id == PCI_DEVICE_ID_ALI_5451)
+			card->rec_channel_use_count ++;
 	}
 
 	state->open_mode |= file->f_mode & (FMODE_READ | FMODE_WRITE);
@@ -2214,6 +2681,11 @@ static int trident_release(struct inode *inode, struct file *file)
 		drain_dac(state, file->f_flags & O_NONBLOCK);
 	}
 
+#ifdef DEBUG
+	printk(KERN_ERR "trident: closing virtual channel %d, hard channel %d\n", 
+		state->virt, dmabuf->channel->num);
+#endif
+
 	/* stop DMA state machine and free DMA buffers/channels */
 	down(&card->open_sem);
 
@@ -2225,15 +2697,15 @@ static int trident_release(struct inode *inode, struct file *file)
 		dealloc_dmabuf(state);
 		state->card->free_pcm_channel(state->card, dmabuf->channel->num);
 
-		if (state->chans_num > 2)
-		{
-			if( card->multi_channel_use_count-- < 0 )
-				card->multi_channel_use_count = 0;
-
-			if (card->multi_channel_use_count == 0)
-				ali_close_multi_channels();
-
-			ali_free_other_states_resources(state);
+		/* Added by Matt Wu */
+		if (card->pci_id == PCI_DEVICE_ID_ALI_5451) {
+			if (state->chans_num > 2) {
+				if (card->multi_channel_use_count-- < 0)
+					card->multi_channel_use_count = 0;
+				if (card->multi_channel_use_count == 0)
+					ali_close_multi_channels();
+				ali_free_other_states_resources(state);
+			}
 		}
 	}
 	if (file->f_mode & FMODE_READ) {
@@ -2241,8 +2713,11 @@ static int trident_release(struct inode *inode, struct file *file)
 		dealloc_dmabuf(state);
 		state->card->free_pcm_channel(state->card, dmabuf->channel->num);
 
-		if( card->rec_channel_use_count-- < 0 )
-			card->rec_channel_use_count = 0;
+		/* Added by Matt Wu */
+		if (card->pci_id == PCI_DEVICE_ID_ALI_5451) {
+			if( card->rec_channel_use_count-- < 0 )
+				card->rec_channel_use_count = 0;
+		}
 	}
 
 	card->states[state->virt] = NULL;
@@ -2257,7 +2732,7 @@ static int trident_release(struct inode *inode, struct file *file)
 
 static /*const*/ struct file_operations trident_audio_fops = {
 	owner:		THIS_MODULE,
-	llseek:		trident_llseek,
+	llseek:		no_llseek,
 	read:		trident_read,
 	write:		trident_write,
 	poll:		trident_poll,
@@ -2299,6 +2774,12 @@ static void trident_ac97_set(struct ac97_codec *codec, u8 reg, u16 val)
 		if (codec->id)
 			mask |= NX_AC97_WRITE_SECONDARY;
 		busy = NX_AC97_BUSY_WRITE;
+		break;
+	case PCI_DEVICE_ID_INTERG_5050:
+		address = SI_AC97_WRITE;
+		mask = busy = SI_AC97_BUSY_WRITE;
+		if (codec->id)
+			mask |= SI_AC97_SECONDARY;
 		break;
 	}
 
@@ -2352,6 +2833,12 @@ static u16 trident_ac97_get(struct ac97_codec *codec, u8 reg)
 		mask = NX_AC97_BUSY_READ;
 		busy = NX_AC97_BUSY_READ | NX_AC97_BUSY_DATA;
 		break;
+	case PCI_DEVICE_ID_INTERG_5050:
+		address = SI_AC97_READ;
+		mask = busy = SI_AC97_BUSY_READ;
+		if (codec->id)
+			mask |= SI_AC97_SECONDARY;
+		break;
 	}
 
 	data = (mask | (reg & AC97_REG_ADDR));
@@ -2373,9 +2860,8 @@ static u16 trident_ac97_get(struct ac97_codec *codec, u8 reg)
 }
 
 /* Write AC97 codec registers for ALi*/
-static void ali_ac97_set(struct ac97_codec *codec, u8 reg, u16 val)
+static void ali_ac97_set(struct trident_card *card, int secondary, u8 reg, u16 val)
 {
-	struct trident_card *card = (struct trident_card *)codec->private_data;
 	unsigned int address, mask;
 	unsigned int wCount1 = 0xffff;
 	unsigned int wCount2= 0xffff;
@@ -2390,7 +2876,7 @@ static void ali_ac97_set(struct ac97_codec *codec, u8 reg, u16 val)
 		
 	address = ALI_AC97_WRITE;
 	mask = ALI_AC97_WRITE_ACTION | ALI_AC97_AUDIO_BUSY;
-	if (codec->id)
+	if (secondary)
 		mask |= ALI_AC97_SECONDARY;
 	if (card->revision == ALI_5451_V02)
 		mask |= ALI_AC97_WRITE_MIXER_REGISTER;
@@ -2421,9 +2907,8 @@ static void ali_ac97_set(struct ac97_codec *codec, u8 reg, u16 val)
 }
 
 /* Read AC97 codec registers for ALi*/
-static u16 ali_ac97_get(struct ac97_codec *codec, u8 reg)
+static u16 ali_ac97_get(struct trident_card *card, int secondary, u8 reg)
 {
-	struct trident_card *card = (struct trident_card *)codec->private_data;
 	unsigned int address, mask;
         unsigned int wCount1 = 0xffff;
         unsigned int wCount2= 0xffff;
@@ -2431,13 +2916,15 @@ static u16 ali_ac97_get(struct ac97_codec *codec, u8 reg)
 	unsigned long flags;
 	u32 data;
 
+	if(!card)
+		BUG();
+
 	address = ALI_AC97_READ;
 	if (card->revision == ALI_5451_V02) {
 		address = ALI_AC97_WRITE;
-		mask &= ALI_AC97_READ_MIXER_REGISTER;
 	}
 	mask = ALI_AC97_READ_ACTION | ALI_AC97_AUDIO_BUSY;
-	if (codec->id)
+	if (secondary)
 		mask |= ALI_AC97_SECONDARY;
 
 	spin_lock_irqsave(&card->lock, flags);
@@ -2480,6 +2967,56 @@ static void ali_enable_special_channel(struct trident_state *stat)
 	outl(s_channels, TRID_REG(card, ALI_GLOBAL_CONTROL));
 }
 
+static u16 ali_ac97_read(struct ac97_codec *codec, u8 reg)
+{
+	int id;
+	u16 data;
+	struct trident_card *card = NULL;
+
+	/* Added by Matt Wu */
+	if (!codec)
+		BUG();
+		
+	card = (struct trident_card *)codec->private_data;
+
+	if(!card->mixer_regs_ready)
+		return ali_ac97_get(card, codec->id, reg);
+
+	if(codec->id)
+		id = 1;
+	else
+		id = 0;
+
+	data = card->mixer_regs[reg/2][id];
+	return data;
+}
+
+static void ali_ac97_write(struct ac97_codec *codec, u8 reg, u16 val)
+{
+	int id;
+	struct trident_card *card;
+
+	/*  Added by Matt Wu */
+	if (!codec)
+		BUG();
+		
+	card = (struct trident_card *)codec->private_data;
+
+	if (!card->mixer_regs_ready)
+	{
+		ali_ac97_set(card, codec->id, reg, val);
+		return;
+	}
+
+	if(codec->id)
+		id = 1;
+	else
+		id = 0;
+
+	card->mixer_regs[reg/2][id] = val;
+	ali_ac97_set(card, codec->id, reg, val);
+}
+
 /*
 flag:	ALI_SPDIF_OUT_TO_SPDIF_OUT
 	ALI_PCM_TO_SPDIF_OUT
@@ -2493,7 +3030,7 @@ static void ali_setup_spdif_out(struct trident_card *card, int flag)
         char temp;
         struct pci_dev *pci_dev = NULL;
 
-        pci_dev = pci_find_device(PCI_VENDOR_ID_AL,PCI_DEVICE_ID_AL_M1533, pci_dev);
+        pci_dev = pci_find_device(PCI_VENDOR_ID_AL, PCI_DEVICE_ID_AL_M1533, pci_dev);
         if (pci_dev == NULL)
                 return;
         pci_read_config_byte(pci_dev, 0x61, &temp);
@@ -2748,14 +3285,14 @@ static int ali_setup_multi_channels(struct trident_card *card, int chan_nums)
 		mdelay(4);
 		dwValue = inl(TRID_REG(card, ALI_SCTRL));
 		if (dwValue & 0x2000000) {
-			ali_ac97_set(card->ac97_codec[0], 0x02, 8080);
-			ali_ac97_set(card->ac97_codec[0], 0x36, 0);
-			ali_ac97_set(card->ac97_codec[0], 0x38, 0);
-			ali_ac97_set(card->ac97_codec[1], 0x36, 0);
-			ali_ac97_set(card->ac97_codec[1], 0x38, 0);
-			ali_ac97_set(card->ac97_codec[1], 0x02, 0);
-			ali_ac97_set(card->ac97_codec[1], 0x18, 0x0808);
-			ali_ac97_set(card->ac97_codec[1], 0x74, 0x3);
+			ali_ac97_write(card->ac97_codec[0], 0x02, 8080);
+			ali_ac97_write(card->ac97_codec[0], 0x36, 0);
+			ali_ac97_write(card->ac97_codec[0], 0x38, 0);
+			ali_ac97_write(card->ac97_codec[1], 0x36, 0);
+			ali_ac97_write(card->ac97_codec[1], 0x38, 0);
+			ali_ac97_write(card->ac97_codec[1], 0x02, 0x0606);
+			ali_ac97_write(card->ac97_codec[1], 0x18, 0x0303);
+			ali_ac97_write(card->ac97_codec[1], 0x74, 0x3);
 			return 1;
 		}
 	}
@@ -2853,7 +3390,7 @@ static void ali_save_regs(struct trident_card *card)
 	outl(ALI_DISABLE_ALL_IRQ, TRID_REG(card, T4D_MISCINT));
 	
 	for (i = 1; i < ALI_MIXER_REGS; i++)
-		ali_registers.mixer_regs[i] = ali_ac97_get (card->ac97_codec[0], i*2);
+		ali_registers.mixer_regs[i] = ali_ac97_read (card->ac97_codec[0], i*2);
 	
 	for (i = 0; i < ALI_GLOBAL_REGS; i++)
 	{	
@@ -2884,7 +3421,7 @@ static void ali_restore_regs(struct trident_card *card)
 	cli();
 	
 	for (i = 1; i < ALI_MIXER_REGS; i++)
-		ali_ac97_set(card->ac97_codec[0], i*2, ali_registers.mixer_regs[i]);
+		ali_ac97_write(card->ac97_codec[0], i*2, ali_registers.mixer_regs[i]);
 	
 	for (i = 0; i < ALI_CHANNELS; i++) 
 	{
@@ -2908,19 +3445,22 @@ static void ali_restore_regs(struct trident_card *card)
 	restore_flags(flags);
 }
 
-static int ali_pm_callback(struct pm_dev *dev, pm_request_t rqst, void *data)
+static int trident_suspend(struct pci_dev *dev, u32 unused)
 {
-	struct trident_card *card = (struct trident_card *)dev->data;
-	
-	if (card) {
-		switch (rqst) {
-			case PM_SUSPEND: 
-				ali_save_regs(card);
-				break;
-			case PM_RESUME: 
-				ali_restore_regs(card);
-				break;
-		}
+	struct trident_card *card = (struct trident_card *) dev;
+
+	if(card->pci_id == PCI_DEVICE_ID_ALI_5451) {
+		ali_save_regs(card);
+	}
+	return 0;
+}
+
+static int trident_resume(struct pci_dev *dev)
+{
+	struct trident_card *card = (struct trident_card *) dev;
+
+	if(card->pci_id == PCI_DEVICE_ID_ALI_5451) {
+		ali_restore_regs(card);
 	}
 	return 0;
 }
@@ -3159,7 +3699,7 @@ static void ali_free_other_states_resources(struct trident_state *state)
 }
 
 #ifdef CONFIG_PROC_FS
-struct proc_dir_entry *res = NULL;
+struct proc_dir_entry *res;
 static int ali_write_proc(struct file *file, const char *buffer, unsigned long count, void *data)
 {
 	struct trident_card *card = (struct trident_card *)data;
@@ -3231,10 +3771,48 @@ static int trident_ioctl_mixdev(struct inode *inode, struct file *file, unsigned
 
 static /*const*/ struct file_operations trident_mixer_fops = {
 	owner:		THIS_MODULE,
-	llseek:		trident_llseek,
+	llseek:		no_llseek,
 	ioctl:		trident_ioctl_mixdev,
 	open:		trident_open_mixdev,
 };
+
+static int ali_reset_5451(struct trident_card *card)
+{
+	struct pci_dev *pci_dev = NULL;
+	unsigned int   dwVal;
+	unsigned short wCount, wReg;
+
+	pci_dev = pci_find_device(PCI_VENDOR_ID_AL, PCI_DEVICE_ID_AL_M1533, pci_dev);
+	if (pci_dev == NULL)
+		return -1;
+	
+	pci_read_config_dword(pci_dev, 0x7c, &dwVal);
+	pci_write_config_dword(pci_dev, 0x7c, dwVal | 0x08000000);
+	udelay(5000);
+	pci_read_config_dword(pci_dev, 0x7c, &dwVal);
+	pci_write_config_dword(pci_dev, 0x7c, dwVal & 0xf7ffffff);
+	udelay(5000);
+
+	pci_dev = card->pci_dev;
+	if (pci_dev == NULL)
+		return -1;
+
+	pci_read_config_dword(pci_dev, 0x44, &dwVal);
+	pci_write_config_dword(pci_dev, 0x44, dwVal | 0x000c0000);
+	udelay(500);
+	pci_read_config_dword(pci_dev, 0x44, &dwVal);
+	pci_write_config_dword(pci_dev, 0x44, dwVal & 0xfffbffff);
+	udelay(5000);
+
+	wCount = 200;
+	while(wCount--) {
+		wReg = ali_ac97_get(card, 0, AC97_POWER_CONTROL);
+		if((wReg & 0x000f) == 0x000f)
+			return 0;
+		udelay(500);
+	}
+	return 0;
+}
 
 /* AC97 codec initialisation. */
 static int __init trident_ac97_init(struct trident_card *card)
@@ -3242,23 +3820,31 @@ static int __init trident_ac97_init(struct trident_card *card)
 	int num_ac97 = 0;
 	unsigned long ready_2nd = 0;
 	struct ac97_codec *codec;
+	int i = 0;
+	
 
 	/* initialize controller side of AC link, and find out if secondary codes
 	   really exist */
 	switch (card->pci_id)
 	{
 	case PCI_DEVICE_ID_ALI_5451:
-		outl(0x80000000,TRID_REG(card, ALI_GLOBAL_CONTROL));
-		outl(0x00000000,TRID_REG(card, 0xa4));
-		outl(0xffffffff,TRID_REG(card, 0x98));
-		outl(0x00000000,TRID_REG(card, 0xa8));
-		outb(0x10, 	TRID_REG(card, 0x22));
+		if (ali_reset_5451(card)) 
+		{
+			printk(KERN_ERR "trident_ac97_init: error resetting 5451.\n");
+			return -1;
+		}
+		outl(0x80000001,TRID_REG(card, ALI_GLOBAL_CONTROL));
+		outl(0x00000000,TRID_REG(card, T4D_AINTEN_A));
+		outl(0xffffffff,TRID_REG(card, T4D_AINT_A));
+		outl(0x00000000,TRID_REG(card, T4D_MUSICVOL_WAVEVOL));
+		outb(0x10,	TRID_REG(card, ALI_MPUR2));
 		ready_2nd = inl(TRID_REG(card, ALI_SCTRL));
 		ready_2nd &= 0x3fff;
 		outl(ready_2nd | PCMOUT | 0x8000, TRID_REG(card, ALI_SCTRL));
 		ready_2nd = inl(TRID_REG(card, ALI_SCTRL)); 
 		ready_2nd &= SI_AC97_SECONDARY_READY;
-//		printk("codec 2 ready flag= %lx\n", ready_2nd);
+		if (card->revision < ALI_5451_V02)
+			ready_2nd = 0;
 		break;
 	case PCI_DEVICE_ID_SI_7018:
 		/* disable AC97 GPIO interrupt */
@@ -3282,6 +3868,18 @@ static int __init trident_ac97_init(struct trident_card *card)
 		ready_2nd = inl(TRID_REG(card, NX_ACR0_AC97_COM_STAT));
 		ready_2nd &= NX_AC97_SECONDARY_READY;
 		break;
+	case PCI_DEVICE_ID_INTERG_5050:
+		/* disable AC97 GPIO interrupt */
+		outl(0x00, TRID_REG(card, SI_AC97_GPIO));
+		/* when power up, the AC link is in cold reset mode, so stop it */
+		outl(PCMOUT|SURROUT|CENTEROUT|LFEOUT,
+		     TRID_REG(card, SI_SERIAL_INTF_CTRL));
+		/* it take a long time to recover from a cold reset (especially when you have
+		   more than one codec) */
+		udelay(2000);
+		ready_2nd = inl(TRID_REG(card, SI_SERIAL_INTF_CTRL));
+		ready_2nd &= SI_AC97_SECONDARY_READY;
+		break;
 	}
 
 	for (num_ac97 = 0; num_ac97 < NR_AC97; num_ac97++) {
@@ -3295,8 +3893,8 @@ static int __init trident_ac97_init(struct trident_card *card)
 		codec->id = num_ac97;
 
 		if (card->pci_id == PCI_DEVICE_ID_ALI_5451) {
-			codec->codec_read = ali_ac97_get;
-			codec->codec_write = ali_ac97_set;
+			codec->codec_read = ali_ac97_read;
+			codec->codec_write = ali_ac97_write;
 		}
 		else {
 			codec->codec_read = trident_ac97_get;
@@ -3316,10 +3914,18 @@ static int __init trident_ac97_init(struct trident_card *card)
 
 		/* if there is no secondary codec at all, don't probe any more */
 		if (!ready_2nd)
-			return num_ac97+1;
+			break;
 	}
 
-	return 1/*num_ac97*/;
+	if (card->pci_id == PCI_DEVICE_ID_ALI_5451) {
+		for (num_ac97 = 0; num_ac97 < NR_AC97; num_ac97++) {
+			if (card->ac97_codec[num_ac97] == NULL)
+				break;
+			for (i=0; i<64;i++)
+				card->mixer_regs[i][num_ac97] = ali_ac97_get(card, num_ac97,i*2);
+		}
+	}
+	return num_ac97+1;
 }
 
 /* install the driver, we do not allocate hardware channel nor DMA buffer now, they are defered 
@@ -3329,36 +3935,38 @@ static int __init trident_probe(struct pci_dev *pci_dev, const struct pci_device
 	unsigned long iobase;
 	struct trident_card *card;
 	dma_addr_t mask;
-	int bits;
+	u8 bits;
 	u8 revision;
+	int i = 0;
+	u16 temp;
+	struct pci_dev *pci_dev_m1533 = NULL;
+	int rc = -ENODEV;
 
 	if (pci_enable_device(pci_dev))
-	    return -ENODEV;
+		goto out;
 
-	if (pci_dev->device == PCI_DEVICE_ID_ALI_5451) {
-		mask = 0xffffffff;
-		bits = 32;
-	} else {
-		mask = TRIDENT_DMA_MASK;
-		bits = 30;
-	}
-	if (pci_set_dma_mask(pci_dev, mask)) {
+	if (pci_set_dma_mask(pci_dev, TRIDENT_DMA_MASK)) {
 		printk(KERN_ERR "trident: architecture does not support"
-		       " %dbit PCI busmaster DMA\n", bits);
-		return -ENODEV;
+		       " 30bit PCI busmaster DMA\n");
+		goto out;
 	}
 	pci_read_config_byte(pci_dev, PCI_CLASS_REVISION, &revision);
 
-	iobase = pci_resource_start(pci_dev, 0);
-	if (check_region(iobase, 256)) {
+	if (pci_id->device == PCI_DEVICE_ID_INTERG_5050)
+		iobase = pci_resource_start(pci_dev, 1);
+	else
+		iobase = pci_resource_start(pci_dev, 0);
+
+	if (!request_region(iobase, 256, card_names[pci_id->driver_data])) {
 		printk(KERN_ERR "trident: can't allocate I/O space at 0x%4.4lx\n",
 		       iobase);
-		return -ENODEV;
+		goto out;
 	}
 
+	rc = -ENOMEM;
 	if ((card = kmalloc(sizeof(struct trident_card), GFP_KERNEL)) == NULL) {
 		printk(KERN_ERR "trident: out of memory\n");
-		return -ENOMEM;
+		goto out_release_region;
 	}
 	memset(card, 0, sizeof(*card));
 
@@ -3373,8 +3981,11 @@ static int __init trident_probe(struct pci_dev *pci_dev, const struct pci_device
 	card->banks[BANK_A].bitmap = 0UL;
 	card->banks[BANK_B].addresses = &bank_b_addrs;
 	card->banks[BANK_B].bitmap = 0UL;
+
 	init_MUTEX(&card->open_sem);
 	spin_lock_init(&card->lock);
+	init_timer(&card->timer);
+
 	devs = card;
 
 	pci_set_master(pci_dev);
@@ -3383,14 +3994,6 @@ static int __init trident_probe(struct pci_dev *pci_dev, const struct pci_device
 	       card_names[pci_id->driver_data], card->iobase, card->irq);
 
 	if(card->pci_id == PCI_DEVICE_ID_ALI_5451) {
-		/* ALi Power Management */
-		struct pm_dev *pmdev;
-		
-		pmdev = pm_register(PM_PCI_DEV, PM_PCI_ID(pci_dev),
-				ali_pm_callback);
-		if (pmdev)
-			pmdev->data = card;
-		
 		/* ALi channel Management */	
 		card->alloc_pcm_channel = ali_alloc_pcm_channel;
 		card->alloc_rec_pcm_channel = ali_alloc_rec_pcm_channel;
@@ -3413,57 +4016,122 @@ static int __init trident_probe(struct pci_dev *pci_dev, const struct pci_device
 			}
 #endif
 		}
+
+		/* Add H/W Volume Control By Matt Wu Jul. 06, 2001 */
+		card->hwvolctl = 0;
+		pci_dev_m1533 = pci_find_device(PCI_VENDOR_ID_AL,PCI_DEVICE_ID_AL_M1533, pci_dev_m1533);
+		rc = -ENODEV;
+		if (pci_dev_m1533 == NULL)
+			goto out_proc_fs;
+		pci_read_config_byte(pci_dev_m1533, 0x63, &bits);
+		if (bits & (1<<5))
+			card->hwvolctl = 1;
+		if (card->hwvolctl) 
+		{
+			/* Clear m1533 pci cfg 78h bit 30 to zero, which makes
+			   GPIO11/12/13 work as ACGP_UP/DOWN/MUTE. */
+			pci_read_config_byte(pci_dev_m1533, 0x7b, &bits);
+			bits &= 0xbf; /*clear bit 6 */
+			pci_write_config_byte(pci_dev_m1533, 0x7b, bits);
+		}
 	}
-	else {
+	else if(card->pci_id == PCI_DEVICE_ID_INTERG_5050)
+	{
+		card->alloc_pcm_channel = cyber_alloc_pcm_channel;
+		card->alloc_rec_pcm_channel = cyber_alloc_pcm_channel;
+		card->free_pcm_channel = cyber_free_pcm_channel;
+		card->address_interrupt = cyber_address_interrupt;
+		cyber_init_ritual(card);
+	}
+	else
+	{
 		card->alloc_pcm_channel = trident_alloc_pcm_channel;
 		card->alloc_rec_pcm_channel = trident_alloc_pcm_channel;
 		card->free_pcm_channel = trident_free_pcm_channel;
 		card->address_interrupt = trident_address_interrupt;
 	}
 
-	/* claim our iospace and irq */
-	request_region(card->iobase, 256, card_names[pci_id->driver_data]);
+	/* claim our irq */
+	rc = -ENODEV;
 	if (request_irq(card->irq, &trident_interrupt, SA_SHIRQ,
 			card_names[pci_id->driver_data], card)) {
 		printk(KERN_ERR "trident: unable to allocate irq %d\n", card->irq);
-		release_region(card->iobase, 256);
-		kfree(card);
-		return -ENODEV;
+		goto out_proc_fs;
 	}
 	/* register /dev/dsp */
 	if ((card->dev_audio = register_sound_dsp(&trident_audio_fops, -1)) < 0) {
 		printk(KERN_ERR "trident: couldn't register DSP device!\n");
-		release_region(iobase, 256);
-		free_irq(card->irq, card);
-		kfree(card);
-		return -ENODEV;
+		goto out_free_irq;
 	}
+	card->mixer_regs_ready = 0;
 	/* initialize AC97 codec and register /dev/mixer */
 	if (trident_ac97_init(card) <= 0) {
-		unregister_sound_dsp(card->dev_audio);
-		release_region(iobase, 256);
-		free_irq(card->irq, card);
-		kfree(card);
-		return -ENODEV;
+		/* unregister audio devices */
+		for (i = 0; i < NR_AC97; i++) {
+			if (card->ac97_codec[i] != NULL) {
+				unregister_sound_mixer(card->ac97_codec[i]->dev_mixer);
+				kfree (card->ac97_codec[i]);
+			}
+		}
+		goto out_unregister_sound_dsp;
 	}
+	card->mixer_regs_ready = 1;
 	outl(0x00, TRID_REG(card, T4D_MUSICVOL_WAVEVOL));
 
 	if (card->pci_id == PCI_DEVICE_ID_ALI_5451) {
+		/* Add H/W Volume Control By Matt Wu Jul. 06, 2001 */
+		if(card->hwvolctl) 
+		{
+			/* Enable GPIO IRQ (MISCINT bit 18h)*/
+			temp = inw(TRID_REG(card, T4D_MISCINT + 2));
+			temp |= 0x0004;
+			outw(temp, TRID_REG(card, T4D_MISCINT + 2));
+
+			/* Enable H/W Volume Control GLOVAL CONTROL bit 0*/
+			temp = inw(TRID_REG(card, ALI_GLOBAL_CONTROL));
+			temp |= 0x0001;
+			outw(temp, TRID_REG(card, ALI_GLOBAL_CONTROL));
+
+		}
+		if(card->revision == ALI_5451_V02)
+			ali_close_multi_channels();
 		/* edited by HMSEO for GT sound */
-#ifdef CONFIG_ALPHA_NAUTILUS
-		u16 ac97_data;
-		ac97_data = ali_ac97_get (card->ac97_codec[0], AC97_POWER_CONTROL);
-		ali_ac97_set (card->ac97_codec[0], AC97_POWER_CONTROL, ac97_data | ALI_EAPD_POWER_DOWN);
+#if defined CONFIG_ALPHA_NAUTILUS || CONFIG_ALPHA_GENERIC
+		{
+			u16 ac97_data;
+			extern struct hwrpb_struct *hwrpb;
+		
+			if ((hwrpb->sys_type) == 201) {
+				printk(KERN_INFO "trident: Running on Alpha system type Nautilus\n");
+				ac97_data = ali_ac97_get(card, 0, AC97_POWER_CONTROL);
+				ali_ac97_set(card, 0, AC97_POWER_CONTROL, ac97_data |
+			}
+		}
 #endif
 		/* edited by HMSEO for GT sound*/
 	}
-
+	rc = 0;
 	pci_set_drvdata(pci_dev, card);
 
 	/* Enable Address Engine Interrupts */
 	trident_enable_loop_interrupts(card);
-
-	return 0;
+out:	return rc;
+out_unregister_sound_dsp:
+	unregister_sound_dsp(card->dev_audio);
+out_free_irq:
+	free_irq(card->irq, card);
+out_proc_fs:
+#ifdef CONFIG_PROC_FS
+	if (res) {
+		remove_proc_entry("ALi5451", NULL);
+		res = NULL;
+	}
+#endif
+	kfree(card);
+	devs = NULL;
+out_release_region:
+	release_region(iobase, 256);
+	goto out;
 }
 
 static void __exit trident_remove(struct pci_dev *pci_dev)
@@ -3471,6 +4139,13 @@ static void __exit trident_remove(struct pci_dev *pci_dev)
 	int i;
 	struct trident_card *card = pci_get_drvdata(pci_dev);
 
+	/*
+ 	 *	Kill running timers before unload. We can't have them
+ 	 *	going off after rmmod!
+ 	 */
+	if(card->hwvolctl)
+		del_timer_sync(&card->timer);
+		
 	/* ALi S/PDIF and Power Management */
 	if(card->pci_id == PCI_DEVICE_ID_ALI_5451) {
 		ali_setup_spdif_out(card, ALI_PCM_TO_SPDIF_OUT);
@@ -3479,7 +4154,6 @@ static void __exit trident_remove(struct pci_dev *pci_dev)
 #ifdef CONFIG_PROC_FS
 		remove_proc_entry("ALi5451", NULL);
 #endif
-		pm_unregister_all(ali_pm_callback);
 	}
 
 	/* Kill interrupts, and SP/DIF */
@@ -3503,7 +4177,9 @@ static void __exit trident_remove(struct pci_dev *pci_dev)
 }
 
 MODULE_AUTHOR("Alan Cox, Aaron Holtzman, Ollie Lho, Ching Ling Lee");
-MODULE_DESCRIPTION("Trident 4DWave/SiS 7018/ALi 5451 PCI Audio Driver");
+MODULE_DESCRIPTION("Trident 4DWave/SiS 7018/ALi 5451 and Tvia/IGST CyberPro5050 PCI Audio Driver");
+MODULE_LICENSE("GPL");
+
 
 #define TRIDENT_MODULE_NAME "trident"
 
@@ -3512,6 +4188,8 @@ static struct pci_driver trident_pci_driver = {
 	id_table:	trident_pci_tbl,
 	probe:		trident_probe,
 	remove:		trident_remove,
+	suspend:	trident_suspend,
+	resume:		trident_resume
 };
 
 static int __init trident_init_module (void)
@@ -3519,7 +4197,7 @@ static int __init trident_init_module (void)
 	if (!pci_present())   /* No PCI bus in this machine! */
 		return -ENODEV;
 
-	printk(KERN_INFO "Trident 4DWave/SiS 7018/ALi 5451 PCI Audio, version "
+	printk(KERN_INFO "Trident 4DWave/SiS 7018/ALi 5451,Tvia CyberPro 5050 PCI Audio, version "
 	       DRIVER_VERSION ", " __TIME__ " " __DATE__ "\n");
 
 	if (!pci_register_driver(&trident_pci_driver)) {

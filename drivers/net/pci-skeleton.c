@@ -94,6 +94,7 @@ IVc. Errata
 #include <linux/netdevice.h>
 #include <linux/etherdevice.h>
 #include <linux/delay.h>
+#include <linux/ethtool.h>
 #include <linux/mii.h>
 #include <asm/io.h>
 
@@ -483,6 +484,7 @@ struct netdrv_private {
 
 MODULE_AUTHOR ("Jeff Garzik <jgarzik@mandrakesoft.com>");
 MODULE_DESCRIPTION ("Skeleton for a PCI Fast Ethernet driver");
+MODULE_LICENSE("GPL");
 MODULE_PARM (multicast_filter_limit, "i");
 MODULE_PARM (max_interrupt_work, "i");
 MODULE_PARM (debug, "i");

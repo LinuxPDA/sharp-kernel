@@ -15,11 +15,11 @@
 /*
  * memory management
  */
-EXPORT_SYMBOL(_oi_bitmap);
-EXPORT_SYMBOL(_ni_bitmap);
-EXPORT_SYMBOL(_zb_findmap);
-EXPORT_SYMBOL(__copy_from_user_fixup);
-EXPORT_SYMBOL(__copy_to_user_fixup);
+EXPORT_SYMBOL_NOVERS(_oi_bitmap);
+EXPORT_SYMBOL_NOVERS(_ni_bitmap);
+EXPORT_SYMBOL_NOVERS(_zb_findmap);
+EXPORT_SYMBOL_NOVERS(__copy_from_user_fixup);
+EXPORT_SYMBOL_NOVERS(__copy_to_user_fixup);
 
 /*
  * semaphore ops
@@ -43,6 +43,7 @@ EXPORT_SYMBOL_NOVERS(strncmp);
 EXPORT_SYMBOL_NOVERS(strncpy);
 EXPORT_SYMBOL_NOVERS(strnlen);
 EXPORT_SYMBOL_NOVERS(strrchr);
+EXPORT_SYMBOL_NOVERS(strstr);
 EXPORT_SYMBOL_NOVERS(strtok);
 EXPORT_SYMBOL_NOVERS(strpbrk);
 
@@ -53,10 +54,9 @@ EXPORT_SYMBOL(machine_flags);
 EXPORT_SYMBOL(__udelay);
 EXPORT_SYMBOL(kernel_thread);
 EXPORT_SYMBOL(csum_fold);
+EXPORT_SYMBOL(console_mode);
+EXPORT_SYMBOL(console_device);
+EXPORT_SYMBOL_NOVERS(do_call_softirq);
 
-#if CONFIG_IP_MULTICAST
-/* Required for lcs gigabit ethernet multicast support */
-EXPORT_SYMBOL(arp_mc_map);
-#endif
 
 

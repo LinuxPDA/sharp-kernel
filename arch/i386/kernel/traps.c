@@ -48,6 +48,7 @@
 #endif
 
 #include <linux/irq.h>
+#include <linux/module.h>
 
 asmlinkage int system_call(void);
 asmlinkage void lcall7(void);
@@ -62,8 +63,6 @@ struct desc_struct default_ldt[] = { { 0, 0 }, { 0, 0 }, { 0, 0 },
  * for this.
  */
 struct desc_struct idt_table[256] __attribute__((__section__(".data.idt"))) = { {0, 0}, };
-
-extern void bust_spinlocks(void);
 
 asmlinkage void divide_error(void);
 asmlinkage void debug(void);
@@ -88,39 +87,65 @@ asmlinkage void machine_check(void);
 
 int kstack_depth_to_print = 24;
 
+
 /*
- * These constants are for searching for possible module text
- * segments.
+ * If the address is either in the .text section of the
+ * kernel, or in the vmalloc'ed module regions, it *may* 
+ * be the address of a calling routine
  */
+
+#ifdef CONFIG_MODULES
+
+extern struct module *module_list;
+extern struct module kernel_module;
+
+static inline int kernel_text_address(unsigned long addr)
+{
+	int retval = 0;
+	struct module *mod;
+
+	if (addr >= (unsigned long) &_stext &&
+	    addr <= (unsigned long) &_etext)
+		return 1;
+
+	for (mod = module_list; mod != &kernel_module; mod = mod->next) {
+		/* mod_bound tests for addr being inside the vmalloc'ed
+		 * module area. Of course it'd be better to test only
+		 * for the .text subset... */
+		if (mod_bound(addr, 0, mod)) {
+			retval = 1;
+			break;
+		}
+	}
+
+	return retval;
+}
+
+#else
+
+static inline int kernel_text_address(unsigned long addr)
+{
+	return (addr >= (unsigned long) &_stext &&
+		addr <= (unsigned long) &_etext);
+}
+
+#endif
 
 void show_trace(unsigned long * stack)
 {
 	int i;
-	unsigned long addr, module_start, module_end;
+	unsigned long addr;
 
 	if (!stack)
 		stack = (unsigned long*)&stack;
 
 	printk("Call Trace: ");
 	i = 1;
-	module_start = VMALLOC_START;
-	module_end = VMALLOC_END;
-	module_end = 0;
 	while (((long) stack & (THREAD_SIZE-1)) != 0) {
 		addr = *stack++;
-		/*
-		 * If the address is either in the text segment of the
-		 * kernel, or in the region which contains vmalloc'ed
-		 * memory, it *may* be the address of a calling
-		 * routine; if so, print it so that someone tracing
-		 * down the cause of the crash will be able to figure
-		 * out the call path that was taken.
-		 */
-		if (((addr >= (unsigned long) &_stext) &&
-		     (addr <= (unsigned long) &_etext)) ||
-		    ((addr >= module_start) && (addr <= module_end))) {
-			if (i && ((i % 8) == 0))
-				printk("\n       ");
+		if (kernel_text_address(addr)) {
+			if (i && ((i % 6) == 0))
+				printk("\n   ");
 			printk("[<%08lx>] ", addr);
 			i++;
 		}
@@ -161,7 +186,7 @@ void show_stack(unsigned long * esp)
 	show_trace(esp);
 }
 
-static void show_registers(struct pt_regs *regs)
+void show_registers(struct pt_regs *regs)
 {
 	int i;
 	int in_kernel = 1;
@@ -175,8 +200,8 @@ static void show_registers(struct pt_regs *regs)
 		esp = regs->esp;
 		ss = regs->xss & 0xffff;
 	}
-	printk("CPU:    %d\nEIP:    %04x:[<%08lx>]\nEFLAGS: %08lx\n",
-		smp_processor_id(), 0xffff & regs->xcs, regs->eip, regs->eflags);
+	printk("CPU:    %d\nEIP:    %04x:[<%08lx>]    %s\nEFLAGS: %08lx\n",
+		smp_processor_id(), 0xffff & regs->xcs, regs->eip, print_tainted(), regs->eflags);
 	printk("eax: %08lx   ebx: %08lx   ecx: %08lx   edx: %08lx\n",
 		regs->eax, regs->ebx, regs->ecx, regs->edx);
 	printk("esi: %08lx   edi: %08lx   ebp: %08lx   esp: %08lx\n",
@@ -218,9 +243,10 @@ void die(const char * str, struct pt_regs * regs, long err)
 {
 	console_verbose();
 	spin_lock_irq(&die_lock);
+	bust_spinlocks(1);
 	printk("%s: %04lx\n", str, err & 0xffff);
 	show_registers(regs);
-
+	bust_spinlocks(0);
 	spin_unlock_irq(&die_lock);
 	do_exit(SIGSEGV);
 }
@@ -392,83 +418,14 @@ static void unknown_nmi_error(unsigned char reason, struct pt_regs * regs)
 	printk("Do you have a strange power saving mode enabled?\n");
 }
 
-#if CONFIG_X86_IO_APIC
-
-int nmi_watchdog = 0;
-
-static int __init setup_nmi_watchdog(char *str)
-{
-        get_option(&str, &nmi_watchdog);
-        return 1;
-}
-
-__setup("nmi_watchdog=", setup_nmi_watchdog);
-
-static spinlock_t nmi_print_lock = SPIN_LOCK_UNLOCKED;
-
-inline void nmi_watchdog_tick(struct pt_regs * regs)
-{
-	/*
-	 * the best way to detect wether a CPU has a 'hard lockup' problem
-	 * is to check it's local APIC timer IRQ counts. If they are not
-	 * changing then that CPU has some problem.
-	 *
-	 * as these watchdog NMI IRQs are broadcasted to every CPU, here
-	 * we only have to check the current processor.
-	 *
-	 * since NMIs dont listen to _any_ locks, we have to be extremely
-	 * careful not to rely on unsafe variables. The printk might lock
-	 * up though, so we have to break up console_lock first ...
-	 * [when there will be more tty-related locks, break them up
-	 *  here too!]
-	 */
-
-	static unsigned int last_irq_sums [NR_CPUS],
-				alert_counter [NR_CPUS];
-
-	/*
-	 * Since current-> is always on the stack, and we always switch
-	 * the stack NMI-atomically, it's safe to use smp_processor_id().
-	 */
-	int sum, cpu = smp_processor_id();
-
-	sum = apic_timer_irqs[cpu];
-
-	if (last_irq_sums[cpu] == sum) {
-		/*
-		 * Ayiee, looks like this CPU is stuck ...
-		 * wait a few IRQs (5 seconds) before doing the oops ...
-		 */
-		alert_counter[cpu]++;
-		if (alert_counter[cpu] == 5*HZ) {
-			spin_lock(&nmi_print_lock);
-			/*
-			 * We are in trouble anyway, lets at least try
-			 * to get a message out.
-			 */
-			bust_spinlocks();
-			printk("NMI Watchdog detected LOCKUP on CPU%d, registers:\n", cpu);
-			show_registers(regs);
-			printk("console shuts up ...\n");
-			console_silent();
-			spin_unlock(&nmi_print_lock);
-			do_exit(SIGSEGV);
-		}
-	} else {
-		last_irq_sums[cpu] = sum;
-		alert_counter[cpu] = 0;
-	}
-}
-#endif
-
 asmlinkage void do_nmi(struct pt_regs * regs, long error_code)
 {
 	unsigned char reason = inb(0x61);
 
-
 	++nmi_count(smp_processor_id());
+
 	if (!(reason & 0xc0)) {
-#if CONFIG_X86_IO_APIC
+#if CONFIG_X86_LOCAL_APIC
 		/*
 		 * Ok, so this is none of the documented NMI sources,
 		 * so it must be the NMI watchdog.
@@ -476,11 +433,9 @@ asmlinkage void do_nmi(struct pt_regs * regs, long error_code)
 		if (nmi_watchdog) {
 			nmi_watchdog_tick(regs);
 			return;
-		} else
-			unknown_nmi_error(reason, regs);
-#else
-		unknown_nmi_error(reason, regs);
+		}
 #endif
+		unknown_nmi_error(reason, regs);
 		return;
 	}
 	if (reason & 0x80)

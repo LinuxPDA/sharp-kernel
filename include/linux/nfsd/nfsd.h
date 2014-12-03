@@ -57,7 +57,7 @@ struct readdir_cd {
 	char			dotonly;
 };
 typedef int		(*encode_dent_fn)(struct readdir_cd *, const char *,
-						int, off_t, ino_t, unsigned int);
+						int, loff_t, ino_t, unsigned int);
 typedef int (*nfsd_dirop_t)(struct inode *, struct dentry *, int, int);
 
 /*
@@ -170,6 +170,11 @@ void		nfsd_lockd_unexport(struct svc_client *);
 #define	nfserr_serverfault	__constant_htonl(NFSERR_SERVERFAULT)
 #define	nfserr_badtype		__constant_htonl(NFSERR_BADTYPE)
 #define	nfserr_jukebox		__constant_htonl(NFSERR_JUKEBOX)
+
+/* error code for internal use - if a request fails due to
+ * kmalloc failure, it gets dropped.  Client should resend eventually
+ */
+#define	nfserr_dropit		__constant_htonl(30000)
 
 /* Check for dir entries '.' and '..' */
 #define isdotent(n, l)	(l < 3 && n[0] == '.' && (l == 1 || n[1] == '.'))

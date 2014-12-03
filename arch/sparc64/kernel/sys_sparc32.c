@@ -1,4 +1,4 @@
-/* $Id: sys_sparc32.c,v 1.177 2001/06/10 06:48:46 davem Exp $
+/* $Id: sys_sparc32.c,v 1.182 2001/10/18 09:06:36 davem Exp $
  * sys_sparc32.c: Conversion between 32bit and 64bit native syscalls.
  *
  * Copyright (C) 1997,1998 Jakub Jelinek (jj@sunsite.mff.cuni.cz)
@@ -1192,7 +1192,7 @@ struct readdir_callback32 {
 };
 
 static int fillonedir(void * __buf, const char * name, int namlen,
-		      off_t offset, ino_t ino, unsigned int d_type)
+		      loff_t offset, ino_t ino, unsigned int d_type)
 {
 	struct readdir_callback32 * buf = (struct readdir_callback32 *) __buf;
 	struct old_linux_dirent32 * dirent;
@@ -1247,7 +1247,7 @@ struct getdents_callback32 {
 	int error;
 };
 
-static int filldir(void * __buf, const char * name, int namlen, off_t offset, ino_t ino,
+static int filldir(void * __buf, const char * name, int namlen, loff_t offset, ino_t ino,
 		   unsigned int d_type)
 {
 	struct linux_dirent32 * dirent;
@@ -3999,6 +3999,12 @@ asmlinkage ssize_t32 sys32_pwrite(unsigned int fd, char *ubuf,
 	return sys_pwrite(fd, ubuf, count, ((loff_t)AA(poshi) << 32) | AA(poslo));
 }
 
+extern asmlinkage ssize_t sys_readahead(int fd, loff_t offset, size_t count);
+
+asmlinkage ssize_t32 sys32_readahead(int fd, u32 offhi, u32 offlo, s32 count)
+{
+	return sys_readahead(fd, ((loff_t)AA(offhi) << 32) | AA(offlo), count);
+}
 
 extern asmlinkage ssize_t sys_sendfile(int out_fd, int in_fd, off_t *offset, size_t count);
 
@@ -4015,7 +4021,7 @@ asmlinkage int sys32_sendfile(int out_fd, int in_fd, __kernel_off_t32 *offset, s
 	ret = sys_sendfile(out_fd, in_fd, offset ? &of : NULL, count);
 	set_fs(old_fs);
 	
-	if (!ret && offset && put_user(of, offset))
+	if (offset && put_user(of, offset))
 		return -EFAULT;
 		
 	return ret;

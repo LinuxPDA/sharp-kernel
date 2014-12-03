@@ -64,6 +64,7 @@
 #include <linux/input.h>
 #include <linux/videodev.h>
 #include <linux/usb.h>
+#include <linux/smp_lock.h>
 
 /*
  * Version Information
@@ -85,6 +86,8 @@ static int usb_dsbr100_ioctl(struct video_device *dev, unsigned int cmd,
 static int usb_dsbr100_open(struct video_device *dev, int flags);
 static void usb_dsbr100_close(struct video_device *dev);
 
+static int radio_nr = -1;
+MODULE_PARM(radio_nr, "i");
 
 typedef struct
 {	struct urb readurb,writeurb;
@@ -107,7 +110,6 @@ static struct video_device usb_dsbr100_radio=
 };
 
 static int users = 0;
-static int radio_nr = -1;
 
 static struct usb_device_id usb_dsbr100_table [] = {
 	{ USB_DEVICE(DSB100_VENDOR, DSB100_PRODUCT) },
@@ -193,10 +195,14 @@ static void usb_dsbr100_disconnect(struct usb_device *dev, void *ptr)
 {
 	usb_dsbr100 *radio=ptr;
 
-	if (users)
+	lock_kernel();
+	if (users) {
+		unlock_kernel();
 		return;
+	}
 	kfree(radio);
 	usb_dsbr100_radio.priv = NULL;
+	unlock_kernel();
 }
 
 static int usb_dsbr100_ioctl(struct video_device *dev, unsigned int cmd, 
@@ -361,6 +367,7 @@ module_exit (dsbr100_exit);
 
 MODULE_AUTHOR( DRIVER_AUTHOR );
 MODULE_DESCRIPTION( DRIVER_DESC );
+MODULE_LICENSE("GPL");
 
 /*
 vi: ts=8

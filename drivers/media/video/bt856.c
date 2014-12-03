@@ -32,7 +32,7 @@
 #include <linux/fs.h>
 #include <linux/kernel.h>
 #include <linux/major.h>
-#include <linux/malloc.h>
+#include <linux/slab.h>
 #include <linux/mm.h>
 #include <linux/pci.h>
 #include <linux/signal.h>
@@ -301,3 +301,4 @@ static void bt856_exit(void)
 
 module_init(bt856_init);
 module_exit(bt856_exit);
+MODULE_LICENSE("GPL");

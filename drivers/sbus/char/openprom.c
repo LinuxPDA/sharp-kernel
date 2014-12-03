@@ -586,11 +586,6 @@ static int openprom_ioctl(struct inode * inode, struct file * file,
 	}
 }
 
-static long long openprom_lseek(struct file * file, long long offset, int origin)
-{
-	return -ESPIPE;
-}
-
 static int openprom_open(struct inode * inode, struct file * file)
 {
 	DATA *data;
@@ -614,7 +609,7 @@ static int openprom_release(struct inode * inode, struct file * file)
 
 static struct file_operations openprom_fops = {
 	owner:		THIS_MODULE,
-	llseek:		openprom_lseek,
+	llseek:		no_llseek,
 	ioctl:		openprom_ioctl,
 	open:		openprom_open,
 	release:	openprom_release,
@@ -658,3 +653,4 @@ static void __exit openprom_cleanup(void)
 
 module_init(openprom_init);
 module_exit(openprom_cleanup);
+MODULE_LICENSE("GPL");

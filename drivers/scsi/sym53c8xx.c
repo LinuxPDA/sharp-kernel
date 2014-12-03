@@ -85,7 +85,7 @@
 /*
 **	Name and version of the driver
 */
-#define SCSI_NCR_DRIVER_NAME	"sym53c8xx-1.7.3a-20010304"
+#define SCSI_NCR_DRIVER_NAME	"sym53c8xx-1.7.3c-20010512"
 
 #define SCSI_NCR_DEBUG_FLAGS	(0)
 
@@ -101,9 +101,7 @@
 
 #define LinuxVersionCode(v, p, s) (((v)<<16)+((p)<<8)+(s))
 
-#ifdef MODULE
 #include <linux/module.h>
-#endif
 
 #include <asm/dma.h>
 #include <asm/io.h>
@@ -584,6 +582,9 @@ pci_get_base_cookie(struct pci_dev *pdev, int offset)
 #if LINUX_VERSION_CODE < LinuxVersionCode(2,4,0)
 #define pci_enable_device(pdev)		(0)
 #endif
+#if LINUX_VERSION_CODE < LinuxVersionCode(2,4,4)
+#define	scsi_set_pci_device(inst, pdev)	(0)
+#endif
 
 /*==========================================================
 **
@@ -986,8 +987,8 @@ static m_addr_t ___dma_getp(m_pool_s *mp)
 	if (vbp) {
 		dma_addr_t daddr;
 		vp = (m_addr_t) pci_alloc_consistent(mp->bush,
-						PAGE_SIZE<<MEMO_PAGE_ORDER,
-						&daddr);
+						     PAGE_SIZE<<MEMO_PAGE_ORDER,
+						     &daddr);
 		if (vp) {
 			int hc = VTOB_HASH_CODE(vp);
 			vbp->vaddr = vp;
@@ -1137,26 +1138,26 @@ static m_addr_t __vtobus(m_bush_t bush, void *m)
 /* Linux version with pci bus iommu kernel interface */
 
 /* To keep track of the dma mapping (sg/single) that has been set */
-#define __data_mapped	SCp.phase
-#define __data_mapping	SCp.have_data_in
+#define __data_mapped(cmd)	(cmd)->SCp.phase
+#define __data_mapping(cmd)	(cmd)->SCp.dma_handle
 
 static void __unmap_scsi_data(pcidev_t pdev, Scsi_Cmnd *cmd)
 {
 	int dma_dir = scsi_to_pci_dma_dir(cmd->sc_data_direction);
 
-	switch(cmd->__data_mapped) {
+	switch(__data_mapped(cmd)) {
 	case 2:
 		pci_unmap_sg(pdev, cmd->buffer, cmd->use_sg, dma_dir);
 		break;
 	case 1:
-		pci_unmap_single(pdev, cmd->__data_mapping,
-				 cmd->request_bufflen, dma_dir);
+		pci_unmap_page(pdev, __data_mapping(cmd),
+			       cmd->request_bufflen, dma_dir);
 		break;
 	}
-	cmd->__data_mapped = 0;
+	__data_mapped(cmd) = 0;
 }
 
-static u_long __map_scsi_single_data(pcidev_t pdev, Scsi_Cmnd *cmd)
+static dma_addr_t __map_scsi_single_data(pcidev_t pdev, Scsi_Cmnd *cmd)
 {
 	dma_addr_t mapping;
 	int dma_dir = scsi_to_pci_dma_dir(cmd->sc_data_direction);
@@ -1164,10 +1165,13 @@ static u_long __map_scsi_single_data(pcidev_t pdev, Scsi_Cmnd *cmd)
 	if (cmd->request_bufflen == 0)
 		return 0;
 
-	mapping = pci_map_single(pdev, cmd->request_buffer,
-				 cmd->request_bufflen, dma_dir);
-	cmd->__data_mapped = 1;
-	cmd->__data_mapping = mapping;
+	mapping = pci_map_page(pdev,
+			       virt_to_page(cmd->request_buffer),
+			       ((unsigned long)cmd->request_buffer &
+				~PAGE_MASK),
+			       cmd->request_bufflen, dma_dir);
+	__data_mapped(cmd) = 1;
+	__data_mapping(cmd) = mapping;
 
 	return mapping;
 }
@@ -1181,8 +1185,8 @@ static int __map_scsi_sg_data(pcidev_t pdev, Scsi_Cmnd *cmd)
 		return 0;
 
 	use_sg = pci_map_sg(pdev, cmd->buffer, cmd->use_sg, dma_dir);
-	cmd->__data_mapped = 2;
-	cmd->__data_mapping = use_sg;
+	__data_mapped(cmd) = 2;
+	__data_mapping(cmd) = use_sg;
 
 	return use_sg;
 }
@@ -1191,12 +1195,12 @@ static void __sync_scsi_data(pcidev_t pdev, Scsi_Cmnd *cmd)
 {
 	int dma_dir = scsi_to_pci_dma_dir(cmd->sc_data_direction);
 
-	switch(cmd->__data_mapped) {
+	switch(__data_mapped(cmd)) {
 	case 2:
 		pci_dma_sync_sg(pdev, cmd->buffer, cmd->use_sg, dma_dir);
 		break;
 	case 1:
-		pci_dma_sync_single(pdev, cmd->__data_mapping,
+		pci_dma_sync_single(pdev, __data_mapping(cmd),
 				    cmd->request_bufflen, dma_dir);
 		break;
 	}
@@ -3781,7 +3785,7 @@ static	struct scripth scripth0 __initdata = {
 		SIR_MSG_RECEIVED,
 
 }/*-------------------------< MSG_WEIRD_SEEN >------------------*/,{
-	SCR_LOAD_REL (scratcha1, 4),	/* DUMMY READ */
+	SCR_LOAD_REL (scratcha, 4),	/* DUMMY READ */
 		0,
 	SCR_INT,
 		SIR_MSG_WEIRD,
@@ -5028,12 +5032,12 @@ static int __init ncr_prepare_setting(ncb_p np, ncr_nvram *nvram)
 	/*
 	**	64 bit (53C895A or 53C896) ?
 	*/
-	if (np->features & FE_DAC)
-#ifdef SCSI_NCR_USE_64BIT_DAC
-		np->rv_ccntl1	|= (XTIMOD | EXTIBMV);
-#else
-		np->rv_ccntl1	|= (DDAC);
-#endif
+	if (np->features & FE_DAC) {
+		if (np->features & FE_DAC_IN_USE)
+			np->rv_ccntl1	|= (XTIMOD | EXTIBMV);
+		else
+			np->rv_ccntl1	|= (DDAC);
+	}
 
 	/*
 	**	Phase mismatch handled by SCRIPTS (53C895A, 53C896 or C1010) ?
@@ -6591,7 +6595,7 @@ static int ncr_queue_command (ncb_p np, Scsi_Cmnd *cmd)
 	**
 	**----------------------------------------------------
 	*/
-#if 0	/* This stuff was only usefull for linux-1.2.13 */
+#if 0	/* This stuff was only useful for linux-1.2.13 */
 	if (lp && !lp->numtags && cmd->device && cmd->device->tagged_queue) {
 		lp->numtags = tp->usrtags;
 		ncr_setup_tags (np, cp->target, cp->lun);
@@ -6991,22 +6995,26 @@ static void ncr_soft_reset(ncb_p np)
 	u_char istat;
 	int i;
 
+	if (!(np->features & FE_ISTAT1) || !(INB (nc_istat1) & SRUN))
+		goto do_chip_reset;
+
 	OUTB (nc_istat, CABRT);
-	for (i = 1000000 ; i ; --i) {
+	for (i = 100000 ; i ; --i) {
 		istat = INB (nc_istat);
 		if (istat & SIP) {
 			INW (nc_sist);
-			continue;
 		}
-		if (istat & DIP) {
-			OUTB (nc_istat, 0);
-			INB (nc_dstat);
-			break;
+		else if (istat & DIP) {
+			if (INB (nc_dstat) & ABRT);
+				break;
 		}
+		UDELAY(5);
 	}
+	OUTB (nc_istat, 0);
 	if (!i)
-		printk("%s: unable to abort current chip operation.\n",
-			ncr_name(np));
+		printk("%s: unable to abort current chip operation, "
+		       "ISTAT=0x%02x.\n", ncr_name(np), istat);
+do_chip_reset:
 	ncr_chip_reset(np);
 }
 
@@ -7419,10 +7427,10 @@ void ncr_complete (ncb_p np, ccb_p cp)
 		/*
 		**	On standard INQUIRY response (EVPD and CmDt 
 		**	not set), setup logical unit according to 
-		**	announced capabilities (we need the 1rst 7 bytes).
+		**	announced capabilities (we need the 1rst 8 bytes).
 		*/
 		if (cmd->cmnd[0] == 0x12 && !(cmd->cmnd[1] & 0x3) &&
-		    cmd->cmnd[4] >= 7 && !cmd->use_sg) {
+		    cmd->request_bufflen - cp->resid > 7 && !cmd->use_sg) {
 			sync_scsi_data(np, cmd);	/* SYNC the data */
 			ncr_setup_lcb (np, cp->target, cp->lun,
 				       (char *) cmd->request_buffer);
@@ -7959,7 +7967,7 @@ static void ncr_getsync(ncb_p np, u_char sfac, u_char *fakp, u_char *scntl3p)
 	*/
 	fak = (kpc - 1) / div_10M[div] + 1;
 
-#if 0	/* This optimization does not seem very usefull */
+#if 0	/* This optimization does not seem very useful */
 
 	per = (fak * div_10M[div]) / clk;
 
@@ -8685,7 +8693,7 @@ static void ncr_timeout (ncb_p np)
 **		scntl3:	(see the manual)
 **
 **	current script command:
-**		dsp:	script adress (relative to start of script).
+**		dsp:	script address (relative to start of script).
 **		dbc:	first word of script command.
 **
 **	First 24 register of the chip:
@@ -9535,7 +9543,7 @@ static void ncr_int_ma (ncb_p np)
 
 #ifdef  SYM_DEBUG_PM_WITH_WSR
 		PRINT_ADDR(cp);
-		printf ("MA interrupt with WSR set - "
+		printk ("MA interrupt with WSR set - "
 			"pm->sg.addr=%x - pm->sg.size=%d\n",
 			pm->sg.addr, pm->sg.size);
 #endif
@@ -10167,14 +10175,16 @@ static void ncr_sir_task_recovery(ncb_p np, int num)
 				if (i >= MAX_START*2)
 					i = 0;
 			}
-			assert(k != -1);
-			if (k != 1) {
+			/*
+			**	If job removed, repair the start queue.
+			*/
+			if (k != -1) {
 				np->squeue[k] = np->squeue[i]; /* Idle task */
 				np->squeueput = k; /* Start queue pointer */
-				cp->host_status = HS_ABORTED;
-				cp->scsi_status = S_ILLEGAL;
-				ncr_complete(np, cp);
 			}
+			cp->host_status = HS_ABORTED;
+			cp->scsi_status = S_ILLEGAL;
+			ncr_complete(np, cp);
 		}
 		break;
 	/*
@@ -10730,7 +10740,7 @@ static void ncr_print_msg (ccb_p cp, char *label, u_char *msg)
 **	Was Sie schon immer ueber transfermode negotiation wissen wollten ...
 **
 **	We try to negotiate sync and wide transfer only after
-**	a successfull inquire command. We look at byte 7 of the
+**	a successful inquire command. We look at byte 7 of the
 **	inquire data to determine the capabilities of the target.
 **
 **	When we try to negotiate, we append the negotiation message
@@ -11571,7 +11581,7 @@ out_stuck:
 /*==========================================================
 **
 **
-**	Aquire a control block
+**	Acquire a control block
 **
 **
 **==========================================================
@@ -12061,15 +12071,9 @@ fail:
 **	code will get more complex later).
 */
 
-#ifdef SCSI_NCR_USE_64BIT_DAC
 #define SCATTER_ONE(data, badd, len)					\
 	(data)->addr = cpu_to_scr(badd);				\
 	(data)->size = cpu_to_scr((((badd) >> 8) & 0xff000000) + len);
-#else
-#define SCATTER_ONE(data, badd, len)		\
-	(data)->addr = cpu_to_scr(badd);	\
-	(data)->size = cpu_to_scr(len);
-#endif
 
 #define CROSS_16MB(p, n) (((((u_long) p) + n - 1) ^ ((u_long) p)) & ~0xffffff)
 
@@ -12081,7 +12085,7 @@ static	int ncr_scatter_no_sglist(ncb_p np, ccb_p cp, Scsi_Cmnd *cmd)
 	cp->data_len = cmd->request_bufflen;
 
 	if (cmd->request_bufflen) {
-		u_long baddr = map_scsi_single_data(np, cmd);
+		dma_addr_t baddr = map_scsi_single_data(np, cmd);
 
 		SCATTER_ONE(data, baddr, cmd->request_bufflen);
 		if (CROSS_16MB(baddr, cmd->request_bufflen)) {
@@ -12132,7 +12136,7 @@ static int ncr_scatter_896R1(ncb_p np, ccb_p cp, Scsi_Cmnd *cmd)
 		data = &cp->phys.data[MAX_SCATTER - use_sg];
 
 		for (segn = 0; segn < use_sg; segn++) {
-			u_long baddr = scsi_sg_dma_address(&scatter[segn]);
+			dma_addr_t baddr = scsi_sg_dma_address(&scatter[segn]);
 			unsigned int len = scsi_sg_dma_len(&scatter[segn]);
 
 			SCATTER_ONE(&data[segn],
@@ -12171,7 +12175,7 @@ static int ncr_scatter(ncb_p np, ccb_p cp, Scsi_Cmnd *cmd)
 		data = &cp->phys.data[MAX_SCATTER - use_sg];
 
 		for (segment = 0; segment < use_sg; segment++) {
-			u_long baddr = scsi_sg_dma_address(&scatter[segment]);
+			dma_addr_t baddr = scsi_sg_dma_address(&scatter[segment]);
 			unsigned int len = scsi_sg_dma_len(&scatter[segment]);
 
 			SCATTER_ONE(&data[segment],
@@ -12223,6 +12227,7 @@ static int __init ncr_regtest (struct ncb* np)
 static int __init ncr_snooptest (struct ncb* np)
 {
 	u_int32	ncr_rd, ncr_wr, ncr_bk, host_rd, host_wr, pc;
+	u_char  dstat;
 	int	i, err=0;
 #ifndef SCSI_NCR_IOMAPPED
 	if (np->reg) {
@@ -12230,6 +12235,12 @@ static int __init ncr_snooptest (struct ncb* np)
             if (err) return (err);
 	}
 #endif
+restart_test:
+	/*
+	**	Enable Master Parity Checking as we intend 
+	**	to enable it for normal operations.
+	*/
+	OUTB (nc_ctest4, (np->rv_ctest4 & MPEE));
 	/*
 	**	init
 	*/
@@ -12252,6 +12263,27 @@ static int __init ncr_snooptest (struct ncb* np)
 	for (i=0; i<NCR_SNOOP_TIMEOUT; i++)
 		if (INB(nc_istat) & (INTF|SIP|DIP))
 			break;
+	if (i>=NCR_SNOOP_TIMEOUT) {
+		printk ("CACHE TEST FAILED: timeout.\n");
+		return (0x20);
+	};
+	/*
+	**	Check for fatal DMA errors.
+	*/
+	dstat = INB (nc_dstat);
+#if 1	/* Band aiding for broken hardwares that fail PCI parity */
+	if ((dstat & MDPE) && (np->rv_ctest4 & MPEE)) {
+		printk ("%s: PCI DATA PARITY ERROR DETECTED - "
+			"DISABLING MASTER DATA PARITY CHECKING.\n",
+			ncr_name(np));
+		np->rv_ctest4 &= ~MPEE;
+		goto restart_test;
+	}
+#endif
+	if (dstat & (MDPE|BF|IID)) {
+		printk ("CACHE TEST FAILED: DMA error (dstat=0x%02x).", dstat);
+		return (0x80);
+	}
 	/*
 	**	Save termination position.
 	*/
@@ -12262,14 +12294,6 @@ static int __init ncr_snooptest (struct ncb* np)
 	host_rd = scr_to_cpu(np->ncr_cache);
 	ncr_rd  = INL (nc_scratcha);
 	ncr_bk  = INL (nc_temp);
-
-	/*
-	**	check for timeout
-	*/
-	if (i>=NCR_SNOOP_TIMEOUT) {
-		printk ("CACHE TEST FAILED: timeout.\n");
-		return (0x20);
-	};
 	/*
 	**	Check termination position.
 	*/
@@ -13071,14 +13095,6 @@ sym53c8xx_pci_init(Scsi_Host_Template *tpnt, pcidev_t pdev, ncr_device *device)
 		(int) (PciDeviceFn(pdev) & 0xf8) >> 3,
 		(int) (PciDeviceFn(pdev) & 7));
 
-#ifdef SCSI_NCR_DYNAMIC_DMA_MAPPING
-	if (pci_set_dma_mask(pdev, (dma_addr_t) (0xffffffffUL))) {
-		printk(KERN_WARNING NAME53C8XX
-		       "32 BIT PCI BUS DMA ADDRESSING NOT SUPPORTED\n");
-		return -1;
-	}
-#endif
-
 	/*
 	**    Read info from the PCI config space.
 	**    pci_read_config_xxx() functions are assumed to be used for 
@@ -13145,6 +13161,28 @@ sym53c8xx_pci_init(Scsi_Host_Template *tpnt, pcidev_t pdev, ncr_device *device)
 		chip->revision_id = revision;
 		break;
 	}
+
+#ifdef SCSI_NCR_DYNAMIC_DMA_MAPPING
+	/* Configure DMA attributes.  For DAC capable boards, we can encode
+	** 32+8 bits for SCSI DMA data addresses with the extra bits used
+	** in the size field.  We use normal 32-bit PCI addresses for
+	** descriptors.
+	*/
+	if (chip && (chip->features & FE_DAC)) {
+		if (pci_set_dma_mask(pdev, (u64) 0xffffffffff))
+			chip->features &= ~FE_DAC_IN_USE;
+		else
+			chip->features |= FE_DAC_IN_USE;
+	}
+
+	if (chip && !(chip->features & FE_DAC_IN_USE)) {
+		if (pci_set_dma_mask(pdev, (u64) 0xffffffff)) {
+			printk(KERN_WARNING NAME53C8XX
+			       "32 BIT PCI BUS DMA ADDRESSING NOT SUPPORTED\n");
+			return -1;
+		}
+	}
+#endif
 
 	/*
 	**	Ignore Symbios chips controlled by SISL RAID controller.
@@ -13582,8 +13620,8 @@ printk("sym53c8xx_queue_command\n");
      cmd->SCp.ptr       = NULL;
      cmd->SCp.buffer    = NULL;
 #ifdef SCSI_NCR_DYNAMIC_DMA_MAPPING
-     cmd->__data_mapped = 0;
-     cmd->__data_mapping = 0;
+     __data_mapped(cmd) = 0;
+     __data_mapping(cmd) = 0;
 #endif
 
      NCR_LOCK_NCB(np, flags);
@@ -14381,7 +14419,7 @@ sym_read_S24C16_nvram (ncr_slot *np, int offset, u_char *data, int len)
 	/* save current state of GPCNTL and GPREG */
 	old_gpreg	= INB (nc_gpreg);
 	old_gpcntl	= INB (nc_gpcntl);
-	gpcntl		= old_gpcntl & 0xfc;
+	gpcntl		= old_gpcntl & 0x1c;
 
 	/* set up GPREG & GPCNTL to set GPIO0 and GPIO1 in to known state */
 	OUTB (nc_gpreg,  old_gpreg);
@@ -14672,6 +14710,8 @@ sym_read_Tekram_nvram (ncr_slot *np, u_short device_id, Tekram_nvram *nvram)
 /*
 **	Module stuff
 */
+
+MODULE_LICENSE("GPL");
 
 #if LINUX_VERSION_CODE >= LinuxVersionCode(2,4,0)
 static

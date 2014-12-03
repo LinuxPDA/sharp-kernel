@@ -59,6 +59,15 @@ void __init smp_setup(char *str, int *ints)
 	/* XXX implement me XXX */
 }
 
+static int max_cpus = NR_CPUS;
+static int __init maxcpus(char *str)
+{
+	get_option(&str, &max_cpus);
+	return 1;
+}
+
+__setup("maxcpus=", maxcpus);
+
 int smp_info(char *buf)
 {
 	int len = 7, i;
@@ -117,7 +126,6 @@ void __init smp_commence(void)
 }
 
 static void smp_setup_percpu_timer(void);
-static void smp_tune_scheduling(void);
 
 static volatile unsigned long callin_flag = 0;
 
@@ -241,7 +249,6 @@ void __init smp_boot_cpus(void)
 	printk("Entering UltraSMPenguin Mode...\n");
 	__sti();
 	smp_store_cpu_info(boot_cpu_id);
-	smp_tune_scheduling();
 	init_idle();
 
 	if (linux_num_cpus == 1)
@@ -251,6 +258,8 @@ void __init smp_boot_cpus(void)
 		if (i == boot_cpu_id)
 			continue;
 
+		if ((cpucount + 1) == max_cpus)
+			break;
 		if (cpu_present_map & (1UL << i)) {
 			unsigned long entry = (unsigned long)(&sparc64_cpu_startup);
 			unsigned long cookie = (unsigned long)(&cpu_new_task);
@@ -502,11 +511,15 @@ retry:
 	}
 }
 
-void smp_cross_call(unsigned long *func, u32 ctx, u64 data1, u64 data2)
+/* Send cross call to all processors mentioned in MASK
+ * except self.
+ */
+static void smp_cross_call_masked(unsigned long *func, u32 ctx, u64 data1, u64 data2, unsigned long mask)
 {
 	if (smp_processors_ready) {
-		unsigned long mask = (cpu_present_map & ~(1UL<<smp_processor_id()));
 		u64 data0 = (((u64)ctx)<<32 | (((u64)func) & 0xffffffff));
+
+		mask &= ~(1UL<<smp_processor_id());
 
 		if (tlb_type == spitfire)
 			spitfire_xcall_deliver(data0, data1, data2, mask);
@@ -516,6 +529,10 @@ void smp_cross_call(unsigned long *func, u32 ctx, u64 data1, u64 data2)
 		/* NOTE: Caller runs local copy on master. */
 	}
 }
+
+/* Send cross call to all processors except self. */
+#define smp_cross_call(func, ctx, data1, data2) \
+	smp_cross_call_masked(func, ctx, data1, data2, cpu_present_map)
 
 struct call_data_struct {
 	void (*func) (void *info);
@@ -565,6 +582,68 @@ extern unsigned long xcall_tlbcachesync;
 extern unsigned long xcall_flush_cache_all;
 extern unsigned long xcall_report_regs;
 extern unsigned long xcall_receive_signal;
+extern unsigned long xcall_flush_dcache_page_cheetah;
+extern unsigned long xcall_flush_dcache_page_spitfire;
+
+static spinlock_t dcache_xcall_lock = SPIN_LOCK_UNLOCKED;
+static struct page *dcache_page;
+#ifdef DCFLUSH_DEBUG
+extern atomic_t dcpage_flushes;
+extern atomic_t dcpage_flushes_xcall;
+#endif
+
+static __inline__ void __smp_flush_dcache_page_client(struct page *page)
+{
+#if (L1DCACHE_SIZE > PAGE_SIZE)
+	__flush_dcache_page(page->virtual,
+			    ((tlb_type == spitfire) &&
+			     page->mapping != NULL));
+#else
+	if (page->mapping != NULL &&
+	    tlb_type == spitfire)
+		__flush_icache_page(__pa(page->virtual));
+#endif
+}
+
+void smp_flush_dcache_page_client(void)
+{
+	__smp_flush_dcache_page_client(dcache_page);
+	spin_unlock(&dcache_xcall_lock);
+}
+
+void smp_flush_dcache_page_impl(struct page *page)
+{
+	if (smp_processors_ready) {
+		int cpu = dcache_dirty_cpu(page);
+		unsigned long mask = 1UL << cpu;
+
+#ifdef DCFLUSH_DEBUG
+		atomic_inc(&dcpage_flushes);
+#endif
+		if (cpu == smp_processor_id()) {
+			__smp_flush_dcache_page_client(page);
+		} else if ((cpu_present_map & mask) != 0) {
+			u64 data0;
+
+			if (tlb_type == spitfire) {
+				spin_lock(&dcache_xcall_lock);
+				dcache_page = page;
+				data0 = ((u64)&xcall_flush_dcache_page_spitfire);
+				spitfire_xcall_deliver(data0, 0, 0, mask);
+				/* Target cpu drops dcache_xcall_lock. */
+			} else {
+				/* Look mom, no locks... */
+				data0 = ((u64)&xcall_flush_dcache_page_cheetah);
+				cheetah_xcall_deliver(data0,
+						      (u64) page->virtual,
+						      0, mask);
+			}
+#ifdef DCFLUSH_DEBUG
+			atomic_inc(&dcpage_flushes_xcall);
+#endif
+		}
+	}
+}
 
 void smp_receive_signal(int cpu)
 {
@@ -604,14 +683,14 @@ void smp_flush_tlb_all(void)
  * are flush_tlb_*() routines, and these run after flush_cache_*()
  * which performs the flushw.
  *
- * XXX I diked out the fancy flush avoidance code for the
- * XXX swapping cases for now until the new MM code stabilizes. -DaveM
- *
  * The SMP TLB coherency scheme we use works as follows:
  *
  * 1) mm->cpu_vm_mask is a bit mask of which cpus an address
  *    space has (potentially) executed on, this is the heuristic
  *    we use to avoid doing cross calls.
+ *
+ *    Also, for flushing from kswapd and also for clones, we
+ *    use cpu_vm_mask as the list of cpus to make run the TLB.
  *
  * 2) TLB context numbers are shared globally across all processors
  *    in the system, this allows us to play several games to avoid
@@ -630,32 +709,45 @@ void smp_flush_tlb_all(void)
  *    migrates to another cpu (again).
  *
  * 3) For shared address spaces (threads) and swapping we bite the
- *    bullet for most cases and perform the cross call.
+ *    bullet for most cases and perform the cross call (but only to
+ *    the cpus listed in cpu_vm_mask).
  *
  *    The performance gain from "optimizing" away the cross call for threads is
  *    questionable (in theory the big win for threads is the massive sharing of
  *    address space state across processors).
- *
- *    For the swapping case the locking is difficult to get right, we'd have to
- *    enforce strict ordered access to mm->cpu_vm_mask via a spinlock for example.
- *    Then again one could argue that when you are swapping, the cost of a cross
- *    call won't even show up on the performance radar.  But in any case we do get
- *    rid of the cross-call when the task has a dead context or the task has only
- *    ever run on the local cpu.
  */
 void smp_flush_tlb_mm(struct mm_struct *mm)
 {
-	if (CTX_VALID(mm->context)) {
+        /*
+         * This code is called from two places, dup_mmap and exit_mmap. In the
+         * former case, we really need a flush. In the later case, the callers
+         * are single threaded exec_mmap (really need a flush), multithreaded
+         * exec_mmap case (do not need to flush, since the caller gets a new
+         * context via activate_mm), and all other callers of mmput() whence
+         * the flush can be optimized since the associated threads are dead and
+         * the mm is being torn down (__exit_mm and other mmput callers) or the
+         * owning thread is dissociating itself from the mm. The
+         * (atomic_read(&mm->mm_users) == 0) check ensures real work is done
+         * for single thread exec and dup_mmap cases. An alternate check might
+         * have been (current->mm != mm).
+         *                                              Kanoj Sarcar
+         */
+        if (atomic_read(&mm->mm_users) == 0)
+                return;
+
+	{
 		u32 ctx = CTX_HWBITS(mm->context);
 		int cpu = smp_processor_id();
 
-		if (mm == current->active_mm && atomic_read(&mm->mm_users) == 1) {
+		if (atomic_read(&mm->mm_users) == 1) {
 			/* See smp_flush_tlb_page for info about this. */
 			mm->cpu_vm_mask = (1UL << cpu);
 			goto local_flush_and_out;
 		}
 
-		smp_cross_call(&xcall_flush_tlb_mm, ctx, 0, 0);
+		smp_cross_call_masked(&xcall_flush_tlb_mm,
+				      ctx, 0, 0,
+				      mm->cpu_vm_mask);
 
 	local_flush_and_out:
 		__flush_tlb_mm(ctx, SECONDARY_CONTEXT);
@@ -665,19 +757,21 @@ void smp_flush_tlb_mm(struct mm_struct *mm)
 void smp_flush_tlb_range(struct mm_struct *mm, unsigned long start,
 			 unsigned long end)
 {
-	if (CTX_VALID(mm->context)) {
+	{
 		u32 ctx = CTX_HWBITS(mm->context);
 		int cpu = smp_processor_id();
 
 		start &= PAGE_MASK;
-		end   &= PAGE_MASK;
+		end    = PAGE_ALIGN(end);
 
 		if (mm == current->active_mm && atomic_read(&mm->mm_users) == 1) {
 			mm->cpu_vm_mask = (1UL << cpu);
 			goto local_flush_and_out;
 		}
 
-		smp_cross_call(&xcall_flush_tlb_range, ctx, start, end);
+		smp_cross_call_masked(&xcall_flush_tlb_range,
+				      ctx, start, end,
+				      mm->cpu_vm_mask);
 
 	local_flush_and_out:
 		__flush_tlb_range(ctx, start, SECONDARY_CONTEXT, end, PAGE_SIZE, (end-start));
@@ -686,7 +780,7 @@ void smp_flush_tlb_range(struct mm_struct *mm, unsigned long start,
 
 void smp_flush_tlb_page(struct mm_struct *mm, unsigned long page)
 {
-	if (CTX_VALID(mm->context)) {
+	{
 		u32 ctx = CTX_HWBITS(mm->context);
 		int cpu = smp_processor_id();
 
@@ -717,7 +811,11 @@ void smp_flush_tlb_page(struct mm_struct *mm, unsigned long page)
 		 * this is a cloned mm or kswapd is kicking out pages for a task
 		 * which has run recently on another cpu.
 		 */
-		smp_cross_call(&xcall_flush_tlb_page, ctx, page, 0);
+		smp_cross_call_masked(&xcall_flush_tlb_page,
+				      ctx, page, 0,
+				      mm->cpu_vm_mask);
+		if (!(mm->cpu_vm_mask & (1UL << cpu)))
+			return;
 
 	local_flush_and_out:
 		__flush_tlb_page(ctx, page, SECONDARY_CONTEXT);
@@ -997,89 +1095,6 @@ static inline unsigned long find_flush_base(unsigned long size)
 		p++;
 	}
 	return base;
-}
-
-cycles_t cacheflush_time;
-
-extern unsigned long cheetah_tune_scheduling(void);
-
-static void __init smp_tune_scheduling (void)
-{
-	unsigned long orig_flush_base, flush_base, flags, *p;
-	unsigned int ecache_size, order;
-	cycles_t tick1, tick2, raw;
-
-	/* Approximate heuristic for SMP scheduling.  It is an
-	 * estimation of the time it takes to flush the L2 cache
-	 * on the local processor.
-	 *
-	 * The ia32 chooses to use the L1 cache flush time instead,
-	 * and I consider this complete nonsense.  The Ultra can service
-	 * a miss to the L1 with a hit to the L2 in 7 or 8 cycles, and
-	 * L2 misses are what create extra bus traffic (ie. the "cost"
-	 * of moving a process from one cpu to another).
-	 */
-	printk("SMP: Calibrating ecache flush... ");
-	if (tlb_type == cheetah) {
-		cacheflush_time = cheetah_tune_scheduling();
-		goto report;
-	}
-
-	ecache_size = prom_getintdefault(linux_cpus[0].prom_node,
-					 "ecache-size", (512 * 1024));
-	if (ecache_size > (4 * 1024 * 1024))
-		ecache_size = (4 * 1024 * 1024);
-	orig_flush_base = flush_base =
-		__get_free_pages(GFP_KERNEL, order = get_order(ecache_size));
-
-	if (flush_base != 0UL) {
-		__save_and_cli(flags);
-
-		/* Scan twice the size once just to get the TLB entries
-		 * loaded and make sure the second scan measures pure misses.
-		 */
-		for (p = (unsigned long *)flush_base;
-		     ((unsigned long)p) < (flush_base + (ecache_size<<1));
-		     p += (64 / sizeof(unsigned long)))
-			*((volatile unsigned long *)p);
-
-		/* Now the real measurement. */
-		__asm__ __volatile__("
-		b,pt	%%xcc, 1f
-		 rd	%%tick, %0
-
-		.align	64
-1:		ldx	[%2 + 0x000], %%g1
-		ldx	[%2 + 0x040], %%g2
-		ldx	[%2 + 0x080], %%g3
-		ldx	[%2 + 0x0c0], %%g5
-		add	%2, 0x100, %2
-		cmp	%2, %4
-		bne,pt	%%xcc, 1b
-		 nop
-	
-		rd	%%tick, %1"
-		: "=&r" (tick1), "=&r" (tick2), "=&r" (flush_base)
-		: "2" (flush_base), "r" (flush_base + ecache_size)
-		: "g1", "g2", "g3", "g5");
-
-		__restore_flags(flags);
-
-		raw = (tick2 - tick1);
-
-		/* Dampen it a little, considering two processes
-		 * sharing the cache and fitting.
-		 */
-		cacheflush_time = (raw - (raw >> 2));
-
-		free_pages(orig_flush_base, order);
-	} else {
-		cacheflush_time = ((ecache_size << 2) +
-				   (ecache_size << 1));
-	}
-report:
-	printk("Using heuristic of %d cycles.\n",
-	       (int) cacheflush_time);
 }
 
 /* /proc/profile writes can call this, don't __init it please. */

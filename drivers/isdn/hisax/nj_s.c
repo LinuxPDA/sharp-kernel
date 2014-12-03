@@ -1,7 +1,9 @@
-// $Id: nj_s.c,v 2.7.6.4 2001/02/16 16:43:28 kai Exp $
-//
-// This file is (c) under GNU General Public License
-//
+/* $Id: nj_s.c,v 2.7.6.6 2001/09/23 22:24:50 kai Exp $
+ *
+ * This software may be used and distributed according to the terms
+ * of the GNU General Public License, incorporated herein by reference.
+ *
+ */
 
 #define __NO_VERSION__
 #include <linux/config.h>
@@ -14,7 +16,7 @@
 #include <linux/ppp_defs.h>
 #include "netjet.h"
 
-const char *NETjet_S_revision = "$Revision: 2.7.6.4 $";
+const char *NETjet_S_revision = "$Revision: 2.7.6.6 $";
 
 static u_char dummyrr(struct IsdnCardState *cs, int chan, u_char off)
 {
@@ -240,11 +242,11 @@ setup_netjet_s(struct IsdnCard *card)
 	bytecnt = 256;
 
 	printk(KERN_INFO
-		"NETjet-S: PCI card configured at 0x%x IRQ %d\n",
+		"NETjet-S: PCI card configured at %#lx IRQ %d\n",
 		cs->hw.njet.base, cs->irq);
 	if (check_region(cs->hw.njet.base, bytecnt)) {
 		printk(KERN_WARNING
-		       "HiSax: %s config port %x-%x already in use\n",
+		       "HiSax: %s config port %#lx-%#lx already in use\n",
 		       CardType[card->typ],
 		       cs->hw.njet.base,
 		       cs->hw.njet.base + bytecnt);

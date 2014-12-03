@@ -29,6 +29,16 @@
 #include <asm/uaccess.h>
 
 /*
+ * Called by kernel/ptrace.c when detaching..
+ *
+ * Make sure single step bits etc are not set.
+ */
+void ptrace_disable(struct task_struct *child)
+{
+	/* Nothing to do.. */
+}
+
+/*
  * Tracing a 32-bit process with a 64-bit strace and vice versa will not
  * work.  I don't know how to fix this.
  */
@@ -62,32 +72,7 @@ asmlinkage int sys32_ptrace(int request, int pid, int addr, int data)
 		goto out_tsk;
 
 	if (request == PTRACE_ATTACH) {
-		if (child == current)
-			goto out_tsk;
-		if ((!child->dumpable ||
-		    (current->uid != child->euid) ||
-		    (current->uid != child->suid) ||
-		    (current->uid != child->uid) ||
-	 	    (current->gid != child->egid) ||
-	 	    (current->gid != child->sgid) ||
-	 	    (!cap_issubset(child->cap_permitted, current->cap_permitted)) ||
-	 	    (current->gid != child->gid)) && !capable(CAP_SYS_PTRACE))
-			goto out_tsk;
-		/* the same process cannot be attached many times */
-		if (child->ptrace & PT_PTRACED)
-			goto out_tsk;
-		child->ptrace |= PT_PTRACED;
-
-		write_lock_irq(&tasklist_lock);
-		if (child->p_pptr != current) {
-			REMOVE_LINKS(child);
-			child->p_pptr = current;
-			SET_LINKS(child);
-		}
-		write_unlock_irq(&tasklist_lock);
-
-		send_sig(SIGSTOP, child, 1);
-		ret = 0;
+		ret = ptrace_attach(child);
 		goto out_tsk;
 	}
 	ret = -ESRCH;
@@ -129,6 +114,9 @@ asmlinkage int sys32_ptrace(int request, int pid, int addr, int data)
 			break;
 		case FPR_BASE ... FPR_BASE + 31:
 			if (child->used_math) {
+				unsigned long *fregs =
+					(void *) child->thread.fpu.hard.fp_regs;
+
 #ifndef CONFIG_SMP
 				if (last_task_used_math == child) {
 					set_cp0_status(ST0_CU1, ST0_CU1);
@@ -137,7 +125,15 @@ asmlinkage int sys32_ptrace(int request, int pid, int addr, int data)
 					last_task_used_math = NULL;
 				}
 #endif
-				tmp = child->thread.fpu.hard.fp_regs[addr - 32];
+				/*
+				 * The odd registers are actually the high
+				 * order bits of the values stored in the even
+				 * registers.
+				 */
+				if (addr & 1)
+					tmp = (unsigned long) (fregs[((addr & ~1) - 32)] >> 32);
+				else
+					tmp = (unsigned long) (fregs[(addr - 32)] & 0xffffffff);
 			} else {
 				tmp = -EIO;
 			}
@@ -196,7 +192,8 @@ asmlinkage int sys32_ptrace(int request, int pid, int addr, int data)
 			regs->regs[addr] = data;
 			break;
 		case FPR_BASE ... FPR_BASE + 31: {
-			unsigned long *fregs;
+			unsigned long *fregs =
+				(void *) child->thread.fpu.hard.fp_regs;
 			if (child->used_math) {
 #ifndef CONFIG_SMP
 				if (last_task_used_math == child) {
@@ -213,8 +210,18 @@ asmlinkage int sys32_ptrace(int request, int pid, int addr, int data)
 				       sizeof(child->thread.fpu.hard));
 				child->thread.fpu.hard.control = 0;
 			}
-			fregs = child->thread.fpu.hard.fp_regs;
-			fregs[addr - FPR_BASE] = data;
+			/*
+			 * The odd registers are actually the high order bits
+			 * of the values stored in the even registers - unless
+			 * we're using r2k_switch.S.
+			 */
+			if (addr & 1) {
+				fregs[(addr & ~1) - FPR_BASE] &= 0xffffffff;
+				fregs[(addr & ~1) - FPR_BASE] |= ((unsigned long) data) << 32;
+			} else {
+				fregs[addr - FPR_BASE] &= ~0xffffffffLL;
+				fregs[addr - FPR_BASE] |= data;
+			}
 			break;
 		}
 		case PC:
@@ -264,21 +271,9 @@ asmlinkage int sys32_ptrace(int request, int pid, int addr, int data)
 		break;
 	}
 
-	case PTRACE_DETACH: { /* detach a process that was attached. */
-		ret = -EIO;
-		if ((unsigned long) data > _NSIG)
-			break;
-		child->ptrace = 0;
-		child->exit_code = data;
-		write_lock_irq(&tasklist_lock);
-		REMOVE_LINKS(child);
-		child->p_pptr = child->p_opptr;
-		SET_LINKS(child);
-		write_unlock_irq(&tasklist_lock);
-		wake_up_process(child);
-		ret = 0;
+	case PTRACE_DETACH: /* detach a process that was attached. */
+		ret = ptrace_detach(child, data);
 		break;
-	}
 
 	case PTRACE_SETOPTIONS: {
 		if (data & PTRACE_O_TRACESYSGOOD)
@@ -336,32 +331,7 @@ asmlinkage int sys_ptrace(long request, long pid, long addr, long data)
 		goto out;
 
 	if (request == PTRACE_ATTACH) {
-		if (child == current)
-			goto out_tsk;
-		if ((!child->dumpable ||
-		    (current->uid != child->euid) ||
-		    (current->uid != child->suid) ||
-		    (current->uid != child->uid) ||
-	 	    (current->gid != child->egid) ||
-	 	    (current->gid != child->sgid) ||
-	 	    (!cap_issubset(child->cap_permitted, current->cap_permitted)) ||
-	 	    (current->gid != child->gid)) && !capable(CAP_SYS_PTRACE))
-			goto out_tsk;
-		/* the same process cannot be attached many times */
-		if (child->ptrace & PT_PTRACED)
-			goto out_tsk;
-		child->ptrace |= PT_PTRACED;
-
-		write_lock_irq(&tasklist_lock);
-		if (child->p_pptr != current) {
-			REMOVE_LINKS(child);
-			child->p_pptr = current;
-			SET_LINKS(child);
-		}
-		write_unlock_irq(&tasklist_lock);
-
-		send_sig(SIGSTOP, child, 1);
-		ret = 0;
+		ret = ptrace_attach(child);
 		goto out_tsk;
 	}
 	ret = -ESRCH;
@@ -404,6 +374,9 @@ asmlinkage int sys_ptrace(long request, long pid, long addr, long data)
 			break;
 		case FPR_BASE ... FPR_BASE + 31:
 			if (child->used_math) {
+				unsigned long long *fregs
+					= (unsigned long long *)
+					&child->thread.fpu.hard.fp_regs[0];
 #ifndef CONFIG_SMP
 				if (last_task_used_math == child) {
 					set_cp0_status(ST0_CU1, ST0_CU1);
@@ -412,7 +385,15 @@ asmlinkage int sys_ptrace(long request, long pid, long addr, long data)
 					last_task_used_math = NULL;
 				}
 #endif
-				tmp = child->thread.fpu.hard.fp_regs[addr - 32];
+				/*
+				 * The odd registers are actually the high
+				 * order bits of the values stored in the even
+				 * registers.
+				 */
+				if (addr & 1)
+					tmp = (unsigned long) (fregs[((addr & ~1) - 32)] >> 32);
+				else
+					tmp = (unsigned long) (fregs[(addr - 32)] & 0xffffffff);
 			} else {
 				tmp = -EIO;
 			}
@@ -471,7 +452,8 @@ asmlinkage int sys_ptrace(long request, long pid, long addr, long data)
 			regs->regs[addr] = data;
 			break;
 		case FPR_BASE ... FPR_BASE + 31: {
-			unsigned long *fregs;
+			unsigned long *fregs =
+				(void *) child->thread.fpu.hard.fp_regs;
 			if (child->used_math) {
 #ifndef CONFIG_SMP
 				if (last_task_used_math == child) {
@@ -488,8 +470,18 @@ asmlinkage int sys_ptrace(long request, long pid, long addr, long data)
 				       sizeof(child->thread.fpu.hard));
 				child->thread.fpu.hard.control = 0;
 			}
-			fregs = child->thread.fpu.hard.fp_regs;
-			fregs[addr - FPR_BASE] = data;
+			/*
+			 * The odd registers are actually the high order bits
+			 * of the values stored in the even registers - unless
+			 * we're using r2k_switch.S.
+			 */
+			if (addr & 1) {
+				fregs[(addr & ~1) - FPR_BASE] &= 0xffffffff;
+				fregs[(addr & ~1) - FPR_BASE] |= ((unsigned long) data) << 32;
+			} else {
+				fregs[addr - FPR_BASE] &= ~0xffffffffLL;
+				fregs[addr - FPR_BASE] |= data;
+			}
 			break;
 		}
 		case PC:
@@ -539,21 +531,9 @@ asmlinkage int sys_ptrace(long request, long pid, long addr, long data)
 		break;
 	}
 
-	case PTRACE_DETACH: { /* detach a process that was attached. */
-		ret = -EIO;
-		if ((unsigned long) data > _NSIG)
-			break;
-		child->ptrace = 0;
-		child->exit_code = data;
-		write_lock_irq(&tasklist_lock);
-		REMOVE_LINKS(child);
-		child->p_pptr = child->p_opptr;
-		SET_LINKS(child);
-		write_unlock_irq(&tasklist_lock);
-		wake_up_process(child);
-		ret = 0;
+	case PTRACE_DETACH: /* detach a process that was attached. */
+		ret = ptrace_detach(child, data);
 		break;
-	}
 
 	case PTRACE_SETOPTIONS: {
 		if (data & PTRACE_O_TRACESYSGOOD)

@@ -1,23 +1,10 @@
-
 /*
- *
  * Copyright (C) Eicon Technology Corporation, 2000.
  *
  * Eicon File Revision :    1.12  
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2, or (at your option)
- * any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY OF ANY KIND WHATSOEVER INCLUDING ANY 
- * implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  
- * See the GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ * This software may be used and distributed according to the terms
+ * of the GNU General Public License, incorporated herein by reference.
  *
  */
 
@@ -37,7 +24,6 @@
 
 extern int DivasCardNext;
 void UxPause(long ms);
-void bcopy(void *pSource, void *pDest, dword dwLength);
 int DivasGetMem(mem_block_t *);
 
 #define DIA_IOCTL_UNLOCK 12
@@ -157,11 +143,8 @@ unsigned int do_poll(struct file *pFile, struct poll_table_struct *pPollTable)
 {
 	word wMask = 0;
 
-    if (!DivasLogFifoEmpty())
-    {
+	if (!DivasLogFifoEmpty())
 		wMask |= POLLIN | POLLRDNORM;
-	}
-
 	return wMask;
 }
 
@@ -174,14 +157,14 @@ ssize_t do_read(struct file *pFile, char *pUserBuffer, size_t BufferSize, loff_t
 	{
 		printk(KERN_WARNING "Divas: Divalog buffer specifed a size that is too small (%d - %d required)\n",
 			BufferSize, sizeof(klog_t));
-		return 0;
+		return -EIO;
 	}
 
 	pHeadItem = (klog_t *) DivasLogFifoRead();
 
 	if (pHeadItem)
 	{
-		bcopy(pHeadItem, pClientLogBuffer, sizeof(klog_t));
+		memcpy(pClientLogBuffer, pHeadItem, sizeof(klog_t));
 		kfree(pHeadItem);
 		return sizeof(klog_t);
 	}

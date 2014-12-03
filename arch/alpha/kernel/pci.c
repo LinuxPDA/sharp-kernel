@@ -76,40 +76,34 @@ quirk_ali_ide_ports(struct pci_dev *dev)
 		dev->resource[3].end = dev->resource[3].start + 7;
 }
 
-/*
- * Notorious Cy82C693 chip. One of its numerous bugs: although
- * Cypress IDE controller doesn't support native mode, it has
- * programmable addresses of IDE command/control registers.
- * This violates PCI specifications, confuses IDE subsystem
- * and causes resource conflict between primary HD_CMD register
- * and floppy controller. Ugh.
- * Fix that.
- */
 static void __init
-quirk_cypress_ide_ports(struct pci_dev *dev)
+quirk_cypress(struct pci_dev *dev)
 {
-	if (dev->class >> 8 != PCI_CLASS_STORAGE_IDE)
-		return;
-	dev->resource[0].flags = 0;
-	dev->resource[1].flags = 0;
-}
+	/* The Notorious Cy82C693 chip.  */
 
-static void __init
-quirk_vga_enable_rom(struct pci_dev *dev)
-{
-	/* If it's a VGA, enable its BIOS ROM at C0000.
-	   But if its a Cirrus 543x/544x DISABLE it, since
-	   enabling ROM disables the memory... */
-	if ((dev->class >> 8) == PCI_CLASS_DISPLAY_VGA &&
-	    (dev->vendor != PCI_VENDOR_ID_CIRRUS ||
-	     (dev->device < 0x00a0) || (dev->device > 0x00ac)))
-	{
-		u32 reg;
+	/* The Cypress IDE controller doesn't support native mode, but it
+	   has programmable addresses of IDE command/control registers.
+	   This violates PCI specifications, confuses the IDE subsystem and
+	   causes resource conflicts between the primary HD_CMD register and
+	   the floppy controller.  Ugh.  Fix that.  */
+	if (dev->class >> 8 == PCI_CLASS_STORAGE_IDE) {
+		dev->resource[0].flags = 0;
+		dev->resource[1].flags = 0;
+	}
 
-		pci_read_config_dword(dev, dev->rom_base_reg, &reg);
-		reg |= PCI_ROM_ADDRESS_ENABLE;
-		pci_write_config_dword(dev, dev->rom_base_reg, reg);
-		dev->resource[PCI_ROM_RESOURCE].flags |= PCI_ROM_ADDRESS_ENABLE;
+	/* The Cypress bridge responds on the PCI bus in the address range
+	   0xffff0000-0xffffffff (conventional x86 BIOS ROM).  There is no
+	   way to turn this off, so if we use a large direct-map window, or
+	   a large SG window, we must avoid this region.  */
+	else if (dev->class >> 8 == PCI_CLASS_BRIDGE_ISA) {
+		if (__direct_map_base + __direct_map_size >= 0xffff0000)
+			__direct_map_size = 0xffff0000 - __direct_map_base;
+		else {
+			struct pci_controller *hose = dev->sysdata;
+			struct pci_iommu_arena *pci = hose->sg_pci;
+			if (pci && pci->dma_base + pci->size >= 0xffff0000)
+				pci->size = 0xffff0000 - pci->dma_base;
+		}
 	}
 }
 
@@ -121,8 +115,7 @@ struct pci_fixup pcibios_fixups[] __initdata = {
 	{ PCI_FIXUP_HEADER, PCI_VENDOR_ID_AL, PCI_DEVICE_ID_AL_M5229,
 	  quirk_ali_ide_ports },
 	{ PCI_FIXUP_HEADER, PCI_VENDOR_ID_CONTAQ, PCI_DEVICE_ID_CONTAQ_82C693,
-	  quirk_cypress_ide_ports },
-	{ PCI_FIXUP_FINAL, PCI_ANY_ID, PCI_ANY_ID, quirk_vga_enable_rom },
+	  quirk_cypress },
 	{ 0 }
 };
 
@@ -148,10 +141,8 @@ pcibios_align_resource(void *data, struct resource *res, unsigned long size)
 		/*
 		 * Put everything into 0x00-0xff region modulo 0x400
 		 */
-		if (start & 0x300) {
+		if (start & 0x300)
 			start = (start + 0x3ff) & ~0x3ff;
-			res->start = start;
-		}
 	}
 	else if	(res->flags & IORESOURCE_MEM) {
 		/* Make sure we start at our min on all hoses */
@@ -177,13 +168,13 @@ pcibios_align_resource(void *data, struct resource *res, unsigned long size)
 		/* Align to multiple of size of minimum base.  */
 		alignto = MAX(0x1000, size);
 		start = ALIGN(start, alignto);
-		if (size <= 7 * 16*MB) {
+		if (hose->sparse_mem_base && size <= 7 * 16*MB) {
 			if (((start / (16*MB)) & 0x7) == 0) {
 				start &= ~(128*MB - 1);
 				start += 16*MB;
 				start  = ALIGN(start, alignto);
 			}
-			if (start/(128*MB) != (start + size)/(128*MB)) {
+			if (start/(128*MB) != (start + size - 1)/(128*MB)) {
 				start &= ~(128*MB - 1);
 				start += (128 + 16)*MB;
 				start  = ALIGN(start, alignto);

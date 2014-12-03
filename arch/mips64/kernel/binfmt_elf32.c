@@ -1,8 +1,8 @@
 /*
  * Support for 32-bit Linux/MIPS ELF binaries.
  *
- * Copyright (C) 1999 Ralf Baechle
- * Copyright (C) 1999 Silicon Graphics, Inc.
+ * Copyright (C) 1999, 2001 Ralf Baechle
+ * Copyright (C) 1999, 2001 Silicon Graphics, Inc.
  *
  * Heavily inspired by the 32-bit Sparc compat code which is
  * Copyright (C) 1995, 1996, 1997, 1998 David S. Miller (davem@redhat.com)
@@ -28,11 +28,11 @@ typedef double elf_fpreg_t;
 typedef elf_fpreg_t elf_fpregset_t[ELF_NFPREG];
 
 #define elf_check_arch(x)	\
-	((x)->e_machine == EM_MIPS || (x)->e_machine == EM_MIPS_RS4_BE)
+	((x)->e_machine == EM_MIPS)
 
 #define TASK32_SIZE		0x80000000UL
 #undef ELF_ET_DYN_BASE
-#define ELF_ET_DYN_BASE         (2 * TASK32_SIZE / 3)
+#define ELF_ET_DYN_BASE         (TASK32_SIZE / 3 * 2)
 
 #include <asm/processor.h>
 #include <linux/module.h>

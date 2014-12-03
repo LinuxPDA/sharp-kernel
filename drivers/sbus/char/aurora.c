@@ -1,7 +1,7 @@
-/*	$Id: aurora.c,v 1.13 2001/05/10 01:45:38 davem Exp $
+/*	$Id: aurora.c,v 1.17 2001/10/13 08:27:50 davem Exp $
  *	linux/drivers/sbus/char/aurora.c -- Aurora multiport driver
  *
- *	Copyright (c) 1999 by Oliver Aldulea (oli@bv.ro)
+ *	Copyright (c) 1999 by Oliver Aldulea (oli at bv dot ro)
  *
  *	This code is based on the RISCom/8 multiport serial driver written
  *	by Dmitry Gorodchanin (pgmdsg@ibi.com), based on the Linux serial
@@ -33,6 +33,14 @@
  *	read that file before reading this one.
  *
  *	Several parts of the code do not have comments yet.
+ * 
+ * n.b.  The board can support 115.2 bit rates, but only on a few
+ * ports. The total badwidth of one chip (ports 0-7 or 8-15) is equal
+ * to OSC_FREQ div 16. In case of my board, each chip can take 6
+ * channels of 115.2 kbaud.  This information is not well-tested.
+ * 
+ * Fixed to use tty_get_baud_rate().
+ *   Theodore Ts'o <tytso@mit.edu>, 2001-Oct-12
  */
 
 #include <linux/module.h>
@@ -99,16 +107,6 @@ static struct termios * aurora_termios[AURORA_TNPORTS] = { NULL, };
 static struct termios * aurora_termios_locked[AURORA_TNPORTS] = { NULL, };
 
 DECLARE_TASK_QUEUE(tq_aurora);
-
-/* Yes, the board can support 115.2 bit rates, but only on a few ports. The
- * total badwidth of one chip (ports 0-7 or 8-15) is equal to OSC_FREQ div
- * 16. In case of my board, each chip can take 6 channels of 115.2 kbaud.
- * This information is not well-tested.
- */
-static unsigned long baud_table[] =  {
-        0, 50, 75, 110, 134, 150, 200, 300, 600, 1200, 1800, 2400, 4800,
-        9600, 19200, 38400, 57600, 115200, 0,
-};
 
 static inline int aurora_paranoia_check(struct Aurora_port const * port,
 				    kdev_t device, const char *routine)
@@ -1030,28 +1028,14 @@ static void aurora_change_speed(struct Aurora_board *bp, struct Aurora_port *por
 	port->COR2 = 0;
 	port->MSVR = MSVR_RTS|MSVR_DTR;
 	
-	baud = C_BAUD(tty);
-	
-	if (baud & CBAUDEX) {
-		baud &= ~CBAUDEX;
-		if (baud < 1 || baud > 2) 
-			port->tty->termios->c_cflag &= ~CBAUDEX;
-		else
-			baud += 15;
-	}
-	if (baud == 15)  {
-		if ((port->flags & ASYNC_SPD_MASK) == ASYNC_SPD_HI)
-			baud ++;
-		if ((port->flags & ASYNC_SPD_MASK) == ASYNC_SPD_VHI)
-			baud += 2;
-	}
+	baud = tty_get_baud_rate(tty);
 	
 	/* Select port on the board */
 	sbus_writeb(port_No(port) & 7,
 		    &bp->r[chip]->r[CD180_CAR]);
 	udelay(1);
 	
-	if (!baud_table[baud])  {
+	if (!baud)  {
 		/* Drop DTR & exit */
 		port->MSVR &= ~(bp->DTR|bp->RTS);
 		sbus_writeb(port->MSVR,
@@ -1067,10 +1051,10 @@ static void aurora_change_speed(struct Aurora_board *bp, struct Aurora_port *por
 	/* Now we must calculate some speed dependant things. */
 	
 	/* Set baud rate for port. */
-	tmp = (((bp->oscfreq + baud_table[baud]/2) / baud_table[baud] +
+	tmp = (((bp->oscfreq + baud/2) / baud +
 		CD180_TPC/2) / CD180_TPC);
 
-/*	tmp = (bp->oscfreq/7)/baud_table[baud];
+/*	tmp = (bp->oscfreq/7)/baud;
 	if((tmp%10)>4)tmp=tmp/10+1;else tmp=tmp/10;*/
 /*	printk("Prescaler period: %d\n",tmp);*/
 
@@ -1081,7 +1065,7 @@ static void aurora_change_speed(struct Aurora_board *bp, struct Aurora_port *por
 	sbus_writeb(tmp & 0xff, &bp->r[chip]->r[CD180_RBPRL]);
 	sbus_writeb(tmp & 0xff, &bp->r[chip]->r[CD180_TBPRL]);
 	
-	baud = (baud_table[baud] + 5) / 10;   /* Estimated CPS */
+	baud = (baud + 5) / 10;   /* Estimated CPS */
 	
 	/* Two timer ticks seems enough to wakeup something like SLIP driver */
 	tmp = ((baud + HZ/2) / HZ) * 2 - CD180_NFIFO;		
@@ -1851,7 +1835,6 @@ static int aurora_get_modem_info(struct Aurora_port * port, unsigned int *value)
 static int aurora_set_modem_info(struct Aurora_port * port, unsigned int cmd,
 				 unsigned int *value)
 {
-	int error;
 	unsigned int arg;
 	unsigned long flags;
 	struct Aurora_board *bp = port_Board(port);
@@ -1860,9 +1843,8 @@ static int aurora_set_modem_info(struct Aurora_port * port, unsigned int cmd,
 #ifdef AURORA_DEBUG
 	printk("aurora_set_modem_info: start\n");
 #endif
-	error = get_user(arg, value);
-	if (error) 
-		return error;
+	if (get_user(arg, value))
+		return -EFAULT;
 	chip = AURORA_CD180(port_No(port));
 	switch (cmd) {
 	 case TIOCMBIS: 
@@ -1940,16 +1922,12 @@ static int aurora_set_serial_info(struct Aurora_port * port,
 	struct Aurora_board *bp = port_Board(port);
 	int change_speed;
 	unsigned long flags;
-	int error;
 
 #ifdef AURORA_DEBUG
 	printk("aurora_set_serial_info: start\n");
 #endif
-	error = verify_area(VERIFY_READ, (void *) newinfo, sizeof(tmp));
-	if (error)
-		return error;
-	copy_from_user(&tmp, newinfo, sizeof(tmp));
-	
+	if (copy_from_user(&tmp, newinfo, sizeof(tmp)))
+		return -EFAULT;
 #if 0	
 	if ((tmp.irq != bp->irq) ||
 	    (tmp.port != bp->base) ||
@@ -2025,7 +2003,6 @@ static int aurora_ioctl(struct tty_struct * tty, struct file * filp,
 		    
 {
 	struct Aurora_port *port = (struct Aurora_port *) tty->driver_data;
-	int error;
 	int retval;
 
 #ifdef AURORA_DEBUG
@@ -2051,25 +2028,19 @@ static int aurora_ioctl(struct tty_struct * tty, struct file * filp,
 		aurora_send_break(port, arg ? arg*(HZ/10) : HZ/4);
 		return 0;
 	case TIOCGSOFTCAR:
-		error = verify_area(VERIFY_WRITE, (void *) arg, sizeof(long));
-		if (error)
-			return error;
-		put_user(C_CLOCAL(tty) ? 1 : 0,
-			 (unsigned long *) arg);
-		return 0;
+		return put_user(C_CLOCAL(tty) ? 1 : 0, (unsigned long *)arg);
 	case TIOCSSOFTCAR:
-		retval = get_user(arg,(unsigned long *) arg);
-		if (retval)
-			return retval;
+		if (get_user(arg,(unsigned long *)arg))
+			return -EFAULT;
 		tty->termios->c_cflag =
 			((tty->termios->c_cflag & ~CLOCAL) |
 			 (arg ? CLOCAL : 0));
 		return 0;
 	case TIOCMGET:
-		error = verify_area(VERIFY_WRITE, (void *) arg,
+		retval = verify_area(VERIFY_WRITE, (void *) arg,
 				    sizeof(unsigned int));
-		if (error)
-			return error;
+		if (retval)
+			return retval;
 		return aurora_get_modem_info(port, (unsigned int *) arg);
 	case TIOCMBIS:
 	case TIOCMBIC:
@@ -2495,3 +2466,4 @@ printk("cleanup_module: aurora_release_drivers\n");
 
 module_init(aurora_init);
 module_exit(aurora_cleanup);
+MODULE_LICENSE("GPL");

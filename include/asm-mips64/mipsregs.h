@@ -1,5 +1,4 @@
-/* $Id: mipsregs.h,v 1.1 1999/08/18 23:37:51 ralf Exp $
- *
+/*
  * This file is subject to the terms and conditions of the GNU General Public
  * License.  See the file "COPYING" in the main directory of this archive
  * for more details.
@@ -34,6 +33,7 @@
 #define CP0_CONTEXT $4
 #define CP0_PAGEMASK $5
 #define CP0_WIRED $6
+#define CP0_INFO $7
 #define CP0_BADVADDR $8
 #define CP0_COUNT $9
 #define CP0_ENTRYHI $10
@@ -246,7 +246,7 @@ __BUILD_SET_CP0(config,CP0_CONFIG)
 #define  CAUSEF_BD		(1   << 31)
 
 /*
- * Bits in the coprozessor 0 config register.
+ * Bits in the coprocessor 0 config register.
  */
 #define CONF_CM_CACHABLE_NO_WA		0
 #define CONF_CM_CACHABLE_WA		1
@@ -265,7 +265,7 @@ __BUILD_SET_CP0(config,CP0_CONFIG)
  * R10000 performance counter definitions.
  *
  * FIXME: The R10000 performance counter opens a nice way to implement CPU
- *        time accounting with a precission of one cycle.  I don't have
+ *        time accounting with a precision of one cycle.  I don't have
  *        R10000 silicon but just a manual, so ...
  */
 

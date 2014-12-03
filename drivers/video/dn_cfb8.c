@@ -518,7 +518,7 @@ static void putcs_apollofb(struct vc_data *conp, struct display *p, const char *
     underl = attr_underline(p,conp);
 
     while (count--) {
-	c = *s++;
+	c = scr_readw(s++);
 	dest = dest0++;
 	cdat = p->fontdata+c*p->fontheight;
 	for (rows = p->fontheight; rows--; dest += p->next_line) {
@@ -553,3 +553,5 @@ static struct display_switch dispsw_apollofb = {
     revc:		rev_char_apollofb,
     fontwidthmask:	FONTWIDTH(8)
 };
+
+MODULE_LICENSE("GPL");

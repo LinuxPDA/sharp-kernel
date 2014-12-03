@@ -21,18 +21,21 @@ CONFIG_KMOD=y
 # Platform support
 #
 CONFIG_PPC=y
+CONFIG_PPC32=y
 CONFIG_6xx=y
 # CONFIG_4xx is not set
 # CONFIG_POWER3 is not set
 # CONFIG_POWER4 is not set
 # CONFIG_8xx is not set
 # CONFIG_8260 is not set
+CONFIG_PPC_STD_MMU=y
 # CONFIG_ALL_PPC is not set
-# CONFIG_GEMINI is not set
 CONFIG_APUS=y
+# CONFIG_GEMINI is not set
 # CONFIG_PPC601_SYNC_FIX is not set
 # CONFIG_SMP is not set
 # CONFIG_ALTIVEC is not set
+# CONFIG_TAU is not set
 
 #
 # General setup
@@ -42,6 +45,7 @@ CONFIG_APUS=y
 # CONFIG_EISA is not set
 # CONFIG_SBUS is not set
 # CONFIG_MCA is not set
+CONFIG_PCI_PERMEDIA=y
 CONFIG_PCI=y
 CONFIG_NET=y
 CONFIG_SYSCTL=y
@@ -67,6 +71,7 @@ CONFIG_PARPORT_AMIGA=m
 # CONFIG_PARPORT_OTHER is not set
 # CONFIG_PARPORT_1284 is not set
 CONFIG_GEN_RTC=y
+# CONFIG_CMDLINE_BOOL is not set
 CONFIG_FB_CONSOLE=y
 CONFIG_AMIGA=y
 CONFIG_ZORRO=y
@@ -100,6 +105,7 @@ CONFIG_ZORRO_NAMES=y
 #
 # CONFIG_PNP is not set
 # CONFIG_ISAPNP is not set
+# CONFIG_PNPBIOS is not set
 
 #
 # Block devices
@@ -343,10 +349,9 @@ CONFIG_A4091_SCSI=y
 CONFIG_WARPENGINE_SCSI=y
 CONFIG_BLZ603EPLUS_SCSI=y
 CONFIG_OKTAGON_SCSI=y
-CONFIG_CYBERSTORMIII_SCSI=y
 
 #
-# IEEE 1394 (FireWire) support
+# IEEE 1394 (FireWire) support (EXPERIMENTAL)
 #
 # CONFIG_IEEE1394 is not set
 
@@ -364,12 +369,12 @@ CONFIG_DUMMY=m
 # CONFIG_EQUALIZER is not set
 CONFIG_TUN=m
 # CONFIG_ETHERTAP is not set
-# CONFIG_NET_SB1000 is not set
 
 #
 # Ethernet (10 or 100Mbit)
 #
 CONFIG_NET_ETHERNET=y
+# CONFIG_ARM_AM79C961A is not set
 # CONFIG_MACE is not set
 # CONFIG_BMAC is not set
 # CONFIG_GMAC is not set
@@ -379,12 +384,16 @@ CONFIG_ARIADNE=y
 CONFIG_NE2K_ZORRO=y
 CONFIG_A2065=y
 CONFIG_HYDRA=y
+# CONFIG_SUNLANCE is not set
+# CONFIG_HAPPYMEAL is not set
+# CONFIG_SUNBMAC is not set
+# CONFIG_SUNQE is not set
+# CONFIG_SUNLANCE is not set
+# CONFIG_SUNGEM is not set
 # CONFIG_NET_VENDOR_3COM is not set
 # CONFIG_LANCE is not set
 # CONFIG_NET_VENDOR_SMC is not set
 # CONFIG_NET_VENDOR_RACAL is not set
-# CONFIG_AT1700 is not set
-# CONFIG_DEPCA is not set
 # CONFIG_HP100 is not set
 # CONFIG_NET_ISA is not set
 # CONFIG_NET_PCI is not set
@@ -394,6 +403,9 @@ CONFIG_HYDRA=y
 # Ethernet (1000 Mbit)
 #
 # CONFIG_ACENIC is not set
+# CONFIG_ACENIC_OMIT_TIGON_I is not set
+# CONFIG_DL2K is not set
+# CONFIG_MYRI_SBUS is not set
 # CONFIG_HAMACHI is not set
 # CONFIG_YELLOWFIN is not set
 # CONFIG_SK98LIN is not set
@@ -484,6 +496,8 @@ CONFIG_FB_FM2=y
 # CONFIG_FB_IMSTT is not set
 # CONFIG_FB_S3TRIO is not set
 # CONFIG_FB_VGA16 is not set
+# CONFIG_FB_PVR2 is not set
+# CONFIG_FB_PVR2_DEBUG is not set
 # CONFIG_FB_E1355 is not set
 # CONFIG_FB_MATROX is not set
 # CONFIG_FB_ATY is not set
@@ -541,6 +555,7 @@ CONFIG_VT_CONSOLE=y
 # CONFIG_SERIAL is not set
 # CONFIG_SERIAL_EXTENDED is not set
 # CONFIG_SERIAL_NONSTANDARD is not set
+CONFIG_A2232=y
 CONFIG_UNIX98_PTYS=y
 CONFIG_UNIX98_PTY_COUNT=256
 CONFIG_PRINTER=m
@@ -584,6 +599,7 @@ CONFIG_MOUSE=y
 # CONFIG_DTLK is not set
 # CONFIG_R3964 is not set
 # CONFIG_APPLICOM is not set
+# CONFIG_SONYPI is not set
 
 #
 # Ftape, the floppy tape device driver
@@ -622,6 +638,7 @@ CONFIG_RAMFS=m
 CONFIG_ISO9660_FS=y
 CONFIG_JOLIET=y
 CONFIG_MINIX_FS=y
+# CONFIG_VXFS_FS is not set
 # CONFIG_NTFS_FS is not set
 # CONFIG_NTFS_RW is not set
 # CONFIG_HPFS_FS is not set
@@ -635,7 +652,6 @@ CONFIG_DEVPTS_FS=y
 CONFIG_ROMFS_FS=y
 CONFIG_EXT2_FS=y
 # CONFIG_SYSV_FS is not set
-# CONFIG_SYSV_FS_WRITE is not set
 # CONFIG_UDF_FS is not set
 # CONFIG_UDF_RW is not set
 # CONFIG_UFS_FS is not set
@@ -679,6 +695,7 @@ CONFIG_BSD_DISKLABEL=y
 # CONFIG_MINIX_SUBPARTITION is not set
 CONFIG_SOLARIS_X86_PARTITION=y
 CONFIG_UNIXWARE_DISKLABEL=y
+# CONFIG_LDM_PARTITION is not set
 # CONFIG_SGI_PARTITION is not set
 # CONFIG_ULTRIX_PARTITION is not set
 # CONFIG_SUN_PARTITION is not set
@@ -732,8 +749,10 @@ CONFIG_NLS_UTF8=m
 CONFIG_SOUND=y
 CONFIG_DMASOUND_PAULA=m
 CONFIG_DMASOUND=m
+# CONFIG_SOUND_BT878 is not set
 # CONFIG_SOUND_CMPCI is not set
 # CONFIG_SOUND_EMU10K1 is not set
+# CONFIG_MIDI_EMU10K1 is not set
 # CONFIG_SOUND_FUSION is not set
 # CONFIG_SOUND_CS4281 is not set
 # CONFIG_SOUND_ES1370 is not set
@@ -742,11 +761,13 @@ CONFIG_DMASOUND=m
 # CONFIG_SOUND_MAESTRO is not set
 # CONFIG_SOUND_MAESTRO3 is not set
 # CONFIG_SOUND_ICH is not set
+# CONFIG_SOUND_RME96XX is not set
 # CONFIG_SOUND_SONICVIBES is not set
 # CONFIG_SOUND_TRIDENT is not set
 # CONFIG_SOUND_MSNDCLAS is not set
 # CONFIG_SOUND_MSNDPIN is not set
 # CONFIG_SOUND_VIA82CXXX is not set
+# CONFIG_MIDI_VIA82CXXX is not set
 CONFIG_SOUND_OSS=m
 CONFIG_SOUND_TRACEINIT=y
 CONFIG_SOUND_DMAP=y
@@ -783,6 +804,11 @@ CONFIG_SOUND_VMIDI=m
 # USB support
 #
 # CONFIG_USB is not set
+
+#
+# Bluetooth support
+#
+# CONFIG_BLUEZ is not set
 
 #
 # Kernel hacking

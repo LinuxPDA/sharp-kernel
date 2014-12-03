@@ -15,6 +15,7 @@
 #define __KERNEL_SYSCALLS__
 #include <linux/config.h>
 #include <linux/module.h>
+#include <linux/init.h>
 
 #include <linux/sched.h>
 #include <linux/errno.h>
@@ -43,7 +44,7 @@ struct nlmsvc_binding *		nlmsvc_ops;
 static DECLARE_MUTEX(nlmsvc_sema);
 static unsigned int		nlmsvc_users;
 static pid_t			nlmsvc_pid;
-unsigned long			nlmsvc_grace_period;
+int				nlmsvc_grace_period;
 unsigned long			nlmsvc_timeout;
 
 static DECLARE_MUTEX_LOCKED(lockd_start);
@@ -55,6 +56,26 @@ static DECLARE_WAIT_QUEUE_HEAD(lockd_exit);
  */
 unsigned long			nlm_grace_period;
 unsigned long			nlm_timeout = LOCKD_DFLT_TIMEO;
+unsigned long			nlm_udpport, nlm_tcpport;
+
+static unsigned long set_grace_period(void)
+{
+	unsigned long grace_period;
+
+	/* Note: nlm_timeout should always be nonzero */
+	if (nlm_grace_period)
+		grace_period = ((nlm_grace_period + nlm_timeout - 1)
+				/ nlm_timeout) * nlm_timeout * HZ;
+	else
+		grace_period = nlm_timeout * 5 * HZ;
+	nlmsvc_grace_period = 1;
+	return grace_period + jiffies;
+}
+
+static inline void clear_grace_period(void)
+{
+	nlmsvc_grace_period = 0;
+}
 
 /*
  * This is the lockd kernel thread
@@ -76,44 +97,26 @@ lockd(struct svc_rqst *rqstp)
 	nlmsvc_pid = current->pid;
 	up(&lockd_start);
 
-	exit_mm(current);
-	current->session = 1;
-	current->pgrp = 1;
+	daemonize();
+	reparent_to_init();
 	sprintf(current->comm, "lockd");
 
 	/* Process request with signals blocked.  */
 	spin_lock_irq(&current->sigmask_lock);
 	siginitsetinv(&current->blocked, sigmask(SIGKILL));
 	recalc_sigpending(current);
-	spin_unlock_irq(&current->sigmask_lock);		
+	spin_unlock_irq(&current->sigmask_lock);
 
 	/* kick rpciod */
 	rpciod_up();
-
-	/*
-	 * N.B. current do_fork() doesn't like NULL task->files,
-	 * so we defer closing files until forking rpciod.
-	 */
-	exit_files(current);
 
 	dprintk("NFS locking service started (ver " LOCKD_VERSION ").\n");
 
 	if (!nlm_timeout)
 		nlm_timeout = LOCKD_DFLT_TIMEO;
-
-#ifdef RPC_DEBUG
-	nlmsvc_grace_period = 10 * HZ;
-#else
-	if (nlm_grace_period) {
-		nlmsvc_grace_period += (1 + nlm_grace_period / nlm_timeout)
-						* nlm_timeout * HZ;
-	} else {
-		nlmsvc_grace_period += 5 * nlm_timeout * HZ;
-	}
-#endif
-
-	grace_period_expire = nlmsvc_grace_period + jiffies;
 	nlmsvc_timeout = nlm_timeout * HZ;
+
+	grace_period_expire = set_grace_period();
 
 	/*
 	 * The main request loop. We don't terminate until the last
@@ -127,6 +130,10 @@ lockd(struct svc_rqst *rqstp)
 			spin_lock_irq(&current->sigmask_lock);
 			flush_signals(current);
 			spin_unlock_irq(&current->sigmask_lock);
+			if (nlmsvc_ops) {
+				nlmsvc_ops->detach();
+				grace_period_expire = set_grace_period();
+			}
 		}
 
 		/*
@@ -137,20 +144,20 @@ lockd(struct svc_rqst *rqstp)
 		 */
 		if (!nlmsvc_grace_period) {
 			timeout = nlmsvc_retry_blocked();
-		} else if (time_before(nlmsvc_grace_period, jiffies))
-			nlmsvc_grace_period = 0;
+		} else if (time_before(grace_period_expire, jiffies))
+			clear_grace_period();
 
 		/*
 		 * Find a socket with data available and call its
 		 * recvfrom routine.
 		 */
-		if ((err = svc_recv(serv, rqstp, timeout)) == -EAGAIN)
+		err = svc_recv(serv, rqstp, timeout);
+		if (err == -EAGAIN || err == -EINTR)
 			continue;
 		if (err < 0) {
-			if (err != -EINTR)
-				printk(KERN_WARNING
-					"lockd: terminating on error %d\n",
-					-err);
+			printk(KERN_WARNING
+			       "lockd: terminating on error %d\n",
+			       -err);
 			break;
 		}
 
@@ -180,6 +187,8 @@ lockd(struct svc_rqst *rqstp)
 	 * shutting down the hosts and clearing the slot.
 	 */
 	if (!nlmsvc_pid || current->pid == nlmsvc_pid) {
+		if (nlmsvc_ops)
+			nlmsvc_ops->detach();
 		nlm_shutdown_hosts();
 		nlmsvc_pid = 0;
 	} else
@@ -234,9 +243,9 @@ lockd_up(void)
 		goto out;
 	}
 
-	if ((error = svc_makesock(serv, IPPROTO_UDP, 0)) < 0 
+	if ((error = svc_makesock(serv, IPPROTO_UDP, nlm_udpport)) < 0 
 #ifdef CONFIG_NFSD_TCP
-	 || (error = svc_makesock(serv, IPPROTO_TCP, 0)) < 0
+	 || (error = svc_makesock(serv, IPPROTO_TCP, nlm_tcpport)) < 0
 #endif
 		) {
 		if (warned++ == 0) 
@@ -314,8 +323,11 @@ out:
 
 MODULE_AUTHOR("Olaf Kirch <okir@monad.swb.de>");
 MODULE_DESCRIPTION("NFS file locking service version " LOCKD_VERSION ".");
+MODULE_LICENSE("GPL");
 MODULE_PARM(nlm_grace_period, "10-240l");
 MODULE_PARM(nlm_timeout, "3-20l");
+MODULE_PARM(nlm_udpport, "0-65535l");
+MODULE_PARM(nlm_tcpport, "0-65535l");
 
 int
 init_module(void)
@@ -333,13 +345,31 @@ cleanup_module(void)
 	/* FIXME: delete all NLM clients */
 	nlm_shutdown_hosts();
 }
+#else
+/* not a module, so process bootargs
+ * lockd.udpport and lockd.tcpport
+ */
+
+static int __init udpport_set(char *str)
+{
+	nlm_udpport = simple_strtoul(str, NULL, 0);
+	return 1;
+}
+static int __init tcpport_set(char *str)
+{
+	nlm_tcpport = simple_strtoul(str, NULL, 0);
+	return 1;
+}
+__setup("lockd.udpport=", udpport_set);
+__setup("lockd.tcpport=", tcpport_set);
+
 #endif
 
 /*
  * Define NLM program and procedures
  */
 static struct svc_version	nlmsvc_version1 = {
-	1, 16, nlmsvc_procedures, NULL
+	1, 17, nlmsvc_procedures, NULL
 };
 static struct svc_version	nlmsvc_version3 = {
 	3, 24, nlmsvc_procedures, NULL

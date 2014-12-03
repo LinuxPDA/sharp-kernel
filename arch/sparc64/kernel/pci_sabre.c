@@ -1,4 +1,4 @@
-/* $Id: pci_sabre.c,v 1.37 2001/06/13 06:34:30 davem Exp $
+/* $Id: pci_sabre.c,v 1.40 2001/10/11 00:44:38 davem Exp $
  * pci_sabre.c: Sabre specific PCI controller support.
  *
  * Copyright (C) 1997, 1998, 1999 David S. Miller (davem@caipfs.rutgers.edu)
@@ -19,6 +19,7 @@
 #include <asm/smp.h>
 
 #include "pci_impl.h"
+#include "iommu_common.h"
 
 /* All SABRE registers are 64-bits.  The following accessor
  * routines are how they are accessed.  The REG parameter
@@ -36,7 +37,8 @@
 	__asm__ __volatile__("stxa %0, [%1] %2" \
 			     : /* no outputs */ \
 			     : "r" (__val), "r" (__reg), \
-			       "i" (ASI_PHYS_BYPASS_EC_E))
+			       "i" (ASI_PHYS_BYPASS_EC_E) \
+			     : "memory")
 
 /* SABRE PCI controller register offsets and definitions. */
 #define SABRE_UE_AFSR		0x0030UL
@@ -759,13 +761,13 @@ static void sabre_check_iommu_error(struct pci_controller_info *p,
 			       p->index, i, tag, type_string,
 			       ((tag & SABRE_IOMMUTAG_WRITE) ? 1 : 0),
 			       ((tag & SABRE_IOMMUTAG_SIZE) ? 64 : 8),
-			       ((tag & SABRE_IOMMUTAG_VPN) << PAGE_SHIFT));
+			       ((tag & SABRE_IOMMUTAG_VPN) << IOMMU_PAGE_SHIFT));
 			printk("SABRE%d: IOMMU DATA(%d)[RAW(%016lx)valid(%d)used(%d)cache(%d)ppg(%016lx)\n",
 			       p->index, i, data,
 			       ((data & SABRE_IOMMUDATA_VALID) ? 1 : 0),
 			       ((data & SABRE_IOMMUDATA_USED) ? 1 : 0),
 			       ((data & SABRE_IOMMUDATA_CACHE) ? 1 : 0),
-			       ((data & SABRE_IOMMUDATA_PPN) << PAGE_SHIFT));
+			       ((data & SABRE_IOMMUDATA_PPN) << IOMMU_PAGE_SHIFT));
 		}
 	}
 	spin_unlock_irqrestore(&iommu->lock, flags);
@@ -1395,6 +1397,7 @@ static void __init sabre_pbm_init(struct pci_controller_info *p, int sabre_node,
 			pbm = &p->pbm_A;
 		pbm->parent = p;
 		pbm->prom_node = node;
+		pbm->pci_first_slot = 1;
 		pbm->pci_first_busno = busrange[0];
 		pbm->pci_last_busno = busrange[1];
 		for (err = pbm->pci_first_busno;

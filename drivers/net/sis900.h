@@ -41,7 +41,7 @@ enum sis900_registers {
 
 /* Symbolic names for bits in various registers */
 enum sis900_command_register_bits {
-	RELOAD  = 0x00000400,
+	RELOAD  = 0x00000400, ACCESSMODE = 0x00000200,/* ET */
 	RESET   = 0x00000100, SWI = 0x00000080, RxRESET = 0x00000020,
 	TxRESET = 0x00000010, RxDIS = 0x00000008, RxENA = 0x00000004,
 	TxDIS   = 0x00000002, TxENA = 0x00000001
@@ -239,7 +239,8 @@ enum mii_stssum_register_bits {
 enum sis900_revision_id {
 	SIS630A_900_REV = 0x80,		SIS630E_900_REV = 0x81,
 	SIS630S_900_REV = 0x82,		SIS630EA1_900_REV = 0x83,
-	SIS635A_900_REV = 0x90,		SIS900B_900_REV = 0x03
+	SIS630ET_900_REV = 0x84,	SIS635A_900_REV = 0x90,
+	SIS900B_900_REV = 0x03
 };
 
 enum sis630_revision_id {
@@ -265,6 +266,9 @@ enum sis630_revision_id {
 
 #define NUM_TX_DESC     16      	/* Number of Tx descriptor registers. */
 #define NUM_RX_DESC     16       	/* Number of Rx descriptor registers. */
+#define TX_TOTAL_SIZE	NUM_TX_DESC*sizeof(BufferDesc)
+#define RX_TOTAL_SIZE	NUM_RX_DESC*sizeof(BufferDesc)
 
+/* PCI stuff, should be move to pci.h */
 #define SIS630_VENDOR_ID        0x1039
 #define SIS630_DEVICE_ID        0x0630

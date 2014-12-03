@@ -262,8 +262,7 @@ iplstart:
         la    %r2,IPL_BS                       # load start address
         bas   %r14,.Lloader                    # load rest of ipl image
         l     %r12,.Lparm                      # pointer to parameter area
-        st    %r1,__LC_IPLDEV                  # store ipl device number
-        st    %r1,IPL_DEVICE-PARMAREA(%r12)
+        st    %r1,IPL_DEVICE-PARMAREA(%r12)    # store ipl device number
 
 #
 # load parameter file from ipl device
@@ -462,26 +461,52 @@ start:
         .org  0x10000
 startup:basr  %r13,0                     # get base
 .LPG1:  lctl  %c0,%c15,.Lctl-.LPG1(%r13) # load control registers
-	l     %r12,.Lparm1-.LPG1(%r13)   # pointer to parameter area
-
+	la    %r12,_pstart-.LPG1(%r13)   # pointer to parameter area
+					 # move IPL device to lowcore
+        mvc   __LC_IPLDEV(4),IPL_DEVICE-PARMAREA(%r12)
+	
 #
-# find out memory size.
+# find memory chunks.
 #
 	mvc   __LC_PGM_NEW_PSW(8),.Lpcmem-.LPG1(%r13)
-        lhi   %r2,1
-        sll   %r2,17                     # test in increments of 128KB
-	lr    %r1,%r2
-	ahi   %r1,-4                     # test last word in the segment
-.Lloop:	
-	l     %r0,0(%r1)                 # test 128KB segment
-	st    %r0,0(%r1)
-	ar    %r1,%r2                    # add 128KB
-	bnm   .Lloop-.LPG1(%r13)         # r1 < 0x80000000 -> loop
-.Lchkmem:
-	n     %r1,.L4malign-.LPG1(%r13)  # align to multiples of 4M
-        l     %r2,.Lmemsize-.LPG1(%r13)  # address of variable memory_size
-	st    %r1,0(%r2)                 # store memory size
-
+	la    %r1,1                      # test in increments of 128KB
+	sll   %r1,17
+	l     %r3,.Lmchunk-.LPG1(%r13)   # get pointer to memory_chunk array
+	slr   %r4,%r4                    # set start of chunk to zero
+	slr   %r5,%r5                    # set end of chunk to zero
+	slr   %r6,%r6			 # set access code to zero
+.Lloop:
+	tprot 0(%r5),0			 # test protection of first byte
+	ipm   %r7
+	srl   %r7,28
+	clr   %r6,%r7			 # compare cc with last access code
+	be    .Lsame-.LPG1(%r13)
+	clr   %r4,%r5			 # chunk size > 0?
+	be    .Lsize0-.LPG1(%r13)
+	st    %r4,0(%r3)		 # store start address of chunk
+	lr    %r0,%r5
+	slr   %r0,%r4
+	st    %r0,4(%r3)		 # store size of chunk
+	st    %r6,8(%r3)		 # store type of chunk
+	la    %r3,12(%r3)
+	lr    %r4,%r5			 # set start to end
+.Lsize0:
+	lr    %r6,%r7			 # set access code to last cc
+.Lsame:
+	ar    %r5,%r1			 # add 128KB to end of chunk
+	bno   .Lloop-.LPG1(%r13)	 # r1 < 0x80000000 -> loop
+.Lchkmem:				 # > 2GB or tprot got a program check
+	clr   %r4,%r5			 # chunk size > 0?
+	be    .Ldonemem-.LPG1(%r13)
+	st    %r4,0(%r3)		 # store start address of chunk
+	lr    %r0,%r5
+	slr   %r0,%r4
+	st    %r0,4(%r3)		 # store size of chunk
+	st    %r6,8(%r3)		 # store type of chunk
+.Ldonemem:		
+        l     %r1,.Lmemsize-.LPG1(%r13)  # address of variable memory_size
+	st    %r5,0(%r1)                 # store last end to memory size
+	
         l      %r12,.Lmflags-.LPG1(%r13) # get address of machine_flags
 #
 # find out if we are running under VM
@@ -501,9 +526,7 @@ startup:basr  %r13,0                     # get base
 # find out if we have an IEEE fpu
 #
         mvc    __LC_PGM_NEW_PSW(8),.Lpcfpu-.LPG1(%r13)
-        ld     %f0,.Lflt0-.LPG1(%r13)   # load (float) 0.0
-        ldr    %f2,%f0
-        adbr   %f0,%f2                  # test IEEE add instruction
+	efpc   %r0,0                    # test IEEE extract fpc instruction
         oi     3(%r12),2                # set IEEE fpu flag
 .Lchkfpu:
 
@@ -513,7 +536,7 @@ startup:basr  %r13,0                     # get base
        mvc    __LC_PGM_NEW_PSW(8),.Lpccsp-.LPG1(%r13)
        la     %r0,0
        lr     %r1,%r0
-       la     %r2,.Lflt0-.LPG1(%r13)
+       la     %r2,4
        csp    %r0,%r2                   # Test CSP instruction
        oi     3(%r12),8                 # set CSP flag
 .Lchkcsp:
@@ -535,7 +558,7 @@ startup:basr  %r13,0                     # get base
 .Lentry:.long  0x00080000,0x80000000 + _stext
 .Lctl:  .long  0x04b50002               # cr0: various things
         .long  0                        # cr1: primary space segment table
-        .long  0                        # cr2: access register translation
+        .long  .Lduct                   # cr2: dispatchable unit control table
         .long  0                        # cr3: instruction authorization
         .long  0                        # cr4: instruction authorization
         .long  0                        # cr5:  various things
@@ -553,47 +576,50 @@ startup:basr  %r13,0                     # get base
 .Lpcfpu:.long  0x00080000,0x80000000 + .Lchkfpu
 .Lpccsp:.long  0x00080000,0x80000000 + .Lchkcsp
 .Lpcmvpg:.long 0x00080000,0x80000000 + .Lchkmvpg
-.Lflt0: .double 0
-.Lparm1:.long  PARMAREA
-.L4malign:.long 0xffc00000
-.Lbigmem:.long 0x04000000
-.Lrdstart:.long 0x02000000
-.Lmaxchunk:.long  0x00ffffff
 .Lmemsize:.long memory_size
+.Lmchunk:.long memory_chunk
 .Lmflags:.long machine_flags
+
+	.org PARMAREA-64
+.Lduct:	.long 0,0,0,0,0,0,0,0
+	.long 0,0,0,0,0,0,0,0
 
 #
 # params at 10400 (setup.h)
 #
 	.org   PARMAREA
+	.global _pstart
+_pstart:	
         .long  0,0                      # IPL_DEVICE
         .long  0,RAMDISK_ORIGIN         # INITRD_START
-        .long  0,0x800000               # INITRD_SIZE
+        .long  0,RAMDISK_SIZE           # INITRD_SIZE
 
         .org   COMMAND_LINE
     	.byte  "root=/dev/ram0 ro"
         .byte  0
+	.org   0x11000
+	.global _pend
+_pend:	
+
+#ifdef CONFIG_SHARED_KERNEL
+	.org   0x100000
+#endif
 
 #
 # startup-code, running in virtual mode
 #
-        .org   0x10800
         .globl _stext
 _stext:	basr  %r13,0                    # get base
 .LPG2:
 #
-# Setup lowcore
+# Setup stack
 #
-        l     %r1,__LC_IPLDEV           # load ipl device number
-        spx   .Lprefix-.LPG2(%r13)      # set prefix to linux lowcore
-        st    %r1,__LC_IPLDEV           # store ipl device number
         l     %r15,.Linittu-.LPG2(%r13)
-        ahi   %r15,8192                 # init_task_union + 8191
+        ahi   %r15,8192                 # init_task_union + 8192
         st    %r15,__LC_KERNEL_STACK    # set end of kernel stack
         ahi   %r15,-96
         xc    0(4,%r15),0(%r15)         # set backchain to zero
-        lhi   %r0,-1
-        st    %r0,__LC_KERNEL_LEVEL     # set interrupt count to -1
+
 #
 # clear bss memory
 #
@@ -607,8 +633,8 @@ _stext:	basr  %r13,0                    # get base
         jo    .-4                       # branch back, if not finish
 # check control registers
         stctl  %c0,%c15,0(%r15)
-        oc     2(1,%r15),.Locbits+5-.LPG2(%r13) # enable sigp external ints.
-        oc     0(1,%r15),.Locbits+4-.LPG2(%r13) # low addresss proctection
+	oi     2(%r15),0x20             # enable sigp external interrupts
+	oi     0(%r15),0x10             # switch on low address protection
         lctl   %c0,%c15,0(%r15)
 
 #
@@ -621,15 +647,11 @@ _stext:	basr  %r13,0                    # get base
         basr  %r13,0
 	lpsw  .Ldw-.(%r13)           # load disabled wait psw
 #
-.Lstart:    .long  start_kernel
             .align 8
-.Lprefix:   .long  init_S390_lowcore	
+.Ldw:	    .long  0x000a0000,0x00000000
 .Linittu:   .long  init_task_union
+.Lstart:    .long  start_kernel
 .Lbss_bgn:  .long  __bss_start
 .Lbss_end:  .long  _end
-.Locbits:   .long  0x01020408,0x10204080
-            .align 4
 .Laregs:    .long  0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0
-	    .align 8
-.Ldw:	    .long  0x000a0000,0x00000000
 

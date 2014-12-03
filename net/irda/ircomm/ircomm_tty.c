@@ -468,7 +468,8 @@ static int ircomm_tty_open(struct tty_struct *tty, struct file *filp)
 	/* Check if this is a "normal" ircomm device, or an irlpt device */
 	if (line < 0x10) {
 		self->service_type = IRCOMM_3_WIRE | IRCOMM_9_WIRE;
-		self->settings.service_type = IRCOMM_9_WIRE; /* Default */
+		self->settings.service_type = IRCOMM_9_WIRE; /* 9 wire as default */
+		self->settings.dce = IRCOMM_CTS | IRCOMM_CD; /* Default line settings */
 		IRDA_DEBUG(2, __FUNCTION__ "(), IrCOMM device\n");
 	} else {
 		IRDA_DEBUG(2, __FUNCTION__ "(), IrLPT device\n");
@@ -1362,6 +1363,7 @@ done:
 #ifdef MODULE
 MODULE_AUTHOR("Dag Brattli <dagb@cs.uit.no>");
 MODULE_DESCRIPTION("IrCOMM serial TTY driver");
+MODULE_LICENSE("GPL");
 
 int init_module(void) 
 {

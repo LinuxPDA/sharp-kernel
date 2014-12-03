@@ -701,7 +701,21 @@ static int irlap_state_conn(struct irlap_cb *self, IRLAP_EVENT event,
 		 * We are allowed to send two frames, but this may increase
 		 * the connect latency, so lets not do it for now.
 		 */
-		/* What the hell is this ? - Jean II */
+		/* This is full of good intentions, but doesn't work in
+		 * practice.
+		 * After sending the first UA response, we switch the
+		 * dongle to the negociated speed, which is usually
+		 * different than 9600 kb/s.
+		 * From there, there is two solutions :
+		 * 1) The other end has received the first UA response :
+		 * it will set up the connection, move to state LAP_NRM_P,
+		 * and will ignore and drop the second UA response.
+		 * Actually, it's even worse : the other side will almost
+		 * immediately send a RR that will likely collide with the
+		 * UA response (depending on negociated turnaround).
+		 * 2) The other end has not received the first UA response,
+		 * will stay at 9600 and will never see the second UA response.
+		 * Jean II */
 		irlap_send_ua_response_frame(self, &self->qos_rx);
 #endif
 
@@ -1870,11 +1884,24 @@ static int irlap_state_nrm_s(struct irlap_cb *self, IRLAP_EVENT event,
 				/* Update Nr received */
 				irlap_update_nr_received(self, info->nr);
 				irlap_wait_min_turn_around(self, &self->qos_tx);
-				
-				irlap_send_rr_frame(self, RSP_FRAME);
-				
 				irlap_start_wd_timer(self, self->wd_timeout);
-				irlap_next_state(self, LAP_NRM_S);
+				
+				/* Note : if the link is idle (this case),
+				 * we never go in XMIT_S, so we never get a
+				 * chance to process any DISCONNECT_REQUEST.
+				 * Do it now ! - Jean II */
+				if (self->disconnect_pending) {
+					/* Disconnect */
+					irlap_send_rd_frame(self);
+					irlap_flush_all_queues(self);
+
+					irlap_next_state(self, LAP_SCLOSE);
+				} else {
+					/* Just send back pf bit */
+					irlap_send_rr_frame(self, RSP_FRAME);
+				
+					irlap_next_state(self, LAP_NRM_S);
+				}
 			}
 		} else if (nr_status == NR_UNEXPECTED) {
 			self->remote_busy = FALSE;
@@ -1927,24 +1954,23 @@ static int irlap_state_nrm_s(struct irlap_cb *self, IRLAP_EVENT event,
 		 *  Wait until retry_count * n matches negotiated threshold/
 		 *  disconnect time (note 2 in IrLAP p. 82)
 		 *
-		 * Note : self->wd_timeout = (self->poll_timeout * 2),
-		 *   and self->final_timeout == self->poll_timeout,
-		 *   which explain why we use (self->retry_count * 2) here !!!
+		 * Note : self->wd_timeout = (self->final_timeout * 2),
+		 *   which explain why we use (self->N2 / 2) here !!!
 		 * Jean II
 		 */
 		IRDA_DEBUG(1, __FUNCTION__ "(), retry_count = %d\n", 
 			   self->retry_count);
 
-		if (((self->retry_count * 2) < self->N2)  && 
-		    ((self->retry_count * 2) != self->N1)) {
+		if ((self->retry_count <  (self->N2 / 2))  && 
+		    (self->retry_count != (self->N1 / 2))) {
 			
 			irlap_start_wd_timer(self, self->wd_timeout);
 			self->retry_count++;
-		} else if ((self->retry_count * 2) == self->N1) {
+		} else if (self->retry_count == (self->N1 / 2)) {
 			irlap_status_indication(self, STATUS_NO_ACTIVITY);
 			irlap_start_wd_timer(self, self->wd_timeout);
 			self->retry_count++;
-		} else if ((self->retry_count * 2) >= self->N2) {
+		} else if (self->retry_count >= (self->N2 / 2)) {
 			irlap_apply_default_connection_parameters(self);
 			
 			/* Always switch state before calling upper layers */
@@ -2006,7 +2032,7 @@ static int irlap_state_sclose(struct irlap_cb *self, IRLAP_EVENT event,
 {
 	int ret = 0;
 
-	IRDA_DEBUG(0, __FUNCTION__ "()\n");
+	IRDA_DEBUG(1, __FUNCTION__ "()\n");
 
 	ASSERT(self != NULL, return -ENODEV;);
 	ASSERT(self->magic == LAP_MAGIC, return -EBADR;);
@@ -2036,6 +2062,9 @@ static int irlap_state_sclose(struct irlap_cb *self, IRLAP_EVENT event,
 		irlap_disconnect_indication(self, LAP_DISC_INDICATION);
 		break;
 	case WD_TIMER_EXPIRED:
+		/* Always switch state before calling upper layers */
+		irlap_next_state(self, LAP_NDM);
+
 		irlap_apply_default_connection_parameters(self);
 		
 		irlap_disconnect_indication(self, LAP_DISC_INDICATION);

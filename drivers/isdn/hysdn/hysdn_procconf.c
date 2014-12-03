@@ -1,23 +1,13 @@
-/* $Id: hysdn_procconf.c,v 1.8.6.2 2001/04/20 02:42:00 keil Exp $
-
+/* $Id: hysdn_procconf.c,v 1.8.6.4 2001/09/23 22:24:54 kai Exp $
+ *
  * Linux driver for HYSDN cards, /proc/net filesystem dir and conf functions.
+ *
  * written by Werner Cornelius (werner@titro.de) for Hypercope GmbH
  *
  * Copyright 1999  by Werner Cornelius (werner@titro.de)
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2, or (at your option)
- * any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ * This software may be used and distributed according to the terms
+ * of the GNU General Public License, incorporated herein by reference.
  *
  */
 
@@ -31,7 +21,7 @@
 
 #include "hysdn_defs.h"
 
-static char *hysdn_procconf_revision = "$Revision: 1.8.6.2 $";
+static char *hysdn_procconf_revision = "$Revision: 1.8.6.4 $";
 
 #define INFO_OUT_LEN 80		/* length of info line including lf */
 
@@ -91,15 +81,6 @@ process_line(struct conf_writedata *cnf)
 	}			/* line to send */
 	return (0);
 }				/* process_line */
-
-/*************************/
-/* dummy file operations */
-/*************************/
-static loff_t
-hysdn_dummy_lseek(struct file *file, loff_t offset, int orig)
-{
-	return -ESPIPE;
-}				/* hysdn_dummy_lseek */
 
 /***********************************/
 /* conf file operations and tables */
@@ -396,7 +377,7 @@ hysdn_conf_close(struct inode *ino, struct file *filep)
 /******************************************************/
 static struct file_operations conf_fops =
 {
-	llseek:         hysdn_dummy_lseek,
+	llseek:         no_llseek,
 	read:           hysdn_conf_read,
 	write:          hysdn_conf_write,
 	open:           hysdn_conf_open,
@@ -465,4 +446,4 @@ hysdn_procconf_release(void)
 	}
 
 	remove_proc_entry(PROC_SUBDIR_NAME, proc_net);
-}				/* hysdn_procfs_release */
+}

@@ -1,4 +1,4 @@
-/*  $Id: init.c,v 1.176 2001/05/16 15:07:11 davem Exp $
+/*  $Id: init.c,v 1.194 2001/10/17 18:26:58 davem Exp $
  *  arch/sparc64/mm/init.c
  *
  *  Copyright (C) 1996-1999 David S. Miller (davem@caip.rutgers.edu)
@@ -27,9 +27,12 @@
 #include <asm/io.h>
 #include <asm/uaccess.h>
 #include <asm/mmu_context.h>
-#include <asm/vaddrs.h>
 #include <asm/dma.h>
 #include <asm/starfire.h>
+#include <asm/tlb.h>
+#include <asm/spitfire.h>
+
+mmu_gather_t mmu_gathers[NR_CPUS];
 
 extern void device_scan(void);
 
@@ -54,6 +57,8 @@ extern char __init_begin, __init_end, _start, _end, etext, edata;
 /* Initial ramdisk setup */
 extern unsigned int sparc_ramdisk_image;
 extern unsigned int sparc_ramdisk_size;
+
+struct page *mem_map_zero;
 
 int do_check_pgt_cache(int low, int high)
 {
@@ -103,21 +108,72 @@ int do_check_pgt_cache(int low, int high)
 
 extern void __update_mmu_cache(struct vm_area_struct *, unsigned long, pte_t);
 
+#ifdef DCFLUSH_DEBUG
+atomic_t dcpage_flushes = ATOMIC_INIT(0);
+#ifdef CONFIG_SMP
+atomic_t dcpage_flushes_xcall = ATOMIC_INIT(0);
+#endif
+#endif
+
+__inline__ void flush_dcache_page_impl(struct page *page)
+{
+#ifdef DCFLUSH_DEBUG
+	atomic_inc(&dcpage_flushes);
+#endif
+
+#if (L1DCACHE_SIZE > PAGE_SIZE)
+	__flush_dcache_page(page->virtual,
+			    ((tlb_type == spitfire) &&
+			     page->mapping != NULL));
+#else
+	if (page->mapping != NULL &&
+	    tlb_type == spitfire)
+		__flush_icache_page(__pa(page->virtual));
+#endif
+}
+
 void update_mmu_cache(struct vm_area_struct *vma, unsigned long address, pte_t pte)
 {
 	struct page *page = pte_page(pte);
 
 	if (VALID_PAGE(page) && page->mapping &&
 	    test_bit(PG_dcache_dirty, &page->flags)) {
-		__flush_dcache_page(page->virtual,
-				    (tlb_type == spitfire));
-		clear_bit(PG_dcache_dirty, &page->flags);
+		/* This is just to optimize away some function calls
+		 * in the SMP case.
+		 */
+		if (dcache_dirty_cpu(page) == smp_processor_id())
+			flush_dcache_page_impl(page);
+		else
+			smp_flush_dcache_page_impl(page);
+
+		clear_dcache_dirty(page);
 	}
 	__update_mmu_cache(vma, address, pte);
 }
 
-/* In arch/sparc64/mm/ultra.S */
-extern void __flush_icache_page(unsigned long);
+void flush_dcache_page(struct page *page)
+{
+	int dirty = test_bit(PG_dcache_dirty, &page->flags);
+	int dirty_cpu = dcache_dirty_cpu(page);
+
+	if (page->mapping &&
+	    page->mapping->i_mmap == NULL &&
+	    page->mapping->i_mmap_shared == NULL) {
+		if (dirty) {
+			if (dirty_cpu == smp_processor_id())
+				return;
+			smp_flush_dcache_page_impl(page);
+		}
+		set_dcache_dirty(page);
+	} else {
+		/* We could delay the flush for the !page->mapping
+		 * case too.  But that case is for exec env/arg
+		 * pages and those are %99 certainly going to get
+		 * faulted into the tlb (and thus flushed) anyways.
+		 */
+		flush_dcache_page_impl(page);
+	}
+}
 
 void flush_icache_range(unsigned long start, unsigned long end)
 {
@@ -128,28 +184,6 @@ void flush_icache_range(unsigned long start, unsigned long end)
 		for (kaddr = start; kaddr < end; kaddr += PAGE_SIZE)
 			__flush_icache_page(__get_phys(kaddr));
 	}
-}
-
-/*
- * BAD_PAGE is the page that is used for page faults when linux
- * is out-of-memory. Older versions of linux just did a
- * do_exit(), but using this instead means there is less risk
- * for a process dying in kernel mode, possibly leaving an inode
- * unused etc..
- *
- * BAD_PAGETABLE is the accompanying page-table: it is initialized
- * to point to BAD_PAGE entries.
- *
- * ZERO_PAGE is a special page that is used for zero-initialized
- * data and COW.
- */
-pte_t __bad_page(void)
-{
-	memset((void *) &empty_bad_page, 0, PAGE_SIZE);
-	return pte_mkdirty(mk_pte_phys((((unsigned long) &empty_bad_page) 
-					- ((unsigned long)&empty_zero_page)
-					+ phys_base),
-				       PAGE_SHARED));
 }
 
 void show_mem(void)
@@ -169,12 +203,25 @@ void show_mem(void)
 
 int mmu_info(char *buf)
 {
+	int len;
+
 	if (tlb_type == cheetah)
-		return sprintf(buf, "MMU Type\t: Cheetah\n");
+		len = sprintf(buf, "MMU Type\t: Cheetah\n");
 	else if (tlb_type == spitfire)
-		return sprintf(buf, "MMU Type\t: Spitfire\n");
+		len = sprintf(buf, "MMU Type\t: Spitfire\n");
 	else
-		return sprintf(buf, "MMU Type\t: ???\n");
+		len = sprintf(buf, "MMU Type\t: ???\n");
+
+#ifdef DCFLUSH_DEBUG
+	len += sprintf(buf + len, "DCPageFlushes\t: %d\n",
+		       atomic_read(&dcpage_flushes));
+#ifdef CONFIG_SMP
+	len += sprintf(buf + len, "DCPageFlushesXC\t: %d\n",
+		       atomic_read(&dcpage_flushes_xcall));
+#endif /* CONFIG_SMP */
+#endif /* DCFLUSH_DEBUG */
+
+	return len;
 }
 
 struct linux_prom_translation {
@@ -202,10 +249,10 @@ static void inherit_prom_mappings(void)
 	struct linux_prom_translation *trans;
 	unsigned long phys_page, tte_vaddr, tte_data;
 	void (*remap_func)(unsigned long, unsigned long, int);
-	pgd_t *pgdp;
-	pmd_t *pmdp;
+	pmd_t *pmdp, *pmd;
 	pte_t *ptep;
 	int node, n, i, tsz;
+	extern unsigned int obp_iaddr_patch[2], obp_daddr_patch[2];
 
 	node = prom_finddevice("/virtual-memory");
 	n = prom_getproplen(node, "translations");
@@ -229,36 +276,39 @@ static void inherit_prom_mappings(void)
 	}
 	n = n / sizeof(*trans);
 
+	/*
+	 * The obp translations are saved based on 8k pagesize, since obp can use
+	 * a mixture of pagesizes. Misses to the 0xf0000000 - 0x100000000, ie obp 
+	 * range, are handled in entry.S and do not use the vpte scheme (see rant
+	 * in inherit_locked_prom_mappings()).
+	 */
+#define OBP_PMD_SIZE 2048
+#define BASE_PAGE_SIZE 8192
+	pmd = __alloc_bootmem(OBP_PMD_SIZE, OBP_PMD_SIZE, 0UL);
+	if (pmd == NULL)
+		early_pgtable_allocfail("pmd");
+	memset(pmd, 0, OBP_PMD_SIZE);
 	for (i = 0; i < n; i++) {
 		unsigned long vaddr;
 
 		if (trans[i].virt >= 0xf0000000 && trans[i].virt < 0x100000000) {
 			for (vaddr = trans[i].virt;
 			     vaddr < trans[i].virt + trans[i].size;
-			     vaddr += PAGE_SIZE) {
+			     vaddr += BASE_PAGE_SIZE) {
 				unsigned long val;
 
-				pgdp = pgd_offset(&init_mm, vaddr);
-				if (pgd_none(*pgdp)) {
-					pmdp = __alloc_bootmem(PMD_TABLE_SIZE,
-							       PMD_TABLE_SIZE,
-							       0UL);
-					if (pmdp == NULL)
-						early_pgtable_allocfail("pmd");
-					memset(pmdp, 0, PMD_TABLE_SIZE);
-					pgd_set(pgdp, pmdp);
-				}
-				pmdp = pmd_offset(pgdp, vaddr);
+				pmdp = pmd + ((vaddr >> 23) & 0x7ff);
 				if (pmd_none(*pmdp)) {
-					ptep = __alloc_bootmem(PTE_TABLE_SIZE,
-							       PTE_TABLE_SIZE,
+					ptep = __alloc_bootmem(BASE_PAGE_SIZE,
+							       BASE_PAGE_SIZE,
 							       0UL);
 					if (ptep == NULL)
 						early_pgtable_allocfail("pte");
-					memset(ptep, 0, PTE_TABLE_SIZE);
+					memset(ptep, 0, BASE_PAGE_SIZE);
 					pmd_set(pmdp, ptep);
 				}
-				ptep = pte_offset(pmdp, vaddr);
+				ptep = (pte_t *)pmd_page(*pmdp) +
+						((vaddr >> 13) & 0x3ff);
 
 				val = trans[i].data;
 
@@ -267,10 +317,17 @@ static void inherit_prom_mappings(void)
 					val &= ~0x0003fe0000000000UL;
 
 				set_pte (ptep, __pte(val | _PAGE_MODIFIED));
-				trans[i].data += PAGE_SIZE;
+				trans[i].data += BASE_PAGE_SIZE;
 			}
 		}
 	}
+	phys_page = __pa(pmd);
+	obp_iaddr_patch[0] |= (phys_page >> 10);
+	obp_iaddr_patch[1] |= (phys_page & 0x3ff);
+	flushi((long)&obp_iaddr_patch[0]);
+	obp_daddr_patch[0] |= (phys_page >> 10);
+	obp_daddr_patch[1] |= (phys_page & 0x3ff);
+	flushi((long)&obp_daddr_patch[0]);
 
 	/* Now fixup OBP's idea about where we really are mapped. */
 	prom_printf("Remapping the kernel... ");
@@ -295,7 +352,7 @@ static void inherit_prom_mappings(void)
 
 	phys_page &= _PAGE_PADDR;
 	phys_page += ((unsigned long)&prom_boot_page -
-		      (unsigned long)&empty_zero_page);
+		      (unsigned long)KERNBASE);
 
 	if (tlb_type == spitfire) {
 		/* Lock this into i/d tlb entry 59 */
@@ -336,7 +393,7 @@ static void inherit_prom_mappings(void)
 		BUG();
 	}
 
-	tte_vaddr = (unsigned long) &empty_zero_page;
+	tte_vaddr = (unsigned long) KERNBASE;
 
 	/* Spitfire Errata #32 workaround */
 	__asm__ __volatile__("stxa	%0, [%1] %2\n\t"
@@ -366,7 +423,7 @@ static void inherit_prom_mappings(void)
 	remap_func((tlb_type == spitfire ?
 		    (spitfire_get_dtlb_data(sparc64_highest_locked_tlbent()) & _PAGE_PADDR) :
 		    (cheetah_get_litlb_data(sparc64_highest_locked_tlbent()) & _PAGE_PADDR)),
-		   (unsigned long) &empty_zero_page,
+		   (unsigned long) KERNBASE,
 		   prom_get_mmu_ihandle());
 
 	/* Flush out that temporary mapping. */
@@ -389,7 +446,7 @@ static void inherit_prom_mappings(void)
 		unsigned long size = trans[i].size;
 
 		if (vaddr < 0xf0000000UL) {
-			unsigned long avoid_start = (unsigned long) &empty_zero_page;
+			unsigned long avoid_start = (unsigned long) KERNBASE;
 			unsigned long avoid_end = avoid_start + (4 * 1024 * 1024);
 
 			if (vaddr < avoid_start) {
@@ -833,6 +890,7 @@ void __flush_tlb_all(void)
 }
 
 /* Caller does TLB context flushing on local CPU if necessary.
+ * The caller also ensures that CTX_VALID(mm->context) is false.
  *
  * We must be careful about boundary cases so that we never
  * let the user have CTX 0 (nucleus) or we ever use a CTX
@@ -845,12 +903,6 @@ void get_new_mmu_context(struct mm_struct *mm)
 	
 	spin_lock(&ctx_alloc_lock);
 	ctx = CTX_HWBITS(tlb_context_cache + 1);
-	if (ctx == 0)
-		ctx = 1;
-	if (CTX_VALID(mm->context)) {
-		unsigned long nr = CTX_HWBITS(mm->context);
-		mmu_context_bmap[nr>>6] &= ~(1UL << (nr & 63));
-	}
 	new_ctx = find_next_zero_bit(mmu_context_bmap, 1UL << CTX_VERSION_SHIFT, ctx);
 	if (new_ctx >= (1UL << CTX_VERSION_SHIFT)) {
 		new_ctx = find_next_zero_bit(mmu_context_bmap, ctx, 1);
@@ -890,33 +942,38 @@ out:
 struct pgtable_cache_struct pgt_quicklists;
 #endif
 
-/* OK, we have to color these pages because during DTLB
- * protection faults we set the dirty bit via a non-Dcache
- * enabled mapping in the VPTE area.  The kernel can end
- * up missing the dirty bit resulting in processes crashing
- * _iff_ the VPTE mapping of the ptes have a virtual address
- * bit 13 which is different from bit 13 of the physical address.
- *
- * The sequence is:
- *	1) DTLB protection fault, write dirty bit into pte via VPTE
- *	   mappings.
- *	2) Swapper checks pte, does not see dirty bit, frees page.
- *	3) Process faults back in the page, the old pre-dirtied copy
- *	   is provided and here is the corruption.
+/* OK, we have to color these pages. The page tables are accessed
+ * by non-Dcache enabled mapping in the VPTE area by the dtlb_backend.S
+ * code, as well as by PAGE_OFFSET range direct-mapped addresses by 
+ * other parts of the kernel. By coloring, we make sure that the tlbmiss 
+ * fast handlers do not get data from old/garbage dcache lines that 
+ * correspond to an old/stale virtual address (user/kernel) that 
+ * previously mapped the pagetable page while accessing vpte range 
+ * addresses. The idea is that if the vpte color and PAGE_OFFSET range 
+ * color is the same, then when the kernel initializes the pagetable 
+ * using the later address range, accesses with the first address
+ * range will see the newly initialized data rather than the garbage.
  */
+#if (L1DCACHE_SIZE > PAGE_SIZE)			/* is there D$ aliasing problem */
+#define DC_ALIAS_SHIFT	1
+#else
+#define DC_ALIAS_SHIFT	0
+#endif
 pte_t *pte_alloc_one(struct mm_struct *mm, unsigned long address)
 {
-	struct page *page = alloc_pages(GFP_KERNEL, 1);
-	unsigned long color = ((address >> (PAGE_SHIFT + 10)) & 1UL);
+	struct page *page = alloc_pages(GFP_KERNEL, DC_ALIAS_SHIFT);
+	unsigned long color = VPTE_COLOR(address);
 
 	if (page) {
 		unsigned long *to_free;
 		unsigned long paddr;
 		pte_t *pte;
 
+#if (L1DCACHE_SIZE > PAGE_SIZE)			/* is there D$ aliasing problem */
 		set_page_count((page + 1), 1);
+#endif
 		paddr = (unsigned long) page_address(page);
-		memset((char *)paddr, 0, (PAGE_SIZE << 1));
+		memset((char *)paddr, 0, (PAGE_SIZE << DC_ALIAS_SHIFT));
 
 		if (!color) {
 			pte = (pte_t *) paddr;
@@ -926,10 +983,12 @@ pte_t *pte_alloc_one(struct mm_struct *mm, unsigned long address)
 			to_free = (unsigned long *) paddr;
 		}
 
+#if (L1DCACHE_SIZE > PAGE_SIZE)			/* is there D$ aliasing problem */
 		/* Now free the other one up, adjust cache size. */
 		*to_free = (unsigned long) pte_quicklist[color ^ 0x1];
 		pte_quicklist[color ^ 0x1] = to_free;
 		pgtable_cache_size++;
+#endif
 
 		return pte;
 	}
@@ -1053,7 +1112,7 @@ unsigned long __init bootmem_init(unsigned long *pages_avail)
 	 * 4MB locked TLB translation.
 	 */
 	start_pfn  = PAGE_ALIGN((unsigned long) &_end) -
-		((unsigned long) &empty_zero_page);
+		((unsigned long) KERNBASE);
 
 	/* Adjust up to the physical address where the kernel begins. */
 	start_pfn += phys_base;
@@ -1138,7 +1197,7 @@ void __init paging_init(void)
 	unsigned long alias_base = phys_base + PAGE_OFFSET;
 	unsigned long second_alias_page = 0;
 	unsigned long pt, flags, end_pfn, pages_avail;
-	unsigned long shift = alias_base - ((unsigned long)&empty_zero_page);
+	unsigned long shift = alias_base - ((unsigned long)KERNBASE);
 	unsigned long real_end;
 
 	set_bit(0, mmu_context_bmap);
@@ -1434,7 +1493,7 @@ void __init mem_init(void)
 
 	addr = PAGE_OFFSET + phys_base;
 	last = PAGE_ALIGN((unsigned long)&_end) -
-		((unsigned long) &empty_zero_page);
+		((unsigned long) KERNBASE);
 	last += PAGE_OFFSET + phys_base;
 	while (addr < last) {
 		set_bit(__pa(addr) >> 22, sparc64_valid_addr_bitmap);
@@ -1446,7 +1505,20 @@ void __init mem_init(void)
 	max_mapnr = last_valid_pfn - (phys_base >> PAGE_SHIFT);
 	high_memory = __va(last_valid_pfn << PAGE_SHIFT);
 
-	num_physpages = free_all_bootmem();
+	num_physpages = free_all_bootmem() - 1;
+
+	/*
+	 * Set up the zero page, mark it reserved, so that page count
+	 * is not manipulated when freeing the page from user ptes.
+	 */
+	mem_map_zero = _alloc_pages(GFP_KERNEL, 0);
+	if (mem_map_zero == NULL) {
+		prom_printf("paging_init: Cannot alloc zero page.\n");
+		prom_halt();
+	}
+	SetPageReserved(mem_map_zero);
+	clear_page(page_address(mem_map_zero));
+
 	codepages = (((unsigned long) &etext) - ((unsigned long)&_start));
 	codepages = PAGE_ALIGN(codepages) >> PAGE_SHIFT;
 	datapages = (((unsigned long) &edata) - ((unsigned long)&etext));
@@ -1460,7 +1532,7 @@ void __init mem_init(void)
 		extern pgd_t empty_pg_dir[1024];
 		unsigned long addr = (unsigned long)empty_pg_dir;
 		unsigned long alias_base = phys_base + PAGE_OFFSET -
-			(long)(&empty_zero_page);
+			(long)(KERNBASE);
 		
 		memset(empty_pg_dir, 0, sizeof(empty_pg_dir));
 		addr += alias_base;
@@ -1482,16 +1554,20 @@ void __init mem_init(void)
 
 void free_initmem (void)
 {
-	unsigned long addr;
+	unsigned long addr, initend;
 
-	addr = (unsigned long)(&__init_begin);
-	for (; addr < (unsigned long)(&__init_end); addr += PAGE_SIZE) {
+	/*
+	 * The init section is aligned to 8k in vmlinux.lds. Page align for >8k pagesizes.
+	 */
+	addr = PAGE_ALIGN((unsigned long)(&__init_begin));
+	initend = (unsigned long)(&__init_end) & PAGE_MASK;
+	for (; addr < initend; addr += PAGE_SIZE) {
 		unsigned long page;
 		struct page *p;
 
 		page = (addr +
 			((unsigned long) __va(phys_base)) -
-			((unsigned long) &empty_zero_page));
+			((unsigned long) KERNBASE));
 		p = virt_to_page(page);
 
 		ClearPageReserved(p);

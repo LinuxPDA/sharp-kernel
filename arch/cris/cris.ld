@@ -11,32 +11,37 @@
 SECTIONS
 {
 	. = @CONFIG_ETRAX_DRAM_VIRTUAL_BASE@;
-	_dram_start = .;
-	_ibr_start = .;
+	dram_start = .;
+	ibr_start = .;
 	. = . + 0x4000; /* see head.S and pages reserved at the start */
 
 	_text = .;                    /* Text and read-only data */
-	_text_start = .;              /* lots of aliases */
+	text_start = .;              /* lots of aliases */
 	_stext = .;
 	__stext = .;
 	.text : {
 		*(.text)
 		*(.fixup)
 		*(.text.__*)
-		*(.rodata)
-		*(.rodata.*)
 	}
+  	.text.lock : { *(.text.lock) }        /* out-of-line lock text */
+
+	_etext = . ;                  /* End of text section */ 
+	__etext = .;
+
+	.rodata : { *(.rodata) *(.rodata.__*) }
+	.kstrtab : { *(.kstrtab) }
 
 	. = ALIGN(4);                /* Exception table */
   	__start___ex_table = .;
   	__ex_table : { *(__ex_table) }
   	__stop___ex_table = .;
 
-	_etext = . ;                  /* End of text section */ 
-	__etext = .;
+  	__start___ksymtab = .;        /* Kernel symbol table */
+  	__ksymtab : { *(__ksymtab) }
+  	__stop___ksymtab = .;
 
 	. = ALIGN (4);
-	___data_rom_start = . ;
 	___data_start = . ;
 	__Sdata = . ;
 	.data : {                     /* Data */
@@ -49,19 +54,26 @@ SECTIONS
   	.data.init_task : { *(.data.init_task) }
 
   	. = ALIGN(8192);              /* Init code and data */
-  	___init_begin = .;
+  	__init_begin = .;
   	.text.init : { *(.text.init) }
   	.data.init : { *(.data.init) }
   	. = ALIGN(16);
-  	___setup_start = .;
+  	__setup_start = .;
   	.setup.init : { *(.setup.init) }
-  	___setup_end = .;
-  	___initcall_start = .;
-  	.initcall.init : { *(.initcall.init) }
-  	___initcall_end = .;
+  	__setup_end = .;
+  	.initcall.init : {
+		__initcall_start = .;
+		*(.initcall.init);
+		__initcall_end = .;
+
+		/* We fill to the next page, so we can discard all init
+		   pages without needing to consider what payload might be
+		   appended to the kernel image.  */
+		FILL (0);
+		. = ALIGN (8192);
+	}
 	__vmlinux_end = .;            /* last address of the physical file */
-  	. = ALIGN(8192);
-  	___init_end = .;
+  	__init_end = .;
 
 	__data_end = . ;              /* Move to _edata ? */
 	__bss_start = .;              /* BSS */
@@ -81,5 +93,5 @@ SECTIONS
 		*(.exitcall.exit)
         }
 
-	_dram_end = _dram_start + @CONFIG_ETRAX_DRAM_SIZE_M@*1024*1024;
+	dram_end = dram_start + @CONFIG_ETRAX_DRAM_SIZE_M@*1024*1024;
 }

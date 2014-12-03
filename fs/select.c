@@ -17,6 +17,7 @@
 #include <linux/slab.h>
 #include <linux/smp_lock.h>
 #include <linux/poll.h>
+#include <linux/personality.h> /* for STICKY_TIMEOUTS */
 #include <linux/file.h>
 
 #include <asm/uaccess.h>
@@ -418,9 +419,6 @@ asmlinkage long sys_poll(struct pollfd * ufds, unsigned int nfds, long timeout)
 	/* Do a sanity check on nfds ... */
 	if (nfds > NR_OPEN)
 		return -EINVAL;
-
-	if (nfds > current->files->max_fds)
-		nfds = current->files->max_fds;
 
 	if (timeout) {
 		/* Careful about overflow in the intermediate values */

@@ -110,9 +110,22 @@ static inline unsigned long _get_base(char * addr)
 })
 #define write_cr0(x) \
 	__asm__("movl %0,%%cr0": :"r" (x));
+
+#define read_cr4() ({ \
+	unsigned int __dummy; \
+	__asm__( \
+		"movl %%cr4,%0\n\t" \
+		:"=r" (__dummy)); \
+	__dummy; \
+})
+#define write_cr4(x) \
+	__asm__("movl %0,%%cr4": :"r" (x));
 #define stts() write_cr0(8 | read_cr0())
 
 #endif	/* __KERNEL__ */
+
+#define wbinvd() \
+	__asm__ __volatile__ ("wbinvd": : :"memory");
 
 static inline unsigned long get_limit(unsigned long segment)
 {
@@ -141,7 +154,7 @@ struct __xchg_dummy { unsigned long a[100]; };
  * might have an implicit FPU-save as a cost, so it's not
  * clear which path to go.)
  */
-extern inline void __set_64bit (unsigned long long * ptr,
+static inline void __set_64bit (unsigned long long * ptr,
 		unsigned int low, unsigned int high)
 {
 	__asm__ __volatile__ (
@@ -157,7 +170,7 @@ extern inline void __set_64bit (unsigned long long * ptr,
 		:	"ax","dx","memory");
 }
 
-extern void inline __set_64bit_constant (unsigned long long *ptr,
+static inline void __set_64bit_constant (unsigned long long *ptr,
 						 unsigned long long value)
 {
 	__set_64bit(ptr,(unsigned int)(value), (unsigned int)((value)>>32ULL));
@@ -165,7 +178,7 @@ extern void inline __set_64bit_constant (unsigned long long *ptr,
 #define ll_low(x)	*(((unsigned int*)&(x))+0)
 #define ll_high(x)	*(((unsigned int*)&(x))+1)
 
-extern void inline __set_64bit_var (unsigned long long *ptr,
+static inline void __set_64bit_var (unsigned long long *ptr,
 			 unsigned long long value)
 {
 	__set_64bit(ptr,ll_low(value), ll_high(value));
@@ -268,10 +281,19 @@ static inline unsigned long __cmpxchg(volatile void *ptr, unsigned long old,
  * I expect future Intel CPU's to have a weaker ordering,
  * but I'd also expect them to finally get their act together
  * and add some real memory barriers if so.
+ *
+ * Some non intel clones support out of order store. wmb() ceases to be a
+ * nop for these.
  */
+ 
 #define mb() 	__asm__ __volatile__ ("lock; addl $0,0(%%esp)": : :"memory")
 #define rmb()	mb()
+
+#ifdef CONFIG_X86_OOSTORE
+#define wmb() 	__asm__ __volatile__ ("lock; addl $0,0(%%esp)": : :"memory")
+#else
 #define wmb()	__asm__ __volatile__ ("": : :"memory")
+#endif
 
 #ifdef CONFIG_SMP
 #define smp_mb()	mb()
@@ -326,5 +348,7 @@ extern void __global_restore_flags(unsigned long);
 #define HAVE_DISABLE_HLT
 void disable_hlt(void);
 void enable_hlt(void);
+
+extern int is_sony_vaio_laptop;
 
 #endif

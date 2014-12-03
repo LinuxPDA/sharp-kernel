@@ -53,7 +53,7 @@
 #endif
 
 /*
- * Special inodes numbers
+ * Special inode numbers
  */
 #define	EXT2_BAD_INO		 1	/* Bad blocks inode */
 #define EXT2_ROOT_INO		 2	/* Root inode */
@@ -448,19 +448,31 @@ struct ext2_super_block {
 	EXT2_SB(sb)->s_es->s_feature_incompat &= ~cpu_to_le32(mask)
 
 #define EXT2_FEATURE_COMPAT_DIR_PREALLOC	0x0001
+#define EXT2_FEATURE_COMPAT_IMAGIC_INODES	0x0002
+#define EXT3_FEATURE_COMPAT_HAS_JOURNAL		0x0004
+#define EXT2_FEATURE_COMPAT_EXT_ATTR		0x0008
+#define EXT2_FEATURE_COMPAT_RESIZE_INO		0x0010
+#define EXT2_FEATURE_COMPAT_DIR_INDEX		0x0020
+#define EXT2_FEATURE_COMPAT_ANY			0xffffffff
 
 #define EXT2_FEATURE_RO_COMPAT_SPARSE_SUPER	0x0001
 #define EXT2_FEATURE_RO_COMPAT_LARGE_FILE	0x0002
 #define EXT2_FEATURE_RO_COMPAT_BTREE_DIR	0x0004
+#define EXT2_FEATURE_RO_COMPAT_ANY		0xffffffff
 
 #define EXT2_FEATURE_INCOMPAT_COMPRESSION	0x0001
 #define EXT2_FEATURE_INCOMPAT_FILETYPE		0x0002
+#define EXT3_FEATURE_INCOMPAT_RECOVER		0x0004
+#define EXT3_FEATURE_INCOMPAT_JOURNAL_DEV	0x0008
+#define EXT2_FEATURE_INCOMPAT_ANY		0xffffffff
 
 #define EXT2_FEATURE_COMPAT_SUPP	0
 #define EXT2_FEATURE_INCOMPAT_SUPP	EXT2_FEATURE_INCOMPAT_FILETYPE
 #define EXT2_FEATURE_RO_COMPAT_SUPP	(EXT2_FEATURE_RO_COMPAT_SPARSE_SUPER| \
 					 EXT2_FEATURE_RO_COMPAT_LARGE_FILE| \
 					 EXT2_FEATURE_RO_COMPAT_BTREE_DIR)
+#define EXT2_FEATURE_RO_COMPAT_UNSUPPORTED	~EXT2_FEATURE_RO_COMPAT_SUPP
+#define EXT2_FEATURE_INCOMPAT_UNSUPPORTED	~EXT2_FEATURE_INCOMPAT_SUPP
 
 /*
  * Default values for user and/or group using reserved blocks
@@ -533,15 +545,12 @@ enum {
 # define ATTRIB_NORET  __attribute__((noreturn))
 # define NORET_AND     noreturn,
 
-/* acl.c */
-extern int ext2_permission (struct inode *, int);
-
 /* balloc.c */
 extern int ext2_bg_has_super(struct super_block *sb, int group);
 extern unsigned long ext2_bg_num_gdb(struct super_block *sb, int group);
-extern int ext2_new_block (const struct inode *, unsigned long,
+extern int ext2_new_block (struct inode *, unsigned long,
 			   __u32 *, __u32 *, int *);
-extern void ext2_free_blocks (const struct inode *, unsigned long,
+extern void ext2_free_blocks (struct inode *, unsigned long,
 			      unsigned long);
 extern unsigned long ext2_count_free_blocks (struct super_block *);
 extern void ext2_check_blocks_bitmap (struct super_block *);
@@ -549,14 +558,15 @@ extern struct ext2_group_desc * ext2_get_group_desc(struct super_block * sb,
 						    unsigned int block_group,
 						    struct buffer_head ** bh);
 
-/* bitmap.c */
-extern unsigned long ext2_count_free (struct buffer_head *, unsigned);
-
 /* dir.c */
-
-/* file.c */
-extern int ext2_read (struct inode *, struct file *, char *, int);
-extern int ext2_write (struct inode *, struct file *, char *, int);
+extern int ext2_add_link (struct dentry *, struct inode *);
+extern ino_t ext2_inode_by_name(struct inode *, struct dentry *);
+extern int ext2_make_empty(struct inode *, struct inode *);
+extern struct ext2_dir_entry_2 * ext2_find_entry (struct inode *,struct dentry *, struct page **);
+extern int ext2_delete_entry (struct ext2_dir_entry_2 *, struct page *);
+extern int ext2_empty_dir (struct inode *);
+extern struct ext2_dir_entry_2 * ext2_dotdot (struct inode *, struct page **);
+extern void ext2_set_link(struct inode *, struct ext2_dir_entry_2 *, struct page *, struct inode *);
 
 /* fsync.c */
 extern int ext2_sync_file (struct file *, struct dentry *, int);
@@ -567,25 +577,20 @@ extern struct inode * ext2_new_inode (const struct inode *, int);
 extern void ext2_free_inode (struct inode *);
 extern unsigned long ext2_count_free_inodes (struct super_block *);
 extern void ext2_check_inodes_bitmap (struct super_block *);
+extern unsigned long ext2_count_free (struct buffer_head *, unsigned);
 
 /* inode.c */
-
-extern struct buffer_head * ext2_getblk (struct inode *, long, int, int *);
-extern struct buffer_head * ext2_bread (struct inode *, int, int, int *);
-
 extern void ext2_read_inode (struct inode *);
 extern void ext2_write_inode (struct inode *, int);
 extern void ext2_put_inode (struct inode *);
 extern void ext2_delete_inode (struct inode *);
 extern int ext2_sync_inode (struct inode *);
 extern void ext2_discard_prealloc (struct inode *);
+extern void ext2_truncate (struct inode *);
 
 /* ioctl.c */
 extern int ext2_ioctl (struct inode *, struct file *, unsigned int,
 		       unsigned long);
-
-/* namei.c */
-extern struct inode_operations ext2_dir_inode_operations;
 
 /* super.c */
 extern void ext2_error (struct super_block *, const char *, const char *, ...)
@@ -602,32 +607,25 @@ extern int ext2_remount (struct super_block *, int *, char *);
 extern struct super_block * ext2_read_super (struct super_block *,void *,int);
 extern int ext2_statfs (struct super_block *, struct statfs *);
 
-/* truncate.c */
-extern void ext2_truncate (struct inode *);
-
 /*
  * Inodes and files operations
  */
 
 /* dir.c */
 extern struct file_operations ext2_dir_operations;
-extern int ext2_add_link (struct dentry *, struct inode *);
-extern ino_t ext2_inode_by_name(struct inode *, struct dentry *);
-extern int ext2_make_empty(struct inode *, struct inode *);
-extern struct ext2_dir_entry_2 * ext2_find_entry (struct inode *,struct dentry *, struct page **);
-extern int ext2_delete_entry (struct ext2_dir_entry_2 *, struct page *);
-extern int ext2_empty_dir (struct inode *);
-extern struct ext2_dir_entry_2 * ext2_dotdot (struct inode *, struct page **);
-extern void ext2_set_link(struct inode *, struct ext2_dir_entry_2 *, struct page *, struct inode *);
 
 /* file.c */
 extern struct inode_operations ext2_file_inode_operations;
 extern struct file_operations ext2_file_operations;
 
+/* inode.c */
+extern struct address_space_operations ext2_aops;
+
+/* namei.c */
+extern struct inode_operations ext2_dir_inode_operations;
+
 /* symlink.c */
 extern struct inode_operations ext2_fast_symlink_inode_operations;
-
-extern struct address_space_operations ext2_aops;
 
 #endif	/* __KERNEL__ */
 

@@ -13,29 +13,21 @@
 # satisfy certain initialization assumptions in the SCSI layer.
 # *!*!*!*!*!*!*!*!*!*!*!*!*!*!*!*!*!*!*!*!*!*!*!*!*!*!*!*!*!*!*!*!
 
-O_TARGET := scsidrv.o
-
-SUB_DIRS	:=
-MOD_SUB_DIRS	:=
-MOD_IN_SUB_DIRS	:=
-ALL_SUB_DIRS	:= $(SUB_DIRS) pcmcia
-
-subdir-$(CONFIG_SCSI_AIC7XXX)	+= aic7xxx
-
-ifeq ($(CONFIG_PCMCIA),y)
-  SUB_DIRS += pcmcia
-  MOD_IN_SUB_DIRS += pcmcia
-else
-  ifeq ($(CONFIG_PCMCIA),m)
-    MOD_IN_SUB_DIRS += pcmcia
-  endif
-endif
-
-export-objs	:= scsi_syms.o
 
 CFLAGS_aha152x.o =   -DAHA152X_STAT -DAUTOCONF
 CFLAGS_gdth.o    = # -DDEBUG_GDTH=2 -D__SERIAL__ -D__COM2__ -DGDTH_STATISTICS
 CFLAGS_seagate.o =   -DARBITRATE -DPARITY -DSEAGATE_USE_ASM
+
+
+O_TARGET := scsidrv.o
+
+export-objs	:= scsi_syms.o 53c700.o
+mod-subdirs	:= pcmcia ../acorn/scsi
+
+
+subdir-$(CONFIG_SCSI_AIC7XXX)	+= aic7xxx
+subdir-$(CONFIG_PCMCIA)		+= pcmcia
+
 
 obj-$(CONFIG_SCSI)		+= scsi_mod.o
 
@@ -47,6 +39,7 @@ obj-$(CONFIG_A3000_SCSI)	+= a3000.o	wd33c93.o
 obj-$(CONFIG_A2091_SCSI)	+= a2091.o	wd33c93.o
 obj-$(CONFIG_GVP11_SCSI)	+= gvp11.o	wd33c93.o
 obj-$(CONFIG_MVME147_SCSI)	+= mvme147.o	wd33c93.o
+obj-$(CONFIG_SGIWD93_SCSI)	+= sgiwd93.o	wd33c93.o
 obj-$(CONFIG_CYBERSTORM_SCSI)	+= NCR53C9x.o	cyberstorm.o
 obj-$(CONFIG_CYBERSTORMII_SCSI)	+= NCR53C9x.o	cyberstormII.o
 obj-$(CONFIG_BLZ2060_SCSI)	+= NCR53C9x.o	blz2060.o
@@ -65,6 +58,7 @@ obj-$(CONFIG_SCSI_PCI2000)	+= pci2000.o
 obj-$(CONFIG_SCSI_PCI2220I)	+= pci2220i.o
 obj-$(CONFIG_SCSI_PSI240I)	+= psi240i.o
 obj-$(CONFIG_SCSI_BUSLOGIC)	+= BusLogic.o
+obj-$(CONFIG_SCSI_DPT_I2O)	+= dpt_i2o.o
 obj-$(CONFIG_SCSI_U14_34F)	+= u14-34f.o
 obj-$(CONFIG_SCSI_ULTRASTOR)	+= ultrastor.o
 obj-$(CONFIG_SCSI_AHA152X)	+= aha152x.o
@@ -80,6 +74,7 @@ obj-$(CONFIG_SCSI_FUTURE_DOMAIN)+= fdomain.o
 obj-$(CONFIG_SCSI_IN2000)	+= in2000.o
 obj-$(CONFIG_SCSI_GENERIC_NCR5380) += g_NCR5380.o
 obj-$(CONFIG_SCSI_NCR53C406A)	+= NCR53c406a.o
+obj-$(CONFIG_SCSI_NCR_D700)	+= NCR_D700.o 53c700.o
 obj-$(CONFIG_SCSI_SYM53C416)	+= sym53c416.o
 obj-$(CONFIG_SCSI_QLOGIC_FAS)	+= qlogicfas.o
 obj-$(CONFIG_SCSI_QLOGIC_ISP)	+= qlogicisp.o 
@@ -121,12 +116,11 @@ obj-$(CONFIG_JAZZ_ESP)		+= NCR53C9x.o	jazz_esp.o
 obj-$(CONFIG_SUN3X_ESP)		+= NCR53C9x.o	sun3x_esp.o
 obj-$(CONFIG_SCSI_DEBUG)	+= scsi_debug.o
 obj-$(CONFIG_SCSI_FCAL)		+= fcal.o
+obj-$(CONFIG_SCSI_CPQFCTS)	+= cpqfc.o
+obj-$(CONFIG_SCSI_LASI700)	+= lasi700.o 53c700.o
 
-ifeq ($(CONFIG_ARCH_ACORN),y)
-mod-subdirs	+= ../acorn/scsi
-subdir-y	+= ../acorn/scsi
-obj-y		+= ../acorn/scsi/acorn-scsi.o
-endif
+subdir-$(CONFIG_ARCH_ACORN)	+= ../acorn/scsi
+obj-$(CONFIG_ARCH_ACORN)	+= ../acorn/scsi/acorn-scsi.o
 
 obj-$(CONFIG_CHR_DEV_ST)	+= st.o
 obj-$(CONFIG_CHR_DEV_OSST)	+= osst.o
@@ -134,7 +128,7 @@ obj-$(CONFIG_BLK_DEV_SD)	+= sd_mod.o
 obj-$(CONFIG_BLK_DEV_SR)	+= sr_mod.o
 obj-$(CONFIG_CHR_DEV_SG)	+= sg.o
 
-list-multi	:= scsi_mod.o sd_mod.o sr_mod.o initio.o a100u2w.o
+list-multi	:= scsi_mod.o sd_mod.o sr_mod.o initio.o a100u2w.o cpqfc.o
 scsi_mod-objs	:= scsi.o hosts.o scsi_ioctl.o constants.o \
 			scsicam.o scsi_proc.o scsi_error.o \
 			scsi_obsolete.o scsi_queue.o scsi_lib.o \
@@ -144,6 +138,8 @@ sd_mod-objs	:= sd.o
 sr_mod-objs	:= sr.o sr_ioctl.o sr_vendor.o
 initio-objs	:= ini9100u.o i91uscsi.o
 a100u2w-objs	:= inia100.o i60uscsi.o
+cpqfc-objs	:= cpqfcTSinit.o cpqfcTScontrol.o cpqfcTSi2c.o \
+		   cpqfcTSworker.o cpqfcTStrigger.o
 
 include $(TOPDIR)/Rules.make
 
@@ -162,6 +158,9 @@ initio.o: $(initio-objs)
 
 a100u2w.o: $(a100u2w-objs)
 	$(LD) -r -o $@ $(a100u2w-objs)
+
+cpqfc.o: $(cpqfc-objs)
+	$(LD) -r -o $@ $(cpqfc-objs)
 
 53c8xx_d.h: 53c7,8xx.scr script_asm.pl
 	ln -sf 53c7,8xx.scr fake8.c
@@ -193,3 +192,10 @@ sim710_d.h: sim710.scr script_asm.pl
 sim710_u.h: sim710_d.h
 
 sim710.o : sim710_d.h
+
+53c700_d.h: 53c700.scr script_asm.pl
+	$(PERL) -s script_asm.pl -ncr7x0_family < 53c700.scr
+	rm -f scriptu.h
+	mv script.h 53c700_d.h
+
+53c700.o: 53c700_d.h

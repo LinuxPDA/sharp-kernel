@@ -154,6 +154,8 @@
 #define __NR_capset             185
 #define __NR_sigaltstack        186
 #define __NR_sendfile           187
+#define __NR_getpmsg		188
+#define __NR_putpmsg		189
 #define __NR_vfork		190
 #define __NR_getrlimit		191	/* SuS compliant getrlimit */
 #define __NR_lchown  		198
@@ -179,7 +181,6 @@
 #define __NR_mincore            218
 #define __NR_madvise            219
 #define __NR_getdents64         220
-#define __NR_fcntl64            221
 
 
 /* user-visible error numbers are in the range -1 - -122: see <asm-s390/errno.h> */
@@ -200,7 +201,7 @@ type name(void) {                                            \
         long __res;                                          \
         __asm__ __volatile__ (                               \
                 "    svc %b1\n"                              \
-                "    lr  %0,2"                               \
+                "    lgr  %0,2"                              \
                 : "=d" (__res)                               \
                 : "i" (__NR_##name)                          \
                 : _svc_clobber );                            \
@@ -213,7 +214,7 @@ type name(type1 arg1) {                                      \
         long __res;                                          \
         __asm__ __volatile__ (                               \
                 "    svc %b1\n"                              \
-                "    lr  %0,2"                               \
+                "    lgr  %0,2"                              \
                 : "=d" (__res)                               \
                 : "i" (__NR_##name),                         \
                   "d" (__arg1)                               \
@@ -228,7 +229,7 @@ type name(type1 arg1, type2 arg2) {                          \
         long __res;                                          \
         __asm__ __volatile__ (                               \
                 "    svc %b1\n"                              \
-                "    lr  %0,2"                               \
+                "    lgr  %0,2"                              \
                 : "=d" (__res)                               \
                 : "i" (__NR_##name),                         \
                   "d" (__arg1),                              \
@@ -245,7 +246,7 @@ type name(type1 arg1, type2 arg2, type3 arg3) {              \
         long __res;                                          \
         __asm__ __volatile__ (                               \
                 "    svc %b1\n"                              \
-                "    lr  %0,2"                               \
+                "    lgr  %0,2"                              \
                 : "=d" (__res)                               \
                 : "i" (__NR_##name),                         \
                   "d" (__arg1),                              \
@@ -265,7 +266,7 @@ type name(type1 arg1, type2 arg2, type3 arg3, type4 arg4) {  \
         long __res;                                          \
         __asm__ __volatile__ (                               \
                 "    svc %b1\n"                              \
-                "    lr  %0,2"                               \
+                "    lgr  %0,2"                              \
                 : "=d" (__res)                               \
                 : "i" (__NR_##name),                         \
                   "d" (__arg1),                              \
@@ -288,7 +289,7 @@ type name(type1 arg1, type2 arg2, type3 arg3, type4 arg4,    \
         long __res;                                          \
         __asm__ __volatile__ (                               \
                 "    svc %b1\n"                              \
-                "    lr  %0,2"                               \
+                "    lgr  %0,2"                              \
                 : "=d" (__res)                               \
                 : "i" (__NR_##name),                         \
                   "d" (__arg1),                              \

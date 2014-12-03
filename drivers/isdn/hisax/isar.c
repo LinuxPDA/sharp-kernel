@@ -1,4 +1,4 @@
-/* $Id: isar.c,v 1.17.6.3 2001/06/09 15:14:17 kai Exp $
+/* $Id: isar.c,v 1.17.6.5 2001/09/23 11:51:33 keil Exp $
  *
  * isar.c   ISAR (Siemens PSB 7110) specific routines
  *
@@ -17,8 +17,6 @@
 
 #define DBG_LOADFIRM	0
 #define DUMP_MBOXFRAME	2
-
-#define MIN(a,b) ((a<b)?a:b)
 
 #define DLE	0x10
 #define ETX	0x03
@@ -272,7 +270,10 @@ isar_load_firmware(struct IsdnCardState *cs, u_char *buf)
 			ret = 1;goto reterror;
 		}
 		while (left>0) {
-			noc = MIN(126, left);
+			if (left > 126)
+				noc = 126;
+			else
+				noc = left;
 			nom = 2*noc;
 			mp  = msg;
 			*mp++ = sadr / 256;
@@ -288,8 +289,8 @@ isar_load_firmware(struct IsdnCardState *cs, u_char *buf)
 			nom += 3;
 			sp = (u_short *)tmpmsg;
 #if DBG_LOADFIRM
-			printk(KERN_DEBUG"isar: load %3d words at %04x\n",
-				 noc, sadr);
+			printk(KERN_DEBUG"isar: load %3d words at %04x left %d\n",
+				 noc, sadr, left);
 #endif
 			sadr += noc;
 			while(noc) {

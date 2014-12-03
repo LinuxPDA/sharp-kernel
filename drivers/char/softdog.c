@@ -46,6 +46,7 @@
 static int soft_margin = TIMER_MARGIN;	/* in seconds */
 
 MODULE_PARM(soft_margin,"i");
+MODULE_LICENSE("GPL");
 
 /*
  *	Our timer
@@ -160,7 +161,7 @@ static struct miscdevice softdog_miscdev = {
 	fops:		&softdog_fops,
 };
 
-static const char banner[] __initdata = KERN_INFO "Software Watchdog Timer: 0.05, timer margin: %d sec\n";
+static char banner[] __initdata = KERN_INFO "Software Watchdog Timer: 0.05, timer margin: %d sec\n";
 
 static int __init watchdog_init(void)
 {

@@ -1,19 +1,33 @@
-/* $Id: fsm.c,v 1.14.6.2 2001/05/26 15:19:57 kai Exp $
+/* $Id: fsm.c,v 1.14.6.4 2001/09/23 22:24:47 kai Exp $
  *
- * Author       Karsten Keil (keil@isdn4linux.de)
- *              based on the teles driver from Jan den Ouden
+ * Finite state machine
+ *
+ * Author       Karsten Keil
+ * Copyright    by Karsten Keil      <keil@isdn4linux.de>
+ *              by Kai Germaschewski <kai.germaschewski@gmx.de>
+ * 
+ * This software may be used and distributed according to the terms
+ * of the GNU General Public License, incorporated herein by reference.
  *
  * Thanks to    Jan den Ouden
  *              Fritz Elfert
  *
- * This file is (c) under GNU General Public License
- *
  */
+
 #define __NO_VERSION__
+#include <linux/module.h>
 #include <linux/init.h>
 #include "hisax.h"
 
 #define FSM_TIMER_DEBUG 0
+
+EXPORT_SYMBOL(FsmNew);
+EXPORT_SYMBOL(FsmFree);
+EXPORT_SYMBOL(FsmEvent);
+EXPORT_SYMBOL(FsmChangeState);
+EXPORT_SYMBOL(FsmInitTimer);
+EXPORT_SYMBOL(FsmDelTimer);
+EXPORT_SYMBOL(FsmRestartTimer);
 
 int __init
 FsmNew(struct Fsm *fsm, struct FsmNode *fnlist, int fncount)

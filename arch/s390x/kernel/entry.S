@@ -9,11 +9,10 @@
  *               Denis Joseph Barrow (djbarrow@de.ibm.com,barrow_dj@yahoo.com),
  */
 
-#define ASSEMBLY
-
 #include <linux/sys.h>
 #include <linux/linkage.h>
 #include <linux/config.h>
+#include <asm/cache.h>
 #include <asm/lowcore.h>
 #include <asm/errno.h>
 #include <asm/smp.h>
@@ -80,7 +79,7 @@ flags        =  8
 sigpending   = 16
 need_resched = 32
 tsk_ptrace   = 40
-processor    = 100
+processor    = 92
 
 /*
  * Register usage in interrupt handlers:
@@ -90,17 +89,25 @@ processor    = 100
  *    R15 - kernel stack pointer
  */
 
-        .macro  SAVE_ALL psworg          # system entry macro
+        .macro  SAVE_ALL psworg,sync     # system entry macro
         stmg    %r14,%r15,__LC_SAVE_AREA
-        stam    %a2,%a4,__LC_SAVE_AREA+16
         tm      \psworg+1,0x01           # test problem state bit
-        jz      0f                       # skip stack setup save
-        lg      %r15,__LC_KERNEL_STACK   # problem state -> load ksp
-        slr     %r14,%r14
-        sar     %a2,%r14                 # set ac.reg. 2 to primary space
-        lhi     %r14,1
-        sar     %a4,%r14                 # set access reg. 4 to home space
-0:      aghi    %r15,-SP_SIZE            # make room for registers & psw
+	stam    %a2,%a4,__LC_SAVE_AREA+16
+	.if	\sync
+        jz      1f                       # skip stack setup save
+	.else
+	jnz	0f			 # from user -> load kernel stack
+	lg	%r14,__LC_ASYNC_STACK	 # are we already on the async. stack ?
+	slgr	%r14,%r15
+	srag	%r14,%r14,14
+	jz	1f
+	lg	%r15,__LC_ASYNC_STACK	 # load async. stack
+	j	1f
+	.endif
+0:	lg      %r15,__LC_KERNEL_STACK   # problem state -> load ksp
+	larl	%r14,.Lc_ac
+	lam	%a2,%a4,0(%r14)
+1:      aghi    %r15,-SP_SIZE            # make room for registers & psw
         nill    %r15,0xfff8              # align stack pointer to 8
         stmg    %r0,%r14,SP_R0(%r15)     # store gprs 0-14 to kernel stack
         stg     %r2,SP_ORIG_R2(%r15)     # store original content of gpr 2
@@ -113,7 +120,7 @@ processor    = 100
         xc      0(8,%r15),0(%r15)        # clear back chain
         .endm
 
-        .macro  RESTORE_ALL              # system exit macro
+        .macro  RESTORE_ALL sync         # system exit macro
         mvc     __LC_RETURN_PSW(16),SP_PSW(%r15) # move user PSW to lowcore
         lam     %a0,%a15,SP_AREGS(%r15)  # load the access registers
         lmg     %r0,%r15,SP_R0(%r15)     # load gprs 0-15 of user
@@ -122,8 +129,8 @@ processor    = 100
         .endm
 
         .macro  GET_CURRENT
-        lghi    %r9,-16384               # load pointer to task_struct to %r9
-        ngr     %r9,15
+	lg	%r9,__LC_KERNEL_STACK    # load pointer to task_struct to %r9
+	aghi	%r9,-16384
         .endm
 
 
@@ -162,13 +169,32 @@ resume_noper:
         br      %r14
 
 /*
+ * do_softirq calling function. We want to run the softirq functions on the
+ * asynchronous interrupt stack.
+ */
+	.global do_call_softirq
+do_call_softirq:
+	stmg	%r12,%r15,48(%r15)
+	lgr	%r12,%r15
+	lg	%r0,__LC_ASYNC_STACK
+	slgr    %r0,%r15
+	srag	%r0,%r0,14
+	je	0f
+	lg	%r15,__LC_ASYNC_STACK
+0:	aghi	%r15,-STACK_FRAME_OVERHEAD
+	stg	%r12,0(%r15)		# store back chain
+	brasl	%r14,do_softirq
+	lmg	%r12,%r15,48(%r12)
+	br	%r14
+	
+/*
  * SVC interrupt handler routine. System calls are synchronous events and
  * are executed with interrupts enabled.
  */
 
 	.globl  system_call
 system_call:
-        SAVE_ALL __LC_SVC_OLD_PSW
+        SAVE_ALL __LC_SVC_OLD_PSW,1
 	mvi     SP_PGM_OLD_ILC(%r15),1  # mark PGM_OLD_ILC as invalid
 pgm_system_call:
         GET_CURRENT               # load pointer to task_struct to R9
@@ -192,15 +218,8 @@ sysc_return:
         tm      SP_PSW+1(%r15),0x01 # returning to user ?
         jno     sysc_leave        # no-> skip bottom half, resched & signal
 #
-# check, if bottom-half has to be done
-#
-        l       %r0,__LC_IRQ_STAT     # get softirq_active
-        n       %r0,__LC_IRQ_STAT+4   # and it with softirq_mask
-        jnz     sysc_handle_bottom_half
-#
 # check, if reschedule is needed
 #
-sysc_return_bh:
 	lg      %r0,need_resched(%r9) # get need_resched from task_struct
 	ltgr    %r0,%r0
         jnz     sysc_reschedule
@@ -210,7 +229,7 @@ sysc_leave:
         tm      SP_PGM_OLD_ILC(%r15),0xff
         jz      pgm_svcret
 	stnsm   48(%r15),0xfc         # disable I/O and ext. interrupts
-        RESTORE_ALL
+        RESTORE_ALL 1
 
 #
 # call do_signal before return
@@ -234,15 +253,6 @@ sysc_tracesys:
         stg     %r2,SP_R2(%r15)     # store return value
 	larl    %r14,sysc_return
         jg      syscall_trace       # return point is sysc_return
-
-
-#
-# call do_softirq and return from syscall, if interrupt-level
-# is zero
-#
-sysc_handle_bottom_half:        
-	larl    %r14,sysc_return_bh
-        jg      do_softirq          # return point is sysc_return_bh
 
 #
 # call schedule with sysc_return as return-address
@@ -582,9 +592,9 @@ sys_call_table:
 	.long  SYSCALL(sys_mmap2,sys32_mmap2_wrapper)
 	.long  SYSCALL(sys_ni_syscall,sys32_truncate64_wrapper)
         .long  SYSCALL(sys_ni_syscall,sys32_ftruncate64_wrapper)
-        .long  SYSCALL(sys_ni_syscall,sys32_stat64)     /* 195 */
-        .long  SYSCALL(sys_ni_syscall,sys32_lstat64)   
-        .long  SYSCALL(sys_ni_syscall,sys32_fstat64)    
+        .long  SYSCALL(sys_ni_syscall,sys32_stat64_wrapper)     /* 195 */
+        .long  SYSCALL(sys_ni_syscall,sys32_lstat64_wrapper)   
+        .long  SYSCALL(sys_ni_syscall,sys32_fstat64_wrapper)    
 	.long  SYSCALL(sys_lchown,sys32_lchown_wrapper)
 	.long  SYSCALL(sys_getuid,sys_getuid)
 	.long  SYSCALL(sys_getgid,sys_getgid)         /* 200 */
@@ -607,9 +617,12 @@ sys_call_table:
         .long  SYSCALL(sys_pivot_root,sys32_pivot_root_wrapper)
         .long  SYSCALL(sys_mincore,sys32_mincore_wrapper)
         .long  SYSCALL(sys_madvise,sys32_madvise_wrapper)
-	.long  SYSCALL(sys_ni_syscall,sys32_getdents64_wrapper)/* 220 */
+	.long  SYSCALL(sys_getdents64,sys32_getdents64_wrapper)/* 220 */
 	.long  SYSCALL(sys_ni_syscall,sys32_fcntl64_wrapper)
-        .rept  255-221
+	.long  SYSCALL(sys_ni_syscall,sys_ni_syscall) /* 222 - reserved for posix_acl */
+	.long  SYSCALL(sys_ni_syscall,sys_ni_syscall) /* 223 - reserved for posix_acl */
+	.long  SYSCALL(sys_ni_syscall,sys_ni_syscall) /* 224 - reserved for posix_acl */
+        .rept  255-224
 	.long  SYSCALL(sys_ni_syscall,sys_ni_syscall)
 	.endr
 
@@ -632,8 +645,6 @@ pgm_check_handler:
  * we just ignore the PER event (FIXME: is there anything we have to do
  * for LPSW?).
  */
-	stmg    %r14,%r15,__LC_SAVE_AREA
-        stam    %a2,%a4,__LC_SAVE_AREA+16
         tm      __LC_PGM_INT_CODE+1,0x80 # check whether we got a per exception
         jz      pgm_sv                   # skip if not
         tm      __LC_PGM_OLD_PSW,0x40    # test if per event recording is on
@@ -642,29 +653,10 @@ pgm_check_handler:
         clc     __LC_PGM_OLD_PSW(16),__LC_SVC_NEW_PSW
         je      pgm_svcper
 # no interesting special case, ignore PER event
-        lm      %r13,%r15,__LC_SAVE_AREA
 	lpswe   __LC_PGM_OLD_PSW
 # it was a single stepped SVC that is causing all the trouble
 pgm_svcper:
-        tm      __LC_SVC_OLD_PSW+1,0x01  # test problem state bit
-	jz	0f                       # skip stack & access regs setup
-	lg      %r15,__LC_KERNEL_STACK   # problem state -> load ksp
-        slr     %r14,%r14
-        sar     %a2,%r14                 # set ac.reg. 2 to primary space
-        lhi     %r14,1   
-        sar     %a4,%r14                 # and access reg. 4 to home space
-0:	aghi    %r15,-SP_SIZE            # make room for registers & psw
-        nill    %r15,0xfff8              # align stack pointer to 8
-        stmg    %r0,%r14,SP_R0(%r15)     # store gprs 0-14 to kernel stack 
-        stg     %r2,SP_ORIG_R2(%r15)     # store original content of gpr 2
-        mvc     SP_R14(16,%r15),__LC_SAVE_AREA         # move R14-R15 to stack
-        stam    %a0,%a15,SP_AREGS(%r15)  # store access registers to kst.
-        mvc     SP_AREGS+8(12,%r15),__LC_SAVE_AREA+16 # store ac. regs
-        mvc     SP_PSW(16,%r15),__LC_PGM_OLD_PSW      # move user PSW to stack
-        lhi     %r0,__LC_SVC_OLD_PSW     # store trap indication
-        st      %r0,SP_TRAP(%r15)
-        xc      0(8,%r15),0(%r15)        # clear back chain
-
+	SAVE_ALL __LC_SVC_OLD_PSW,1
         mvc     SP_PGM_OLD_ILC(4,%r15),__LC_PGM_ILC # save program check information
         j       pgm_system_call          # now do the svc
 pgm_svcret:
@@ -674,24 +666,7 @@ pgm_svcret:
         mvi     SP_PGM_OLD_ILC(%r15),1   # mark PGM_OLD_ILC as invalid
 	j       pgm_no_sv
 pgm_sv:
-        tm      __LC_PGM_OLD_PSW+1,0x01  # test problem state bit
-	jz	1f		         # skip stack setup save
-	lg      %r15,__LC_KERNEL_STACK   # problem state -> load ksp
-        slr     %r14,%r14
-        sar     %a2,%r14                 # set ac.reg. 2 to primary space
-        lhi     %r14,1
-        sar     %a4,%r14                 # set access reg. 4 to home space
-1:	aghi    %r15,-SP_SIZE            # make room for registers & psw
-        nill    %r15,0xfff8              # align stack pointer to 8
-        stmg    %r0,%r14,SP_R0(%r15)     # store gprs 0-14 to kernel stack
-        stg     %r2,SP_ORIG_R2(%r15)     # store original content of gpr 2
-        mvc     SP_R14(16,%r15),__LC_SAVE_AREA         # move R14-R15 to stack
-        stam    %a0,%a15,SP_AREGS(%r15)  # store access registers to kst.
-        mvc     SP_AREGS+8(12,%r15),__LC_SAVE_AREA+16 # store ac. regs
-        mvc     SP_PSW(16,%r15),__LC_PGM_OLD_PSW      # move user PSW to stack
-        lhi     %r0,__LC_PGM_OLD_PSW     # store trap indication
-        st      %r0,SP_TRAP(%r15)
-        xc      0(8,%r15),0(%r15)        # clear back chain
+	SAVE_ALL __LC_PGM_OLD_PSW,1
         mvi     SP_PGM_OLD_ILC(%r15),1   # mark PGM_OLD_ILC as invalid
         llgh    %r7,__LC_PGM_ILC         # load instruction length
 	GET_CURRENT
@@ -723,7 +698,7 @@ pgm_dn: nill    %r8,0x80          # check for per exception
  */
         .globl io_int_handler
 io_int_handler:
-        SAVE_ALL __LC_IO_OLD_PSW
+        SAVE_ALL __LC_IO_OLD_PSW,0
         GET_CURRENT                    # load pointer to task_struct to R9
         la      %r2,SP_PTREGS(%r15)    # address of register-save area
 	llgh    %r3,__LC_SUBCHANNEL_NR # load subchannel number
@@ -732,16 +707,20 @@ io_int_handler:
 	brasl   %r14,do_IRQ            # call standard irq handler
 
 io_return:
-        tm      SP_PSW+1(%r15),0x01    # returning to user ?
-        jno     io_leave               # no-> skip resched & signal
-        stosm   48(%r15),0x03          # reenable interrupts
 #
 # check, if bottom-half has to be done
 #
-        l       %r0,__LC_IRQ_STAT     # get softirq_active
-        n       %r0,__LC_IRQ_STAT+4   # and it with softirq_mask
+	lgf     %r1,processor(%r9)    # get cpu number from task struture
+	larl    %r2,irq_stat
+	sll     %r1,L1_CACHE_SHIFT
+	la      %r1,0(%r1,%r2)
+	icm     %r0,15,0(%r1)         # test irq_stat[#cpu].__softirq_pending
         jnz     io_handle_bottom_half
 io_return_bh:	
+
+        tm      SP_PSW+1(%r15),0x01    # returning to user ?
+        jno     io_leave               # no-> skip resched & signal
+        stosm   48(%r15),0x03          # reenable interrupts
 #
 # check, if reschedule is needed
 #
@@ -752,7 +731,7 @@ io_return_bh:
         jnz     io_signal_return
 io_leave:
         stnsm   48(%r15),0xfc          # disable I/O and ext. interrupts
-        RESTORE_ALL
+        RESTORE_ALL 0
 
 #
 # call do_softirq and return from syscall, if interrupt-level
@@ -783,7 +762,7 @@ io_signal_return:
  */
         .globl  ext_int_handler
 ext_int_handler:
-        SAVE_ALL __LC_EXT_OLD_PSW
+        SAVE_ALL __LC_EXT_OLD_PSW,0
         GET_CURRENT                    # load pointer to task_struct to R9
         la      %r2,SP_PTREGS(%r15)    # address of register-save area
         llgh    %r3,__LC_EXT_INT_CODE  # error code
@@ -811,10 +790,10 @@ ext_int_found:
  */
         .globl mcck_int_handler
 mcck_int_handler:
-        SAVE_ALL __LC_MCK_OLD_PSW
+        SAVE_ALL __LC_MCK_OLD_PSW,0
 	brasl   %r14,s390_do_machine_check
 mcck_return:
-        RESTORE_ALL
+        RESTORE_ALL 0
 
 #ifdef CONFIG_SMP
 /*
@@ -822,9 +801,11 @@ mcck_return:
  */
         .globl restart_int_handler
 restart_int_handler:
-        lg      %r15,__LC_KERNEL_STACK # load ksp
-        lctlg   %c0,%c15,__LC_CREGS_SAVE_AREA # get new ctl regs
-        lam     %a0,%a15,__LC_AREGS_SAVE_AREA
+        lg      %r15,__LC_SAVE_AREA+120 # load ksp
+        lghi    %r10,__LC_CREGS_SAVE_AREA
+        lctlg   %c0,%c15,0(%r10) # get new ctl regs
+        lghi    %r10,__LC_AREGS_SAVE_AREA
+        lam     %a0,%a15,0(%r10)
         stosm   0(%r15),0x04           # now we can turn dat on
         lmg     %r6,%r15,48(%r15)      # load registers from clone
 	jg      start_secondary
@@ -843,3 +824,8 @@ restart_crash:
 restart_go:
 #endif
 
+/*
+ * Integer constants
+ */
+               .align 4
+.Lc_ac:        .long  0,0,1

@@ -122,8 +122,11 @@ extern int radeonfb_init(void);
 extern int radeonfb_setup(char*);
 extern int e1355fb_init(void);
 extern int e1355fb_setup(char*);
-extern int dcfb_init(void);
-  
+extern int pvr2fb_init(void);
+extern int pvr2fb_setup(char*);
+extern int sstfb_init(void);
+extern int sstfb_setup(char*);
+
 static struct {
 	const char *name;
 	int (*init)(void);
@@ -270,10 +273,12 @@ static struct {
 #ifdef CONFIG_FB_E1355
 	{ "e1355fb", e1355fb_init, e1355fb_setup },
 #endif
-#ifdef CONFIG_FB_DC
-	{ "dcfb", dcfb_init, NULL },
+#ifdef CONFIG_FB_PVR2
+	{ "pvr2", pvr2fb_init, pvr2fb_setup },
 #endif
-
+#ifdef CONFIG_FB_VOODOO1
+	{ "sst", sstfb_init, sstfb_setup },
+#endif
 	/*
 	 * Generic drivers that don't use resource management (yet)
 	 */
@@ -592,7 +597,7 @@ fb_mmap(struct file *file, struct vm_area_struct * vma)
 	pgprot_val(vma->vm_page_prot) |= _PAGE_NO_CACHE|_PAGE_GUARDED;
 #elif defined(__alpha__)
 	/* Caching is off in the I/O space quadrant by design.  */
-#elif defined(__i386__)
+#elif defined(__i386__) || defined(__x86_64__)
 	if (boot_cpu_data.x86 > 3)
 		pgprot_val(vma->vm_page_prot) |= _PAGE_PCD;
 #elif defined(__mips__)

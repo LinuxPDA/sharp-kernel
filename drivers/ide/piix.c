@@ -88,25 +88,6 @@ static int piix_get_info (char *buffer, char **addr, off_t offset, int count)
 	u8  c0 = 0, c1 = 0;
 	u8  reg44 = 0, reg48 = 0, reg4a = 0, reg4b = 0, reg54 = 0, reg55 = 0;
 
-	pci_read_config_word(bmide_dev, 0x40, &reg40);
-	pci_read_config_word(bmide_dev, 0x42, &reg42);
-	pci_read_config_byte(bmide_dev, 0x44, &reg44);
-	pci_read_config_byte(bmide_dev, 0x48, &reg48);
-	pci_read_config_byte(bmide_dev, 0x4a, &reg4a);
-	pci_read_config_byte(bmide_dev, 0x4b, &reg4b);
-	pci_read_config_byte(bmide_dev, 0x54, &reg54);
-	pci_read_config_byte(bmide_dev, 0x55, &reg55);
-
-	psitre = (reg40 & 0x4000) ? 1 : 0;
-	ssitre = (reg42 & 0x4000) ? 1 : 0;
-
-        /*
-         * at that point bibma+0x2 et bibma+0xa are byte registers
-         * to investigate:
-         */
-	c0 = inb_p((unsigned short)bibma + 0x02);
-	c1 = inb_p((unsigned short)bibma + 0x0a);
-
 	switch(bmide_dev->device) {
 		case PCI_DEVICE_ID_INTEL_82801BA_8:
 		case PCI_DEVICE_ID_INTEL_82801BA_9:
@@ -125,12 +106,35 @@ static int piix_get_info (char *buffer, char **addr, off_t offset, int count)
 		case PCI_DEVICE_ID_INTEL_82371SB_1:
 			p += sprintf(p, "\n                                Intel PIIX3 Chipset.\n");
 			break;
+		case PCI_DEVICE_ID_INTEL_82371MX:
+			p += sprintf(p, "\n                                Intel MPIIX Chipset.\n");
+			return p-buffer;	/* => must be less than 4k! */
 		case PCI_DEVICE_ID_INTEL_82371FB_1:
 		case PCI_DEVICE_ID_INTEL_82371FB_0:
 		default:
 			p += sprintf(p, "\n                                Intel PIIX Chipset.\n");
 			break;
 	}
+
+	pci_read_config_word(bmide_dev, 0x40, &reg40);
+	pci_read_config_word(bmide_dev, 0x42, &reg42);
+	pci_read_config_byte(bmide_dev, 0x44, &reg44);
+	pci_read_config_byte(bmide_dev, 0x48, &reg48);
+	pci_read_config_byte(bmide_dev, 0x4a, &reg4a);
+	pci_read_config_byte(bmide_dev, 0x4b, &reg4b);
+	pci_read_config_byte(bmide_dev, 0x54, &reg54);
+	pci_read_config_byte(bmide_dev, 0x55, &reg55);
+
+	psitre = (reg40 & 0x4000) ? 1 : 0;
+	ssitre = (reg42 & 0x4000) ? 1 : 0;
+
+	/*
+	 * at that point bibma+0x2 et bibma+0xa are byte registers
+	 * to investigate:
+	 */
+	c0 = inb_p((unsigned short)bibma + 0x02);
+	c1 = inb_p((unsigned short)bibma + 0x0a);
+
 	p += sprintf(p, "--------------- Primary Channel ---------------- Secondary Channel -------------\n");
 	p += sprintf(p, "                %sabled                         %sabled\n",
 			(c0&0x80) ? "dis" : " en",
@@ -505,6 +509,11 @@ void __init ide_init_piix (ide_hwif_t *hwif)
 		hwif->irq = hwif->channel ? 15 : 14;
 #endif /* CONFIG_IA64 */
 
+	if (hwif->pci_dev->device == PCI_DEVICE_ID_INTEL_82371MX) {
+		/* This is a painful system best to let it self tune for now */
+		return;
+	}
+
 	hwif->tuneproc = &piix_tune_drive;
 	hwif->drives[0].autotune = 1;
 	hwif->drives[1].autotune = 1;
@@ -516,7 +525,8 @@ void __init ide_init_piix (ide_hwif_t *hwif)
 	hwif->autodma = 0;
 #else /* CONFIG_BLK_DEV_IDEDMA */
 #ifdef CONFIG_PIIX_TUNING
-	hwif->autodma = 1;
+	if (!noautodma)
+		hwif->autodma = 1;
 	hwif->dmaproc = &piix_dmaproc;
 	hwif->speedproc = &piix_tune_chipset;
 #endif /* CONFIG_PIIX_TUNING */

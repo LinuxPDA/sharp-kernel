@@ -1,4 +1,4 @@
-/* $Id: sparc64_ksyms.c,v 1.108 2001/06/05 03:39:50 davem Exp $
+/* $Id: sparc64_ksyms.c,v 1.113 2001/10/17 18:26:58 davem Exp $
  * arch/sparc64/kernel/sparc64_ksyms.c: Sparc64 specific ksyms support.
  *
  * Copyright (C) 1996 David S. Miller (davem@caip.rutgers.edu)
@@ -163,6 +163,9 @@ EXPORT_SYMBOL(__up);
 /* Atomic counter implementation. */
 EXPORT_SYMBOL(__atomic_add);
 EXPORT_SYMBOL(__atomic_sub);
+#ifdef CONFIG_SMP
+EXPORT_SYMBOL(atomic_dec_and_lock);
+#endif
 
 /* Atomic bit operations. */
 EXPORT_SYMBOL(___test_and_set_bit);
@@ -180,7 +183,7 @@ EXPORT_SYMBOL(__flushw_user);
 EXPORT_SYMBOL(tlb_type);
 EXPORT_SYMBOL(get_fb_unmapped_area);
 EXPORT_SYMBOL(flush_icache_range);
-EXPORT_SYMBOL(__flush_dcache_page);
+EXPORT_SYMBOL(flush_dcache_page);
 
 EXPORT_SYMBOL(mostek_lock);
 EXPORT_SYMBOL(mstk48t02_regs);
@@ -205,7 +208,6 @@ EXPORT_SYMBOL(sbus_dma_sync_sg);
 EXPORT_SYMBOL(ebus_chain);
 EXPORT_SYMBOL(isa_chain);
 EXPORT_SYMBOL(pci_memspace_mask);
-EXPORT_SYMBOL(empty_zero_page);
 EXPORT_SYMBOL(outsb);
 EXPORT_SYMBOL(outsw);
 EXPORT_SYMBOL(outsl);
@@ -276,6 +278,7 @@ EXPORT_SYMBOL(__strlen);
 EXPORT_SYMBOL(strlen);
 EXPORT_SYMBOL(strnlen);
 EXPORT_SYMBOL(__strlen_user);
+EXPORT_SYMBOL(__strnlen_user);
 EXPORT_SYMBOL(strcpy);
 EXPORT_SYMBOL(strncpy);
 EXPORT_SYMBOL(strcat);

@@ -1545,8 +1545,7 @@ static inline int wv_set_frequency(unsigned long ioaddr,	/* I/O port of the card
 	/* Setting by channel (same as wfreqsel) */
 	/* Warning: each channel is 22 MHz wide, so some of the channels
 	 * will interfere. */
-	if ((frequency->e == 0) &&
-	    (frequency->m >= 0) && (frequency->m < BAND_NUM)) {
+	if ((frequency->e == 0) && (frequency->m < BAND_NUM)) {
 		/* Get frequency offset. */
 		freq = channel_bands[frequency->m] >> 1;
 	}
@@ -2060,6 +2059,10 @@ static int wavelan_ioctl(struct net_device *dev,	/* device on which the ioctl is
 			range.max_qual.qual = MMR_SGNL_QUAL;
 			range.max_qual.level = MMR_SIGNAL_LVL;
 			range.max_qual.noise = MMR_SILENCE_LVL;
+			range.avg_qual.qual = MMR_SGNL_QUAL; /* Always max */
+			/* Need to get better values for those two */
+			range.avg_qual.level = 30;
+			range.avg_qual.noise = 8;
 
 			range.num_bitrates = 1;
 			range.bitrate[0] = 2000000;	/* 2 Mb/s */
@@ -4292,6 +4295,7 @@ void cleanup_module(void)
 #endif
 }
 #endif				/* MODULE */
+MODULE_LICENSE("GPL");
 
 /*
  * This software may only be used and distributed
@@ -4302,7 +4306,7 @@ void cleanup_module(void)
  * It is based on other device drivers and information
  * either written or supplied by:
  *	Ajay Bakre (bakre@paul.rutgers.edu),
- *	Donald Becker (becker@cesdis.gsfc.nasa.gov),
+ *	Donald Becker (becker@scyld.com),
  *	Loeke Brederveld (Loeke.Brederveld@Utrecht.NCR.com),
  *	Anders Klemets (klemets@it.kth.se),
  *	Vladimir V. Kolpakov (w@stier.koenig.ru),

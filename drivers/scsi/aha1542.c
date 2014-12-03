@@ -67,12 +67,10 @@ static void BAD_SG_DMA(Scsi_Cmnd * SCpnt,
 		       int nseg,
 		       int badseg)
 {
-	printk(KERN_CRIT "sgpnt[%d:%d] addr %p/0x%lx alt %p/0x%lx length %d\n",
+	printk(KERN_CRIT "sgpnt[%d:%d] addr %p/0x%lx length %d\n",
 	       badseg, nseg,
 	       sgpnt[badseg].address,
 	       SCSI_PA(sgpnt[badseg].address),
-	       sgpnt[badseg].alt_address,
-	       sgpnt[badseg].alt_address ? SCSI_PA(sgpnt[badseg].alt_address) : 0,
 	       sgpnt[badseg].length);
 
 	/*
@@ -433,7 +431,7 @@ static void aha1542_intr_handle(int irq, void *dev_id, struct pt_regs *regs)
 	void (*my_done) (Scsi_Cmnd *) = NULL;
 	int errstatus, mbi, mbo, mbistatus;
 	int number_serviced;
-	unsigned int flags;
+	unsigned long flags;
 	struct Scsi_Host *shost;
 	Scsi_Cmnd *SCtmp;
 	int flag;
@@ -716,7 +714,7 @@ static int aha1542_queuecommand(Scsi_Cmnd * SCpnt, void (*done) (Scsi_Cmnd *))
 				unsigned char *ptr;
 				printk(KERN_CRIT "Bad segment list supplied to aha1542.c (%d, %d)\n", SCpnt->use_sg, i);
 				for (i = 0; i < SCpnt->use_sg; i++) {
-					printk(KERN_CRIT "%d: %x %x %d\n", i, (unsigned int) sgpnt[i].address, (unsigned int) sgpnt[i].alt_address,
+					printk(KERN_CRIT "%d: %p %d\n", i, sgpnt[i].address,
 					       sgpnt[i].length);
 				};
 				printk(KERN_CRIT "cptr %x: ", (unsigned int) cptr);
@@ -1800,6 +1798,7 @@ static int aha1542_biosparam(Scsi_Disk * disk, kdev_t dev, int *ip)
 
 	return 0;
 }
+MODULE_LICENSE("GPL");
 
 
 /* Eventually this will go into an include file, but this will be later */

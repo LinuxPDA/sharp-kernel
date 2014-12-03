@@ -154,26 +154,37 @@ void hpsb_unlisten_channel(struct hpsb_highlevel *hl, struct hpsb_host *host,
 }
 
 
-#define DEFINE_MULTIPLEXER(Function) \
-void highlevel_##Function(struct hpsb_host *host) \
-{ \
-        struct list_head *entry; \
-        void (*funcptr)(struct hpsb_host*); \
-        read_lock(&hl_drivers_lock); \
-        entry = hl_drivers.next; \
-        while (entry != &hl_drivers) { \
-                funcptr = list_entry(entry, struct hpsb_highlevel, hl_list) \
-                          ->op->Function; \
-                if (funcptr) funcptr(host); \
-                entry = entry->next; \
-        } \
-        read_unlock(&hl_drivers_lock); \
+#define DEFINE_MULTIPLEXER(Function)			\
+void highlevel_##Function(struct hpsb_host *host)	\
+{							\
+	struct list_head *lh;				\
+	void (*funcptr)(struct hpsb_host*);		\
+	read_lock(&hl_drivers_lock);			\
+	list_for_each(lh, &hl_drivers) {		\
+		funcptr = list_entry(lh, struct hpsb_highlevel, hl_list) \
+				->op->Function;		\
+		if (funcptr) funcptr(host);		\
+	}						\
+	read_unlock(&hl_drivers_lock);			\
 }
 
 DEFINE_MULTIPLEXER(add_host)
 DEFINE_MULTIPLEXER(remove_host)
 DEFINE_MULTIPLEXER(host_reset)
 #undef DEFINE_MULTIPLEXER
+
+/* Add one host to our list */
+void highlevel_add_one_host (struct hpsb_host *host)
+{
+	if (host->template->initialize_host)
+		if (!host->template->initialize_host(host))
+			goto fail;
+	host->initialized = 1;
+	highlevel_add_host (host);
+	hpsb_reset_bus (host, LONG_RESET);
+fail:
+	host->template->number_of_hosts++;
+}
 
 void highlevel_iso_receive(struct hpsb_host *host, quadlet_t *data,
                            unsigned int length)
@@ -200,7 +211,7 @@ void highlevel_fcp_request(struct hpsb_host *host, int nodeid, int direction,
 {
         struct list_head *entry;
         struct hpsb_highlevel *hl;
-        int cts = data[0];
+        int cts = data[0] >> 4;
 
         read_lock(&hl_drivers_lock);
         entry = hl_drivers.next;
@@ -262,8 +273,8 @@ int highlevel_read(struct hpsb_host *host, int nodeid, quadlet_t *buffer,
         return rcode;
 }
 
-int highlevel_write(struct hpsb_host *host, int nodeid, quadlet_t *data,
-                    u64 addr, unsigned int length)
+int highlevel_write(struct hpsb_host *host, int nodeid, int destid,
+		    quadlet_t *data, u64 addr, unsigned int length)
 {
         struct hpsb_address_serve *as;
         struct list_head *entry;
@@ -281,8 +292,8 @@ int highlevel_write(struct hpsb_host *host, int nodeid, quadlet_t *data,
                                          length);
 
                         if (as->op->write != NULL) {
-                                rcode = as->op->write(host, nodeid, data, addr,
-                                                      partlength);
+                                rcode = as->op->write(host, nodeid, destid, data,
+						      addr, partlength);
                         } else {
                                 rcode = RCODE_TYPE_ERROR;
                         }
@@ -376,23 +387,6 @@ int highlevel_lock64(struct hpsb_host *host, int nodeid, octlet_t *store,
         return rcode;
 }
 
-
-
-#ifndef MODULE
-
-void register_builtin_highlevels(void)
-{
-#ifdef CONFIG_IEEE1394_RAWIO
-        {
-                int init_raw1394(void);
-                init_raw1394();
-        }
-#endif
-}
-
-#endif /* !MODULE */
-
-
 void init_hpsb_highlevel(void)
 {
         INIT_LIST_HEAD(&dummy_zero_addr.as_list);
@@ -407,8 +401,4 @@ void init_hpsb_highlevel(void)
 
         list_add_tail(&dummy_zero_addr.as_list, &addr_space);
         list_add_tail(&dummy_max_addr.as_list, &addr_space);
-
-#ifndef MODULE
-        register_builtin_highlevels();
-#endif
 }

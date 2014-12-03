@@ -5,7 +5,7 @@
  *
  *		The Internet Protocol (IP) output module.
  *
- * Version:	$Id: ip_output.c,v 1.93 2001/06/01 14:59:31 davem Exp $
+ * Version:	$Id: ip_output.c,v 1.99 2001/10/15 12:34:50 davem Exp $
  *
  * Authors:	Ross Biro, <bir7@leland.Stanford.Edu>
  *		Fred N. van Kempen, <waltje@uWalt.NL.Mugnet.ORG>
@@ -37,6 +37,7 @@
  *					and more readibility. 
  *		Marc Boucher	:	When call_out_firewall returns FW_QUEUE,
  *					silently drop skb instead of failing with -EPERM.
+ *		Detlev Wengorz	:	Copy protocol for fragments.
  */
 
 #include <asm/uaccess.h>
@@ -173,7 +174,8 @@ static inline int ip_finish_output2(struct sk_buff *skb)
 	} else if (dst->neighbour)
 		return dst->neighbour->output(skb);
 
-	printk(KERN_DEBUG "khm\n");
+	if (net_ratelimit())
+		printk(KERN_DEBUG "ip_finish_output2: No header cache and no neighbour!\n");
 	kfree_skb(skb);
 	return -EINVAL;
 }
@@ -211,7 +213,8 @@ int ip_mc_output(struct sk_buff *skb)
 	 *	Multicasts are looped back for other local users
 	 */
 
-	if (rt->rt_flags&RTCF_MULTICAST && (!sk || sk->protinfo.af_inet.mc_loop)) {
+	if (rt->rt_flags&RTCF_MULTICAST) {
+		if ((!sk || sk->protinfo.af_inet.mc_loop)
 #ifdef CONFIG_IP_MROUTE
 		/* Small optimization: do not loopback not local frames,
 		   which returned after forwarding; they will be  dropped
@@ -221,9 +224,9 @@ int ip_mc_output(struct sk_buff *skb)
 
 		   This check is duplicated in ip_mr_input at the moment.
 		 */
-		if ((rt->rt_flags&RTCF_LOCAL) || !(IPCB(skb)->flags&IPSKB_FORWARDED))
+		    && ((rt->rt_flags&RTCF_LOCAL) || !(IPCB(skb)->flags&IPSKB_FORWARDED))
 #endif
-		{
+		) {
 			struct sk_buff *newskb = skb_clone(skb, GFP_ATOMIC);
 			if (newskb)
 				NF_HOOK(PF_INET, NF_IP_POST_ROUTING, newskb, NULL,
@@ -342,6 +345,13 @@ int ip_queue_xmit(struct sk_buff *skb)
 	struct rtable *rt;
 	struct iphdr *iph;
 
+	/* Skip all of this if the packet is already routed,
+	 * f.e. by something like SCTP.
+	 */
+	rt = (struct rtable *) skb->dst;
+	if (rt != NULL)
+		goto packet_routed;
+
 	/* Make sure we can route this packet. */
 	rt = (struct rtable *)__sk_dst_check(sk, 0);
 	if (rt == NULL) {
@@ -357,7 +367,7 @@ int ip_queue_xmit(struct sk_buff *skb)
 		 * out.
 		 */
 		if (ip_route_output(&rt, daddr, sk->saddr,
-				    RT_TOS(sk->protinfo.af_inet.tos) | RTO_CONN | sk->localroute,
+				    RT_CONN_FLAGS(sk),
 				    sk->bound_dev_if))
 			goto no_route;
 		__sk_dst_set(sk, &rt->u.dst);
@@ -365,6 +375,7 @@ int ip_queue_xmit(struct sk_buff *skb)
 	}
 	skb->dst = dst_clone(&rt->u.dst);
 
+packet_routed:
 	if (opt && opt->is_strictroute && rt->rt_dst != rt->rt_gateway)
 		goto no_route;
 
@@ -796,6 +807,8 @@ int ip_fragment(struct sk_buff *skb, int (*output)(struct sk_buff*))
 		skb_put(skb2, len + hlen);
 		skb2->nh.raw = skb2->data;
 		skb2->h.raw = skb2->data + hlen;
+		skb2->protocol = skb->protocol;
+		skb2->security = skb->security;
 
 		/*
 		 *	Charge the memory for the fragment to any owner
@@ -847,6 +860,9 @@ int ip_fragment(struct sk_buff *skb, int (*output)(struct sk_buff*))
 		ptr += len;
 		offset += len;
 
+#ifdef CONFIG_NET_SCHED
+		skb2->tc_index = skb->tc_index;
+#endif
 #ifdef CONFIG_NETFILTER
 		skb2->nfmark = skb->nfmark;
 		/* Connection association is same as pre-frag packet */

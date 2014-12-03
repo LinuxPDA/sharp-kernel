@@ -185,7 +185,7 @@ struct video_capture
 {
 	__u32 	x,y;			/* Offsets into image */
 	__u32	width, height;		/* Area to capture */
-	__u16	decimation;		/* Decimation divder */
+	__u16	decimation;		/* Decimation divider */
 	__u16	flags;			/* Flags for capture */
 #define VIDEO_CAPTURE_ODD		0	/* Temporal */
 #define VIDEO_CAPTURE_EVEN		1
@@ -375,15 +375,7 @@ struct video_code
 #define VID_HARDWARE_W9966	29
 #define VID_HARDWARE_SE401	30	/* SE401 USB webcams */
 #define VID_HARDWARE_PWC	31	/* Philips webcams */
-
-/*
- *	Initialiser list
- */
- 
-struct video_init
-{
-	char *name;
-	int (*init)(struct video_init *);
-};
+#define VID_HARDWARE_MEYE	32	/* Sony Vaio MotionEye cameras */
+#define VID_HARDWARE_CPIA2	33
 
 #endif

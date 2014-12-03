@@ -66,10 +66,11 @@ static inline void __release_stripe(raid5_conf_t *conf, struct stripe_head *sh)
 			BUG();
 		if (atomic_read(&conf->active_stripes)==0)
 			BUG();
-		if (test_bit(STRIPE_DELAYED, &sh->state))
-			list_add_tail(&sh->lru, &conf->delayed_list);
-		else if (test_bit(STRIPE_HANDLE, &sh->state)) {
-			list_add_tail(&sh->lru, &conf->handle_list);
+		if (test_bit(STRIPE_HANDLE, &sh->state)) {
+			if (test_bit(STRIPE_DELAYED, &sh->state))
+				list_add_tail(&sh->lru, &conf->delayed_list);
+			else
+				list_add_tail(&sh->lru, &conf->handle_list);
 			md_wakeup_thread(conf->thread);
 		} else {
 			if (test_and_clear_bit(STRIPE_PREREAD_ACTIVE, &sh->state)) {
@@ -484,24 +485,26 @@ static int raid5_error (mddev_t *mddev, kdev_t dev)
 	int i;
 
 	PRINTK("raid5_error called\n");
-	conf->resync_parity = 0;
+
 	for (i = 0, disk = conf->disks; i < conf->raid_disks; i++, disk++) {
-		if (disk->dev == dev && disk->operational) {
-			disk->operational = 0;
-			mark_disk_faulty(sb->disks+disk->number);
-			mark_disk_nonsync(sb->disks+disk->number);
-			mark_disk_inactive(sb->disks+disk->number);
-			sb->active_disks--;
-			sb->working_disks--;
-			sb->failed_disks++;
-			mddev->sb_dirty = 1;
-			conf->working_disks--;
-			conf->failed_disks++;
-			md_wakeup_thread(conf->thread);
-			printk (KERN_ALERT
-				"raid5: Disk failure on %s, disabling device."
-				" Operation continuing on %d devices\n",
-				partition_name (dev), conf->working_disks);
+		if (disk->dev == dev) {
+			if (disk->operational) {
+				disk->operational = 0;
+				mark_disk_faulty(sb->disks+disk->number);
+				mark_disk_nonsync(sb->disks+disk->number);
+				mark_disk_inactive(sb->disks+disk->number);
+				sb->active_disks--;
+				sb->working_disks--;
+				sb->failed_disks++;
+				mddev->sb_dirty = 1;
+				conf->working_disks--;
+				conf->failed_disks++;
+				md_wakeup_thread(conf->thread);
+				printk (KERN_ALERT
+					"raid5: Disk failure on %s, disabling device."
+					" Operation continuing on %d devices\n",
+					partition_name (dev), conf->working_disks);
+			}
 			return 0;
 		}
 	}
@@ -515,7 +518,7 @@ static int raid5_error (mddev_t *mddev, kdev_t dev)
 				"raid5: Disk failure on spare %s\n",
 				partition_name (dev));
 			if (!conf->spare->operational) {
-				MD_BUG();
+				/* probably a SET_DISK_FAULTY ioctl */
 				return -EIO;
 			}
 			disk->operational = 0;
@@ -527,6 +530,9 @@ static int raid5_error (mddev_t *mddev, kdev_t dev)
 			sb->spare_disks--;
 			sb->working_disks--;
 			sb->failed_disks++;
+
+			mddev->sb_dirty = 1;
+			md_wakeup_thread(conf->thread);
 
 			return 0;
 		}
@@ -897,11 +903,11 @@ static void handle_stripe(struct stripe_head *sh)
 				spin_unlock_irq(&conf->device_lock);
 			}
 		}
-		if (syncing) {
-			md_done_sync(conf->mddev, (sh->size>>9) - sh->sync_redone,0);
-			clear_bit(STRIPE_SYNCING, &sh->state);
-			syncing = 0;
-		}			
+	}
+	if (failed > 1 && syncing) {
+		md_done_sync(conf->mddev, (sh->size>>9) - sh->sync_redone,0);
+		clear_bit(STRIPE_SYNCING, &sh->state);
+		syncing = 0;
 	}
 
 	/* might be able to return some write requests if the parity block
@@ -1075,6 +1081,7 @@ static void handle_stripe(struct stripe_head *sh)
 			}
 		}
 		if (!test_bit(STRIPE_INSYNC, &sh->state)) {
+			struct disk_info *spare;
 			if (failed==0)
 				failed_num = sh->pd_idx;
 			/* should be able to compute the missing block and write it to spare */
@@ -1093,8 +1100,8 @@ static void handle_stripe(struct stripe_head *sh)
 			set_bit(STRIPE_INSYNC, &sh->state);
 			if (conf->disks[failed_num].operational)
 				md_sync_acct(conf->disks[failed_num].dev, bh->b_size>>9);
-			else if (conf->spare)
-				md_sync_acct(conf->spare->dev, bh->b_size>>9);
+			else if ((spare=conf->spare))
+				md_sync_acct(spare->dev, bh->b_size>>9);
 
 		}
 	}
@@ -1119,6 +1126,7 @@ static void handle_stripe(struct stripe_head *sh)
 	for (i=disks; i-- ;) 
 		if (action[i]) {
 			struct buffer_head *bh = sh->bh_cache[i];
+			struct disk_info *spare = conf->spare;
 			int skip = 0;
 			if (action[i] == READ+1)
 				bh->b_end_io = raid5_end_read_request;
@@ -1126,8 +1134,8 @@ static void handle_stripe(struct stripe_head *sh)
 				bh->b_end_io = raid5_end_write_request;
 			if (conf->disks[i].operational)
 				bh->b_dev = conf->disks[i].dev;
-			else if (conf->spare && action[i] == WRITE+1)
-				bh->b_dev = conf->spare->dev;
+			else if (spare && action[i] == WRITE+1)
+				bh->b_dev = spare->dev;
 			else skip=1;
 			if (!skip) {
 				PRINTK("for %ld schedule op %d on disc %d\n", sh->sector, action[i]-1, i);
@@ -1167,10 +1175,9 @@ static void raid5_unplug_device(void *data)
 
 	raid5_activate_delayed(conf);
 	
-	if (conf->plugged) {
-		conf->plugged = 0;
-		md_wakeup_thread(conf->thread);
-	}	
+	conf->plugged = 0;
+	md_wakeup_thread(conf->thread);
+
 	spin_unlock_irqrestore(&conf->device_lock, flags);
 }
 
@@ -2021,4 +2028,4 @@ static void raid5_exit (void)
 
 module_init(raid5_init);
 module_exit(raid5_exit);
-
+MODULE_LICENSE("GPL");

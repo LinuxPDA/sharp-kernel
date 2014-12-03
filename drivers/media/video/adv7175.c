@@ -30,7 +30,7 @@
 #include <linux/fs.h>
 #include <linux/kernel.h>
 #include <linux/major.h>
-#include <linux/malloc.h>
+#include <linux/slab.h>
 #include <linux/mm.h>
 #include <linux/pci.h>
 #include <linux/signal.h>
@@ -476,3 +476,4 @@ static void adv7175_exit(void)
 
 module_init(adv7175_init);
 module_exit(adv7175_exit);
+MODULE_LICENSE("GPL");

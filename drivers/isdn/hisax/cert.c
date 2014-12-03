@@ -1,10 +1,13 @@
-/* $Id: cert.c,v 2.3.6.1 2001/02/16 16:43:25 kai Exp $
+/* $Id: cert.c,v 2.3.6.3 2001/09/23 22:24:47 kai Exp $
  *
- * Author       Karsten Keil (keil@isdn4linux.de)
+ * Author       Karsten Keil
+ * Copyright    by Karsten Keil      <keil@isdn4linux.de>
+ * 
+ * This software may be used and distributed according to the terms
+ * of the GNU General Public License, incorporated herein by reference.
  *
- *		This file is (c) under GNU General Public License
- *		For changes and modifications please read
- *		../../../Documentation/isdn/HiSax.cert
+ * For changes and modifications please read
+ * ../../../Documentation/isdn/HiSax.cert
  *
  */
  
@@ -20,6 +23,7 @@ certification_check(int output) {
 		printk(KERN_INFO "HiSax: Approved with ELSA Microlink PCI cards\n");
 		printk(KERN_INFO "HiSax: Approved with Eicon Technology Diva 2.01 PCI cards\n");
 		printk(KERN_INFO "HiSax: Approved with Sedlbauer Speedfax + cards\n");
+		printk(KERN_INFO "HiSax: Approved with HFC-S PCI A based cards\n");
 	}
 	return(0);
 #endif

@@ -8,7 +8,7 @@
 #define _ORINOCO_H
 
 /* To enable debug messages */
-//#define ORINOCO_DEBUG		3
+/*  #define ORINOCO_DEBUG		3 */
 
 #if (! defined (WIRELESS_EXT)) || (WIRELESS_EXT < 10)
 #error "orinoco_cs requires Wireless extensions v10 or later."
@@ -25,7 +25,7 @@
 #define DLDWD_MACPORT		0
 #define IRQ_LOOP_MAX		10
 #define TX_NICBUF_SIZE		2048
-#define TX_NICBUF_SIZE_BUG	1585		/* Bug in Intel firmware */
+#define TX_NICBUF_SIZE_BUG	1585		/* Bug in Symbol firmware */
 #define MAX_KEYS		4
 #define MAX_KEY_SIZE		14
 #define LARGE_KEY_SIZE		13
@@ -33,7 +33,7 @@
 #define MAX_FRAME_SIZE		2304
 
 typedef struct dldwd_key {
-	uint16_t len;
+	uint16_t len;	/* always store little-endian */
 	char data[MAX_KEY_SIZE];
 } __attribute__ ((packed)) dldwd_key_t;
 
@@ -64,12 +64,11 @@ typedef struct dldwd_priv {
 	uint16_t txfid;
 
 	/* Capabilities of the hardware/firmware */
-	hermes_identity_t firmware_info;
 	int firmware_type;
 #define FIRMWARE_TYPE_LUCENT 1
-#define FIRMWARE_TYPE_PRISM2 2
+#define FIRMWARE_TYPE_INTERSIL 2
 #define FIRMWARE_TYPE_SYMBOL 3
-	int has_ibss, has_port3, prefer_port3, has_ibss_any;
+	int has_ibss, has_port3, prefer_port3, has_ibss_any, ibss_port;
 	int has_wep, has_big_wep;
 	int has_mwo;
 	int has_pm;
@@ -107,11 +106,11 @@ typedef struct dldwd_priv {
 
 /*====================================================================*/
 
-extern int dldwd_debug;
 extern struct list_head dldwd_instances;
 
 #ifdef ORINOCO_DEBUG
-#define DEBUG(n, args...) if (dldwd_debug>(n)) printk(KERN_DEBUG args)
+extern int dldwd_debug;
+#define DEBUG(n, args...) do { if (dldwd_debug>(n)) printk(KERN_DEBUG args); } while(0)
 #define DEBUGMORE(n, args...) do { if (dldwd_debug>(n)) printk(args); } while (0)
 #else
 #define DEBUG(n, args...) do { } while (0)
@@ -120,9 +119,6 @@ extern struct list_head dldwd_instances;
 
 #define TRACE_ENTER(devname) DEBUG(2, "%s: -> " __FUNCTION__ "()\n", devname);
 #define TRACE_EXIT(devname)  DEBUG(2, "%s: <- " __FUNCTION__ "()\n", devname);
-
-#define MAX(a, b) ( (a) > (b) ? (a) : (b) )
-#define MIN(a, b) ( (a) < (b) ? (a) : (b) )
 
 #define RUP_EVEN(a) ( (a) % 2 ? (a) + 1 : (a) )
 
@@ -142,6 +138,5 @@ extern int dldwd_setup(dldwd_priv_t* priv);
 extern int dldwd_proc_dev_init(dldwd_priv_t *dev);
 extern void dldwd_proc_dev_cleanup(dldwd_priv_t *priv);
 extern void dldwd_interrupt(int irq, void * dev_id, struct pt_regs *regs);
-
 
 #endif

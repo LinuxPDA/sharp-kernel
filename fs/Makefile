@@ -7,14 +7,14 @@
 
 O_TARGET := fs.o
 
-export-objs :=	filesystems.o dcache.o
+export-objs :=	filesystems.o open.o dcache.o
 mod-subdirs :=	nls
 
 obj-y :=	open.o read_write.o devices.o file_table.o buffer.o \
 		super.o block_dev.o char_dev.o stat.o exec.o pipe.o namei.o \
 		fcntl.o ioctl.o readdir.o select.o fifo.o locks.o \
 		dcache.o inode.o attr.o bad_inode.o file.o iobuf.o dnotify.o \
-		filesystems.o
+		filesystems.o namespace.o
 
 ifeq ($(CONFIG_QUOTA),y)
 obj-y += dquot.o
@@ -32,6 +32,7 @@ subdir-$(CONFIG_RAMFS)		+= ramfs
 subdir-$(CONFIG_CODA_FS)	+= coda
 subdir-$(CONFIG_MINIX_FS)	+= minix
 subdir-$(CONFIG_FAT_FS)		+= fat
+subdir-$(CONFIG_UMSDOS_FS)	+= umsdos
 subdir-$(CONFIG_MSDOS_FS)	+= msdos
 subdir-$(CONFIG_VFAT_FS)	+= vfat
 subdir-$(CONFIG_BFS_FS)		+= bfs
@@ -43,7 +44,6 @@ subdir-$(CONFIG_NFS_FS)		+= nfs
 subdir-$(CONFIG_NFSD)		+= nfsd
 subdir-$(CONFIG_LOCKD)		+= lockd
 subdir-$(CONFIG_NLS)		+= nls
-subdir-$(CONFIG_UMSDOS_FS)	+= umsdos
 subdir-$(CONFIG_SYSV_FS)	+= sysv
 subdir-$(CONFIG_SMB_FS)		+= smbfs
 subdir-$(CONFIG_NCP_FS)		+= ncpfs
@@ -52,6 +52,7 @@ subdir-$(CONFIG_NTFS_FS)	+= ntfs
 subdir-$(CONFIG_UFS_FS)		+= ufs
 subdir-$(CONFIG_EFS_FS)		+= efs
 subdir-$(CONFIG_JFFS_FS)	+= jffs
+subdir-$(CONFIG_JFFS2_FS)	+= jffs2
 subdir-$(CONFIG_AFFS_FS)	+= affs
 subdir-$(CONFIG_ROMFS_FS)	+= romfs
 subdir-$(CONFIG_QNX4FS_FS)	+= qnx4

@@ -21,7 +21,6 @@
 #include <linux/utsname.h>
 #include <linux/ioport.h>
 #include <linux/init.h>
-#include <linux/raid/md.h>
 #include <linux/smp_lock.h>
 #include <linux/blk.h>
 #include <linux/hdreg.h>
@@ -66,7 +65,7 @@ extern int irda_proto_init(void);
 extern int irda_device_init(void);
 #endif
 
-#ifdef CONFIG_X86_IO_APIC
+#ifdef CONFIG_X86_LOCAL_APIC
 #include <asm/smp.h>
 #endif
 
@@ -95,7 +94,6 @@ extern void ppc_init(void);
 extern void sysctl_init(void);
 extern void signals_init(void);
 extern int init_pcmcia_ds(void);
-extern void net_notifier_init(void);
 
 extern void free_initmem(void);
 
@@ -259,9 +257,15 @@ static struct dev_name_struct {
 	{ "cciss/c0d14p",0x68E0 },
 	{ "cciss/c0d15p",0x68F0 },
 #endif
-#ifdef CONFIG_NFTL
 	{ "nftla", 0x5d00 },
-#endif
+	{ "nftlb", 0x5d10 },
+	{ "nftlc", 0x5d20 },
+	{ "nftld", 0x5d30 },
+	{ "ftla", 0x2c00 },
+	{ "ftlb", 0x2c08 },
+	{ "ftlc", 0x2c10 },
+	{ "ftld", 0x2c18 },
+	{ "mtdblock", 0x1f00 },
 	{ NULL, 0 }
 };
 
@@ -478,12 +482,14 @@ static void __init parse_options(char *line)
 extern void setup_arch(char **);
 extern void cpu_idle(void);
 
+unsigned long wait_init_idle;
+
 #ifndef CONFIG_SMP
 
-#ifdef CONFIG_X86_IO_APIC
+#ifdef CONFIG_X86_LOCAL_APIC
 static void __init smp_init(void)
 {
-	IO_APIC_init_uniprocessor();
+	APIC_init_uniprocessor();
 }
 #else
 #define smp_init()	do { } while (0)
@@ -491,21 +497,48 @@ static void __init smp_init(void)
 
 #else
 
+
 /* Called by boot processor to activate the rest. */
 static void __init smp_init(void)
 {
 	/* Get other processors into their bootup holding patterns. */
 	smp_boot_cpus();
+	wait_init_idle = cpu_online_map;
+	clear_bit(current->processor, &wait_init_idle); /* Don't wait on me! */
+
 	smp_threads_ready=1;
 	smp_commence();
-}		
+
+	/* Wait for the other cpus to set up their idle processes */
+	printk("Waiting on wait_init_idle (map = 0x%lx)\n", wait_init_idle);
+	while (wait_init_idle) {
+		cpu_relax();
+		barrier();
+	}
+	printk("All processors have done init_idle\n");
+}
 
 #endif
 
 /*
+ * We need to finalize in a non-__init function or else race conditions
+ * between the root thread and the init thread may cause start_kernel to
+ * be reaped by free_initmem before the root thread has proceeded to
+ * cpu_idle.
+ */
+
+static void rest_init(void)
+{
+	kernel_thread(init, NULL, CLONE_FS | CLONE_FILES | CLONE_SIGNAL);
+	unlock_kernel();
+	current->need_resched = 1;
+ 	cpu_idle();
+} 
+
+/*
  *	Activate the first processor.
  */
- 
+
 asmlinkage void __init start_kernel(void)
 {
 	char * command_line;
@@ -523,8 +556,8 @@ asmlinkage void __init start_kernel(void)
 	trap_init();
 	init_IRQ();
 	sched_init();
-	time_init();
 	softirq_init();
+	time_init();
 
 	/*
 	 * HACK ALERT! This is early. We're enabling the console before
@@ -584,10 +617,7 @@ asmlinkage void __init start_kernel(void)
 	 *	make syscalls (and thus be locked).
 	 */
 	smp_init();
-	kernel_thread(init, NULL, CLONE_FS | CLONE_FILES | CLONE_SIGNAL);
-	unlock_kernel();
-	current->need_resched = 1;
- 	cpu_idle();
+	rest_init();
 }
 
 #ifdef CONFIG_BLK_DEV_INITRD
@@ -747,8 +777,12 @@ static void prepare_namespace(void)
 		int i, pid;
 
 		pid = kernel_thread(do_linuxrc, "/linuxrc", SIGCHLD);
-		if (pid>0)
-			while (pid != wait(&i));
+		if (pid > 0) {
+			while (pid != wait(&i)) {
+				current->policy |= SCHED_YIELD;
+				schedule();
+			}
+		}
 		if (MAJOR(real_root_dev) != RAMDISK_MAJOR
 		     || MINOR(real_root_dev) != 0) {
 			error = change_root(real_root_dev,"/initrd");

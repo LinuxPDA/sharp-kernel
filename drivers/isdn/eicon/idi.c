@@ -1,30 +1,14 @@
-
 /*
+ * Core driver for Diva Server cards
+ * Implements the IDI interface
  *
  * Copyright (C) Eicon Technology Corporation, 2000.
  *
  * Eicon File Revision :    1.8  
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2, or (at your option)
- * any later version.
+ * This software may be used and distributed according to the terms
+ * of the GNU General Public License, incorporated herein by reference.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY OF ANY KIND WHATSOEVER INCLUDING ANY 
- * implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  
- * See the GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
- *
- */
-
-
-/*
- * Core driver for Diva Server cards
- * Implements the IDI interface
  */
 
 #include "idi.h"
@@ -431,7 +415,9 @@ void DivasOut(ADAPTER * a)
     i = this->XCurrent;
     X = PTR_X(a,this);
     while(i<this->XNum && length<270) {
-      clength = MIN((word)(270-length),X[i].PLength-this->XOffset);
+      clength = (word)(270-length);
+      if (clength > X[i].PLength-this->XOffset)
+	      clength = X[i].PLength-this->XOffset;
       a->ram_out_buffer(a,
                         &ReqOut->XBuffer.P[length],
                         PTR_P(a,this,&X[i].P[this->XOffset]),
@@ -837,8 +823,9 @@ byte isdn_ind(ADAPTER * a,
         this->ROffset = 0;
         this->RCurrent++;
       }
-      clength = MIN(a->ram_inw(a, &RBuffer->length)-offset,
-                    R[this->RCurrent].PLength-this->ROffset);
+      clength = a->ram_inw(a, &RBuffer->length)-offset;
+      if (clength > R[this->RCurrent].PLength-this->ROffset)
+	      clength = R[this->RCurrent].PLength-this->ROffset;
       if(R[this->RCurrent].P) {
         a->ram_in_buffer(a,
                          &RBuffer->P[offset],

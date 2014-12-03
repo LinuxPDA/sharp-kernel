@@ -1,23 +1,11 @@
-/*
- * $Id: divert_procfs.c,v 1.11 2000/11/25 17:01:00 kai Exp $
+/* $Id: divert_procfs.c,v 1.11.6.2 2001/09/23 22:24:36 kai Exp $
  *
  * Filesystem handling for the diversion supplementary services.
  *
  * Copyright 1998       by Werner Cornelius (werner@isdn4linux.de)
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2, or (at your option)
- * any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ * This software may be used and distributed according to the terms
+ * of the GNU General Public License, incorporated herein by reference.
  *
  */
 
@@ -50,7 +38,7 @@ void
 put_info_buffer(char *cp)
 {
 	struct divert_info *ib;
-	int flags;
+	unsigned long flags;
 
 	if (if_used <= 0)
 		return;
@@ -145,7 +133,7 @@ isdn_divert_poll(struct file *file, poll_table * wait)
 static int
 isdn_divert_open(struct inode *ino, struct file *filep)
 {
-	int flags;
+	unsigned long flags;
 
 	lock_kernel();
 	save_flags(flags);
@@ -168,7 +156,7 @@ static int
 isdn_divert_close(struct inode *ino, struct file *filep)
 {
 	struct divert_info *inf;
-	int flags;
+	unsigned long flags;
 
 	lock_kernel();
 	save_flags(flags);
@@ -198,7 +186,8 @@ isdn_divert_ioctl(struct inode *inode, struct file *file,
 		  uint cmd, ulong arg)
 {
 	divert_ioctl dioctl;
-	int i, flags;
+	int i;
+	unsigned long flags;
 	divert_rule *rulep;
 	char *cp;
 
@@ -276,15 +265,9 @@ isdn_divert_ioctl(struct inode *inode, struct file *file,
 
 
 #ifdef CONFIG_PROC_FS
-static loff_t
-isdn_divert_lseek(struct file *file, loff_t offset, int orig)
-{
-	return -ESPIPE;
-}
-
 static struct file_operations isdn_fops =
 {
-	llseek:         isdn_divert_lseek,
+	llseek:         no_llseek,
 	read:           isdn_divert_read,
 	write:          isdn_divert_write,
 	poll:           isdn_divert_poll,

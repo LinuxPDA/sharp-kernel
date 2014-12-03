@@ -453,7 +453,9 @@ static int jsfd_ioctl(struct inode *inode, struct file *file,
 
 	switch (cmd) {
 	case BLKGETSIZE:
-		return put_user(jsfd_bytesizes[dev] >> 9, (long *) arg);
+		return put_user(jsfd_bytesizes[dev] >> 9, (unsigned long *) arg);
+	case BLKGETSIZE64:
+		return put_user(jsfd_bytesizes[dev], (u64 *) arg);
 
 #if 0
 	case BLKROSET:
@@ -680,6 +682,7 @@ int jsfd_init(void) {
 }
 
 #ifdef MODULE
+MODULE_LICENSE("GPL");
 
 int init_module(void) {
 	int rc;

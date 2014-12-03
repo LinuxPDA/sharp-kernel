@@ -1,14 +1,15 @@
-/* $Id: bkm_a8.c,v 1.14.6.5 2001/04/15 14:51:09 keil Exp $
- * bkm_a8.c     low level stuff for Scitel Quadro (4*S0, passive)
- *              derived from the original file sedlbauer.c
- *              derived from the original file niccy.c
- *              derived from the original file netjet.c
+/* $Id: bkm_a8.c,v 1.14.6.7 2001/09/23 22:24:46 kai Exp $
  *
- * Author       Roland Klabunde (R.Klabunde@Berkom.de)
+ * low level stuff for Scitel Quadro (4*S0, passive)
  *
- * This file is (c) under GNU General Public License
+ * Author       Roland Klabunde
+ * Copyright    by Roland Klabunde   <R.Klabunde@Berkom.de>
+ * 
+ * This software may be used and distributed according to the terms
+ * of the GNU General Public License, incorporated herein by reference.
  *
  */
+
 #define __NO_VERSION__
 
 #include <linux/config.h>
@@ -27,7 +28,7 @@
 
 extern const char *CardType[];
 
-const char sct_quadro_revision[] = "$Revision: 1.14.6.5 $";
+const char sct_quadro_revision[] = "$Revision: 1.14.6.7 $";
 
 static const char *sct_quadro_subtypes[] =
 {
@@ -436,7 +437,7 @@ setup_sct_quadro(struct IsdnCard *card)
 	/* For isac and hscx data path */
 	cs->hw.ax.data_adr = cs->hw.ax.base + 4;
 
-	printk(KERN_INFO "HiSax: %s (%s) configured at 0x%.4X, 0x%.4X, 0x%.4X and IRQ %d\n",
+	printk(KERN_INFO "HiSax: %s (%s) configured at 0x%.4lX, 0x%.4lX, 0x%.4lX and IRQ %d\n",
 	       CardType[card->typ],
 	       sct_quadro_subtypes[cs->subtyp],
 	       cs->hw.ax.plx_adr,

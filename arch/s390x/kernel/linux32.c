@@ -32,7 +32,7 @@
 #include <linux/sem.h>
 #include <linux/msg.h>
 #include <linux/shm.h>
-#include <linux/malloc.h>
+#include <linux/slab.h>
 #include <linux/uio.h>
 #include <linux/nfs_fs.h>
 #include <linux/smb_fs.h>
@@ -897,24 +897,24 @@ asmlinkage long sys32_fcntl64(unsigned int fd, unsigned int cmd, unsigned long a
 	return sys32_fcntl(fd, cmd, arg);
 }
 
-struct dqblk32 {
-    __u32 dqb_bhardlimit;
-    __u32 dqb_bsoftlimit;
-    __u32 dqb_curblocks;
+struct mem_dqblk32 {
     __u32 dqb_ihardlimit;
     __u32 dqb_isoftlimit;
     __u32 dqb_curinodes;
+    __u32 dqb_bhardlimit;
+    __u32 dqb_bsoftlimit;
+    __u64 dqb_curspace;
     __kernel_time_t32 dqb_btime;
     __kernel_time_t32 dqb_itime;
 };
                                 
-extern asmlinkage int sys_quotactl(int cmd, const char *special, int id, caddr_t addr);
+extern asmlinkage long sys_quotactl(int cmd, const char *special, int id, __kernel_caddr_t addr);
 
 asmlinkage int sys32_quotactl(int cmd, const char *special, int id, unsigned long addr)
 {
 	int cmds = cmd >> SUBCMDSHIFT;
 	int err;
-	struct dqblk d;
+	struct mem_dqblk d;
 	mm_segment_t old_fs;
 	char *spec;
 	
@@ -924,33 +924,35 @@ asmlinkage int sys32_quotactl(int cmd, const char *special, int id, unsigned lon
 	case Q_SETQUOTA:
 	case Q_SETUSE:
 	case Q_SETQLIM:
-		if (copy_from_user (&d, (struct dqblk32 *)addr,
-				    sizeof (struct dqblk32)))
+		if (copy_from_user (&d, (struct mem_dqblk32 *)addr,
+				    sizeof (struct mem_dqblk32)))
 			return -EFAULT;
-		d.dqb_itime = ((struct dqblk32 *)&d)->dqb_itime;
-		d.dqb_btime = ((struct dqblk32 *)&d)->dqb_btime;
+		d.dqb_itime = ((struct mem_dqblk32 *)&d)->dqb_itime;
+		d.dqb_btime = ((struct mem_dqblk32 *)&d)->dqb_btime;
 		break;
 	default:
 		return sys_quotactl(cmd, special,
-				    id, (caddr_t)addr);
+				    id, (__kernel_caddr_t)addr);
 	}
 	spec = getname (special);
 	err = PTR_ERR(spec);
 	if (IS_ERR(spec)) return err;
 	old_fs = get_fs ();
 	set_fs (KERNEL_DS);
-	err = sys_quotactl(cmd, (const char *)spec, id, (caddr_t)&d);
+	err = sys_quotactl(cmd, (const char *)spec, id, (__kernel_caddr_t)&d);
 	set_fs (old_fs);
 	putname (spec);
+	if (err)
+		return err;
 	if (cmds == Q_GETQUOTA) {
 		__kernel_time_t b = d.dqb_btime, i = d.dqb_itime;
-		((struct dqblk32 *)&d)->dqb_itime = i;
-		((struct dqblk32 *)&d)->dqb_btime = b;
-		if (copy_to_user ((struct dqblk32 *)addr, &d,
-				  sizeof (struct dqblk32)))
+		((struct mem_dqblk32 *)&d)->dqb_itime = i;
+		((struct mem_dqblk32 *)&d)->dqb_btime = b;
+		if (copy_to_user ((struct mem_dqblk32 *)addr, &d,
+				  sizeof (struct mem_dqblk32)))
 			return -EFAULT;
 	}
-	return err;
+	return 0;
 }
 
 static inline int put_statfs (struct statfs32 *ubuf, struct statfs *kbuf)
@@ -1202,7 +1204,7 @@ struct readdir_callback32 {
 };
 
 static int fillonedir(void * __buf, const char * name, int namlen,
-		      off_t offset, ino_t ino, unsigned int d_type)
+		      loff_t offset, ino_t ino, unsigned int d_type)
 {
 	struct readdir_callback32 * buf = (struct readdir_callback32 *) __buf;
 	struct old_linux_dirent32 * dirent;
@@ -1257,7 +1259,7 @@ struct getdents_callback32 {
 	int error;
 };
 
-static int filldir(void * __buf, const char * name, int namlen, off_t offset, ino_t ino,
+static int filldir(void * __buf, const char * name, int namlen, loff_t offset, ino_t ino,
 		   unsigned int d_type)
 {
 	struct linux_dirent32 * dirent;
@@ -2882,7 +2884,7 @@ static int copy_strings32(int argc, u32 * argv, struct linux_binprm *bprm)
 			err = copy_from_user(kaddr + offset, (char *)A(str),
 					     bytes_to_copy);
 			flush_page_to_ram(page);
-			kunmap((unsigned long)kaddr);
+			kunmap(page);
 
 			if (err)
 				return -EFAULT;
@@ -4036,57 +4038,55 @@ extern asmlinkage long sys32_sysctl(struct __sysctl_args32 *args)
 }
 
 struct stat64_emu31 {
-        unsigned short  st_dev;
-        unsigned char   __pad0[6];
-
-        long long	st_ino;
-        unsigned int    st_mode;
-        unsigned int    st_nlink;
-
-        __u32		st_uid;
-        __u32		st_gid;
-
-        unsigned short  st_rdev;
-        unsigned char   __pad3[10];
-
-        long long       st_size;
-        __u32		st_blksize;
-
-        __u32		st_blocks;      /* Number 512-byte blocks allocated. */
-        __u32		__pad4;         /* future possible st_blocks high bits */
-
-        __u32		st_atime;
-        __u32		__pad5;
-
-        __u32		st_mtime;
-        __u32		__pad6;
-
-        __u32		st_ctime;
-        __u32		__pad7;         /* will be high 32 bits of ctime someday */
-
-        __u32		__unused1;
-        __u32		__unused2;
-};
+	unsigned char   __pad0[6];
+	unsigned short  st_dev;
+	unsigned int    __pad1;
+#define STAT64_HAS_BROKEN_ST_INO        1
+	u32             __st_ino;
+	unsigned int    st_mode;
+	unsigned int    st_nlink;
+	u32             st_uid;
+	u32             st_gid;
+	unsigned char   __pad2[6];
+	unsigned short  st_rdev;
+	unsigned int    __pad3;
+	long            st_size;
+	u32             st_blksize;
+	unsigned char   __pad4[4];
+	u32             __pad5;     /* future possible st_blocks high bits */
+	u32             st_blocks;  /* Number 512-byte blocks allocated. */
+	u32             st_atime;
+	u32             __pad6;
+	u32             st_mtime;
+	u32             __pad7;
+	u32             st_ctime;
+	u32             __pad8;     /* will be high 32 bits of ctime someday */
+	unsigned long   st_ino;
+};	
 
 static inline int
 putstat64 (struct stat64_emu31 *ubuf, struct stat *kbuf)
 {
-    int err;
-    
-    err = put_user (kbuf->st_dev, &ubuf->st_dev);
-    err |= __put_user (kbuf->st_ino, &ubuf->st_ino);
-    err |= __put_user (kbuf->st_mode, &ubuf->st_mode);
-    err |= __put_user (kbuf->st_nlink, &ubuf->st_nlink);
-    err |= __put_user (kbuf->st_uid, &ubuf->st_uid);
-    err |= __put_user (kbuf->st_gid, &ubuf->st_gid);
-    err |= __put_user (kbuf->st_rdev, &ubuf->st_rdev);
-    err |= __put_user (kbuf->st_size, &ubuf->st_size);
-    err |= __put_user (kbuf->st_blksize, &ubuf->st_blksize);
-    err |= __put_user (kbuf->st_blocks, &ubuf->st_blocks);
-    err |= __put_user (kbuf->st_atime, &ubuf->st_atime);
-    err |= __put_user (kbuf->st_mtime, &ubuf->st_mtime);
-    err |= __put_user (kbuf->st_ctime, &ubuf->st_ctime);
-    return err;
+    struct stat64_emu31 tmp;
+   
+    memset(&tmp, 0, sizeof(tmp));
+
+    tmp.st_dev = (unsigned short)kbuf->st_dev;
+    tmp.st_ino = kbuf->st_ino;
+    tmp.__st_ino = (u32)kbuf->st_ino;
+    tmp.st_mode = kbuf->st_mode;
+    tmp.st_nlink = (unsigned int)kbuf->st_nlink;
+    tmp.st_uid = kbuf->st_uid;
+    tmp.st_gid = kbuf->st_gid;
+    tmp.st_rdev = (unsigned short)kbuf->st_rdev;
+    tmp.st_size = kbuf->st_size;
+    tmp.st_blksize = (u32)kbuf->st_blksize;
+    tmp.st_blocks = (u32)kbuf->st_blocks;
+    tmp.st_atime = (u32)kbuf->st_atime;
+    tmp.st_mtime = (u32)kbuf->st_mtime;
+    tmp.st_ctime = (u32)kbuf->st_ctime;
+
+    return copy_to_user(ubuf,&tmp,sizeof(tmp)) ? -EFAULT : 0; 
 }
 
 extern asmlinkage long sys_newstat(char * filename, struct stat * statbuf);
@@ -4129,7 +4129,7 @@ asmlinkage long sys32_lstat64(char * filename, struct stat64_emu31 * statbuf, lo
 	    return err;
 
     set_fs (KERNEL_DS);
-    ret = sys_newstat(tmp, &s);
+    ret = sys_newlstat(tmp, &s);
     set_fs (old_fs);
     putname(tmp);
     if (putstat64 (statbuf, &s)) 
@@ -4174,8 +4174,8 @@ static inline long do_mmap2(
 	unsigned long prot, unsigned long flags,
 	unsigned long fd, unsigned long pgoff)
 {
-	int error = -EBADF;
 	struct file * file = NULL;
+	unsigned long error = -EBADF;
 
 	flags &= ~(MAP_EXECUTABLE | MAP_DENYWRITE);
 	if (!(flags & MAP_ANONYMOUS)) {
@@ -4186,6 +4186,11 @@ static inline long do_mmap2(
 
 	down_write(&current->mm->mmap_sem);
 	error = do_mmap_pgoff(file, addr, len, prot, flags, pgoff);
+	if (!IS_ERR((void *) error) && error + len >= 0x80000000ULL) {
+		/* Result is out of bounds.  */
+		do_munmap(current->mm, addr, len);
+		error = -ENOMEM;
+	}
 	up_write(&current->mm->mmap_sem);
 
 	if (file)

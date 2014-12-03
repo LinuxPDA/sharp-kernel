@@ -1,4 +1,4 @@
-/* $Id: ffb_context.c,v 1.4 2000/08/29 07:01:55 davem Exp $
+/* $Id: ffb_context.c,v 1.5 2001/08/09 17:47:51 davem Exp $
  * ffb_context.c: Creator/Creator3D DRI/DRM context switching.
  *
  * Copyright (C) 2000 David S. Miller (davem@redhat.com)
@@ -10,13 +10,14 @@
 #include <linux/sched.h>
 #include <asm/upa.h>
 
+#include "ffb.h"
 #include "drmP.h"
 
 #include "ffb_drv.h"
 
-static int ffb_alloc_queue(drm_device_t *dev, int is_2d_only)
+static int DRM(alloc_queue)(drm_device_t *dev, int is_2d_only)
 {
-	ffb_dev_priv_t *fpriv = (ffb_dev_priv_t *) (dev + 1);
+	ffb_dev_priv_t *fpriv = (ffb_dev_priv_t *) dev->dev_private;
 	int i;
 
 	for (i = 0; i < FFB_MAX_CTXS; i++) {
@@ -353,11 +354,9 @@ static void FFBWait(ffb_fbcPtr ffb)
 	} while (--limit);
 }
 
-int ffb_context_switch(drm_device_t *dev, int old, int new)
+int DRM(context_switch)(drm_device_t *dev, int old, int new)
 {
-	ffb_dev_priv_t *fpriv = (ffb_dev_priv_t *) (dev + 1);
-
-        atomic_inc(&dev->total_ctx);
+	ffb_dev_priv_t *fpriv = (ffb_dev_priv_t *) dev->dev_private;
 
 #if DRM_DMA_HISTOGRAM
         dev->ctx_start = get_cycles();
@@ -381,8 +380,8 @@ int ffb_context_switch(drm_device_t *dev, int old, int new)
         return 0;
 }
 
-int ffb_resctx(struct inode *inode, struct file *filp, unsigned int cmd,
-	       unsigned long arg)
+int DRM(resctx)(struct inode *inode, struct file *filp, unsigned int cmd,
+		unsigned long arg)
 {
 	drm_ctx_res_t	res;
 	drm_ctx_t	ctx;
@@ -408,8 +407,8 @@ int ffb_resctx(struct inode *inode, struct file *filp, unsigned int cmd,
 }
 
 
-int ffb_addctx(struct inode *inode, struct file *filp, unsigned int cmd,
-	       unsigned long arg)
+int DRM(addctx)(struct inode *inode, struct file *filp, unsigned int cmd,
+		unsigned long arg)
 {
 	drm_file_t	*priv	= filp->private_data;
 	drm_device_t	*dev	= priv->dev;
@@ -418,7 +417,7 @@ int ffb_addctx(struct inode *inode, struct file *filp, unsigned int cmd,
 
 	if (copy_from_user(&ctx, (drm_ctx_t *)arg, sizeof(ctx)))
 		return -EFAULT;
-	idx = ffb_alloc_queue(dev, (ctx.flags & _DRM_CONTEXT_2DONLY));
+	idx = DRM(alloc_queue)(dev, (ctx.flags & _DRM_CONTEXT_2DONLY));
 	if (idx < 0)
 		return -ENFILE;
 
@@ -429,12 +428,12 @@ int ffb_addctx(struct inode *inode, struct file *filp, unsigned int cmd,
 	return 0;
 }
 
-int ffb_modctx(struct inode *inode, struct file *filp, unsigned int cmd,
-	       unsigned long arg)
+int DRM(modctx)(struct inode *inode, struct file *filp, unsigned int cmd,
+		unsigned long arg)
 {
 	drm_file_t	*priv	= filp->private_data;
 	drm_device_t	*dev	= priv->dev;
-	ffb_dev_priv_t	*fpriv	= (ffb_dev_priv_t *) (dev + 1);
+	ffb_dev_priv_t	*fpriv	= (ffb_dev_priv_t *) dev->dev_private;
 	struct ffb_hw_context *hwctx;
 	drm_ctx_t ctx;
 	int idx;
@@ -458,12 +457,12 @@ int ffb_modctx(struct inode *inode, struct file *filp, unsigned int cmd,
 	return 0;
 }
 
-int ffb_getctx(struct inode *inode, struct file *filp, unsigned int cmd,
-	       unsigned long arg)
+int DRM(getctx)(struct inode *inode, struct file *filp, unsigned int cmd,
+		unsigned long arg)
 {
 	drm_file_t	*priv	= filp->private_data;
 	drm_device_t	*dev	= priv->dev;
-	ffb_dev_priv_t	*fpriv	= (ffb_dev_priv_t *) (dev + 1);
+	ffb_dev_priv_t	*fpriv	= (ffb_dev_priv_t *) dev->dev_private;
 	struct ffb_hw_context *hwctx;
 	drm_ctx_t ctx;
 	int idx;
@@ -490,8 +489,8 @@ int ffb_getctx(struct inode *inode, struct file *filp, unsigned int cmd,
 	return 0;
 }
 
-int ffb_switchctx(struct inode *inode, struct file *filp, unsigned int cmd,
-		  unsigned long arg)
+int DRM(switchctx)(struct inode *inode, struct file *filp, unsigned int cmd,
+		   unsigned long arg)
 {
 	drm_file_t	*priv	= filp->private_data;
 	drm_device_t	*dev	= priv->dev;
@@ -500,11 +499,11 @@ int ffb_switchctx(struct inode *inode, struct file *filp, unsigned int cmd,
 	if (copy_from_user(&ctx, (drm_ctx_t *)arg, sizeof(ctx)))
 		return -EFAULT;
 	DRM_DEBUG("%d\n", ctx.handle);
-	return ffb_context_switch(dev, dev->last_context, ctx.handle);
+	return DRM(context_switch)(dev, dev->last_context, ctx.handle);
 }
 
-int ffb_newctx(struct inode *inode, struct file *filp, unsigned int cmd,
-	       unsigned long arg)
+int DRM(newctx)(struct inode *inode, struct file *filp, unsigned int cmd,
+		unsigned long arg)
 {
 	drm_ctx_t	ctx;
 
@@ -515,13 +514,13 @@ int ffb_newctx(struct inode *inode, struct file *filp, unsigned int cmd,
 	return 0;
 }
 
-int ffb_rmctx(struct inode *inode, struct file *filp, unsigned int cmd,
+int DRM(rmctx)(struct inode *inode, struct file *filp, unsigned int cmd,
 	       unsigned long arg)
 {
 	drm_ctx_t	ctx;
 	drm_file_t	*priv	= filp->private_data;
 	drm_device_t	*dev	= priv->dev;
-	ffb_dev_priv_t	*fpriv	= (ffb_dev_priv_t *) (dev + 1);
+	ffb_dev_priv_t	*fpriv	= (ffb_dev_priv_t *) dev->dev_private;
 	int idx;
 
 	if (copy_from_user(&ctx, (drm_ctx_t *)arg, sizeof(ctx)))

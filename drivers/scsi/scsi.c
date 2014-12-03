@@ -53,6 +53,8 @@
 #include <linux/interrupt.h>
 #include <linux/delay.h>
 #include <linux/init.h>
+#include <linux/smp_lock.h>
+#include <linux/completion.h>
 
 #define __KERNEL_SYSCALLS__
 
@@ -217,8 +219,8 @@ static void scsi_wait_done(Scsi_Cmnd * SCpnt)
 	req = &SCpnt->request;
 	req->rq_status = RQ_SCSI_DONE;	/* Busy, but indicate request done */
 
-	if (req->sem != NULL) {
-		up(req->sem);
+	if (req->waiting != NULL) {
+		complete(req->waiting);
 	}
 }
 
@@ -464,7 +466,7 @@ Scsi_Cmnd *scsi_allocate_device(Scsi_Device * device, int wait,
 	}
 
 	SCpnt->request.rq_status = RQ_SCSI_BUSY;
-	SCpnt->request.sem = NULL;	/* And no one is waiting for this
+	SCpnt->request.waiting = NULL;	/* And no one is waiting for this
 					 * to complete */
 	atomic_inc(&SCpnt->host->host_active);
 	atomic_inc(&SCpnt->device->device_active);
@@ -627,6 +629,7 @@ int scsi_dispatch_cmd(Scsi_Cmnd * SCpnt)
 	if (++serial_number == 0)
 		serial_number = 1;
 	SCpnt->serial_number = serial_number;
+	SCpnt->pid = scsi_pid++;
 
 	/*
 	 * We will wait MIN_RESET_DELAY clock ticks after the last reset so
@@ -729,14 +732,14 @@ void scsi_wait_req (Scsi_Request * SRpnt, const void *cmnd ,
  		  void *buffer, unsigned bufflen, 
  		  int timeout, int retries)
 {
-	DECLARE_MUTEX_LOCKED(sem);
+	DECLARE_COMPLETION(wait);
 	
-	SRpnt->sr_request.sem = &sem;
+	SRpnt->sr_request.waiting = &wait;
 	SRpnt->sr_request.rq_status = RQ_SCSI_BUSY;
 	scsi_do_req (SRpnt, (void *) cmnd,
 		buffer, bufflen, scsi_wait_done, timeout, retries);
-	down (&sem);
-	SRpnt->sr_request.sem = NULL;
+	wait_for_completion(&wait);
+	SRpnt->sr_request.waiting = NULL;
 	if( SRpnt->sr_command != NULL )
 	{
 		scsi_release_command(SRpnt->sr_command);
@@ -966,6 +969,7 @@ void scsi_do_cmd(Scsi_Cmnd * SCpnt, const void *cmnd,
 
 	ASSERT_LOCK(&io_request_lock, 0);
 
+	SCpnt->pid = scsi_pid++;
 	SCpnt->owner = SCSI_OWNER_MIDLEVEL;
 
 	SCSI_LOG_MLQUEUE(4,
@@ -1098,7 +1102,7 @@ void scsi_done(Scsi_Cmnd * SCpnt)
 	 * the response.  We treat it as if the command never finished.
 	 *
 	 * Since serial_number is now 0, the error handler cound detect this
-	 * situation and avoid to call the the low level driver abort routine.
+	 * situation and avoid to call the low level driver abort routine.
 	 * (DB)
          *
          * FIXME(eric) - I believe that this test is now redundant, due to
@@ -1373,7 +1377,7 @@ void scsi_finish_command(Scsi_Cmnd * SCpnt)
 }
 
 static int scsi_register_host(Scsi_Host_Template *);
-static void scsi_unregister_host(Scsi_Host_Template *);
+static int scsi_unregister_host(Scsi_Host_Template *);
 
 /*
  * Function:    scsi_release_commandblocks()
@@ -1569,12 +1573,17 @@ static int proc_scsi_gen_write(struct file * file, const char * buf,
 
 	if (!(buffer = (char *) __get_free_page(GFP_KERNEL)))
 		return -ENOMEM;
-	copy_from_user(buffer, buf, length);
+	if(copy_from_user(buffer, buf, length))
+	{
+		err =-EFAULT;
+		goto out;
+	}
 
 	err = -EINVAL;
+
 	if (length < PAGE_SIZE)
-		buffer[length] ='\0';
-	else if (buffer[length])
+		buffer[length] = '\0';
+	else if (buffer[PAGE_SIZE-1])
 		goto out;
 
 	if (length < 11 || strncmp("scsi", buffer, 4))
@@ -1821,7 +1830,14 @@ static int scsi_register_host(Scsi_Host_Template * tpnt)
 		return 1;	/* Must be already loaded, or
 				 * no detect routine available
 				 */
+
+	/* If max_sectors isn't set, default to max */
+	if (!tpnt->max_sectors)
+		tpnt->max_sectors = MAX_SECTORS;
+
 	pcount = next_scsi_host;
+
+	MOD_INC_USE_COUNT;
 
 	/* The detect routine must carefully spinunlock/spinlock if 
 	   it enables interrupts, since all interrupt handlers do 
@@ -1953,8 +1969,6 @@ static int scsi_register_host(Scsi_Host_Template * tpnt)
 	       (scsi_memory_upper_value - scsi_init_memory_start) / 1024);
 #endif
 
-	MOD_INC_USE_COUNT;
-
 	if (out_of_space) {
 		scsi_unregister_host(tpnt);	/* easiest way to clean up?? */
 		return 1;
@@ -1965,14 +1979,8 @@ static int scsi_register_host(Scsi_Host_Template * tpnt)
 /*
  * Similarly, this entry point should be called by a loadable module if it
  * is trying to remove a low level scsi driver from the system.
- *
- * Note - there is a fatal flaw in the deregister module function.
- * There is no way to return a code that says 'I cannot be unloaded now'.
- * The system relies entirely upon usage counts that are maintained,
- * and the assumption is that if the usage count is 0, then the module
- * can be unloaded.
  */
-static void scsi_unregister_host(Scsi_Host_Template * tpnt)
+static int scsi_unregister_host(Scsi_Host_Template * tpnt)
 {
 	int online_status;
 	int pcount0, pcount;
@@ -1984,6 +1992,9 @@ static void scsi_unregister_host(Scsi_Host_Template * tpnt)
 	struct Scsi_Host *shpnt;
 	char name[10];	/* host_no>=10^9? I don't think so. */
 
+	/* get the big kernel lock, so we don't race with open() */
+	lock_kernel();
+
 	/*
 	 * First verify that this host adapter is completely free with no pending
 	 * commands 
@@ -1994,7 +2005,7 @@ static void scsi_unregister_host(Scsi_Host_Template * tpnt)
 			if (SDpnt->host->hostt == tpnt
 			    && SDpnt->host->hostt->module
 			    && GET_USE_COUNT(SDpnt->host->hostt->module))
-				return;
+				goto err_out;
 			/* 
 			 * FIXME(eric) - We need to find a way to notify the
 			 * low level driver that we are shutting down - via the
@@ -2046,7 +2057,7 @@ static void scsi_unregister_host(Scsi_Host_Template * tpnt)
 					}
 					SDpnt->online = online_status;
 					printk(KERN_ERR "Device busy???\n");
-					return;
+					goto err_out;
 				}
 				/*
 				 * No, this device is really free.  Mark it as such, and
@@ -2072,7 +2083,7 @@ static void scsi_unregister_host(Scsi_Host_Template * tpnt)
 			/* If something still attached, punt */
 			if (SDpnt->attached) {
 				printk(KERN_ERR "Attached usage count = %d\n", SDpnt->attached);
-				return;
+				goto err_out;
 			}
 			devfs_unregister (SDpnt->de);
 		}
@@ -2180,6 +2191,13 @@ static void scsi_unregister_host(Scsi_Host_Template * tpnt)
 		}
 	}
 	MOD_DEC_USE_COUNT;
+
+	unlock_kernel();
+	return 0;
+
+err_out:
+	unlock_kernel();
+	return -1;
 }
 
 static int scsi_unregister_device(struct Scsi_Device_Template *tpnt);
@@ -2261,12 +2279,13 @@ static int scsi_unregister_device(struct Scsi_Device_Template *tpnt)
 	struct Scsi_Host *shpnt;
 	struct Scsi_Device_Template *spnt;
 	struct Scsi_Device_Template *prev_spnt;
-
+	
+	lock_kernel();
 	/*
 	 * If we are busy, this is not going to fly.
 	 */
 	if (GET_USE_COUNT(tpnt->module) != 0)
-		return 0;
+		goto error_out;
 
 	/*
 	 * Next, detach the devices from the driver.
@@ -2303,11 +2322,15 @@ static int scsi_unregister_device(struct Scsi_Device_Template *tpnt)
 		prev_spnt->next = spnt->next;
 
 	MOD_DEC_USE_COUNT;
+	unlock_kernel();
 	/*
 	 * Final cleanup for the driver is done in the driver sources in the
 	 * cleanup function.
 	 */
 	return 0;
+error_out:
+	unlock_kernel();
+	return -1;
 }
 
 
@@ -2344,22 +2367,24 @@ int scsi_register_module(int module_type, void *ptr)
 
 /* Reverse the actions taken above
  */
-void scsi_unregister_module(int module_type, void *ptr)
+int scsi_unregister_module(int module_type, void *ptr)
 {
+	int retval = 0;
+
 	switch (module_type) {
 	case MODULE_SCSI_HA:
-		scsi_unregister_host((Scsi_Host_Template *) ptr);
+		retval = scsi_unregister_host((Scsi_Host_Template *) ptr);
 		break;
 	case MODULE_SCSI_DEV:
-		scsi_unregister_device((struct Scsi_Device_Template *) ptr);
-		break;
+		retval = scsi_unregister_device((struct Scsi_Device_Template *)ptr);
+ 		break;
 		/* The rest of these are not yet implemented. */
 	case MODULE_SCSI_CONST:
 	case MODULE_SCSI_IOCTL:
-	default:
 		break;
+	default:;
 	}
-	return;
+	return retval;
 }
 
 #ifdef CONFIG_PROC_FS
@@ -2492,6 +2517,7 @@ static char *scsihosts;
 
 MODULE_PARM(scsihosts, "s");
 MODULE_DESCRIPTION("SCSI core");
+MODULE_LICENSE("GPL");
 
 #ifndef MODULE
 int __init scsi_setup(char *str)

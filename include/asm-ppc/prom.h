@@ -1,5 +1,5 @@
 /*
- * BK Id: SCCS/s.prom.h 1.14 06/13/01 15:28:43 paulus
+ * BK Id: SCCS/s.prom.h 1.19 08/17/01 15:23:17 paulus
  */
 /*
  * Definitions for talking to the Open Firmware PROM on
@@ -18,9 +18,6 @@ typedef void *ihandle;
 
 extern char *prom_display_paths[];
 extern unsigned int prom_num_displays;
-#ifdef CONFIG_ALL_PPC
-extern int have_of;
-#endif
 
 struct address_range {
 	unsigned int space;
@@ -79,7 +76,6 @@ extern struct device_node *find_type_devices(const char *type);
 extern struct device_node *find_path_device(const char *path);
 extern struct device_node *find_compatible_devices(const char *type,
 						   const char *compat);
-extern struct device_node *find_phandle(phandle);
 extern struct device_node *find_all_nodes(void);
 extern int device_is_compatible(struct device_node *device, const char *);
 extern int machine_is_compatible(const char *compat);
@@ -93,13 +89,6 @@ extern int prom_n_size_cells(struct device_node* np);
 extern void print_properties(struct device_node *node);
 extern int call_rtas(const char *service, int nargs, int nret,
 		     unsigned long *outputs, ...);
-extern void prom_drawstring(const char *c);
-extern void prom_drawhex(unsigned long v);
-extern void prom_drawchar(char c);
-
-extern void map_bootx_text(void);
-extern void bootx_update_display(unsigned long phys, int width, int height,
-				 int depth, int pitch);
 
 /*
  * When we call back to the Open Firmware client interface, we usually

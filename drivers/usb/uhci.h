@@ -53,8 +53,8 @@
 #define   USBPORTSC_SUSP	0x1000	/* Suspend */
 
 /* Legacy support register */
-#define USBLEGSUP 0xc0
-#define USBLEGSUP_DEFAULT	0x2000	/* only PIRQ enable set */
+#define USBLEGSUP		0xc0
+#define   USBLEGSUP_DEFAULT	0x2000	/* only PIRQ enable set */
 
 #define UHCI_NULL_DATA_SIZE	0x7FF	/* for UHCI controller TD */
 
@@ -100,6 +100,7 @@ struct uhci_qh {
 #define TD_CTRL_C_ERR_SHIFT	27
 #define TD_CTRL_LS		(1 << 26)	/* Low Speed Device */
 #define TD_CTRL_IOS		(1 << 25)	/* Isochronous Select */
+#define TD_CTRL_IOC_BIT		24
 #define TD_CTRL_IOC		(1 << 24)	/* Interrupt on Complete */
 #define TD_CTRL_ACTIVE		(1 << 23)	/* TD Active */
 #define TD_CTRL_STALLED		(1 << 22)	/* TD Stalled */
@@ -344,6 +345,7 @@ struct urb_priv {
 	int status;			/* Final status */
 
 	unsigned long inserttime;	/* In jiffies */
+	unsigned long fsbrtime;	/* In jiffies */
 
 	struct list_head queue_list;
 	struct list_head complete_list;

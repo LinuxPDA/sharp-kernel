@@ -21,6 +21,7 @@
 #include <linux/user.h>
 #include <linux/delay.h>
 #include <linux/reboot.h>
+#include <linux/interrupt.h>
 #include <linux/init.h>
 
 #include <asm/system.h>
@@ -38,8 +39,6 @@
 
 extern const char *processor_modes[];
 extern void setup_mm_for_reboot(char mode);
-
-asmlinkage void ret_from_sys_call(void) __asm__("ret_from_sys_call");
 
 static volatile int hlt_counter;
 
@@ -159,10 +158,10 @@ void show_regs(struct pt_regs * regs)
 
 	flags = condition_codes(regs);
 
-	printk("pc : [<%08lx>]    lr : [<%08lx>]\n"
+	printk("pc : [<%08lx>]    lr : [<%08lx>]    %s\n"
 	       "sp : %08lx  ip : %08lx  fp : %08lx\n",
 		instruction_pointer(regs),
-		regs->ARM_lr, regs->ARM_sp,
+		regs->ARM_lr, print_tainted(), regs->ARM_sp,
 		regs->ARM_ip, regs->ARM_fp);
 	printk("r10: %08lx  r9 : %08lx  r8 : %08lx\n",
 		regs->ARM_r10, regs->ARM_r9,
@@ -296,6 +295,8 @@ void release_thread(struct task_struct *dead_task)
 {
 }
 
+asmlinkage void ret_from_fork(void) __asm__("ret_from_fork");
+
 int copy_thread(int nr, unsigned long clone_flags, unsigned long esp,
 	unsigned long unused,
 	struct task_struct * p, struct pt_regs * regs)
@@ -311,7 +312,9 @@ int copy_thread(int nr, unsigned long clone_flags, unsigned long esp,
 	childregs->ARM_sp = esp;
 
 	save = ((struct context_save_struct *)(childregs)) - 1;
-	init_thread_css(save);
+	*save = INIT_CSS;
+	save->pc |= (unsigned long)ret_from_fork;
+
 	p->thread.save = save;
 
 	return 0;

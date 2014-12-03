@@ -1,12 +1,14 @@
-/* $Id: asuscom.c,v 1.11.6.1 2001/02/16 16:43:25 kai Exp $
+/* $Id: asuscom.c,v 1.11.6.3 2001/09/23 22:24:46 kai Exp $
  *
- * asuscom.c     low level stuff for ASUSCOM NETWORK INC. ISDNLink cards
+ * low level stuff for ASUSCOM NETWORK INC. ISDNLink cards
  *
- * Author     Karsten Keil (keil@isdn4linux.de)
+ * Author       Karsten Keil
+ * Copyright    by Karsten Keil      <keil@isdn4linux.de>
  *
- * Thanks to  ASUSCOM NETWORK INC. Taiwan and  Dynalink NL for informations
+ * This software may be used and distributed according to the terms
+ * of the GNU General Public License, incorporated herein by reference.
  *
- * This file is (c) under GNU General Public License
+ * Thanks to  ASUSCOM NETWORK INC. Taiwan and  Dynalink NL for information
  *
  */
 
@@ -20,7 +22,7 @@
 
 extern const char *CardType[];
 
-const char *Asuscom_revision = "$Revision: 1.11.6.1 $";
+const char *Asuscom_revision = "$Revision: 1.11.6.3 $";
 
 #define byteout(addr,val) outb(val,addr)
 #define bytein(addr) inb(addr)
@@ -341,7 +343,7 @@ setup_asuscom(struct IsdnCard *card)
 	cs->cardmsg = &Asus_card_msg;
 	val = readreg(cs->hw.asus.cfg_reg + ASUS_IPAC_ALE, 
 		cs->hw.asus.cfg_reg + ASUS_IPAC_DATA, IPAC_ID);
-	if (val == 1) {
+	if ((val == 1) || (val == 2)) {
 		cs->subtyp = ASUS_IPAC;
 		cs->hw.asus.adr  = cs->hw.asus.cfg_reg + ASUS_IPAC_ALE;
 		cs->hw.asus.isac = cs->hw.asus.cfg_reg + ASUS_IPAC_DATA;

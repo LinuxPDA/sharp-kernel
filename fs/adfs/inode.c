@@ -17,6 +17,8 @@
 #include <linux/locks.h>
 #include <linux/mm.h>
 #include <linux/smp_lock.h>
+#include <linux/module.h>
+
 
 #include "adfs.h"
 
@@ -220,7 +222,7 @@ adfs_unix2adfs_time(struct inode *inode, unsigned int secs)
 	if (inode->u.adfs_i.stamped) {
 		/* convert 32-bit seconds to 40-bit centi-seconds */
 		low  = (secs & 255) * 100;
-		high = (secs / 256) * 100 + (low << 8) + 0x336e996a;
+		high = (secs / 256) * 100 + (low >> 8) + 0x336e996a;
 
 		inode->u.adfs_i.loadaddr = (high >> 24) |
 				(inode->u.adfs_i.loadaddr & ~0xff);
@@ -319,7 +321,11 @@ adfs_notify_change(struct dentry *dentry, struct iattr *attr)
 		goto out;
 
 	if (ia_valid & ATTR_SIZE)
-		vmtruncate(inode, attr->ia_size);
+		error = vmtruncate(inode, attr->ia_size);
+
+	if (error)
+		goto out;
+
 	if (ia_valid & ATTR_MTIME) {
 		inode->i_mtime = attr->ia_mtime;
 		adfs_unix2adfs_time(inode, attr->ia_mtime);
@@ -369,3 +375,4 @@ void adfs_write_inode(struct inode *inode, int unused)
 	adfs_dir_update(sb, &obj);
 	unlock_kernel();
 }
+MODULE_LICENSE("GPL");

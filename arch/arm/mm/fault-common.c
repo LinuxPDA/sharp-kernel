@@ -108,7 +108,7 @@ __do_kernel_fault(struct mm_struct *mm, unsigned long addr, int error_code,
 	if ((fixup = search_exception_table(instruction_pointer(regs))) != 0) {
 #ifdef DEBUG
 		printk(KERN_DEBUG "%s: Exception at [<%lx>] addr=%lx (fixup: %lx)\n",
-			tsk->comm, regs->ARM_pc, addr, fixup);
+			current->comm, regs->ARM_pc, addr, fixup);
 #endif
 		regs->ARM_pc = fixup;
 		return;
@@ -301,6 +301,10 @@ do_sigbus:
 	tsk->thread.error_code = error_code;
 	tsk->thread.trap_no = 14;
 	force_sig(SIGBUS, tsk);
+#ifdef CONFIG_DEBUG_USER
+	printk(KERN_DEBUG "%s: sigbus at 0x%08lx, pc=0x%08lx\n",
+		current->comm, addr, instruction_pointer(regs));
+#endif
 
 	/* Kernel mode? Handle exceptions or die */
 	if (user_mode(regs))
@@ -339,13 +343,10 @@ int do_translation_fault(unsigned long addr, int error_code, struct pt_regs *reg
 	if (addr < TASK_SIZE)
 		return do_page_fault(addr, error_code, regs);
 
-	tsk = current;
-	mm  = tsk->active_mm;
-
 	offset = __pgd_offset(addr);
 
+	pgd = cpu_get_pgd() + offset;
 	pgd_k = init_mm.pgd + offset;
-	pgd   = mm->pgd + offset;
 
 	if (pgd_none(*pgd_k))
 		goto bad_area;
@@ -365,6 +366,9 @@ int do_translation_fault(unsigned long addr, int error_code, struct pt_regs *reg
 	return 0;
 
 bad_area:
+	tsk = current;
+	mm  = tsk->active_mm;
+
 	do_bad_area(tsk, mm, addr, error_code, regs);
 	return 0;
 }

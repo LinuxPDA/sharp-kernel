@@ -180,10 +180,13 @@ static int verbose;
 
 MODULE_AUTHOR("William Chen");
 MODULE_DESCRIPTION("MOXA Smartio Family Multiport Board Device Driver");
+MODULE_LICENSE("GPL");
 MODULE_PARM(ioaddr, "1-4i");
 MODULE_PARM(ttymajor, "i");
 MODULE_PARM(calloutmajor, "i");
 MODULE_PARM(verbose, "i");
+
+EXPORT_NO_SYMBOLS;
 
 struct mxser_hwconf {
 	int board_type;
@@ -884,8 +887,6 @@ static int mxser_write(struct tty_struct *tty, int from_user,
 	if (!tty || !info->xmit_buf || !mxvar_tmp_buf)
 		return (0);
 
-	if (from_user)
-		down(&mxvar_tmp_buf_sem);
 	save_flags(flags);
 	if (from_user) {
 		down(&mxvar_tmp_buf_sem);

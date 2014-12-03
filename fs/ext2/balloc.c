@@ -174,7 +174,7 @@ static int __load_block_bitmap (struct super_block * sb,
 			sb->u.ext2_sb.s_loaded_block_bitmaps++;
 		else
 			brelse (sb->u.ext2_sb.s_block_bitmap[EXT2_MAX_GROUP_LOADED - 1]);
-		for (j = sb->u.ext2_sb.s_loaded_block_bitmaps - 1; j > 0;  j--) {
+		for (j = sb->u.ext2_sb.s_loaded_block_bitmaps - 1; j > 0; j--) {
 			sb->u.ext2_sb.s_block_bitmap_number[j] =
 				sb->u.ext2_sb.s_block_bitmap_number[j - 1];
 			sb->u.ext2_sb.s_block_bitmap[j] =
@@ -247,7 +247,8 @@ static inline int load_block_bitmap (struct super_block * sb,
 	return slot;
 }
 
-void ext2_free_blocks (const struct inode * inode, unsigned long block,
+/* Free given blocks, update quota and i_blocks field */
+void ext2_free_blocks (struct inode * inode, unsigned long block,
 		       unsigned long count)
 {
 	struct buffer_head * bh;
@@ -276,7 +277,7 @@ void ext2_free_blocks (const struct inode * inode, unsigned long block,
 		goto error_return;
 	}
 
-	ext2_debug ("freeing block %lu\n", block);
+	ext2_debug ("freeing block(s) %lu-%lu\n", block, block + count - 1);
 
 do_more:
 	overflow = 0;
@@ -315,10 +316,10 @@ do_more:
 	for (i = 0; i < count; i++) {
 		if (!ext2_clear_bit (bit + i, bh->b_data))
 			ext2_error (sb, "ext2_free_blocks",
-				      "bit already cleared for block %lu", 
-				      block);
+				      "bit already cleared for block %lu",
+				      block + i);
 		else {
-			DQUOT_FREE_BLOCK(sb, inode, 1);
+			DQUOT_FREE_BLOCK(inode, 1);
 			gdp->bg_free_blocks_count =
 				cpu_to_le16(le16_to_cpu(gdp->bg_free_blocks_count)+1);
 			es->s_free_blocks_count =
@@ -351,8 +352,9 @@ error_return:
  * is allocated.  Otherwise a forward search is made for a free block; within 
  * each block group the search first looks for an entire free byte in the block
  * bitmap, and then for any free bit if that fails.
+ * This function also updates quota and i_blocks field.
  */
-int ext2_new_block (const struct inode * inode, unsigned long goal,
+int ext2_new_block (struct inode * inode, unsigned long goal,
     u32 * prealloc_count, u32 * prealloc_block, int * err)
 {
 	struct buffer_head * bh;
@@ -411,10 +413,7 @@ repeat:
 		ext2_debug ("goal is at %d:%d.\n", i, j);
 
 		if (!ext2_test_bit(j, bh->b_data)) {
-#ifdef EXT2FS_DEBUG
-			goal_hits++;
-			ext2_debug ("goal bit allocated.\n");
-#endif
+			ext2_debug("goal bit allocated, %d hits\n",++goal_hits);
 			goto got_block;
 		}
 		if (j) {
@@ -471,10 +470,8 @@ repeat:
 		if (i >= sb->u.ext2_sb.s_groups_count)
 			i = 0;
 		gdp = ext2_get_group_desc (sb, i, &bh2);
-		if (!gdp) {
-			*err = -EIO;
-			goto out;
-		}
+		if (!gdp)
+			goto io_error;
 		if (le16_to_cpu(gdp->bg_free_blocks_count) > 0)
 			break;
 	}
@@ -513,7 +510,7 @@ got_block:
 	/*
 	 * Check quota for allocation of this block.
 	 */
-	if(DQUOT_ALLOC_BLOCK(sb, inode, 1)) {
+	if(DQUOT_ALLOC_BLOCK(inode, 1)) {
 		*err = -EDQUOT;
 		goto out;
 	}
@@ -531,7 +528,7 @@ got_block:
 	if (ext2_set_bit (j, bh->b_data)) {
 		ext2_warning (sb, "ext2_new_block",
 			      "bit already set for block %d", j);
-		DQUOT_FREE_BLOCK(sb, inode, 1);
+		DQUOT_FREE_BLOCK(inode, 1);
 		goto repeat;
 	}
 
@@ -554,13 +551,13 @@ got_block:
 		for (k = 1;
 		     k < prealloc_goal && (j + k) < EXT2_BLOCKS_PER_GROUP(sb);
 		     k++, next_block++) {
-			if (DQUOT_PREALLOC_BLOCK(sb, inode, 1))
+			if (DQUOT_PREALLOC_BLOCK(inode, 1))
 				break;
 			/* Writer: ->i_prealloc* */
 			if (*prealloc_block + *prealloc_count != next_block ||
 			    ext2_set_bit (j + k, bh->b_data)) {
 				/* Writer: end */
-				DQUOT_FREE_BLOCK(sb, inode, 1);
+				DQUOT_FREE_BLOCK(inode, 1);
  				break;
 			}
 			(*prealloc_count)++;
@@ -766,7 +763,7 @@ void ext2_check_blocks_bitmap (struct super_block * sb)
 		for (j = 0; j < sb->u.ext2_sb.s_itb_per_group; j++)
 			if (!block_in_use (le32_to_cpu(gdp->bg_inode_table) + j, sb, bh->b_data))
 				ext2_error (sb, "ext2_check_blocks_bitmap",
-					    "Block #%d of the inode table in "
+					    "Block #%ld of the inode table in "
 					    "group %d is marked free", j, i);
 
 		x = ext2_count_free (bh, sb->s_blocksize);

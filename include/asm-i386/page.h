@@ -15,7 +15,7 @@
 
 #include <asm/mmx.h>
 
-#define clear_page(page)	mmx_clear_page(page)
+#define clear_page(page)	mmx_clear_page((void *)(page))
 #define copy_page(to,from)	mmx_copy_page(to,from)
 
 #else
@@ -86,17 +86,23 @@ typedef struct { unsigned long pgprot; } pgprot_t;
  * Tell the user there is some problem. Beep too, so we can
  * see^H^H^Hhear bugs in early bootup as well!
  */
-#define BUG() do { \
-	printk("kernel BUG at %s:%d!\n", __FILE__, __LINE__); \
-	__asm__ __volatile__(".byte 0x0f,0x0b"); \
+
+#ifdef CONFIG_DEBUG_BUGVERBOSE
+extern void do_BUG(const char *file, int line);
+#define BUG() do {					\
+	do_BUG(__FILE__, __LINE__);			\
+	__asm__ __volatile__("ud2");			\
 } while (0)
+#else
+#define BUG() __asm__ __volatile__(".byte 0x0f,0x0b")
+#endif
 
 #define PAGE_BUG(page) do { \
 	BUG(); \
 } while (0)
 
 /* Pure 2^n version of get_order */
-extern __inline__ int get_order(unsigned long size)
+static __inline__ int get_order(unsigned long size)
 {
 	int order;
 
@@ -116,7 +122,6 @@ extern __inline__ int get_order(unsigned long size)
 #define __va(x)			((void *)((unsigned long)(x)+PAGE_OFFSET))
 #define virt_to_page(kaddr)	(mem_map + (__pa(kaddr) >> PAGE_SHIFT))
 #define VALID_PAGE(page)	((page - mem_map) < max_mapnr)
-
 
 #endif /* __KERNEL__ */
 

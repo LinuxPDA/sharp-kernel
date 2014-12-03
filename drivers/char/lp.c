@@ -147,6 +147,10 @@ struct lp_struct lp_table[LP_NO];
 
 static unsigned int lp_count = 0;
 
+#ifdef CONFIG_LP_CONSOLE
+static struct parport *console_registered; // initially NULL
+#endif /* CONFIG_LP_CONSOLE */
+
 #undef LP_DEBUG
 
 /* --- low-level port access ----------------------------------- */
@@ -539,7 +543,7 @@ static struct file_operations lp_fops = {
  * non-zero to get the latter behaviour. */
 #define CONSOLE_LP_STRICT 1
 
-/* The console_lock must be held when we get here. */
+/* The console must be locked when we get here. */
 
 static void lp_console_write (struct console *co, const char *s,
 			      unsigned count)
@@ -609,8 +613,6 @@ static struct console lpcons = {
 
 /* --- initialisation code ------------------------------------- */
 
-#ifdef MODULE
-
 static int parport_nr[LP_NO] = { [0 ... LP_NO-1] = LP_PARPORT_UNSPEC };
 static char *parport[LP_NO] = { NULL,  };
 static int reset = 0;
@@ -618,21 +620,19 @@ static int reset = 0;
 MODULE_PARM(parport, "1-" __MODULE_STRING(LP_NO) "s");
 MODULE_PARM(reset, "i");
 
-#else
-
-static int parport_nr[LP_NO] = { [0 ... LP_NO-1] = LP_PARPORT_UNSPEC };
-static int reset = 0;
-
-static int parport_ptr = 0;
-
-void __init lp_setup(char *str, int *ints)
+#ifndef MODULE
+static int __init lp_setup (char *str)
 {
-	if (!str) {
-		if (ints[0] == 0 || ints[1] == 0) {
+	static int parport_ptr; // initially zero
+	int x;
+
+	if (get_option (&str, &x)) {
+		if (x == 0) {
 			/* disable driver on "lp=" or "lp=0" */
 			parport_nr[0] = LP_PARPORT_OFF;
 		} else {
-			printk(KERN_WARNING "warning: 'lp=0x%x' is deprecated, ignored\n", ints[1]);
+			printk(KERN_WARNING "warning: 'lp=0x%x' is deprecated, ignored\n", x);
+			return 0;
 		}
 	} else if (!strncmp(str, "parport", 7)) {
 		int n = simple_strtoul(str+7, NULL, 10);
@@ -648,8 +648,8 @@ void __init lp_setup(char *str, int *ints)
 	} else if (!strcmp(str, "reset")) {
 		reset = 1;
 	}
+	return 1;
 }
-
 #endif
 
 static int lp_register(int nr, struct parport *port)
@@ -678,8 +678,8 @@ static int lp_register(int nr, struct parport *port)
 #ifdef CONFIG_LP_CONSOLE
 	if (!nr) {
 		if (port->modes & PARPORT_MODE_SAFEININT) {
-			MOD_INC_USE_COUNT;
 			register_console (&lpcons);
+			console_registered = port;
 			printk (KERN_INFO "lp%d: console ready\n", CONSOLE_LP);
 		} else
 			printk (KERN_ERR "lp%d: cannot run console on %s\n",
@@ -724,6 +724,12 @@ static void lp_attach (struct parport *port)
 static void lp_detach (struct parport *port)
 {
 	/* Write this some day. */
+#ifdef CONFIG_LP_CONSOLE
+	if (console_registered == port) {
+		unregister_console (&lpcons);
+		console_registered = NULL;
+	}
+#endif /* CONFIG_LP_CONSOLE */
 }
 
 static struct parport_driver lp_driver = {
@@ -782,8 +788,7 @@ int __init lp_init (void)
 	return 0;
 }
 
-#ifdef MODULE
-int init_module(void)
+static int __init lp_init_module (void)
 {
 	if (parport[0]) {
 		/* The user gave some parameters.  Let's see what they were.  */
@@ -811,7 +816,7 @@ int init_module(void)
 	return lp_init();
 }
 
-void cleanup_module(void)
+static void lp_cleanup_module (void)
 {
 	unsigned int offset;
 
@@ -829,4 +834,10 @@ void cleanup_module(void)
 		parport_unregister_device(lp_table[offset].dev);
 	}
 }
-#endif
+
+__setup("lp=", lp_setup);
+module_init(lp_init_module);
+module_exit(lp_cleanup_module);
+
+MODULE_LICENSE("GPL");
+EXPORT_NO_SYMBOLS;

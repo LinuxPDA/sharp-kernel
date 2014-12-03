@@ -30,7 +30,7 @@ static int			rpc_task_id;
 /*
  * We give RPC the same get_free_pages priority as NFS
  */
-#define GFP_RPC			GFP_NFS
+#define GFP_RPC			GFP_NOFS
 
 static void			__rpc_default_timer(struct rpc_task *task);
 static void			rpciod_killall(void);
@@ -76,7 +76,7 @@ spinlock_t rpc_queue_lock = SPIN_LOCK_UNLOCKED;
 /*
  * Spinlock for other critical sections of code.
  */
-spinlock_t rpc_sched_lock = SPIN_LOCK_UNLOCKED;
+static spinlock_t rpc_sched_lock = SPIN_LOCK_UNLOCKED;
 
 /*
  * This is the last-ditch buffer for NFS swap requests
@@ -744,7 +744,7 @@ __rpc_schedule(void)
  * for readahead):
  *
  *   sync user requests:	GFP_KERNEL
- *   async requests:		GFP_RPC		(== GFP_NFS)
+ *   async requests:		GFP_RPC		(== GFP_NOFS)
  *   swap requests:		GFP_ATOMIC	(or new GFP_SWAPPER)
  */
 void *
@@ -772,8 +772,8 @@ rpc_allocate(unsigned int flags, unsigned int size)
 		}
 		if (flags & RPC_TASK_ASYNC)
 			return NULL;
-		set_current_state(TASK_INTERRUPTIBLE);
-		schedule_timeout(HZ>>4);
+		current->policy |= SCHED_YIELD;
+		schedule();
 	} while (!signalled());
 
 	return NULL;
@@ -1059,20 +1059,14 @@ rpciod(void *ptr)
 	rpciod_pid = current->pid;
 	up(&rpciod_running);
 
-	exit_fs(current);
-	exit_files(current);
-	exit_mm(current);
+	daemonize();
 
 	spin_lock_irq(&current->sigmask_lock);
 	siginitsetinv(&current->blocked, sigmask(SIGKILL));
 	recalc_sigpending(current);
 	spin_unlock_irq(&current->sigmask_lock);
 
-	current->session = 1;
-	current->pgrp = 1;
 	strcpy(current->comm, "rpciod");
-
-	current->flags |= PF_MEMALLOC;
 
 	dprintk("RPC: rpciod starting (pid %d)\n", rpciod_pid);
 	while (rpciod_users) {
@@ -1120,8 +1114,8 @@ rpciod_killall(void)
 		__rpc_schedule();
 		if (all_tasks) {
 			dprintk("rpciod_killall: waiting for tasks to exit\n");
-			set_current_state(TASK_INTERRUPTIBLE);
-			schedule_timeout(1);
+			current->policy |= SCHED_YIELD;
+			schedule();
 		}
 	}
 
@@ -1191,8 +1185,8 @@ rpciod_down(void)
 	 * wait briefly before checking the process id.
 	 */
 	current->sigpending = 0;
-	set_current_state(TASK_INTERRUPTIBLE);
-	schedule_timeout(1);
+	current->policy |= SCHED_YIELD;
+	schedule();
 	/*
 	 * Display a message if we're going to wait longer.
 	 */

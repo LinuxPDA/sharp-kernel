@@ -1,5 +1,5 @@
 /* This version ported to the Linux-MTD system by dwmw2@infradead.org
- * $Id: ftl.c,v 1.35 2001/06/09 00:40:17 dwmw2 Exp $
+ * $Id: ftl.c,v 1.39 2001/10/02 15:05:11 dwmw2 Exp $
  *
  * Fixes: Arnaldo Carvalho de Melo <acme@conectiva.com.br>
  * - fixes some leaks on failure in build_maps and ftl_notify_add, cleanups
@@ -258,7 +258,7 @@ static int scan_header(partition_t *part)
     max_offset = (0x100000<part->mtd->size)?0x100000:part->mtd->size;
     /* Search first megabyte for a valid FTL header */
     for (offset = 0;
-	 offset < max_offset;
+	 (offset + sizeof(header)) < max_offset;
 	 offset += part->mtd->erasesize ? : 0x2000) {
 
 	ret = part->mtd->read(part->mtd, offset, sizeof(header), &ret, 
@@ -1174,10 +1174,10 @@ static int ftl_ioctl(struct inode *inode, struct file *file,
 	put_user(ftl_hd[minor].start_sect, (u_long *)&geo->start);
 	break;
     case BLKGETSIZE:
-	ret = verify_area(VERIFY_WRITE, (long *)arg, sizeof(long));
-	if (ret) return ret;
-	put_user(ftl_hd[minor].nr_sects, 
-		 (long *)arg);
+	ret = put_user(ftl_hd[minor].nr_sects, (unsigned long *)arg);
+	break;
+    case BLKGETSIZE64:
+	ret = put_user((u64)ftl_hd[minor].nr_sects << 9, (u64 *)arg);
 	break;
     case BLKRRPART:
 	ret = ftl_reread_partitions(minor);
@@ -1400,18 +1400,13 @@ static void ftl_notify_remove(struct mtd_info *mtd)
 		}
 }
 
-#if LINUX_VERSION_CODE < 0x20212 && defined(MODULE)
-#define init_ftl init_module
-#define cleanup_ftl cleanup_module
-#endif
-
-mod_init_t init_ftl(void)
+int init_ftl(void)
 {
     int i;
 
     memset(myparts, 0, sizeof(myparts));
     
-    DEBUG(0, "$Id: ftl.c,v 1.35 2001/06/09 00:40:17 dwmw2 Exp $\n");
+    DEBUG(0, "$Id: ftl.c,v 1.39 2001/10/02 15:05:11 dwmw2 Exp $\n");
     
     if (register_blkdev(FTL_MAJOR, "ftl", &ftl_blk_fops)) {
 	printk(KERN_NOTICE "ftl_cs: unable to grab major "
@@ -1428,30 +1423,28 @@ mod_init_t init_ftl(void)
     blksize_size[FTL_MAJOR] = ftl_blocksizes;
     ftl_gendisk.major = FTL_MAJOR;
     blk_init_queue(BLK_DEFAULT_QUEUE(FTL_MAJOR), &do_ftl_request);
-    ftl_gendisk.next = gendisk_head;
-    gendisk_head = &ftl_gendisk;
+    add_gendisk(&ftl_gendisk);
     
     register_mtd_user(&ftl_notifier);
     
     return 0;
 }
 
-mod_exit_t cleanup_ftl(void)
+static void __exit cleanup_ftl(void)
 {
-    struct gendisk *gd, **gdp;
-
     unregister_mtd_user(&ftl_notifier);
 
     unregister_blkdev(FTL_MAJOR, "ftl");
     blk_cleanup_queue(BLK_DEFAULT_QUEUE(FTL_MAJOR));
     blksize_size[FTL_MAJOR] = NULL;
 
-    for (gdp = &gendisk_head; *gdp; gdp = &((*gdp)->next))
-	if (*gdp == &ftl_gendisk) {
-	    gd = *gdp; *gdp = gd->next;
-	    break;
-	}
+    del_gendisk(&ftl_gendisk);
 }
 
 module_init(init_ftl);
 module_exit(cleanup_ftl);
+
+
+MODULE_LICENSE("Dual MPL/GPL");
+MODULE_AUTHOR("David Hinds <dhinds@sonic.net>");
+MODULE_DESCRIPTION("Support code for Flash Translation Layer, used on PCMCIA devices and M-Systems DiskOnChip 1000");

@@ -260,11 +260,15 @@ static struct usb_bus *usbdevfs_findbus(int busnr)
         struct list_head *list;
         struct usb_bus *bus;
 
+	down (&usb_bus_list_lock);
         for (list = usb_bus_list.next; list != &usb_bus_list; list = list->next) {
                 bus = list_entry(list, struct usb_bus, bus_list);
-                if (bus->busnum == busnr)
+                if (bus->busnum == busnr) {
+			up (&usb_bus_list_lock);
                         return bus;
+		}
         }
+	up (&usb_bus_list_lock);
         return NULL;
 }
 
@@ -412,7 +416,7 @@ static int usbdevfs_root_readdir(struct file *filp, void *dirent, filldir_t fill
 		if (i < 2+NRSPECIAL)
 			return 0;
 		i -= 2+NRSPECIAL;
-		lock_kernel();
+		down (&usb_bus_list_lock);
 		for (list = usb_bus_list.next; list != &usb_bus_list; list = list->next) {
 			if (i > 0) {
 				i--;
@@ -424,7 +428,7 @@ static int usbdevfs_root_readdir(struct file *filp, void *dirent, filldir_t fill
 				break;
 			filp->f_pos++;
 		}
-		unlock_kernel();
+		up (&usb_bus_list_lock);
 		return 0;
 	}
 }
@@ -635,13 +639,13 @@ struct super_block *usbdevfs_read_super(struct super_block *s, void *data, int s
 		list_add_tail(&inode->u.usbdev_i.slist, &s->u.usbdevfs_sb.ilist);
 		list_add_tail(&inode->u.usbdev_i.dlist, &special[i].inodes);
 	}
-	lock_kernel();
+	down (&usb_bus_list_lock);
 	for (blist = usb_bus_list.next; blist != &usb_bus_list; blist = blist->next) {
 		bus = list_entry(blist, struct usb_bus, bus_list);
 		new_bus_inode(bus, s);
 		recurse_new_dev_inode(bus->root_hub, s);
 	}
-	unlock_kernel();
+	up (&usb_bus_list_lock);
         return s;
 
  out_no_root:
@@ -747,7 +751,6 @@ int __init usbdevfs_init(void)
 		usb_deregister(&usbdevfs_driver);
 		return ret;
 	}
-	kern_mount(&usbdevice_fs_type);
 #ifdef CONFIG_PROC_FS		
 	/* create mount point for usbdevfs */
 	usbdir = proc_mkdir("usb", proc_bus);
@@ -759,7 +762,6 @@ void __exit usbdevfs_cleanup(void)
 {
 	usb_deregister(&usbdevfs_driver);
 	unregister_filesystem(&usbdevice_fs_type);
-	kern_umount(usbdevice_fs_type.kern_mnt);
 #ifdef CONFIG_PROC_FS	
         if (usbdir)
                 remove_proc_entry("usb", proc_bus);

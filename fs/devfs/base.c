@@ -388,7 +388,7 @@
 	       Work sponsored by SGI.
   v0.83
     19991107   Richard Gooch <rgooch@atnf.csiro.au>
-	       Added DEVFS_ FL_WAIT flag.
+	       Added DEVFS_FL_WAIT flag.
 	       Work sponsored by SGI.
   v0.84
     19991107   Richard Gooch <rgooch@atnf.csiro.au>
@@ -507,6 +507,54 @@
 	       Replaced <devfsd_read> stack usage with <devfsd_ioctl> kmalloc.
 	       Simplified locking in <devfsd_ioctl> and fixed memory leak.
   v0.106
+    20010709   Richard Gooch <rgooch@atnf.csiro.au>
+	       Removed broken devnum allocation and use <devfs_alloc_devnum>.
+	       Fixed old devnum leak by calling new <devfs_dealloc_devnum>.
+  v0.107
+    20010712   Richard Gooch <rgooch@atnf.csiro.au>
+	       Fixed bug in <devfs_setup> which could hang boot process.
+  v0.108
+    20010730   Richard Gooch <rgooch@atnf.csiro.au>
+	       Added DEVFSD_NOTIFY_DELETE event.
+    20010801   Richard Gooch <rgooch@atnf.csiro.au>
+	       Removed #include <asm/segment.h>.
+  v0.109
+    20010807   Richard Gooch <rgooch@atnf.csiro.au>
+	       Fixed inode table races by removing it and using
+	       inode->u.generic_ip instead.
+	       Moved <devfs_read_inode> into <get_vfs_inode>.
+	       Moved <devfs_write_inode> into <devfs_notify_change>.
+  v0.110
+    20010808   Richard Gooch <rgooch@atnf.csiro.au>
+	       Fixed race in <devfs_do_symlink> for uni-processor.
+  v0.111
+    20010818   Richard Gooch <rgooch@atnf.csiro.au>
+	       Removed remnant of multi-mount support in <devfs_mknod>.
+               Removed unused DEVFS_FL_SHOW_UNREG flag.
+  v0.112
+    20010820   Richard Gooch <rgooch@atnf.csiro.au>
+	       Removed nlink field from struct devfs_inode.
+  v0.113
+    20010823   Richard Gooch <rgooch@atnf.csiro.au>
+	       Replaced BKL with global rwsem to protect symlink data (quick
+	       and dirty hack).
+  v0.114
+    20010827   Richard Gooch <rgooch@atnf.csiro.au>
+	       Replaced global rwsem for symlink with per-link refcount.
+  v0.115
+    20010919   Richard Gooch <rgooch@atnf.csiro.au>
+	       Set inode->i_mapping->a_ops for block nodes in <get_vfs_inode>.
+  v0.116
+    20010927   Richard Gooch <rgooch@atnf.csiro.au>
+	       Went back to global rwsem for symlinks (refcount scheme no good)
+  v0.117
+    20011008   Richard Gooch <rgooch@atnf.csiro.au>
+	       Fixed overrun in <devfs_link> by removing function (not needed).
+  v0.118
+    20011009   Richard Gooch <rgooch@atnf.csiro.au>
+	       Fixed buffer underrun in <try_modload>.
+	       Moved down_read() from <search_for_entry_in_dir> to <find_entry>
+  v0.119
 */
 #include <linux/types.h>
 #include <linux/errno.h>
@@ -524,41 +572,35 @@
 #include <linux/mm.h>
 #include <linux/module.h>
 #include <linux/init.h>
-#include <linux/locks.h>
-#include <linux/kdev_t.h>
 #include <linux/devfs_fs.h>
 #include <linux/devfs_fs_kernel.h>
 #include <linux/smp_lock.h>
 #include <linux/smp.h>
 #include <linux/version.h>
+#include <linux/rwsem.h>
 
 #include <asm/uaccess.h>
 #include <asm/io.h>
 #include <asm/processor.h>
 #include <asm/system.h>
 #include <asm/pgtable.h>
-#include <asm/segment.h>
 #include <asm/bitops.h>
 #include <asm/atomic.h>
 
-#define DEVFS_VERSION            "0.106 (20010617)"
+#define DEVFS_VERSION            "0.119 (20011009)"
 
 #define DEVFS_NAME "devfs"
 
-#define INODE_TABLE_INC 250
 #define FIRST_INODE 1
 
 #define STRING_LENGTH 256
-
-#define MIN_DEVNUM 36864  /*  Use major numbers 144   */
-#define MAX_DEVNUM 61439  /*  through 239, inclusive  */
 
 #ifndef TRUE
 #  define TRUE 1
 #  define FALSE 0
 #endif
 
-#define IS_HIDDEN(de) (( ((de)->hide && !is_devfsd_or_child(fs_info)) || (!(de)->registered&& !(de)->show_unreg)))
+#define IS_HIDDEN(de) (( ((de)->hide && !is_devfsd_or_child(fs_info)) || !(de)->registered))
 
 #define DEBUG_NONE         0x00000
 #define DEBUG_MODULE_LOAD  0x00001
@@ -568,8 +610,8 @@
 #define DEBUG_S_PUT        0x00010
 #define DEBUG_I_LOOKUP     0x00020
 #define DEBUG_I_CREATE     0x00040
-#define DEBUG_I_READ       0x00080
-#define DEBUG_I_WRITE      0x00100
+#define DEBUG_I_GET        0x00080
+#define DEBUG_I_CHANGE     0x00100
 #define DEBUG_I_UNLINK     0x00200
 #define DEBUG_I_RLINK      0x00400
 #define DEBUG_I_FLINK      0x00800
@@ -578,16 +620,12 @@
 #define DEBUG_D_DELETE     0x04000
 #define DEBUG_D_RELEASE    0x08000
 #define DEBUG_D_IPUT       0x10000
-#define DEBUG_ALL          (DEBUG_MODULE_LOAD | DEBUG_REGISTER | \
-			    DEBUG_SET_FLAGS | DEBUG_I_LOOKUP |   \
-			    DEBUG_I_UNLINK | DEBUG_I_MKNOD |     \
-			    DEBUG_D_RELEASE | DEBUG_D_IPUT)
+#define DEBUG_ALL          0xfffff
 #define DEBUG_DISABLED     DEBUG_NONE
 
 #define OPTION_NONE             0x00
-#define OPTION_SHOW             0x01
-#define OPTION_MOUNT            0x02
-#define OPTION_ONLY             0x04
+#define OPTION_MOUNT            0x01
+#define OPTION_ONLY             0x02
 
 #define OOPS(format, args...) {printk (format, ## args); \
                                printk ("Forcing Oops\n"); \
@@ -626,12 +664,13 @@ struct fcb_type  /*  File, char, block type  */
     unsigned char aopen_notify:1;
     unsigned char removable:1;  /*  Belongs in device_type, but save space   */
     unsigned char open:1;       /*  Not entirely correct                     */
+    unsigned char autogen:1;    /*  Belongs in device_type, but save space   */
 };
 
 struct symlink_type
 {
-    unsigned int length;  /*  Not including the NULL-termimator  */
-    char *linkname;       /*  This is NULL-terminated            */
+    unsigned int length;         /*  Not including the NULL-termimator       */
+    char *linkname;              /*  This is NULL-terminated                 */
 };
 
 struct fifo_type
@@ -650,7 +689,6 @@ struct devfs_inode  /*  This structure is for "persistent" inode storage  */
     umode_t mode;
     uid_t uid;
     gid_t gid;
-    nlink_t nlink;
 };
 
 struct devfs_entry
@@ -672,7 +710,6 @@ struct devfs_entry
     umode_t mode;
     unsigned short namelen;  /*  I think 64k+ filenames are a way off...  */
     unsigned char registered:1;
-    unsigned char show_unreg:1;
     unsigned char hide:1;
     unsigned char no_persistence:1;
     char name[1];            /*  This is just a dummy: the allocated array is
@@ -693,9 +730,6 @@ struct devfsd_buf_entry
 
 struct fs_info      /*  This structure is for the mounted devfs  */
 {
-    unsigned int num_inodes;    /*  Number of inodes created         */
-    unsigned int table_size;    /*  Size of the inode pointer table  */
-    struct devfs_entry **table;
     struct super_block *sb;
     volatile struct devfsd_buf_entry *devfsd_buffer;
     spinlock_t devfsd_buffer_lock;
@@ -712,8 +746,6 @@ struct fs_info      /*  This structure is for the mounted devfs  */
 };
 
 static struct fs_info fs_info = {devfsd_buffer_lock: SPIN_LOCK_UNLOCKED};
-static unsigned int next_devnum_char = MIN_DEVNUM;
-static unsigned int next_devnum_block = MIN_DEVNUM;
 static const int devfsd_buf_size = PAGE_SIZE / sizeof(struct devfsd_buf_entry);
 #ifdef CONFIG_DEVFS_DEBUG
 static unsigned int devfs_debug_init __initdata = DEBUG_NONE;
@@ -725,6 +757,8 @@ static unsigned int boot_options = OPTION_MOUNT;
 #else
 static unsigned int boot_options = OPTION_NONE;
 #endif
+
+static DECLARE_RWSEM (symlink_rwsem);
 
 /*  Forward function declarations  */
 static struct devfs_entry *search_for_entry (struct devfs_entry *dir,
@@ -767,7 +801,7 @@ static struct devfs_entry *search_for_entry_in_dir (struct devfs_entry *parent,
 						    unsigned int namelen,
 						    int traverse_symlink)
 {
-    struct devfs_entry *curr;
+    struct devfs_entry *curr, *retval;
 
     if ( !S_ISDIR (parent->mode) )
     {
@@ -783,48 +817,32 @@ static struct devfs_entry *search_for_entry_in_dir (struct devfs_entry *parent,
     if (curr == NULL) return NULL;
     if (!S_ISLNK (curr->mode) || !traverse_symlink) return curr;
     /*  Need to follow the link: this is a stack chomper  */
-    return search_for_entry (parent,
-			     curr->u.symlink.linkname, curr->u.symlink.length,
-			     FALSE, FALSE, NULL, TRUE);
+    retval = curr->registered ?
+	search_for_entry (parent, curr->u.symlink.linkname,
+			  curr->u.symlink.length, FALSE, FALSE, NULL,
+			  TRUE) : NULL;
+    return retval;
 }   /*  End Function search_for_entry_in_dir  */
 
 static struct devfs_entry *create_entry (struct devfs_entry *parent,
 					 const char *name,unsigned int namelen)
 {
-    struct devfs_entry *new, **table;
+    struct devfs_entry *new;
+    static unsigned long inode_counter = FIRST_INODE;
+    static spinlock_t counter_lock = SPIN_LOCK_UNLOCKED;
 
-    /*  First ensure table size is enough  */
-    if (fs_info.num_inodes >= fs_info.table_size)
-    {
-	if ( ( table = kmalloc (sizeof *table *
-				(fs_info.table_size + INODE_TABLE_INC),
-				GFP_KERNEL) ) == NULL ) return NULL;
-	fs_info.table_size += INODE_TABLE_INC;
-#ifdef CONFIG_DEVFS_DEBUG
-	if (devfs_debug & DEBUG_I_CREATE)
-	    printk ("%s: create_entry(): grew inode table to: %u entries\n",
-		    DEVFS_NAME, fs_info.table_size);
-#endif
-	if (fs_info.table)
-	{
-	    memcpy (table, fs_info.table, sizeof *table *fs_info.num_inodes);
-	    kfree (fs_info.table);
-	}
-	fs_info.table = table;
-    }
     if ( name && (namelen < 1) ) namelen = strlen (name);
     if ( ( new = kmalloc (sizeof *new + namelen, GFP_KERNEL) ) == NULL )
 	return NULL;
     /*  Magic: this will set the ctime to zero, thus subsequent lookups will
 	trigger the call to <update_devfs_inode_from_entry>  */
     memset (new, 0, sizeof *new + namelen);
+    spin_lock (&counter_lock);
+    new->inode.ino = inode_counter++;
+    spin_unlock (&counter_lock);
     new->parent = parent;
     if (name) memcpy (new->name, name, namelen);
     new->namelen = namelen;
-    new->inode.ino = fs_info.num_inodes + FIRST_INODE;
-    new->inode.nlink = 1;
-    fs_info.table[fs_info.num_inodes] = new;
-    ++fs_info.num_inodes;
     if (parent == NULL) return new;
     new->prev = parent->u.dir.last;
     /*  Insert into the parent directory's list of children  */
@@ -873,6 +891,7 @@ static void update_devfs_inode_from_entry (struct devfs_entry *de)
 
 static struct devfs_entry *get_root_entry (void)
 {
+    kdev_t devnum;
     struct devfs_entry *new;
 
     /*  Always ensure the root is created  */
@@ -885,9 +904,9 @@ static struct devfs_entry *get_root_entry (void)
     /*  And create the entry for ".devfsd"  */
     if ( ( new = create_entry (root_entry, ".devfsd", 0) ) == NULL )
 	return NULL;
-    new->u.fcb.u.device.major = next_devnum_char >> 8;
-    new->u.fcb.u.device.minor = next_devnum_char & 0xff;
-    ++next_devnum_char;
+    devnum = devfs_alloc_devnum (DEVFS_SPECIAL_CHR);
+    new->u.fcb.u.device.major = MAJOR (devnum);
+    new->u.fcb.u.device.minor = MINOR (devnum);
     new->mode = S_IFCHR | S_IRUSR | S_IWUSR;
     new->u.fcb.default_uid = 0;
     new->u.fcb.default_gid = 0;
@@ -1071,8 +1090,10 @@ static struct devfs_entry *find_entry (devfs_handle_t dir,
 	    ++name;
 	    --namelen;
 	}
+	if (traverse_symlink) down_read (&symlink_rwsem);
 	entry = search_for_entry (dir, name, namelen, FALSE, FALSE, NULL,
 				  traverse_symlink);
+	if (traverse_symlink) up_read (&symlink_rwsem);
 	if (entry != NULL) return entry;
     }
     /*  Have to search by major and minor: slow  */
@@ -1084,14 +1105,10 @@ static struct devfs_entry *get_devfs_entry_from_vfs_inode (struct inode *inode,
 							   int do_check)
 {
     struct devfs_entry *de;
-    struct fs_info *fs_info;
 
     if (inode == NULL) return NULL;
-    if (inode->i_ino < FIRST_INODE) return NULL;
-    fs_info = inode->i_sb->u.generic_sbp;
-    if (fs_info == NULL) return NULL;
-    if (inode->i_ino - FIRST_INODE >= fs_info->num_inodes) return NULL;
-    de = fs_info->table[inode->i_ino - FIRST_INODE];
+    de = inode->u.generic_ip;
+    if (!de) printk (__FUNCTION__ "(): NULL de for inode %ld\n", inode->i_ino);
     if (do_check && de && !de->registered) de = NULL;
     return de;
 }   /*  End Function get_devfs_entry_from_vfs_inode  */
@@ -1264,7 +1281,9 @@ devfs_handle_t devfs_register (devfs_handle_t dir, const char *name,
 			       unsigned int major, unsigned int minor,
 			       umode_t mode, void *ops, void *info)
 {
+    char devtype = S_ISCHR (mode) ? DEVFS_SPECIAL_CHR : DEVFS_SPECIAL_BLK;
     int is_new;
+    kdev_t devnum = NODEV;
     struct devfs_entry *de;
 
     if (name == NULL)
@@ -1296,29 +1315,17 @@ devfs_handle_t devfs_register (devfs_handle_t dir, const char *name,
 		DEVFS_NAME, name);
 	return NULL;
     }
-    if ( S_ISCHR (mode) && (flags & DEVFS_FL_AUTO_DEVNUM) )
+    if ( ( S_ISCHR (mode) || S_ISBLK (mode) ) &&
+	 (flags & DEVFS_FL_AUTO_DEVNUM) )
     {
-	if (next_devnum_char >= MAX_DEVNUM)
+	if ( ( devnum = devfs_alloc_devnum (devtype) ) == NODEV )
 	{
-	    printk ("%s: devfs_register(%s): exhausted char device numbers\n",
-		    DEVFS_NAME, name);
+	    printk ("%s: devfs_register(%s): exhausted %s device numbers\n",
+		    DEVFS_NAME, name, S_ISCHR (mode) ? "char" : "block");
 	    return NULL;
 	}
-	major = next_devnum_char >> 8;
-	minor = next_devnum_char & 0xff;
-	++next_devnum_char;
-    }
-    if ( S_ISBLK (mode) && (flags & DEVFS_FL_AUTO_DEVNUM) )
-    {
-	if (next_devnum_block >= MAX_DEVNUM)
-	{
-	    printk ("%s: devfs_register(%s): exhausted block device numbers\n",
-		    DEVFS_NAME, name);
-	    return NULL;
-	}
-	major = next_devnum_block >> 8;
-	minor = next_devnum_block & 0xff;
-	++next_devnum_block;
+	major = MAJOR (devnum);
+	minor = MINOR (devnum);
     }
     de = search_for_entry (dir, name, strlen (name), TRUE, TRUE, &is_new,
 			   FALSE);
@@ -1326,6 +1333,7 @@ devfs_handle_t devfs_register (devfs_handle_t dir, const char *name,
     {
 	printk ("%s: devfs_register(): could not create entry: \"%s\"\n",
 		DEVFS_NAME, name);
+	if (devnum != NODEV) devfs_dealloc_devnum (devtype, devnum);
 	return NULL;
     }
 #ifdef CONFIG_DEVFS_DEBUG
@@ -1341,19 +1349,23 @@ devfs_handle_t devfs_register (devfs_handle_t dir, const char *name,
 	{
 	    printk ("%s: devfs_register(): existing non-device/file entry: \"%s\"\n",
 		    DEVFS_NAME, name);
+	    if (devnum != NODEV) devfs_dealloc_devnum (devtype, devnum);
 	    return NULL;
 	}
 	if (de->registered)
 	{
 	    printk("%s: devfs_register(): device already registered: \"%s\"\n",
 		   DEVFS_NAME, name);
+	    if (devnum != NODEV) devfs_dealloc_devnum (devtype, devnum);
 	    return NULL;
 	}
     }
+    de->u.fcb.autogen = FALSE;
     if ( S_ISCHR (mode) || S_ISBLK (mode) )
     {
 	de->u.fcb.u.device.major = major;
 	de->u.fcb.u.device.minor = minor;
+	de->u.fcb.autogen = (devnum == NODEV) ? FALSE : TRUE;
     }
     else if ( S_ISREG (mode) ) de->u.fcb.u.file.size = 0;
     else
@@ -1383,8 +1395,6 @@ devfs_handle_t devfs_register (devfs_handle_t dir, const char *name,
 	++de->parent->u.dir.num_removable;
     }
     de->u.fcb.open = FALSE;
-    de->show_unreg = ( (boot_options & OPTION_SHOW)
-			|| (flags & DEVFS_FL_SHOW_UNREG) ) ? TRUE : FALSE;
     de->hide = (flags & DEVFS_FL_HIDE) ? TRUE : FALSE;
     de->no_persistence = (flags & DEVFS_FL_NO_PERSISTENCE) ? TRUE : FALSE;
     de->registered = TRUE;
@@ -1417,12 +1427,23 @@ static void unregister (struct devfs_entry *de)
     {
 	de->registered = FALSE;
 	de->u.fcb.ops = NULL;
+	if (!S_ISREG (de->mode) && de->u.fcb.autogen)
+	{
+	    devfs_dealloc_devnum ( S_ISCHR (de->mode) ? DEVFS_SPECIAL_CHR :
+				   DEVFS_SPECIAL_BLK,
+				   MKDEV (de->u.fcb.u.device.major,
+					  de->u.fcb.u.device.minor) );
+	}
+	de->u.fcb.autogen = FALSE;
 	return;
     }
     if (S_ISLNK (de->mode) && de->registered)
     {
 	de->registered = FALSE;
-	kfree (de->u.symlink.linkname);
+	down_write (&symlink_rwsem);
+	if (de->u.symlink.linkname) kfree (de->u.symlink.linkname);
+	de->u.symlink.linkname = NULL;
+	up_write (&symlink_rwsem);
 	return;
     }
     if ( S_ISFIFO (de->mode) )
@@ -1473,7 +1494,7 @@ static int devfs_do_symlink (devfs_handle_t dir, const char *name,
 {
     int is_new;
     unsigned int linklength;
-    char *newname;
+    char *newlink;
     struct devfs_entry *de;
 
     if (handle != NULL) *handle = NULL;
@@ -1492,49 +1513,33 @@ static int devfs_do_symlink (devfs_handle_t dir, const char *name,
 	return -EINVAL;
     }
     linklength = strlen (link);
-    de = search_for_entry (dir, name, strlen (name), TRUE, TRUE, &is_new,
-			   FALSE);
-    if (de == NULL) return -ENOMEM;
-    if (!S_ISLNK (de->mode) && de->registered)
+    if ( ( newlink = kmalloc (linklength + 1, GFP_KERNEL) ) == NULL )
+	return -ENOMEM;
+    memcpy (newlink, link, linklength);
+    newlink[linklength] = '\0';
+    if ( ( de = search_for_entry (dir, name, strlen (name), TRUE, TRUE,
+				  &is_new, FALSE) ) == NULL )
     {
-	printk ("%s: devfs_do_symlink(): non-link entry already exists\n",
-		DEVFS_NAME);
-	return -EEXIST;
-    }
-    if (handle != NULL) *handle = de;
-    de->mode = S_IFLNK | S_IRUGO | S_IXUGO;
-    de->info = info;
-    de->show_unreg = ( (boot_options & OPTION_SHOW)
-		       || (flags & DEVFS_FL_SHOW_UNREG) ) ? TRUE : FALSE;
-    de->hide = (flags & DEVFS_FL_HIDE) ? TRUE : FALSE;
-    /*  Note there is no need to fiddle the dentry cache if the symlink changes
-	as the symlink follow method is called every time it's needed  */
-    if ( de->registered && (linklength == de->u.symlink.length) )
-    {
-	/*  New link is same length as old link  */
-	if (memcmp (link, de->u.symlink.linkname, linklength) == 0) return 0;
-	return -EEXIST;  /*  Contents would change  */
-    }
-    /*  Have to create/update  */
-    if (de->registered) return -EEXIST;
-    if ( ( newname = kmalloc (linklength + 1, GFP_KERNEL) ) == NULL )
-    {
-	struct devfs_entry *parent = de->parent;
-
-	if (!is_new) return -ENOMEM;
-	/*  Have to clean up  */
-	if (de->prev == NULL) parent->u.dir.first = de->next;
-	else de->prev->next = de->next;
-	if (de->next == NULL) parent->u.dir.last = de->prev;
-	else de->next->prev = de->prev;
-	kfree (de);
+	kfree (newlink);
 	return -ENOMEM;
     }
-    de->u.symlink.linkname = newname;
-    memcpy (de->u.symlink.linkname, link, linklength);
-    de->u.symlink.linkname[linklength] = '\0';
+    down_write (&symlink_rwsem);
+    if (de->registered)
+    {
+	up_write (&symlink_rwsem);
+	kfree (newlink);
+	printk ("%s: devfs_do_symlink(%s): entry already exists\n",
+		DEVFS_NAME, name);
+	return -EEXIST;
+    }
+    de->mode = S_IFLNK | S_IRUGO | S_IXUGO;
+    de->info = info;
+    de->hide = (flags & DEVFS_FL_HIDE) ? TRUE : FALSE;
+    de->u.symlink.linkname = newlink;
     de->u.symlink.length = linklength;
     de->registered = TRUE;
+    up_write (&symlink_rwsem);
+    if (handle != NULL) *handle = de;
     return 0;
 }   /*  End Function devfs_do_symlink  */
 
@@ -1619,7 +1624,6 @@ devfs_handle_t devfs_mk_dir (devfs_handle_t dir, const char *name, void *info)
     de->mode = S_IFDIR | S_IRUGO | S_IXUGO;
     de->info = info;
     if (!de->registered) de->u.dir.num_removable = 0;
-    de->show_unreg = (boot_options & OPTION_SHOW) ? TRUE : FALSE;
     de->hide = FALSE;
     de->registered = TRUE;
     return de;
@@ -1650,8 +1654,7 @@ devfs_handle_t devfs_find_handle (devfs_handle_t dir, const char *name,
     devfs_handle_t de;
 
     if ( (name != NULL) && (name[0] == '\0') ) name = NULL;
-    de = find_entry (dir, name, 0, major, minor, type,
-		     traverse_symlinks);
+    de = find_entry (dir, name, 0, major, minor, type, traverse_symlinks);
     if (de == NULL) return NULL;
     if (!de->registered) return NULL;
     return de;
@@ -1672,7 +1675,6 @@ int devfs_get_flags (devfs_handle_t de, unsigned int *flags)
 
     if (de == NULL) return -EINVAL;
     if (!de->registered) return -ENODEV;
-    if (de->show_unreg) fl |= DEVFS_FL_SHOW_UNREG;
     if (de->hide) fl |= DEVFS_FL_HIDE;
     if ( S_ISCHR (de->mode) || S_ISBLK (de->mode) || S_ISREG (de->mode) )
     {
@@ -1702,7 +1704,6 @@ int devfs_set_flags (devfs_handle_t de, unsigned int flags)
 	printk ("%s: devfs_set_flags(): de->name: \"%s\"\n",
 		DEVFS_NAME, de->name);
 #endif
-    de->show_unreg = (flags & DEVFS_FL_SHOW_UNREG) ? TRUE : FALSE;
     de->hide = (flags & DEVFS_FL_HIDE) ? TRUE : FALSE;
     if ( S_ISCHR (de->mode) || S_ISBLK (de->mode) || S_ISREG (de->mode) )
     {
@@ -2051,16 +2052,16 @@ static int __init devfs_setup (char *str)
 	{"dmod",      DEBUG_MODULE_LOAD,  &devfs_debug_init},
 	{"dreg",      DEBUG_REGISTER,     &devfs_debug_init},
 	{"dunreg",    DEBUG_UNREGISTER,   &devfs_debug_init},
-	{"diread",    DEBUG_I_READ,       &devfs_debug_init},
+	{"diget",     DEBUG_I_GET,        &devfs_debug_init},
 	{"dchange",   DEBUG_SET_FLAGS,    &devfs_debug_init},
-	{"diwrite",   DEBUG_I_WRITE,      &devfs_debug_init},
+	{"dichange",  DEBUG_I_CHANGE,     &devfs_debug_init},
 	{"dimknod",   DEBUG_I_MKNOD,      &devfs_debug_init},
 	{"dilookup",  DEBUG_I_LOOKUP,     &devfs_debug_init},
 	{"diunlink",  DEBUG_I_UNLINK,     &devfs_debug_init},
 #endif  /*  CONFIG_DEVFS_DEBUG  */
-	{"show",      OPTION_SHOW,        &boot_options},
 	{"only",      OPTION_ONLY,        &boot_options},
 	{"mount",     OPTION_MOUNT,       &boot_options},
+	{NULL,        0,                  NULL}
     };
 
     while ( (*str != '\0') && !isspace (*str) )
@@ -2072,7 +2073,7 @@ static int __init devfs_setup (char *str)
 	    invert = 1;
 	    str += 2;
 	}
-	for (i = 0; i < sizeof (devfs_options_tab); i++)
+	for (i = 0; devfs_options_tab[i].name != NULL; i++)
 	{
 	    int len = strlen (devfs_options_tab[i].name);
 
@@ -2143,7 +2144,7 @@ static int try_modload (struct devfs_entry *parent, struct fs_info *fs_info,
     if ( !( fs_info->devfsd_event_mask & (1 << DEVFSD_NOTIFY_LOOKUP) ) )
 	return -ENOENT;
     if ( is_devfsd_or_child (fs_info) ) return -ENOENT;
-    if (namelen >= STRING_LENGTH) return -ENAMETOOLONG;
+    if (namelen >= STRING_LENGTH - 1) return -ENAMETOOLONG;
     memcpy (buf + pos, name, namelen);
     buf[STRING_LENGTH - 1] = '\0';
     if (parent->parent != NULL) pos = devfs_generate_path (parent, buf, pos);
@@ -2245,109 +2246,6 @@ static struct file_operations devfs_fops;
 static struct file_operations devfs_dir_fops;
 static struct inode_operations devfs_symlink_iops;
 
-static void devfs_read_inode (struct inode *inode)
-{
-    struct devfs_entry *de;
-
-    de = get_devfs_entry_from_vfs_inode (inode, TRUE);
-    if (de == NULL)
-    {
-	printk ("%s: read_inode(%d): VFS inode: %p  NO devfs_entry\n",
-		DEVFS_NAME, (int) inode->i_ino, inode);
-	return;
-    }
-#ifdef CONFIG_DEVFS_DEBUG
-    if (devfs_debug & DEBUG_I_READ)
-	printk ("%s: read_inode(%d): VFS inode: %p  devfs_entry: %p\n",
-		DEVFS_NAME, (int) inode->i_ino, inode, de);
-#endif
-    inode->i_blocks = 0;
-    inode->i_blksize = 1024;
-    inode->i_op = &devfs_iops;
-    inode->i_fop = &devfs_fops;
-    inode->i_rdev = NODEV;
-    if ( S_ISCHR (de->inode.mode) )
-    {
-	inode->i_rdev = MKDEV (de->u.fcb.u.device.major,
-			       de->u.fcb.u.device.minor);
-	inode->i_cdev = cdget (kdev_t_to_nr(inode->i_rdev));
-    }
-    else if ( S_ISBLK (de->inode.mode) )
-    {
-	inode->i_rdev = MKDEV (de->u.fcb.u.device.major,
-			       de->u.fcb.u.device.minor);
-	inode->i_bdev = bdget (kdev_t_to_nr(inode->i_rdev));
-	if (inode->i_bdev)
-	{
-	    if (!inode->i_bdev->bd_op && de->u.fcb.ops)
-		inode->i_bdev->bd_op = de->u.fcb.ops;
-	}
-	else printk ("%s: read_inode(%d): no block device from bdget()\n",
-		     DEVFS_NAME, (int) inode->i_ino);
-    }
-    else if ( S_ISFIFO (de->inode.mode) ) inode->i_fop = &def_fifo_fops;
-    else if ( S_ISREG (de->inode.mode) ) inode->i_size = de->u.fcb.u.file.size;
-    else if ( S_ISDIR (de->inode.mode) )
-    {
-	inode->i_op = &devfs_dir_iops;
-    	inode->i_fop = &devfs_dir_fops;
-    }
-    else if ( S_ISLNK (de->inode.mode) )
-    {
-	inode->i_op = &devfs_symlink_iops;
-	inode->i_size = de->u.symlink.length;
-    }
-    inode->i_mode = de->inode.mode;
-    inode->i_uid = de->inode.uid;
-    inode->i_gid = de->inode.gid;
-    inode->i_atime = de->inode.atime;
-    inode->i_mtime = de->inode.mtime;
-    inode->i_ctime = de->inode.ctime;
-    inode->i_nlink = de->inode.nlink;
-#ifdef CONFIG_DEVFS_DEBUG
-    if (devfs_debug & DEBUG_I_READ)
-	printk ("%s:   mode: 0%o  uid: %d  gid: %d\n",
-		DEVFS_NAME, (int) inode->i_mode,
-		(int) inode->i_uid, (int) inode->i_gid);
-#endif
-}   /*  End Function devfs_read_inode  */
-
-static void devfs_write_inode (struct inode *inode, int wait)
-{
-    int index;
-    struct devfs_entry *de;
-    struct fs_info *fs_info = inode->i_sb->u.generic_sbp;
-
-    if (inode->i_ino < FIRST_INODE) return;
-    index = inode->i_ino - FIRST_INODE;
-    lock_kernel ();
-    if (index >= fs_info->num_inodes)
-    {
-	printk ("%s: writing inode: %lu for which there is no entry!\n",
-		DEVFS_NAME, inode->i_ino);
-        unlock_kernel ();
-	return;
-    }
-    de = fs_info->table[index];
-#ifdef CONFIG_DEVFS_DEBUG
-    if (devfs_debug & DEBUG_I_WRITE)
-    {
-	printk ("%s: write_inode(%d): VFS inode: %p  devfs_entry: %p\n",
-		DEVFS_NAME, (int) inode->i_ino, inode, de);
-	printk ("%s:   mode: 0%o  uid: %d  gid: %d\n",
-		DEVFS_NAME, (int) inode->i_mode,
-		(int) inode->i_uid, (int) inode->i_gid);
-    }
-#endif
-    de->inode.mode = inode->i_mode;
-    de->inode.uid = inode->i_uid;
-    de->inode.gid = inode->i_gid;
-    de->inode.atime = inode->i_atime;
-    de->inode.mtime = inode->i_mtime;
-    de->inode.ctime = inode->i_ctime;
-    unlock_kernel ();
-}   /*  End Function devfs_write_inode  */
-
 static int devfs_notify_change (struct dentry *dentry, struct iattr *iattr)
 {
     int retval;
@@ -2359,7 +2257,26 @@ static int devfs_notify_change (struct dentry *dentry, struct iattr *iattr)
     if (de == NULL) return -ENODEV;
     retval = inode_change_ok (inode, iattr);
     if (retval != 0) return retval;
-    inode_setattr (inode, iattr);
+    retval = inode_setattr (inode, iattr);
+    if (retval != 0) return retval;
+#ifdef CONFIG_DEVFS_DEBUG
+    if (devfs_debug & DEBUG_I_CHANGE)
+    {
+	printk ("%s: notify_change(%d): VFS inode: %p  devfs_entry: %p\n",
+		DEVFS_NAME, (int) inode->i_ino, inode, de);
+	printk ("%s:   mode: 0%o  uid: %d  gid: %d\n",
+		DEVFS_NAME, (int) inode->i_mode,
+		(int) inode->i_uid, (int) inode->i_gid);
+    }
+#endif
+    /*  Inode is not on hash chains, thus must save permissions here rather
+	than in a write_inode() method  */
+    de->inode.mode = inode->i_mode;
+    de->inode.uid = inode->i_uid;
+    de->inode.gid = inode->i_gid;
+    de->inode.atime = inode->i_atime;
+    de->inode.mtime = inode->i_mtime;
+    de->inode.ctime = inode->i_ctime;
     if ( iattr->ia_valid & (ATTR_MODE | ATTR_UID | ATTR_GID) )
 	devfsd_notify_one (de, DEVFSD_NOTIFY_CHANGE, inode->i_mode,
 			   inode->i_uid, inode->i_gid, fs_info);
@@ -2377,10 +2294,16 @@ static int devfs_statfs (struct super_block *sb, struct statfs *buf)
     return 0;
 }   /*  End Function devfs_statfs  */
 
+static void devfs_clear_inode(struct inode *inode)
+{
+	if (S_ISBLK(inode->i_mode))
+		bdput(inode->i_bdev);
+}
+
 static struct super_operations devfs_sops =
 { 
-    read_inode:    devfs_read_inode,
-    write_inode:   devfs_write_inode,
+    put_inode:     force_delete,
+    clear_inode:   devfs_clear_inode,
     statfs:        devfs_statfs,
 };
 
@@ -2409,8 +2332,67 @@ static struct inode *get_vfs_inode (struct super_block *sb,
 	printk ("  old inode: %p\n", de->inode.dentry->d_inode);
 	return NULL;
     }
-    if ( ( inode = iget (sb, de->inode.ino) ) == NULL ) return NULL;
+    if ( ( inode = new_inode (sb) ) == NULL )
+    {
+	printk ("%s: get_vfs_inode(%s): new_inode() failed, de: %p\n",
+		DEVFS_NAME, de->name, de);
+	return NULL;
+    }
     de->inode.dentry = dentry;
+    inode->u.generic_ip = de;
+    inode->i_ino = de->inode.ino;
+#ifdef CONFIG_DEVFS_DEBUG
+    if (devfs_debug & DEBUG_I_GET)
+	printk ("%s: get_vfs_inode(%d): VFS inode: %p  devfs_entry: %p\n",
+		DEVFS_NAME, (int) inode->i_ino, inode, de);
+#endif
+    inode->i_blocks = 0;
+    inode->i_blksize = 1024;
+    inode->i_op = &devfs_iops;
+    inode->i_fop = &devfs_fops;
+    inode->i_rdev = NODEV;
+    if ( S_ISCHR (de->inode.mode) )
+    {
+	inode->i_rdev = MKDEV (de->u.fcb.u.device.major,
+			       de->u.fcb.u.device.minor);
+	inode->i_cdev = cdget (kdev_t_to_nr(inode->i_rdev));
+    }
+    else if ( S_ISBLK (de->inode.mode) )
+    {
+	inode->i_rdev = MKDEV (de->u.fcb.u.device.major,
+			       de->u.fcb.u.device.minor);
+	if (bd_acquire(inode) == 0)
+	{
+	    if (!inode->i_bdev->bd_op && de->u.fcb.ops)
+		inode->i_bdev->bd_op = de->u.fcb.ops;
+	}
+	else printk ("%s: get_vfs_inode(%d): no block device from bdget()\n",
+		     DEVFS_NAME, (int) inode->i_ino);
+    }
+    else if ( S_ISFIFO (de->inode.mode) ) inode->i_fop = &def_fifo_fops;
+    else if ( S_ISREG (de->inode.mode) ) inode->i_size = de->u.fcb.u.file.size;
+    else if ( S_ISDIR (de->inode.mode) )
+    {
+	inode->i_op = &devfs_dir_iops;
+    	inode->i_fop = &devfs_dir_fops;
+    }
+    else if ( S_ISLNK (de->inode.mode) )
+    {
+	inode->i_op = &devfs_symlink_iops;
+	inode->i_size = de->u.symlink.length;
+    }
+    inode->i_mode = de->inode.mode;
+    inode->i_uid = de->inode.uid;
+    inode->i_gid = de->inode.gid;
+    inode->i_atime = de->inode.atime;
+    inode->i_mtime = de->inode.mtime;
+    inode->i_ctime = de->inode.ctime;
+#ifdef CONFIG_DEVFS_DEBUG
+    if (devfs_debug & DEBUG_I_GET)
+	printk ("%s:   mode: 0%o  uid: %d  gid: %d\n",
+		DEVFS_NAME, (int) inode->i_mode,
+		(int) inode->i_uid, (int) inode->i_gid);
+#endif
     return inode;
 }   /*  End Function get_vfs_inode  */
 
@@ -2723,14 +2705,14 @@ static struct dentry *devfs_lookup (struct inode *dir, struct dentry *dentry)
     memcpy (txt, dentry->d_name.name,
 	    (dentry->d_name.len >= STRING_LENGTH) ?
 	    (STRING_LENGTH - 1) : dentry->d_name.len);
-#ifdef CONFIG_DEVFS_DEBUG
-    if (devfs_debug & DEBUG_I_LOOKUP)
-	printk ("%s: lookup(%s): dentry: %p by: \"%s\"\n",
-		DEVFS_NAME, txt, dentry, current->comm);
-#endif
     fs_info = dir->i_sb->u.generic_sbp;
     /*  First try to get the devfs entry for this directory  */
     parent = get_devfs_entry_from_vfs_inode (dir, TRUE);
+#ifdef CONFIG_DEVFS_DEBUG
+    if (devfs_debug & DEBUG_I_LOOKUP)
+	printk ("%s: lookup(%s): dentry: %p parent: %p by: \"%s\"\n",
+		DEVFS_NAME, txt, dentry, parent, current->comm);
+#endif
     if (parent == NULL) return ERR_PTR (-ENOENT);
     /*  Try to reclaim an existing devfs entry  */
     de = search_for_entry_in_dir (parent,
@@ -2805,22 +2787,10 @@ static struct dentry *devfs_lookup (struct inode *dir, struct dentry *dentry)
     return NULL;
 }   /*  End Function devfs_lookup  */
 
-static int devfs_link (struct dentry *old_dentry, struct inode *dir,
-		       struct dentry *dentry)
-{
-    /*struct inode *inode = old_dentry->d_inode;*/
-    char txt[STRING_LENGTH];
-
-    memset (txt, 0, STRING_LENGTH);
-    memcpy (txt, old_dentry->d_name.name, old_dentry->d_name.len);
-    txt[STRING_LENGTH - 1] = '\0';
-    printk ("%s: link of \"%s\"\n", DEVFS_NAME, txt);
-    return -EPERM;
-}   /*  End Function devfs_link  */
-
 static int devfs_unlink (struct inode *dir, struct dentry *dentry)
 {
     struct devfs_entry *de;
+    struct inode *inode = dentry->d_inode;
 
 #ifdef CONFIG_DEVFS_DEBUG
     char txt[STRING_LENGTH];
@@ -2836,9 +2806,17 @@ static int devfs_unlink (struct inode *dir, struct dentry *dentry)
 
     de = get_devfs_entry_from_vfs_inode (dentry->d_inode, TRUE);
     if (de == NULL) return -ENOENT;
+    devfsd_notify_one (de, DEVFSD_NOTIFY_DELETE, inode->i_mode,
+		       inode->i_uid, inode->i_gid, dir->i_sb->u.generic_sbp);
     de->registered = FALSE;
     de->hide = TRUE;
-    if ( S_ISLNK (de->mode) ) kfree (de->u.symlink.linkname);
+    if ( S_ISLNK (de->mode) )
+    {
+	down_write (&symlink_rwsem);
+	if (de->u.symlink.linkname) kfree (de->u.symlink.linkname);
+	de->u.symlink.linkname = NULL;
+	up_write (&symlink_rwsem);
+    }
     free_dentries (de);
     return 0;
 }   /*  End Function devfs_unlink  */
@@ -2952,6 +2930,8 @@ static int devfs_rmdir (struct inode *dir, struct dentry *dentry)
 	}
     }
     if (has_children) return -ENOTEMPTY;
+    devfsd_notify_one (de, DEVFSD_NOTIFY_DELETE, inode->i_mode,
+		       inode->i_uid, inode->i_gid, fs_info);
     de->hide = TRUE;
     de->registered = FALSE;
     free_dentries (de);
@@ -2987,29 +2967,29 @@ static int devfs_mknod (struct inode *dir, struct dentry *dentry, int mode,
     de = search_for_entry (parent, dentry->d_name.name, dentry->d_name.len,
 			   FALSE, TRUE, &is_new, FALSE);
     if (de == NULL) return -ENOMEM;
-    if (!de->registered)
+    if (de->registered)
     {
-	/*  Since we created the devfs entry we get to choose things  */
-	de->info = NULL;
-	de->mode = mode;
-	if ( S_ISBLK (mode) || S_ISCHR (mode) )
-	{
-	    de->u.fcb.u.device.major = MAJOR (rdev);
-	    de->u.fcb.u.device.minor = MINOR (rdev);
-	    de->u.fcb.default_uid = current->euid;
-	    de->u.fcb.default_gid = current->egid;
-	    de->u.fcb.ops = NULL;
-	    de->u.fcb.auto_owner = FALSE;
-	    de->u.fcb.aopen_notify = FALSE;
-	    de->u.fcb.open = FALSE;
-	}
-	else if ( S_ISFIFO (mode) )
-	{
-	    de->u.fifo.uid = current->euid;
-	    de->u.fifo.gid = current->egid;
-	}
+	printk ("%s: mknod(): existing entry\n", DEVFS_NAME);
+	return -EEXIST;
     }
-    de->show_unreg = FALSE;
+    de->info = NULL;
+    de->mode = mode;
+    if ( S_ISBLK (mode) || S_ISCHR (mode) )
+    {
+	de->u.fcb.u.device.major = MAJOR (rdev);
+	de->u.fcb.u.device.minor = MINOR (rdev);
+	de->u.fcb.default_uid = current->euid;
+	de->u.fcb.default_gid = current->egid;
+	de->u.fcb.ops = NULL;
+	de->u.fcb.auto_owner = FALSE;
+	de->u.fcb.aopen_notify = FALSE;
+	de->u.fcb.open = FALSE;
+    }
+    else if ( S_ISFIFO (mode) )
+    {
+	de->u.fifo.uid = current->euid;
+	de->u.fifo.gid = current->egid;
+    }
     de->hide = FALSE;
     de->inode.mode = mode;
     de->inode.uid = current->euid;
@@ -3036,11 +3016,12 @@ static int devfs_readlink (struct dentry *dentry, char *buffer, int buflen)
     int err;
     struct devfs_entry *de;
 
-    lock_kernel ();
     de = get_devfs_entry_from_vfs_inode (dentry->d_inode, TRUE);
-    err = de ? vfs_readlink (dentry, buffer, buflen,
-			     de->u.symlink.linkname) : -ENODEV;
-    unlock_kernel ();
+    if (!de) return -ENODEV;
+    down_read (&symlink_rwsem);
+    err = de->registered ? vfs_readlink (dentry, buffer, buflen,
+					 de->u.symlink.linkname) : -ENODEV;
+    up_read (&symlink_rwsem);
     return err;
 }   /*  End Function devfs_readlink  */
 
@@ -3049,10 +3030,12 @@ static int devfs_follow_link (struct dentry *dentry, struct nameidata *nd)
     int err;
     struct devfs_entry *de;
 
-    lock_kernel ();
     de = get_devfs_entry_from_vfs_inode (dentry->d_inode, TRUE);
-    err = de ? vfs_follow_link (nd, de->u.symlink.linkname) : -ENODEV;
-    unlock_kernel ();
+    if (!de) return -ENODEV;
+    down_read (&symlink_rwsem);
+    err = de->registered ? vfs_follow_link (nd,
+					    de->u.symlink.linkname) : -ENODEV;
+    up_read (&symlink_rwsem);
     return err;
 }   /*  End Function devfs_follow_link  */
 
@@ -3064,7 +3047,6 @@ static struct inode_operations devfs_iops =
 static struct inode_operations devfs_dir_iops =
 {
     lookup:         devfs_lookup,
-    link:           devfs_link,
     unlink:         devfs_unlink,
     symlink:        devfs_symlink,
     mkdir:          devfs_mkdir,

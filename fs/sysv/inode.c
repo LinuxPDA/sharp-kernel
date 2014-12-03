@@ -28,11 +28,10 @@
 #include <linux/highuid.h>
 #include <asm/byteorder.h>
 
-
 /* This is only called on sync() and umount(), when s_dirt=1. */
 static void sysv_write_super(struct super_block *sb)
 {
-	if (buffer_dirty(sb->sv_bh1) || buffer_dirty(sb->sv_bh2)) {
+	if (!(sb->s_flags & MS_RDONLY)) {
 		/* If we are going to write out the super block,
 		   then attach current time stamp.
 		   But if the filesystem was marked clean, keep it clean. */
@@ -49,13 +48,16 @@ static void sysv_write_super(struct super_block *sb)
 
 static void sysv_put_super(struct super_block *sb)
 {
-	/* we can assume sysv_write_super() has already been called,
-	   and that the superblock is locked */
+	if (!(sb->s_flags & MS_RDONLY)) {
+		/* XXX ext2 also updates the state here */
+		mark_buffer_dirty(sb->sv_bh1);
+		if (sb->sv_bh1 != sb->sv_bh2)
+			mark_buffer_dirty(sb->sv_bh2);
+	}
+
 	brelse(sb->sv_bh1);
-	if (sb->sv_bh1 != sb->sv_bh2) brelse(sb->sv_bh2);
-	/* switch back to default block size */
-	if (sb->s_blocksize != BLOCK_SIZE)
-		set_blocksize(sb->s_dev,BLOCK_SIZE);
+	if (sb->sv_bh1 != sb->sv_bh2)
+		brelse(sb->sv_bh2);
 }
 
 static int sysv_statfs(struct super_block *sb, struct statfs *buf)
@@ -129,8 +131,11 @@ void sysv_set_inode(struct inode *inode, dev_t rdev)
 		inode->i_fop = &sysv_dir_operations;
 		inode->i_mapping->a_ops = &sysv_aops;
 	} else if (S_ISLNK(inode->i_mode)) {
-		inode->i_op = &sysv_symlink_inode_operations;
-		inode->i_mapping->a_ops = &sysv_aops;
+		if (inode->i_blocks) {
+			inode->i_op = &sysv_symlink_inode_operations;
+			inode->i_mapping->a_ops = &sysv_aops;
+		} else
+			inode->i_op = &sysv_fast_symlink_inode_operations;
 	} else
 		init_special_inode(inode, inode->i_mode, rdev);
 }
@@ -193,9 +198,7 @@ int sysv_notify_change(struct dentry *dentry, struct iattr *attr)
 			if (attr->ia_mode == COH_KLUDGE_SYMLINK_MODE)
 				attr->ia_mode = COH_KLUDGE_NOT_SYMLINK;
 
-	inode_setattr(inode, attr);
-
-	return 0;
+	return inode_setattr(inode, attr);
 }
 
 static struct buffer_head * sysv_update_inode(struct inode * inode)

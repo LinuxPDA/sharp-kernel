@@ -1,5 +1,15 @@
-/* $Id: bitops.h,v 1.4 2001/02/28 04:26:11 hp Exp $ */
-/* all of these should probably be rewritten in assembler for speed. */
+/* asm/bitops.h for Linux/CRIS
+ *
+ * TODO: asm versions if speed is needed
+ *       set_bit, clear_bit and change_bit wastes cycles being only
+ *       macros into test_and_set_bit etc.
+ *       kernel-doc things (**) for macros are disabled
+ *
+ * All bit operations return 0 if the bit was cleared before the
+ * operation and != 0 if it was not.
+ *
+ * bit 0 is the LSB of addr; bit 32 is the LSB of (addr+1).
+ */
 
 #ifndef _CRIS_BITOPS_H
 #define _CRIS_BITOPS_H
@@ -9,13 +19,9 @@
 
 #include <asm/system.h>
 
-/*
- * These have to be done with inline assembly: that way the bit-setting
- * is guaranteed to be atomic. All bit operations return 0 if the bit
- * was cleared before the operation and != 0 if it was not.
- *
- * bit 0 is the LSB of addr; bit 32 is the LSB of (addr+1).
- */
+/* We use generic_ffs so get it; include guards resolve the possible
+   mutually inclusion.  */
+#include <linux/bitops.h>
 
 /*
  * Some hacks to defeat gcc over-optimizations..
@@ -24,11 +30,66 @@ struct __dummy { unsigned long a[100]; };
 #define ADDR (*(struct __dummy *) addr)
 #define CONST_ADDR (*(const struct __dummy *) addr)
 
+/*
+ * set_bit - Atomically set a bit in memory
+ * @nr: the bit to set
+ * @addr: the address to start counting from
+ *
+ * This function is atomic and may not be reordered.  See __set_bit()
+ * if you do not require the atomic guarantees.
+ * Note that @nr may be almost arbitrarily large; this function is not
+ * restricted to acting on a single-word quantity.
+ */
+
 #define set_bit(nr, addr)    (void)test_and_set_bit(nr, addr)
+
+/*
+ * clear_bit - Clears a bit in memory
+ * @nr: Bit to clear
+ * @addr: Address to start counting from
+ *
+ * clear_bit() is atomic and may not be reordered.  However, it does
+ * not contain a memory barrier, so if it is used for locking purposes,
+ * you should call smp_mb__before_clear_bit() and/or smp_mb__after_clear_bit()
+ * in order to ensure changes are visible on other processors.
+ */
+
 #define clear_bit(nr, addr)  (void)test_and_clear_bit(nr, addr)
+
+/*
+ * change_bit - Toggle a bit in memory
+ * @nr: Bit to clear
+ * @addr: Address to start counting from
+ *
+ * change_bit() is atomic and may not be reordered.
+ * Note that @nr may be almost arbitrarily large; this function is not
+ * restricted to acting on a single-word quantity.
+ */
+
 #define change_bit(nr, addr) (void)test_and_change_bit(nr, addr)
 
-extern __inline__ int test_and_set_bit(int nr, void *addr)
+/*
+ * __change_bit - Toggle a bit in memory
+ * @nr: the bit to set
+ * @addr: the address to start counting from
+ *
+ * Unlike change_bit(), this function is non-atomic and may be reordered.
+ * If it's called on the same region of memory simultaneously, the effect
+ * may be that only one operation succeeds.
+ */
+
+#define __change_bit(nr, addr) (void)__test_and_change_bit(nr, addr)
+
+/**
+ * test_and_set_bit - Set a bit and return its old value
+ * @nr: Bit to set
+ * @addr: Address to count from
+ *
+ * This operation is atomic and cannot be reordered.  
+ * It also implies a memory barrier.
+ */
+
+static __inline__ int test_and_set_bit(int nr, void *addr)
 {
 	unsigned int mask, retval;
 	unsigned long flags;
@@ -50,7 +111,16 @@ extern __inline__ int test_and_set_bit(int nr, void *addr)
 #define smp_mb__before_clear_bit()      barrier()
 #define smp_mb__after_clear_bit()       barrier()
 
-extern __inline__ int test_and_clear_bit(int nr, void *addr)
+/**
+ * test_and_clear_bit - Clear a bit and return its old value
+ * @nr: Bit to set
+ * @addr: Address to count from
+ *
+ * This operation is atomic and cannot be reordered.  
+ * It also implies a memory barrier.
+ */
+
+static __inline__ int test_and_clear_bit(int nr, void *addr)
 {
 	unsigned int mask, retval;
 	unsigned long flags;
@@ -66,7 +136,37 @@ extern __inline__ int test_and_clear_bit(int nr, void *addr)
 	return retval;
 }
 
-extern __inline__ int test_and_change_bit(int nr, void *addr)
+/**
+ * __test_and_clear_bit - Clear a bit and return its old value
+ * @nr: Bit to set
+ * @addr: Address to count from
+ *
+ * This operation is non-atomic and can be reordered.  
+ * If two examples of this operation race, one can appear to succeed
+ * but actually fail.  You must protect multiple accesses with a lock.
+ */
+
+static __inline__ int __test_and_clear_bit(int nr, void *addr)
+{
+	unsigned int mask, retval;
+	unsigned int *adr = (unsigned int *)addr;
+	
+	adr += nr >> 5;
+	mask = 1 << (nr & 0x1f);
+	retval = (mask & *adr) != 0;
+	*adr &= ~mask;
+	return retval;
+}
+/**
+ * test_and_change_bit - Change a bit and return its new value
+ * @nr: Bit to set
+ * @addr: Address to count from
+ *
+ * This operation is atomic and cannot be reordered.  
+ * It also implies a memory barrier.
+ */
+
+static __inline__ int test_and_change_bit(int nr, void *addr)
 {
 	unsigned int mask, retval;
 	unsigned long flags;
@@ -81,10 +181,30 @@ extern __inline__ int test_and_change_bit(int nr, void *addr)
 	return retval;
 }
 
-/*
+/* WARNING: non atomic and it can be reordered! */
+
+static __inline__ int __test_and_change_bit(int nr, void *addr)
+{
+	unsigned int mask, retval;
+	unsigned int *adr = (unsigned int *)addr;
+
+	adr += nr >> 5;
+	mask = 1 << (nr & 0x1f);
+	retval = (mask & *adr) != 0;
+	*adr ^= mask;
+
+	return retval;
+}
+
+/**
+ * test_bit - Determine whether a bit is set
+ * @nr: bit number to test
+ * @addr: Address to start counting from
+ *
  * This routine doesn't need to be atomic.
  */
-extern __inline__ int test_bit(int nr, const void *addr)
+
+static __inline__ int test_bit(int nr, const void *addr)
 {
 	unsigned int mask;
 	unsigned int *adr = (unsigned int *)addr;
@@ -99,36 +219,71 @@ extern __inline__ int test_bit(int nr, const void *addr)
  */
 
 /*
- * ffz = Find First Zero in word. Undefined if no zero exists,
- * so code should check against ~0UL first..
+ * Helper functions for the core of the ff[sz] functions, wrapping the
+ * syntactically awkward asms.  The asms compute the number of leading
+ * zeroes of a bits-in-byte and byte-in-word and word-in-dword-swapped
+ * number.  They differ in that the first function also inverts all bits
+ * in the input.
  */
-extern __inline__ unsigned long ffz(unsigned long word)
+static __inline__ unsigned long cris_swapnwbrlz(unsigned long w)
 {
-	unsigned long result = 0;
-	
-	while(word & 1) {
-		result++;
-		word >>= 1;
-	}
-	return result;
+	/* Let's just say we return the result in the same register as the
+	   input.  Saying we clobber the input but can return the result
+	   in another register:
+	   !  __asm__ ("swapnwbr %2\n\tlz %2,%0"
+	   !	      : "=r,r" (res), "=r,X" (dummy) : "1,0" (w));
+	   confuses gcc (sched.c, gcc from cris-dist-1.14).  */
+
+	unsigned long res;
+	__asm__ ("swapnwbr %0 \n\t"
+		 "lz %0,%0"
+		 : "=r" (res) : "0" (w));
+	return res;
+}
+
+static __inline__ unsigned long cris_swapwbrlz(unsigned long w)
+{
+	unsigned res;
+	__asm__ ("swapwbr %0 \n\t"
+		 "lz %0,%0"
+		 : "=r" (res)
+		 : "0" (w));
+	return res;
 }
 
 /*
- * Find first one in word. Undefined if no one exists,
- * so code should check against 0UL first..
+ * ffz = Find First Zero in word. Undefined if no zero exists,
+ * so code should check against ~0UL first..
  */
-extern __inline__ unsigned long find_first_one(unsigned long word)
+static __inline__ unsigned long ffz(unsigned long w)
 {
-	unsigned long result = 0;
-	
-	while(!(word & 1)) {
-		result++;
-		word >>= 1;
-	}
-	return result;
+	/* The generic_ffs function is used to avoid the asm when the
+	   argument is a constant.  */
+	return __builtin_constant_p (w)
+		? (~w ? (unsigned long) generic_ffs ((int) ~w) - 1 : 32)
+		: cris_swapnwbrlz (w);
 }
 
-extern __inline__ int find_next_zero_bit (void * addr, int size, int offset)
+/*
+ * Somewhat like ffz but the equivalent of generic_ffs: in contrast to
+ * ffz we return the first one-bit *plus one*.
+ */
+static __inline__ unsigned long ffs(unsigned long w)
+{
+	/* The generic_ffs function is used to avoid the asm when the
+	   argument is a constant.  */
+	return __builtin_constant_p (w)
+		? (unsigned long) generic_ffs ((int) w)
+		: w ? cris_swapwbrlz (w) + 1 : 0;
+}
+
+/**
+ * find_next_zero_bit - find the first zero bit in a memory region
+ * @addr: The address to base the search on
+ * @offset: The bitnumber to start searching at
+ * @size: The maximum size to search
+ */
+static __inline__ int find_next_zero_bit (void * addr, int size, int offset)
 {
 	unsigned long *p = ((unsigned long *) addr) + (offset >> 5);
 	unsigned long result = offset & ~31UL;
@@ -163,6 +318,15 @@ extern __inline__ int find_next_zero_bit (void * addr, int size, int offset)
  found_middle:
 	return result + ffz(tmp);
 }
+
+/**
+ * find_first_zero_bit - find the first zero bit in a memory region
+ * @addr: The address to start the search at
+ * @size: The maximum size to search
+ *
+ * Returns the bit-number of the first zero bit, not the number of the byte
+ * containing a bit.
+ */
 
 #define find_first_zero_bit(addr, size) \
         find_next_zero_bit((addr), (size), 0)

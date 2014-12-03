@@ -14,6 +14,7 @@
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/tty.h>
+#include <linux/iobuf.h>
 
 #include <asm/uaccess.h>
 
@@ -103,7 +104,12 @@ static inline long do_sys_truncate(const char * path, loff_t length)
 		goto out;
 	inode = nd.dentry->d_inode;
 
-	error = -EACCES;
+	/* For directories it's -EISDIR, for other non-regulars - -EINVAL */
+	error = -EISDIR;
+	if (S_ISDIR(inode->i_mode))
+		goto dput_and_out;
+
+	error = -EINVAL;
 	if (!S_ISREG(inode->i_mode))
 		goto dput_and_out;
 
@@ -145,10 +151,11 @@ out:
 
 asmlinkage long sys_truncate(const char * path, unsigned long length)
 {
-	return do_sys_truncate(path, length);
+	/* on 32-bit boxen it will cut the range 2^31--2^32-1 off */
+	return do_sys_truncate(path, (long)length);
 }
 
-static inline long do_sys_ftruncate(unsigned int fd, loff_t length)
+static inline long do_sys_ftruncate(unsigned int fd, loff_t length, int small)
 {
 	struct inode * inode;
 	struct dentry *dentry;
@@ -162,13 +169,24 @@ static inline long do_sys_ftruncate(unsigned int fd, loff_t length)
 	file = fget(fd);
 	if (!file)
 		goto out;
+
+	/* explicitly opened as large or we are on 64-bit box */
+	if (file->f_flags & O_LARGEFILE)
+		small = 0;
+
 	dentry = file->f_dentry;
 	inode = dentry->d_inode;
-	error = -EACCES;
+	error = -EINVAL;
 	if (!S_ISREG(inode->i_mode) || !(file->f_mode & FMODE_WRITE))
 		goto out_putf;
+
+	error = -EINVAL;
+	/* Cannot ftruncate over 2^31 bytes without large file support */
+	if (small && length > MAX_NON_LFS)
+		goto out_putf;
+
 	error = -EPERM;
-	if (IS_IMMUTABLE(inode) || IS_APPEND(inode))
+	if (IS_APPEND(inode))
 		goto out_putf;
 
 	error = locks_verify_truncate(inode, file, length);
@@ -182,7 +200,7 @@ out:
 
 asmlinkage long sys_ftruncate(unsigned int fd, unsigned long length)
 {
-	return do_sys_ftruncate(fd, length);
+	return do_sys_ftruncate(fd, length, 1);
 }
 
 /* LFS versions of truncate are only needed on 32 bit machines */
@@ -194,7 +212,7 @@ asmlinkage long sys_truncate64(const char * path, loff_t length)
 
 asmlinkage long sys_ftruncate64(unsigned int fd, loff_t length)
 {
-	return do_sys_ftruncate(fd, length);
+	return do_sys_ftruncate(fd, length, 0);
 }
 #endif
 
@@ -506,7 +524,7 @@ static int chown_common(struct dentry * dentry, uid_t user, gid_t group)
 
 	error = -ENOENT;
 	if (!(inode = dentry->d_inode)) {
-		printk("chown_common: NULL inode\n");
+		printk(KERN_ERR "chown_common: NULL inode\n");
 		goto out;
 	}
 	error = -EROFS;
@@ -553,7 +571,7 @@ static int chown_common(struct dentry * dentry, uid_t user, gid_t group)
 		newattrs.ia_mode &= ~S_ISGID;
 		newattrs.ia_valid |= ATTR_MODE;
 	}
-	error = DQUOT_TRANSFER(dentry, &newattrs);
+	error = notify_change(dentry, &newattrs);
 out:
 	return error;
 }
@@ -634,6 +652,7 @@ struct file *dentry_open(struct dentry *dentry, struct vfsmount *mnt, int flags)
 {
 	struct file * f;
 	struct inode *inode;
+	static LIST_HEAD(kill_list);
 	int error;
 
 	error = -ENFILE;
@@ -654,8 +673,17 @@ struct file *dentry_open(struct dentry *dentry, struct vfsmount *mnt, int flags)
 	f->f_pos = 0;
 	f->f_reada = 0;
 	f->f_op = fops_get(inode->i_fop);
-	if (inode->i_sb)
-		file_move(f, &inode->i_sb->s_files);
+	file_move(f, &inode->i_sb->s_files);
+
+	/* preallocate kiobuf for O_DIRECT */
+	f->f_iobuf = NULL;
+	f->f_iobuf_lock = 0;
+	if (f->f_flags & O_DIRECT) {
+		error = alloc_kiovec(1, &f->f_iobuf);
+		if (error)
+			goto cleanup_all;
+	}
+
 	if (f->f_op && f->f_op->open) {
 		error = f->f_op->open(inode,f);
 		if (error)
@@ -666,9 +694,12 @@ struct file *dentry_open(struct dentry *dentry, struct vfsmount *mnt, int flags)
 	return f;
 
 cleanup_all:
+	if (f->f_iobuf)
+		free_kiovec(1, &f->f_iobuf);
 	fops_put(f->f_op);
 	if (f->f_mode & FMODE_WRITE)
 		put_write_access(inode);
+	file_move(f, &kill_list); /* out of the way.. */
 	f->f_dentry = NULL;
 	f->f_vfsmnt = NULL;
 cleanup_file:
@@ -730,7 +761,7 @@ repeat:
 #if 1
 	/* Sanity check */
 	if (files->fd[fd] != NULL) {
-		printk("get_unused_fd: slot %d not NULL!\n", fd);
+		printk(KERN_WARNING "get_unused_fd: slot %d not NULL!\n", fd);
 		files->fd[fd] = NULL;
 	}
 #endif
@@ -793,7 +824,7 @@ int filp_close(struct file *filp, fl_owner_t id)
 	int retval;
 
 	if (!file_count(filp)) {
-		printk("VFS: Close: file count is 0\n");
+		printk(KERN_ERR "VFS: Close: file count is 0\n");
 		return 0;
 	}
 	retval = 0;
@@ -847,3 +878,18 @@ asmlinkage long sys_vhangup(void)
 	}
 	return -EPERM;
 }
+
+/*
+ * Called when an inode is about to be open.
+ * We use this to disallow opening RW large files on 32bit systems if
+ * the caller didn't specify O_LARGEFILE.  On 64bit systems we force
+ * on this flag in sys_open.
+ */
+int generic_file_open(struct inode * inode, struct file * filp)
+{
+	if (!(filp->f_flags & O_LARGEFILE) && inode->i_size > MAX_NON_LFS)
+		return -EFBIG;
+	return 0;
+}
+
+EXPORT_SYMBOL(generic_file_open);

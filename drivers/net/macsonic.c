@@ -135,8 +135,9 @@ int __init macsonic_init(struct net_device* dev)
 		unsigned long desc_base, desc_top;
 		if ((lp->sonic_desc = 
 		     kmalloc(SIZEOF_SONIC_DESC
-			     * SONIC_BUS_SCALE(lp->dma_bitmode), GFP_DMA)) == NULL) {
+			     * SONIC_BUS_SCALE(lp->dma_bitmode), GFP_KERNEL | GFP_DMA)) == NULL) {
 			printk(KERN_ERR "%s: couldn't allocate descriptor buffers\n", dev->name);
+			return -ENOMEM;
 		}
 		desc_base = (unsigned long) lp->sonic_desc;
 		desc_top = desc_base + SIZEOF_SONIC_DESC * SONIC_BUS_SCALE(lp->dma_bitmode);
@@ -165,8 +166,10 @@ int __init macsonic_init(struct net_device* dev)
 
 	/* FIXME, maybe we should use skbs */
 	if ((lp->rba = (char *)
-	     kmalloc(SONIC_NUM_RRS * SONIC_RBSIZE, GFP_DMA)) == NULL) {
+	     kmalloc(SONIC_NUM_RRS * SONIC_RBSIZE, GFP_KERNEL | GFP_DMA)) == NULL) {
 		printk(KERN_ERR "%s: couldn't allocate receive buffers\n", dev->name);
+		kfree(lp->sonic_desc);
+		lp->sonic_desc = NULL;
 		return -ENOMEM;
 	}
 
@@ -321,7 +324,7 @@ int __init mac_onboard_sonic_probe(struct net_device* dev)
 		/* methinks this will always be true but better safe than sorry */
 		if (dev->priv == NULL) {
 			dev->priv = kmalloc(sizeof(struct sonic_local), GFP_KERNEL);
-			if (!dev->priv) /* FIXME: kfree dev if necessary */
+			if (!dev->priv)
 				return -ENOMEM;
 		}
 	} else {
@@ -517,9 +520,14 @@ int __init mac_nubus_sonic_probe(struct net_device* dev)
 
 	if (dev) {
 		dev = init_etherdev(dev, sizeof(struct sonic_local));
+		if (!dev)
+			return -ENOMEM;
 		/* methinks this will always be true but better safe than sorry */
-		if (dev->priv == NULL)
+		if (dev->priv == NULL) {
 			dev->priv = kmalloc(sizeof(struct sonic_local), GFP_KERNEL);
+			if (!dev->priv) /* FIXME: kfree dev if necessary */
+				return -ENOMEM;
+		}
 	} else {
 		dev = init_etherdev(NULL, sizeof(struct sonic_local));
 	}
@@ -576,6 +584,7 @@ static struct net_device dev_macsonic;
 
 MODULE_PARM(sonic_debug, "i");
 MODULE_PARM_DESC(sonic_debug, "macsonic debug level (1-4)");
+MODULE_LICENSE("GPL");
 
 EXPORT_NO_SYMBOLS;
 

@@ -24,6 +24,7 @@
 #include <linux/smb_fs.h>
 
 #include "smb_debug.h"
+#include "proto.h"
 
 static int
 smb_fsync(struct file *file, struct dentry * dentry, int datasync)
@@ -376,6 +377,7 @@ smb_file_permission(struct inode *inode, int mask)
 
 struct file_operations smb_file_operations =
 {
+	llseek:		generic_file_llseek,
 	read:		smb_file_read,
 	write:		smb_file_write,
 	ioctl:		smb_ioctl,

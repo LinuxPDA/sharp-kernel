@@ -1,4 +1,4 @@
-# BK Id: SCCS/s.Makefile 1.10 06/05/01 20:22:51 paulus
+# BK Id: SCCS/s.Makefile 1.14 07/27/01 20:24:17 trini
 #
 # Makefile for making XCOFF bootable images for booting on PowerMacs
 # using Open Firmware.
@@ -12,7 +12,7 @@ OBJCOPY_ARGS = -O aixcoff-rs6000 -R .stab -R .stabstr -R .comment
 COFF_LD_ARGS = -e _start -T ld.script -Ttext 500000 -Tdata 510000 -Bstatic
 CHRP_LD_ARGS = -Ttext 0x01000000
 
-COMMONOBJS = start.o misc.o ../common/string.o image.o
+COMMONOBJS = start.o misc.o ../common/string.o image.o ../common/ofcommon.o
 COFFOBJS = ../common/coffcrt0.o $(COMMONOBJS) coffmain.o
 CHRPOBJS = ../common/crt0.o $(COMMONOBJS) chrpmain.o
 LIBS = $(TOPDIR)/lib/lib.a ../lib/zlib.a

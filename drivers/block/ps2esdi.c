@@ -117,6 +117,7 @@ static int access_count[MAX_HD];
 static char ps2esdi_valid[MAX_HD];
 static int ps2esdi_sizes[MAX_HD << 6];
 static int ps2esdi_blocksizes[MAX_HD << 6];
+static int ps2esdi_maxsect[MAX_HD << 6];
 static int ps2esdi_drives;
 static struct hd_struct ps2esdi[MAX_HD << 6];
 static u_short io_base;
@@ -156,16 +157,14 @@ static struct block_device_operations ps2esdi_fops =
 
 static struct gendisk ps2esdi_gendisk =
 {
-	MAJOR_NR,		/* Major number */
-	"ed",			/* Major name */
-	6,			/* Bits to shift to get real from partition */
-	1 << 6,			/* Number of partitions per real disk */
-	ps2esdi,		/* hd struct */
-	ps2esdi_sizes,		/* block sizes */
-	0,			/* number */
-	(void *) ps2esdi_info,	/* internal */
-	NULL,			/* next */
-	&ps2esdi_fops,          /* file operations */
+	major:		MAJOR_NR,
+	major_name:	"ed",
+	minor_shift:	6,
+	max_p:		1 << 6,
+	part:		ps2esdi,
+	sizes:		ps2esdi_sizes,
+	real_devices:	(void *)ps2esdi_info,
+	fops:		&ps2esdi_fops,
 };
 
 /* initialization routine called by ll_rw_blk.c   */
@@ -183,8 +182,7 @@ int __init ps2esdi_init(void)
 	read_ahead[MAJOR_NR] = 8;	/* 8 sector (4kB) read ahead */
 
 	/* some minor housekeeping - setup the global gendisk structure */
-	ps2esdi_gendisk.next = gendisk_head;
-	gendisk_head = &ps2esdi_gendisk;
+	add_gendisk(&ps2esdi_gendisk);
 	ps2esdi_geninit();
 	return 0;
 }				/* ps2esdi_init */
@@ -199,6 +197,7 @@ MODULE_PARM(tp720esdi, "i");
 MODULE_PARM(cyl, "i");
 MODULE_PARM(head, "i");
 MODULE_PARM(track, "i");
+MODULE_LICENSE("GPL");
 
 int init_module(void) {
 	int drive;
@@ -222,15 +221,15 @@ int init_module(void) {
 void
 cleanup_module(void)
 {
-	if(ps2esdi_slot)
-	{
+	if(ps2esdi_slot) {
 		mca_mark_as_unused(ps2esdi_slot);
 		mca_set_adapter_procfn(ps2esdi_slot, NULL, NULL);
 	}
 	release_region(io_base, 4);
 	free_dma(dma_arb_level);
-  	free_irq(PS2ESDI_IRQ, NULL)
+  	free_irq(PS2ESDI_IRQ, NULL);
 	devfs_unregister_blkdev(MAJOR_NR, "ed");
+	del_gendisk(&ps2esdi_gendisk);
 	blk_cleanup_queue(BLK_DEFAULT_QUEUE(MAJOR_NR));
 }
 #endif /* MODULE */
@@ -414,8 +413,11 @@ static void __init ps2esdi_geninit(void)
 
 	ps2esdi_gendisk.nr_real = ps2esdi_drives;
 
-	for (i = 0; i < (MAX_HD << 6); i++)
+	/* 128 was old default, maybe maxsect=255 is ok too? - Paul G. */
+	for (i = 0; i < (MAX_HD << 6); i++) {
+		ps2esdi_maxsect[i] = 128;
 		ps2esdi_blocksizes[i] = 1024;
+	}
 
 	request_dma(dma_arb_level, "ed");
 	request_region(io_base, 4, "ed");
@@ -1105,13 +1107,16 @@ static int ps2esdi_ioctl(struct inode *inode,
 
 		case BLKGETSIZE:
 			if (arg) {
-				if ((err = verify_area(VERIFY_WRITE, (long *) arg, sizeof(long))))
+				if ((err = verify_area(VERIFY_WRITE, (unsigned long *) arg, sizeof(unsigned long))))
 					 return (err);
-				put_user(ps2esdi[MINOR(inode->i_rdev)].nr_sects, (long *) arg);
+				put_user(ps2esdi[MINOR(inode->i_rdev)].nr_sects, (unsigned long *) arg);
 
 				return (0);
 			}
 			break;
+
+		case BLKGETSIZE64:
+			return put_user((u64)ps2esdi[MINOR(inode->i_rdev)].nr_sects << 9, (u64 *) arg);
 
 		case BLKRRPART:
                         if (!capable(CAP_SYS_ADMIN)) 
@@ -1123,6 +1128,8 @@ static int ps2esdi_ioctl(struct inode *inode,
 		case BLKRASET:
 		case BLKRAGET:
 		case BLKFLSBUF:
+		case BLKBSZGET:
+		case BLKBSZSET:
 		case BLKPG:
 			return blk_ioctl(inode->i_rdev, cmd, arg);
 		}

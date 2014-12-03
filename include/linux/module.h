@@ -130,6 +130,16 @@ struct module_info
 	((unsigned long)(&((struct module *)0L)->member + 1)		\
 	 <= (mod)->size_of_struct)
 
+/*
+ * Ditto for archdata.  Assumes mod->archdata_start and mod->archdata_end
+ * are validated elsewhere.
+ */
+#define mod_archdata_member_present(mod, type, member)			\
+	(((unsigned long)(&((type *)0L)->member) +			\
+	  sizeof(((type *)0L)->member)) <=				\
+	 ((mod)->archdata_end - (mod)->archdata_start))
+	 
+
 /* Check if an address p with number of entries n is within the body of module m */
 #define mod_bound(p, n, m) ((unsigned long)(p) >= ((unsigned long)(m) + ((m)->size_of_struct)) && \
 	         (unsigned long)((p)+(n)) <= (unsigned long)(m) + (m)->size)
@@ -250,6 +260,34 @@ static const struct gtype##_id * __module_##gtype##_table \
 #define MODULE_DEVICE_TABLE(type,name)		\
   MODULE_GENERIC_TABLE(type##_device,name)
 
+/*
+ * The following license idents are currently accepted as indicating free
+ * software modules
+ *
+ *	"GPL"				[GNU Public License v2 or later]
+ *	"GPL and additional rights"	[GNU Public License v2 rights and more]
+ *	"Dual BSD/GPL"			[GNU Public License v2 or BSD license choice]
+ *	"Dual MPL/GPL"			[GNU Public License v2 or Mozilla license choice]
+ *
+ * The following other idents are available
+ *
+ *	"Proprietary"			[Non free products]
+ *
+ * There are dual licensed components, but when running with Linux it is the
+ * GPL that is relevant so this is a non issue. Similarly LGPL linked with GPL
+ * is a GPL combined work.
+ *
+ * This exists for several reasons
+ * 1.	So modinfo can show license info for users wanting to vet their setup 
+ *	is free
+ * 2.	So the community can ignore bug reports including proprietary modules
+ * 3.	So vendors can do likewise based on their own policies
+ */
+ 
+#define MODULE_LICENSE(license) 	\
+static const char __module_license[] __attribute__((section(".modinfo"))) =   \
+"license=" license
+
 /* Define the module variable, and usage macros.  */
 extern struct module __this_module;
 
@@ -269,6 +307,7 @@ static const char __module_using_checksums[] __attribute__((section(".modinfo"))
 #else /* MODULE */
 
 #define MODULE_AUTHOR(name)
+#define MODULE_LICENSE(license)
 #define MODULE_DESCRIPTION(desc)
 #define MODULE_SUPPORTED_DEVICE(name)
 #define MODULE_PARM(var,type)
@@ -307,12 +346,21 @@ extern struct module *module_list;
 #define __EXPORT_SYMBOL(sym,str)   error config_must_be_included_before_module
 #define EXPORT_SYMBOL(var)	   error config_must_be_included_before_module
 #define EXPORT_SYMBOL_NOVERS(var)  error config_must_be_included_before_module
+#define EXPORT_SYMBOL_GPL(var)  error config_must_be_included_before_module
 
 #elif !defined(CONFIG_MODULES)
 
 #define __EXPORT_SYMBOL(sym,str)
 #define EXPORT_SYMBOL(var)
 #define EXPORT_SYMBOL_NOVERS(var)
+#define EXPORT_SYMBOL_GPL(var)
+
+#elif !defined(EXPORT_SYMTAB)
+
+#define __EXPORT_SYMBOL(sym,str)   error this_object_must_be_defined_as_export_objs_in_the_Makefile
+#define EXPORT_SYMBOL(var)	   error this_object_must_be_defined_as_export_objs_in_the_Makefile
+#define EXPORT_SYMBOL_NOVERS(var)  error this_object_must_be_defined_as_export_objs_in_the_Makefile
+#define EXPORT_SYMBOL_GPL(var)  error this_object_must_be_defined_as_export_objs_in_the_Makefile
 
 #else
 
@@ -323,10 +371,19 @@ const struct module_symbol __ksymtab_##sym 		\
 __attribute__((section("__ksymtab"))) =			\
 { (unsigned long)&sym, __kstrtab_##sym }
 
+#define __EXPORT_SYMBOL_GPL(sym, str)			\
+const char __kstrtab_##sym[]				\
+__attribute__((section(".kstrtab"))) = "GPLONLY_" str;	\
+const struct module_symbol __ksymtab_##sym		\
+__attribute__((section("__ksymtab"))) =			\
+{ (unsigned long)&sym, __kstrtab_##sym }
+
 #if defined(MODVERSIONS) || !defined(CONFIG_MODVERSIONS)
 #define EXPORT_SYMBOL(var)  __EXPORT_SYMBOL(var, __MODULE_STRING(var))
+#define EXPORT_SYMBOL_GPL(var)  __EXPORT_SYMBOL_GPL(var, __MODULE_STRING(var))
 #else
 #define EXPORT_SYMBOL(var)  __EXPORT_SYMBOL(var, __MODULE_STRING(__VERSIONED_SYMBOL(var)))
+#define EXPORT_SYMBOL_GPL(var)  __EXPORT_SYMBOL(var, __MODULE_STRING(__VERSIONED_SYMBOL(var)))
 #endif
 
 #define EXPORT_SYMBOL_NOVERS(var)  __EXPORT_SYMBOL(var, __MODULE_STRING(var))

@@ -35,7 +35,12 @@
    udev: struct usb_device *
    vdev: struct video_device *
    pdev: struct pwc_devive *
-*/   
+*/
+
+/* Contributors:
+   - Alvarado: adding whitebalance code
+   - Alistar Moire: QuickCam 3000 Pro testing
+*/
 
 #include <linux/errno.h>
 #include <linux/init.h>
@@ -66,7 +71,11 @@ static __devinitdata struct usb_device_id pwc_device_table [] = {
 	{ USB_DEVICE(0x0471, 0x030C) },
 	{ USB_DEVICE(0x0471, 0x0310) },
 	{ USB_DEVICE(0x0471, 0x0311) },
+	{ USB_DEVICE(0x0471, 0x0312) },
 	{ USB_DEVICE(0x069A, 0x0001) },
+	{ USB_DEVICE(0x046D, 0x08b0) },
+	{ USB_DEVICE(0x055D, 0x9000) },
+	{ USB_DEVICE(0x055D, 0x9001) },
 	{ }
 };
 MODULE_DEVICE_TABLE(usb, pwc_device_table);
@@ -89,6 +98,7 @@ static int default_fbufs = 3;   /* Default number of frame buffers */
 static int default_mbufs = 2;	/* Default number of mmap() buffers */
        int pwc_trace = TRACE_MODULE | TRACE_FLOW | TRACE_PWCX;
 static int power_save = 0;
+static int led_on = 1, led_off = 0; /* defaults to LED that is on while in use */
 int pwc_preferred_compression = 2; /* 0..3 = uncompressed..high */
 
 static struct semaphore mem_lock;
@@ -166,106 +176,87 @@ static struct video_device pwc_template = {
  */
 static inline unsigned long uvirt_to_kva(pgd_t *pgd, unsigned long adr)
 {
-	unsigned long ret = 0UL;
+        unsigned long ret = 0UL;
 	pmd_t *pmd;
 	pte_t *ptep, pte;
-
+  
 	if (!pgd_none(*pgd)) {
-		pmd = pmd_offset(pgd, adr);
-		if (!pmd_none(*pmd)) {
-			ptep = pte_offset(pmd, adr);
-			pte = *ptep;
-			if (pte_present(pte)) {
-				ret = (unsigned long) page_address(pte_page(pte));
-				ret |= (adr & (PAGE_SIZE-1));
+                pmd = pmd_offset(pgd, adr);
+                if (!pmd_none(*pmd)) {
+                        ptep = pte_offset(pmd, adr);
+                        pte = *ptep;
+                        if(pte_present(pte)) {
+				ret  = (unsigned long) page_address(pte_page(pte));
+				ret |= (adr & (PAGE_SIZE - 1));
+				
 			}
-		}
-	}
+                }
+        }
 	return ret;
 }
 
-static inline unsigned long uvirt_to_bus(unsigned long adr)
-{
-	unsigned long kva, ret;
 
-	kva = uvirt_to_kva(pgd_offset(current->mm, adr), adr);
-	ret = virt_to_bus((void *)kva);
-	return ret;
-}
-
-static inline unsigned long kvirt_to_bus(unsigned long adr)
-{
-	unsigned long va, kva, ret;
-
-	va = VMALLOC_VMADDR(adr);
-	kva = uvirt_to_kva(pgd_offset_k(va), va);
-	ret = virt_to_bus((void *)kva);
-	return ret;
-}
 
 /* Here we want the physical address of the memory.
  * This is used when initializing the contents of the
  * area and marking the pages as reserved.
  */
-static inline unsigned long kvirt_to_pa(unsigned long adr)
+static inline unsigned long kvirt_to_pa(unsigned long adr) 
 {
-	unsigned long va, kva, ret;
+        unsigned long va, kva, ret;
 
-	va = VMALLOC_VMADDR(adr);
-	kva = uvirt_to_kva(pgd_offset_k(va), va);
+        va = VMALLOC_VMADDR(adr);
+        kva = uvirt_to_kva(pgd_offset_k(va), va);
 	ret = __pa(kva);
-	return ret;
+        return ret;
 }
 
-static void *rvmalloc(unsigned long size)
+static void * rvmalloc(signed long size)
 {
-	void *mem;
+	void * mem;
 	unsigned long adr, page;
 
-	/* Round it off to PAGE_SIZE */
-	size += (PAGE_SIZE - 1);
-	size &= ~(PAGE_SIZE - 1);
-
-	mem = vmalloc(size);
-	if (!mem)
-		return NULL;
-
-	memset(mem, 0, size); /* Clear the ram out, no junk to the user */
-	adr = (unsigned long) mem;
-	while (size > 0) {
-		page = kvirt_to_pa(adr);
-		mem_map_reserve(MAP_NR(__va(page)));
-		adr += PAGE_SIZE;
-		if (size > PAGE_SIZE)
-			size -= PAGE_SIZE;
-		else
-			size = 0;
+        /* Round it off to PAGE_SIZE */
+        size += (PAGE_SIZE - 1);
+        size &= ~(PAGE_SIZE - 1);	
+        
+        mem=vmalloc_32(size);
+	if (mem) 
+	{
+		memset(mem, 0, size); /* Clear the ram out, no junk to the user */
+	        adr=(unsigned long) mem;
+		while (size > 0) 
+                {
+	                page = kvirt_to_pa(adr);
+			mem_map_reserve(virt_to_page(__va(page)));
+			adr+=PAGE_SIZE;
+			size-=PAGE_SIZE;
+		}
 	}
 	return mem;
 }
 
-static void rvfree(void *mem, unsigned long size)
+static void rvfree(void * mem, signed long size)
 {
-	unsigned long adr, page;
-
-	if (!mem)
-		return;
-
-	size += (PAGE_SIZE - 1);
-	size &= ~(PAGE_SIZE - 1);
-
-	adr=(unsigned long) mem;
-	while (size > 0) {
-		page = kvirt_to_pa(adr);
-		mem_map_unreserve(MAP_NR(__va(page)));
-		adr += PAGE_SIZE;
-		if (size > PAGE_SIZE)
-			size -= PAGE_SIZE;
-		else
-			size = 0;
+        unsigned long adr, page;
+        
+        /* Round it off to PAGE_SIZE */
+        size += (PAGE_SIZE - 1);
+        size &= ~(PAGE_SIZE - 1);	
+	if (mem) 
+	{
+	        adr=(unsigned long) mem;
+		while (size > 0) 
+                {
+	                page = kvirt_to_pa(adr);
+			mem_map_unreserve(virt_to_page(__va(page)));
+			adr+=PAGE_SIZE;
+			size-=PAGE_SIZE;
+		}
+		vfree(mem);
 	}
-	vfree(mem);
 }
+
 
 
 
@@ -293,6 +284,7 @@ static int pwc_allocate_buffers(struct pwc_device *pdev)
 				Err("Failed to allocate iso buffer %d.\n", i);
 				return -ENOMEM;
 			}
+			Trace(TRACE_MEMORY, "Allocated iso buffer at %p.\n", kbuf);
 			pdev->sbuf[i].data = kbuf;
 			memset(kbuf, 0, ISO_BUFFER_SIZE);
 		}
@@ -305,19 +297,21 @@ static int pwc_allocate_buffers(struct pwc_device *pdev)
 			Err("Failed to allocate frame buffer structure.\n");
 			return -ENOMEM;
 		}
+		Trace(TRACE_MEMORY, "Allocated frame buffer structure at %p.\n", kbuf);
 		pdev->fbuf = kbuf;
 		memset(kbuf, 0, default_fbufs * sizeof(struct pwc_frame_buf));
 	}
 	/* create frame buffers, and make circular ring */
 	for (i = 0; i < default_fbufs; i++) {
 		if (pdev->fbuf[i].data == NULL) {
-			kbuf = vmalloc(FRAME_SIZE); /* need vmalloc since frame buffer > 128K */
+			kbuf = vmalloc(PWC_FRAME_SIZE); /* need vmalloc since frame buffer > 128K */
 			if (kbuf == NULL) {
 				Err("Failed to allocate frame buffer %d.\n", i);
 				return -ENOMEM;
 			}
+			Trace(TRACE_MEMORY, "Allocated frame buffer %d at %p.\n", i, kbuf);
 			pdev->fbuf[i].data = kbuf;
-			memset(kbuf, 0, FRAME_SIZE);
+			memset(kbuf, 128, PWC_FRAME_SIZE);
 		}
 	}
 	
@@ -329,23 +323,24 @@ static int pwc_allocate_buffers(struct pwc_device *pdev)
 			Err("Failed to allocate decompress table.\n");
 			return -ENOMEM;
 		}
+		Trace(TRACE_MEMORY, "Allocated decompress table %p.\n", kbuf);
 	}
 	pdev->decompress_data = kbuf;
 	
 	/* Allocate image buffer; double buffer for mmap() */
-	kbuf = rvmalloc(default_mbufs * pdev->view_max.size * 4);
+	kbuf = rvmalloc(default_mbufs * pdev->len_per_image);
 	if (kbuf == NULL) {
 		Err("Failed to allocate image buffer(s).\n");
 		return -ENOMEM;
 	}
+	Trace(TRACE_MEMORY, "Allocated image buffer at %p.\n", kbuf);
 	pdev->image_data = kbuf;
 	for (i = 0; i < default_mbufs; i++)
-		pdev->image_ptr[i] = kbuf + (i * pdev->view_max.size * 4);
+		pdev->image_ptr[i] = kbuf + i * pdev->len_per_image;
 	for (; i < MAX_IMAGES; i++)
 		pdev->image_ptr[i] = NULL;
 
 	Trace(TRACE_MEMORY, "Leaving pwc_allocate_buffers().\n");
-
 	return 0;
 }
 
@@ -365,18 +360,18 @@ static void pwc_free_buffers(struct pwc_device *pdev)
 #endif	
 
 	/* Release Iso-pipe buffers */
-	Trace(TRACE_MEMORY, "Freeing ISO buffers.\n");
 	for (i = 0; i < MAX_ISO_BUFS; i++)
 		if (pdev->sbuf[i].data != NULL) {
+			Trace(TRACE_MEMORY, "Freeing ISO buffer at %p.\n", pdev->sbuf[i].data);
 			kfree(pdev->sbuf[i].data);
 			pdev->sbuf[i].data = NULL;
 		}
 
 	/* The same for frame buffers */
-	Trace(TRACE_MEMORY, "Freeing frame buffers.\n");
 	if (pdev->fbuf != NULL) {
 		for (i = 0; i < default_fbufs; i++) {
 			if (pdev->fbuf[i].data != NULL) {
+				Trace(TRACE_MEMORY, "Freeing frame buffer %d at %p.\n", i, pdev->fbuf[i].data);
 				vfree(pdev->fbuf[i].data);
 				pdev->fbuf[i].data = NULL;
 			}
@@ -386,17 +381,18 @@ static void pwc_free_buffers(struct pwc_device *pdev)
 	}
 
 	/* Intermediate decompression buffer & tables */
-	Trace(TRACE_MEMORY, "Freeing decompression buffer\n");
 	if (pdev->decompress_data != NULL) {
+		Trace(TRACE_MEMORY, "Freeing decompression buffer at %p.\n", pdev->decompress_data);
 		kfree(pdev->decompress_data);
 		pdev->decompress_data = NULL;
 	}
 	pdev->decompressor = NULL;
 
 	/* Release image buffers */
-	Trace(TRACE_MEMORY, "Freeing image buffers\n");
-	if (pdev->image_data != NULL)
-		rvfree(pdev->image_data, default_mbufs * pdev->view_max.size * 4);
+	if (pdev->image_data != NULL) {
+		Trace(TRACE_MEMORY, "Freeing image buffer at %p.\n", pdev->image_data);
+		rvfree(pdev->image_data, default_mbufs * pdev->len_per_image);
+	}
 	pdev->image_data = NULL;
 	Trace(TRACE_MEMORY, "Leaving free_buffers().\n");
 }
@@ -460,7 +456,8 @@ static void pwc_free_buffers(struct pwc_device *pdev)
  */
 static inline int pwc_next_fill_frame(struct pwc_device *pdev)
 {
-	int ret, flags;
+	int ret;
+	unsigned long flags;
 	
 	ret = 0;
 	spin_lock_irqsave(&pdev->ptrlock, flags);
@@ -511,7 +508,8 @@ static inline int pwc_next_fill_frame(struct pwc_device *pdev)
  */
 static void pwc_reset_buffers(struct pwc_device *pdev)
 {
-	int i, flags;
+	int i;
+	unsigned long flags;
 
 	spin_lock_irqsave(&pdev->ptrlock, flags);
 	pdev->full_frames = NULL;
@@ -540,7 +538,8 @@ static void pwc_reset_buffers(struct pwc_device *pdev)
  */
 static int pwc_handle_frame(struct pwc_device *pdev)
 {
-	int ret = 0, flags;
+	int ret = 0;
+	unsigned long flags;
 	
 	spin_lock_irqsave(&pdev->ptrlock, flags);
 	/* First grab our read_frame; this is removed from all lists, so
@@ -596,7 +595,8 @@ static inline void pwc_next_image(struct pwc_device *pdev)
 	pdev->fill_image = (pdev->fill_image + 1) % default_mbufs;
 }
 
-/* XXX: 2001-06-17: The YUV420 palette will be phased out soon */
+/* 2001-10-14: The YUV420 is still there, but you can only set it from within 
+   a program (YUV420P being the default) */
 static int pwc_set_palette(struct pwc_device *pdev, int pal)
 {
 	if (   pal == VIDEO_PALETTE_YUV420
@@ -609,6 +609,7 @@ static int pwc_set_palette(struct pwc_device *pdev, int pal)
 		pwc_set_image_buffer_size(pdev);
 		return 0;
 	}
+	Trace(TRACE_READ, "Palette %d not supported.\n", pal);
 	return -1;
 }
 
@@ -641,7 +642,17 @@ static void pwc_isoc_handler(purb_t urb)
 		return;
 	}
 	if (urb->status != -EINPROGRESS && urb->status != 0) {
-		Trace(TRACE_FLOW, "pwc_isoc_handler() called with status %d.\n", urb->status);
+		char *errmsg;
+		
+		errmsg = "Unknown";
+		switch(urb->status) {
+			case -ENOSR:		errmsg = "Buffer error (overrun)"; break;
+			case -EPIPE:		errmsg = "Babble/stalled (bad cable?)"; break;
+			case -EPROTO:		errmsg = "Bit-stuff error (bad cable?)"; break;
+			case -EILSEQ:		errmsg = "CRC/Timeout"; break;
+			case -ETIMEDOUT:	errmsg = "NAK (device does not respond)"; break;
+		}
+		Trace(TRACE_FLOW, "pwc_isoc_handler() called with status %d [%s].\n", urb->status, errmsg);
 		return;
 	}
 
@@ -738,9 +749,9 @@ static void pwc_isoc_handler(purb_t urb)
 								pdev->vframes_dumped++;
 								if ((pdev->vframe_count > FRAME_LOWMARK) && (pwc_trace & TRACE_FLOW)) {
 									if (pdev->vframes_dumped < 20)
-										Info("Dumping frame %d.\n", pdev->vframe_count);
+										Trace(TRACE_FLOW, "Dumping frame %d.\n", pdev->vframe_count);
 									if (pdev->vframes_dumped == 20)
-										Info("Dumping frame %d (last message).\n", pdev->vframe_count);
+										Trace(TRACE_FLOW, "Dumping frame %d (last message).\n", pdev->vframe_count);
 								}
 							}
 							fbuf = pdev->fill_frame;
@@ -940,14 +951,16 @@ static int pwc_video_open(struct video_device *vdev, int mode)
 			Info("Failed to set alternate interface to 0.\n");
 		pdev->usb_init = 1;
 	}
-	else {
-		/* Turn on camera */
-		if (power_save) {
-			i = pwc_camera_power(pdev, 1);
-			if (i < 0)
-				Info("Failed to restore power to the camera! (%d)\n", i);
-		}
+
+	/* Turn on camera */
+	if (power_save) {
+		i = pwc_camera_power(pdev, 1);
+		if (i < 0)
+			Info("Failed to restore power to the camera! (%d)\n", i);
 	}
+	/* Set LED on/off time */
+	if (pwc_set_leds(pdev, led_on, led_off) < 0)
+		Info("Failed to set LED on/off time.\n");
 
 	/* Find our decompressor, if any */
 	pdev->decompressor = pwc_find_decompressor(pdev->type);
@@ -977,7 +990,7 @@ static int pwc_video_open(struct video_device *vdev, int mode)
 
 	/* Set some defaults */
 	pdev->vsnapshot = 0;
-	if (pdev->type == 730 || pdev->type == 740)
+	if (pdev->type == 730 || pdev->type == 740 || pdev->type == 750)
 		pdev->vsize = PSZ_QSIF;
 	else
 		pdev->vsize = PSZ_QCIF;
@@ -990,7 +1003,7 @@ static int pwc_video_open(struct video_device *vdev, int mode)
 	i = pwc_set_video_mode(pdev, pwc_image_sizes[default_size].x, pwc_image_sizes[default_size].y, default_fps, pdev->vcompression, 0);
 	if (i)	{
 		Trace(TRACE_OPEN, "First attempt at set_video_mode failed.\n");
-		if (pdev->type == 730 || pdev->type == 740) 
+		if (pdev->type == 730 || pdev->type == 740 || pdev->type == 750)
 			i = pwc_set_video_mode(pdev, pwc_image_sizes[PSZ_QSIF].x, pwc_image_sizes[PSZ_QSIF].y, 10, pdev->vcompression, 0);
 		else
 			i = pwc_set_video_mode(pdev, pwc_image_sizes[PSZ_QCIF].x, pwc_image_sizes[PSZ_QCIF].y, 10, pdev->vcompression, 0);
@@ -1000,6 +1013,7 @@ static int pwc_video_open(struct video_device *vdev, int mode)
 		up(&pdev->modlock);
 		return i;
 	}
+	
 	i = usb_set_interface(pdev->udev, 0, pdev->valternate);
 	if (i) {
 		Trace(TRACE_OPEN, "Failed to set alternate interface = %d.\n", i);
@@ -1059,7 +1073,10 @@ static void pwc_video_close(struct video_device *vdev)
 		Trace(TRACE_OPEN, "Normal close(): setting interface to 0.\n");
 		usb_set_interface(pdev->udev, 0, 0);
 
-		/* Turn off LED by powering down camera */
+		/* Turn LEDs off */
+		if (pwc_set_leds(pdev, 0, 0) < 0)
+			Info("Failed to set LED on/off time..\n");
+		/* Power down camere to save energy */
 		if (power_save) {
 			i = pwc_camera_power(pdev, 0);
 			if (i < 0) 
@@ -1103,7 +1120,7 @@ static long pwc_video_read(struct video_device *vdev, char *buf, unsigned long c
 	if (pdev == NULL)
 		return -EFAULT;
 	if (pdev->unplugged) {
-		Debug("pwc_video_read: Device got unplugged (1).\n");
+		Info("pwc_video_read: Device got unplugged (1).\n");
 		return -EPIPE; /* unplugged device! */
 	}
 
@@ -1114,19 +1131,19 @@ static long pwc_video_read(struct video_device *vdev, char *buf, unsigned long c
 		while (pdev->full_frames == NULL) {
 	                if (noblock) {
 	                	remove_wait_queue(&pdev->frameq, &wait);
-	                	current->state = TASK_RUNNING;
+	                	set_current_state(TASK_RUNNING);
 	                	return -EWOULDBLOCK;
 	                }
 	                if (signal_pending(current)) {
 	                	remove_wait_queue(&pdev->frameq, &wait);
-	                	current->state = TASK_RUNNING;
+	                	set_current_state(TASK_RUNNING);
 	                	return -ERESTARTSYS;
 	                }
 	                schedule();
-	                current->state = TASK_INTERRUPTIBLE;
+	                set_current_state(TASK_INTERRUPTIBLE);
 		}
 		remove_wait_queue(&pdev->frameq, &wait);
-		current->state = TASK_RUNNING;
+		set_current_state(TASK_RUNNING);
 	                                                                                                                                                                                
 		/* Decompress [, convert] and release frame */
 		if (pwc_handle_frame(pdev))
@@ -1165,7 +1182,7 @@ static unsigned int pwc_video_poll(struct video_device *vdev, struct file *file,
 	
 	poll_wait(file, &pdev->frameq, wait);
 	if (pdev->unplugged) {
-		Debug("pwc_video_poll: Device got unplugged.\n");
+		Info("pwc_video_poll: Device got unplugged.\n");
 		return POLLERR;
 	}		
 	if (pdev->full_frames != NULL) /* we have frames waiting */
@@ -1369,10 +1386,10 @@ static int pwc_video_ioctl(struct video_device *vdev, unsigned int cmd, void *ar
 			int i;
 
 			memset(&vm, 0, sizeof(vm));
-			vm.size = default_mbufs * pdev->view_max.size * 4;
-			vm.frames = default_mbufs; /* double buffering should be enough */
+			vm.size = default_mbufs * pdev->len_per_image;
+			vm.frames = default_mbufs; /* double buffering should be enough for most applications */
 			for (i = 0; i < default_mbufs; i++)
-				vm.offsets[i] = i * pdev->view_max.size * 4;
+				vm.offsets[i] = i * pdev->len_per_image;
 
 			if (copy_to_user((void *)arg, (void *)&vm, sizeof(vm)))
 				return -EFAULT;
@@ -1466,14 +1483,14 @@ static int pwc_video_ioctl(struct video_device *vdev, unsigned int cmd, void *ar
 			while (pdev->full_frames == NULL) {
 	                	if (signal_pending(current)) {
 	                		remove_wait_queue(&pdev->frameq, &wait);
-		                	current->state = TASK_RUNNING;
+		                	set_current_state(TASK_RUNNING);
 		                	return -ERESTARTSYS;
 	        	        }
 	                	schedule();
-		                current->state = TASK_INTERRUPTIBLE;
+		                set_current_state(TASK_INTERRUPTIBLE);
 			}
 			remove_wait_queue(&pdev->frameq, &wait);
-			current->state = TASK_RUNNING;
+			set_current_state(TASK_RUNNING);
 				
 			/* The frame is ready. Expand in the image buffer 
 			   requested by the user. I don't care if you 
@@ -1490,7 +1507,49 @@ static int pwc_video_ioctl(struct video_device *vdev, unsigned int cmd, void *ar
 				return -EFAULT;
 			break;
 		}
-
+		
+		case VIDIOCGAUDIO:
+		{
+			struct video_audio v;
+			
+			strcpy(v.name, "Microphone");
+			v.audio = -1; /* unknown audio minor */
+			v.flags = 0;
+			v.mode = VIDEO_SOUND_MONO;
+			v.volume = 0;
+			v.bass = 0;
+			v.treble = 0;
+			v.balance = 0x8000;
+			v.step = 1;
+			
+			if (copy_to_user(arg, &v, sizeof(v)))
+				return -EFAULT;
+			break;	
+		}
+		
+		case VIDIOCSAUDIO:
+		{
+			struct video_audio v;
+			
+			if (copy_from_user(&v, arg, sizeof(v)))
+				return -EFAULT;
+			/* Dummy: nothing can be set */
+			break;
+		}
+		
+		case VIDIOCGUNIT:
+		{
+			struct video_unit vu;
+			
+			vu.video = pdev->vdev->minor & 0x3F;
+			vu.audio = -1; /* not known yet */
+			vu.vbi = -1;
+			vu.radio = -1;
+			vu.teletext = -1;
+			if (copy_to_user(arg, &vu, sizeof(vu)))
+				return -EFAULT;
+			break;
+		}
 		default:
 			return pwc_ioctl(pdev, cmd, arg);
 	} /* ..switch */
@@ -1503,11 +1562,10 @@ static int pwc_video_mmap(struct video_device *vdev, const char *adr, unsigned l
 	unsigned long start = (unsigned long)adr;
 	unsigned long page, pos;
 	
-	Trace(TRACE_READ, "mmap(0x%p, 0x%p, %lu) called.\n", vdev, adr, size);
+	Trace(TRACE_MEMORY, "mmap(0x%p, 0x%p, %lu) called.\n", vdev, adr, size);
 	pdev = vdev->priv;
 
 	/* FIXME - audit mmap during a read */		
-
 	pos = (unsigned long)pdev->image_data;
 	while (size > 0) {
 		page = kvirt_to_pa(pos);
@@ -1536,8 +1594,6 @@ static void *usb_pwc_probe(struct usb_device *udev, unsigned int ifnum, const st
 {
 	struct pwc_device *pdev = NULL;
 	struct video_device *vdev;
-	struct usb_config_descriptor *config;
-	struct usb_interface *iface;
 	int vendor_id, product_id, type_id;
 	int i;
 
@@ -1579,7 +1635,7 @@ static void *usb_pwc_probe(struct usb_device *udev, unsigned int ifnum, const st
 			type_id = 680;
 			break;
 		case 0x030C:
-			Info("Philips PCVC690K (Vesta Scanner) USB webcam detected.\n");
+			Info("Philips PCVC690K (Vesta Pro Scan) USB webcam detected.\n");
 			type_id = 690;
 			break;
 		case 0x0310:
@@ -1589,6 +1645,10 @@ static void *usb_pwc_probe(struct usb_device *udev, unsigned int ifnum, const st
 		case 0x0311:
 			Info("Philips PCVC740K (ToUCam Pro) USB webcam detected.\n");
 			type_id = 740;
+			break;
+		case 0x0312:
+			Info("Philips PCVC750K (ToUCam Pro Scan) USB webcam detected.\n");
+			type_id = 750;
 			break;
 		default:
 			return NULL;
@@ -1606,13 +1666,40 @@ static void *usb_pwc_probe(struct usb_device *udev, unsigned int ifnum, const st
 			break;
 		}
 	}
-	else return NULL; /* Not Philips or Askey, for sure. */
+	else if (vendor_id == 0x046d) {
+		switch(product_id) {
+		case 0x08b0:
+			Info("Logitech QuickCam 3000 Pro detected.\n");
+			type_id = 730;
+        		break;
+        	default:
+        		return NULL;
+        		break;
+        	}
+        }
+	else if (vendor_id == 0x055d) {
+		/* I don't know the difference between the C10 and the C30;
+		   I suppose the difference is the sensor, but both cameras
+		   work equally well with a type_id of 675
+		 */
+		switch(product_id) {
+		case 0x9000:
+			Info("Samsung MPC-C10 USB webcam detected.\n");
+			type_id = 675;
+			break;
+		case 0x9001:
+			Info("Samsung MPC-C30 USB webcam detected.\n");
+			type_id = 675;
+			break;
+		default:
+			return NULL;
+			break;
+		}
+	}
+	else return NULL; /* Not Philips, Askey, Logitech or Samsung, for sure. */
 
 	if (udev->descriptor.bNumConfigurations > 1)
 		Info("Warning: more than 1 configuration available.\n");
-
-	config = udev->actconfig;
-	iface = &config->interface[0];
 
 	/* Allocate structure, initialize pointers, mutexes, etc. and link it to the usb_device */
 	pdev = kmalloc(sizeof(struct pwc_device), GFP_KERNEL);
@@ -1676,6 +1763,7 @@ static void usb_pwc_disconnect(struct usb_device *udev, void *ptr)
 {
 	struct pwc_device *pdev;
 
+	lock_kernel();
 	free_mem_leak();
 
 	pdev = (struct pwc_device *)ptr;
@@ -1728,6 +1816,7 @@ static void usb_pwc_disconnect(struct usb_device *udev, void *ptr)
 		}
 	}
 	pdev->udev = NULL;
+	unlock_kernel();
 	kfree(pdev);
 }
 
@@ -1739,19 +1828,17 @@ static void usb_pwc_disconnect(struct usb_device *udev, void *ptr)
 
 static char *size = NULL;
 static int fps = 0;
-static char *palette = NULL;
 static int fbufs = 0;
 static int mbufs = 0;
 static int trace = -1;
 static int compression = -1;
+static int leds[2] = { -1, -1 };
 
 MODULE_PARM(video_nr, "i");
 MODULE_PARM(size, "s");
 MODULE_PARM_DESC(size, "Initial image size. One of sqcif, qsif, qcif, sif, cif, vga");
 MODULE_PARM(fps, "i");
 MODULE_PARM_DESC(fps, "Initial frames per second. Varies with model, useful range 5-30");
-MODULE_PARM(palette, "s");
-MODULE_PARM_DESC(palette, "Initial colour format of images. One of yuv420, yuv420p");
 MODULE_PARM(fbufs, "i");
 MODULE_PARM_DESC(fbufs, "Number of internal frame buffers to reserve");
 MODULE_PARM(mbufs, "i");
@@ -1762,17 +1849,19 @@ MODULE_PARM(power_save, "i");
 MODULE_PARM_DESC(power_save, "Turn power save feature in camera on or off");
 MODULE_PARM(compression, "i");
 MODULE_PARM_DESC(compression, "Preferred compression quality. Range 0 (uncompressed) to 3 (high compression)");
-
+MODULE_PARM(leds, "2i");
+MODULE_PARM_DESC(leds, "LED on,off time in milliseconds");
 MODULE_DESCRIPTION("Philips USB webcam driver");
 MODULE_AUTHOR("Nemosoft Unv. <nemosoft@smcc.demon.nl>");
+MODULE_LICENSE("GPL");
 
 static int __init usb_pwc_init(void)
 {
 	int s;
 	char *sizenames[PSZ_MAX] = { "sqcif", "qsif", "qcif", "sif", "cif", "vga" };
 
-	Info("Philips PCA645/646 + PCVC675/680/690 + PCVC730/740 webcam module version " PWC_VERSION " loaded.\n");
-	Info("Also supports Askey VC010 cam.\n");
+	Info("Philips PCA645/646 + PCVC675/680/690 + PCVC730/740/750 webcam module version " PWC_VERSION " loaded.\n");
+	Info("Also supports the Askey VC010, Logitech Quickcam 3000 Pro and the Samsung MPC-C10 and MPC-C30.\n");
 
 	if (fps) {
 		if (fps < 5 || fps > 30) {
@@ -1796,18 +1885,6 @@ static int __init usb_pwc_init(void)
 			return -EINVAL;
 		}
 		Info("Default image size set to %s [%dx%d].\n", sizenames[default_size], pwc_image_sizes[default_size].x, pwc_image_sizes[default_size].y);
-	}
-	if (palette) {
-		/* Determine default palette */
-		if (!strcmp(palette, "yuv420"))
-			default_palette = VIDEO_PALETTE_YUV420;
-		if (!strcmp(palette, "yuv420p"))
-			default_palette = VIDEO_PALETTE_YUV420P;
-		else {
-			Err("Palette not recognized: try palette=yuv420 or yuv420p.\n");
-			return -EINVAL;
-		}
-		Info("Default palette set to %d.\n", default_palette);
 	}
 	if (mbufs) {
 		if (mbufs < 1 || mbufs > MAX_IMAGES) {
@@ -1839,6 +1916,10 @@ static int __init usb_pwc_init(void)
 	}
 	if (power_save)
 		Info("Enabling power save on open/close.\n");
+	if (leds[0] >= 0)
+		led_on = leds[0] / 100;
+	if (leds[1] >= 0)
+		led_off = leds[1] / 100;
 
 	init_MUTEX(&mem_lock);
  	Trace(TRACE_PROBE, "Registering driver at address 0x%p.\n", &pwc_driver);

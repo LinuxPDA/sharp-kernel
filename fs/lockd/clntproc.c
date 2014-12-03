@@ -6,6 +6,7 @@
  * Copyright (C) 1996, Olaf Kirch <okir@monad.swb.de>
  */
 
+#include <linux/config.h>
 #include <linux/types.h>
 #include <linux/errno.h>
 #include <linux/fs.h>
@@ -18,6 +19,7 @@
 #include <linux/lockd/sm_inter.h>
 
 #define NLMDBG_FACILITY		NLMDBG_CLIENT
+#define NLMCLNT_GRACE_WAIT	(5*HZ)
 
 static int	nlmclnt_test(struct nlm_rqst *, struct file_lock *);
 static int	nlmclnt_lock(struct nlm_rqst *, struct file_lock *);
@@ -142,7 +144,7 @@ nlmclnt_proc(struct inode *inode, int cmd, struct file_lock *fl)
 
 	/* If we're cleaning up locks because the process is exiting,
 	 * perform the RPC call asynchronously. */
-	if ((cmd == F_SETLK || cmd == F_SETLKW)
+	if ((IS_SETLK(cmd) || IS_SETLKW(cmd))
 	    && fl->fl_type == F_UNLCK
 	    && (current->flags & PF_EXITING)) {
 		sigfillset(&current->blocked);	/* Mask all signals */
@@ -166,17 +168,16 @@ nlmclnt_proc(struct inode *inode, int cmd, struct file_lock *fl)
 	/* Set up the argument struct */
 	nlmclnt_setlockargs(call, fl);
 
-	if (cmd == F_GETLK) {
+	if (IS_SETLK(cmd) || IS_SETLKW(cmd)) {
+		if (fl->fl_type != F_UNLCK) {
+			call->a_args.block = IS_SETLKW(cmd) ? 1 : 0;
+			status = nlmclnt_lock(call, fl);
+		} else
+			status = nlmclnt_unlock(call, fl);
+	} else if (IS_GETLK(cmd))
 		status = nlmclnt_test(call, fl);
-	} else if ((cmd == F_SETLK || cmd == F_SETLKW)
-		   && fl->fl_type == F_UNLCK) {
-		status = nlmclnt_unlock(call, fl);
-	} else if (cmd == F_SETLK || cmd == F_SETLKW) {
-		call->a_args.block = (cmd == F_SETLKW)? 1 : 0;
-		status = nlmclnt_lock(call, fl);
-	} else {
+	else
 		status = -EINVAL;
-	}
 
 	if (status < 0 && (call->a_flags & RPC_TASK_ASYNC))
 		kfree(call);
@@ -558,19 +559,22 @@ nlmclnt_unlock_callback(struct rpc_task *task)
 
 	if (task->tk_status < 0) {
 		dprintk("lockd: unlock failed (err = %d)\n", -task->tk_status);
+		goto retry_rebind;
+	}
+	if (status == NLM_LCK_DENIED_GRACE_PERIOD) {
+		rpc_delay(task, NLMCLNT_GRACE_WAIT);
 		goto retry_unlock;
 	}
-	if (status != NLM_LCK_GRANTED
-	 && status != NLM_LCK_DENIED_GRACE_PERIOD) {
-		printk("lockd: unexpected unlock status: %d\n", status);
-	}
+	if (status != NLM_LCK_GRANTED)
+		printk(KERN_WARNING "lockd: unexpected unlock status: %d\n", status);
 
 die:
 	nlm_release_host(req->a_host);
 	kfree(req);
 	return;
- retry_unlock:
+ retry_rebind:
 	nlm_rebind_host(req->a_host);
+ retry_unlock:
 	rpc_restart_call(task);
 }
 
@@ -673,6 +677,18 @@ nlm_stat_to_errno(u32 status)
 	case NLM_LCK_BLOCKED:
 		printk(KERN_NOTICE "lockd: unexpected status NLM_BLOCKED\n");
 		return -ENOLCK;
+#ifdef CONFIG_LOCKD_V4
+	case NLM_DEADLCK:
+		return -EDEADLK;
+	case NLM_ROFS:
+		return -EROFS;
+	case NLM_STALE_FH:
+		return -ESTALE;
+	case NLM_FBIG:
+		return -EOVERFLOW;
+	case NLM_FAILED:
+		return -ENOLCK;
+#endif
 	}
 	printk(KERN_NOTICE "lockd: unexpected server status %d\n", status);
 	return -ENOLCK;

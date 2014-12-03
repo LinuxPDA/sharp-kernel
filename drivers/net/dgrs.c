@@ -126,6 +126,8 @@ static struct pci_device_id dgrs_pci_tbl[] __initdata = {
 	{ }			/* Terminating entry */
 };
 MODULE_DEVICE_TABLE(pci, dgrs_pci_tbl);
+MODULE_LICENSE("GPL");
+
 
 /*
  *	Firmware.  Compiled separately for local compilation,
@@ -693,7 +695,6 @@ static int dgrs_start_xmit(struct sk_buff *skb, struct net_device *devN)
 	I596_RBD	*rbdp;
 	int		count;
 	int		i, len, amt;
-#	define		mymin(A,B)	( (A) < (B) ? (A) : (B) )
 
 	/*
 	 *	Determine 0th priv and dev structure pointers
@@ -734,7 +735,7 @@ static int dgrs_start_xmit(struct sk_buff *skb, struct net_device *devN)
 			goto no_resources;
 		}
 
-		amt = mymin(len, rbdp->size - count);
+		amt = min_t(unsigned int, len, rbdp->size - count);
 		memcpy( (char *) S2H(rbdp->buf) + count, skb->data + i, amt);
 		i += amt;
 		count += amt;
@@ -1293,6 +1294,7 @@ dgrs_found_device(
 		if (!devN) 
 			goto fail;
 		memcpy(devN, dev, dev_size);
+		memset(devN->name, 0, sizeof(devN->name));
 		devN->priv = ((void *)devN) + sizeof(struct net_device);
 		privN = (DGRS_PRIV *)devN->priv;
 			/* ... and zero out VM areas */

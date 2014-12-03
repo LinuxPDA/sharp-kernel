@@ -10,14 +10,14 @@
  * 02/13/00 VTOC partition support added
  */
 
-#include <linux/module.h>
+#include <linux/config.h>
 #include <linux/fs.h>
 #include <linux/genhd.h>
 #include <linux/kernel.h>
 #include <linux/major.h>
 #include <linux/string.h>
 #include <linux/blk.h>
-#include <linux/malloc.h>
+#include <linux/slab.h>
 #include <linux/hdreg.h>
 #include <linux/ioctl.h>
 #include <linux/version.h>
@@ -28,14 +28,6 @@
 #include "ibm.h"
 #include "check.h"
 #include <asm/vtoc.h>
-
-#if (LINUX_VERSION_CODE > KERNEL_VERSION(2,3,98))
-/* We hook in when DASD is a module... */
-int (*genhd_dasd_name)(char*,int,int,struct gendisk*) = NULL;
-int (*genhd_dasd_fillgeo)(int,struct hd_geometry *) = NULL;
-EXPORT_SYMBOL(genhd_dasd_fillgeo);
-EXPORT_SYMBOL(genhd_dasd_name);
-#endif /* LINUX_IS_24 */
 
 typedef enum {
   ibm_partition_lnx1 = 0,
@@ -73,10 +65,8 @@ two_partitions(struct gendisk *hd,
 	       int offset,
 	       int size) {
 
-        add_gd_partition( hd, minor, 0,size);
-	add_gd_partition( hd, minor + 1, 
-			   offset * (blocksize >> 9),
-			   size-offset*(blocksize>>9));
+        add_gd_partition( hd, minor, 0, size);
+	add_gd_partition( hd, minor+1, offset*blocksize, size-offset*blocksize);
 }
 
 
@@ -103,93 +93,109 @@ cchhb2blk (cchhb_t *ptr, struct hd_geometry *geo) {
 }
 
 int 
-ibm_partition(struct gendisk *hd, kdev_t dev, unsigned long first_sector, int
-first_part_minor)
+ibm_partition(struct gendisk *hd, struct block_device *bdev,
+		unsigned long first_sector, int first_part_minor)
 {
-	struct buffer_head *bh, *buf;
+	Sector sect, sect2;
+	unsigned char *data;
 	ibm_partition_t partition_type;
 	char type[5] = {0,};
 	char name[7] = {0,};
-	struct hd_geometry geo;
+	struct hd_geometry *geo;
 	int blocksize;
 	int offset=0, size=0, psize=0, counter=0;
 	unsigned int blk;
 	format1_label_t f1;
 	volume_label_t vlabel;
+	dasd_information_t *info;
+	kdev_t dev = to_kdev_t(bdev->bd_dev);
 
-	if ( first_sector != 0 ) {
+	if ( first_sector != 0 )
 		BUG();
-	}
-	if ( !genhd_dasd_fillgeo ) {
+
+	info = (struct dasd_information_t *)kmalloc(sizeof(dasd_information_t),
+						    GFP_KERNEL);
+	if ( info == NULL )
 		return 0;
-	}
-	genhd_dasd_fillgeo(dev,&geo);
+	if (ioctl_by_bdev(bdev, BIODASDINFO, (unsigned long)(info)))
+		return 0;
+	geo = (struct hd_geometry *)kmalloc(sizeof(struct hd_geometry),
+					    GFP_KERNEL);
+	if ( geo == NULL )
+		return 0;
+	if (ioctl_by_bdev(bdev, HDIO_GETGEO, (unsigned long)geo);
+		return 0;
 	blocksize = hardsect_size[MAJOR(dev)][MINOR(dev)];
 	if ( blocksize <= 0 ) {
 		return 0;
 	}
-
-	set_blocksize(dev, blocksize);  /* OUCH !! */
-	if ( ( bh = bread( dev, geo.start, blocksize) ) != NULL ) {
-		strncpy ( type,bh -> b_data + 0, 4);
-		strncpy ( name,bh -> b_data + 4, 6);
-		memcpy (&vlabel, bh->b_data, sizeof(volume_label_t));
-        } else {
+	blocksize >>= 9;
+	
+	data = read_dev_sector(bdev, inode->label_block*blocksize, &sect);
+	if (!data)
 		return 0;
+
+	strncpy (type, data, 4);
+	if ((!info->FBA_layout) && (!strcmp(info->type,"ECKD"))) {
+		strncpy ( name, data + 8, 6);
+	} else {
+		strncpy ( name, data + 4, 6);
 	}
+	memcpy (&vlabel, data, sizeof(volume_label_t));
+
 	EBCASC(type,4);
 	EBCASC(name,6);
-
+	
 	partition_type = get_partition_type(type);
-	printk ( "%6s/%6s:",part_names[partition_type],name);
+	printk ( "%4s/%8s:",part_names[partition_type],name);
 	switch ( partition_type ) {
 	case ibm_partition_cms1:
-		if (* (((long *)bh->b_data) + 13) != 0) {
+		if (* ((long *)data + 13) != 0) {
 			/* disk is reserved minidisk */
-			long *label=(long*)bh->b_data;
-			blocksize = label[3];
+			long *label=(long*)data;
+			blocksize = label[3]>>9;
 			offset = label[13];
-			size = (label[7]-1)*(blocksize>>9); 
+			size = (label[7]-1)*blocksize; 
 			printk ("(MDSK)");
 		} else {
-			offset = (geo.start + 1);
+			offset = (info->label_block + 1);
 			size = hd -> sizes[MINOR(dev)]<<1;
 		}
-		two_partitions( hd, MINOR(dev), blocksize, 
-				offset, size);
+		two_partitions( hd, MINOR(dev), blocksize, offset, size);
 		break;
 	case ibm_partition_lnx1: 
 	case ibm_partition_none:
-		offset = (geo.start + 1);
+		offset = (info->label_block + 1);
 		size = hd -> sizes[MINOR(dev)]<<1;
-		two_partitions( hd, MINOR(dev), blocksize, 
-				offset, size);
+		two_partitions( hd, MINOR(dev), blocksize, offset, size);
 		break;
-	case ibm_partition_vol1:
+	case ibm_partition_vol1: 
+		size = hd -> sizes[MINOR(dev)]<<1;
 		add_gd_partition(hd, MINOR(dev), 0, size);
-
+		
 		/* get block number and read then first format1 label */
-		blk = cchhb2blk(&vlabel.vtoc, &geo) + 1;
-		if ((buf = bread( dev, blk, blocksize)) != NULL) {
-		        memcpy (&f1, buf->b_data, sizeof(format1_label_t));
-			bforget(buf);
+		blk = cchhb2blk(&vlabel.vtoc, geo) + 1;
+		data = read_dev_sector(bdev, blk * blocksize, &sect2);
+		if (data) {
+		        memcpy (&f1, data, sizeof(format1_label_t));
+			put_dev_sector(sect2);
 		}
-
+		
 		while (f1.DS1FMTID == _ascebc['1']) {
-		        offset = cchh2blk(&f1.DS1EXT1.llimit, &geo);
-			psize  = cchh2blk(&f1.DS1EXT1.ulimit, &geo) - 
-				offset + 1;
+		        offset = cchh2blk(&f1.DS1EXT1.llimit, geo);
+			psize  = cchh2blk(&f1.DS1EXT1.ulimit, geo) - 
+				offset + geo->sectors;
 			
 			counter++;
 			add_gd_partition(hd, MINOR(dev) + counter, 
-					  offset * (blocksize >> 9),
-					  psize * (blocksize >> 9));
+					 offset * blocksize,
+					 psize * blocksize);
 			
 			blk++;
-			if ((buf = bread( dev, blk, blocksize)) != NULL) {
-			        memcpy (&f1, buf->b_data, 
-					sizeof(format1_label_t));
-				bforget(buf);
+			data = read_dev_sector(bdev, blk * blocksize, &sect2);
+			if (data) {
+			        memcpy (&f1, data, sizeof(format1_label_t));
+				put_dev_sector(sect2);
 			}
 		}
 		break;
@@ -197,9 +203,8 @@ first_part_minor)
 		add_gd_partition( hd, MINOR(dev), 0, 0);
 		add_gd_partition( hd, MINOR(dev) + 1, 0, 0);
 	}
-
+	
 	printk ( "\n" );
-	bforget(bh);
+	put_dev_sector(sect);
 	return 1;
 }
-

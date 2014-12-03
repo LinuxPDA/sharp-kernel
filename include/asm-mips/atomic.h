@@ -40,7 +40,7 @@ typedef struct { volatile int counter; } atomic_t;
  */
 #define atomic_set(v,i)	((v)->counter = (i))
 
-#if !defined(CONFIG_CPU_HAS_LLSC)
+#ifndef CONFIG_CPU_HAS_LLSC
 
 #include <asm/system.h>
 
@@ -271,6 +271,12 @@ extern __inline__ int atomic_sub_return(int i, atomic_t * v)
  *
  * Currently not implemented for MIPS.
  */
+
+/* Atomic operations are already serializing */
+#define smp_mb__before_atomic_dec()	barrier()
+#define smp_mb__after_atomic_dec()	barrier()
+#define smp_mb__before_atomic_inc()	barrier()
+#define smp_mb__after_atomic_inc()	barrier()
 
 #endif /* defined(__KERNEL__) */
 

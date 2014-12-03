@@ -1,9 +1,9 @@
-
 #ifndef _IEEE1394_HOSTS_H
 #define _IEEE1394_HOSTS_H
 
 #include <linux/wait.h>
 #include <linux/tqueue.h>
+#include <linux/list.h>
 #include <asm/semaphore.h>
 
 #include "ieee1394_types.h"
@@ -14,7 +14,9 @@ struct hpsb_packet;
 
 struct hpsb_host {
 /* private fields (hosts, do not use them) */
-        struct hpsb_host *next;
+	struct list_head list;
+
+        atomic_t generation;
 
         struct list_head pending_packets;
         spinlock_t pending_pkt_lock;
@@ -56,6 +58,7 @@ struct hpsb_host {
 /* fields readable and writeable by the hosts */
 
         void *hostdata;
+	struct pci_dev *pdev;
         int embedded_hostdata[0];
 };
 
@@ -96,10 +99,20 @@ enum devctl_cmd {
         ISO_UNLISTEN_CHANNEL
 };
 
-struct hpsb_host_template {
-        struct hpsb_host_template *next;
+enum reset_types {
+        /* 166 microsecond reset -- only type of reset available on
+           non-1394a capable IEEE 1394 controllers */
+        LONG_RESET,
 
-        struct hpsb_host *hosts;
+        /* Short (arbitrated) reset -- only available on 1394a capable
+           IEEE 1394 capable controllers */
+        SHORT_RESET
+};
+
+struct hpsb_host_template {
+	struct list_head list;
+
+        struct list_head hosts;
         int number_of_hosts;
 
         /* fields above will be ignored and overwritten after registering */

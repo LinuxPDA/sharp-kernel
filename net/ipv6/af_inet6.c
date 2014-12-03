@@ -7,7 +7,7 @@
  *
  *	Adapted from linux/net/ipv4/af_inet.c
  *
- *	$Id: af_inet6.c,v 1.64 2001/06/13 16:25:03 davem Exp $
+ *	$Id: af_inet6.c,v 1.65 2001/10/02 02:22:36 davem Exp $
  *
  * 	Fixes:
  *	piggy, Karl Knutson	:	Socket protocol table
@@ -718,3 +718,4 @@ static void inet6_exit(void)
 }
 module_exit(inet6_exit);
 #endif /* MODULE */
+MODULE_LICENSE("GPL");

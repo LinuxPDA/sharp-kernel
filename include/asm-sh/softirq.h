@@ -18,15 +18,12 @@ do {						\
 
 #define local_bh_enable()				\
 do {							\
+	barrier();					\
 	if (!--local_bh_count(smp_processor_id())	\
 	    && softirq_pending(smp_processor_id())) {	\
 		do_softirq();				\
-		__sti();				\
 	}						\
 } while (0)
-
-#define __cpu_raise_softirq(cpu, nr) set_bit((nr), &softirq_pending(cpu));
-#define raise_softirq(nr)	__cpu_raise_softirq(smp_processor_id(), (nr))
 
 #define in_softirq() (local_bh_count(smp_processor_id()) != 0)
 

@@ -184,29 +184,6 @@ static int proc_pid_cmdline(struct task_struct *task, char * buffer)
 
 /* permission checks */
 
-static int standard_permission(struct inode *inode, int mask)
-{
-	int mode = inode->i_mode;
-
-	if ((mask & S_IWOTH) && IS_RDONLY(inode) &&
-	    (S_ISREG(mode) || S_ISDIR(mode) || S_ISLNK(mode)))
-		return -EROFS; /* Nobody gets write access to a read-only fs */
-	else if ((mask & S_IWOTH) && IS_IMMUTABLE(inode))
-		return -EACCES; /* Nobody gets write access to an immutable file */
-	else if (current->fsuid == inode->i_uid)
-		mode >>= 6;
-	else if (in_group_p(inode->i_gid))
-		mode >>= 3;
-	if (((mode & mask & S_IRWXO) == mask) || capable(CAP_DAC_OVERRIDE))
-		return 0;
-	/* read and search access */
-	if ((mask == S_IROTH) ||
-	    (S_ISDIR(mode)  && !(mask & ~(S_IROTH | S_IXOTH))))
-		if (capable(CAP_DAC_READ_SEARCH))
-			return 0;
-	return -EACCES;
-}
-
 static int proc_check_root(struct inode *inode)
 {
 	struct dentry *de, *base, *root;
@@ -249,7 +226,7 @@ out:
 
 static int proc_permission(struct inode *inode, int mask)
 {
-	if (standard_permission(inode, mask) != 0)
+	if (vfs_permission(inode, mask) != 0)
 		return -EACCES;
 	return proc_check_root(inode);
 }
@@ -645,6 +622,20 @@ static int proc_base_readdir(struct file * filp,
 
 /* building an inode */
 
+static int task_dumpable(struct task_struct *task)
+{
+	int dumpable = 0;
+	struct mm_struct *mm;
+
+	task_lock(task);
+	mm = task->mm;
+	if (mm)
+		dumpable = mm->dumpable;
+	task_unlock(task);
+	return dumpable;
+}
+
+
 static struct inode *proc_pid_make_inode(struct super_block * sb, struct task_struct *task, int ino)
 {
 	struct inode * inode;
@@ -670,7 +661,7 @@ static struct inode *proc_pid_make_inode(struct super_block * sb, struct task_st
 	inode->u.proc_i.task = task;
 	inode->i_uid = 0;
 	inode->i_gid = 0;
-	if (ino == PROC_PID_INO || task->dumpable) {
+	if (ino == PROC_PID_INO || task_dumpable(task)) {
 		inode->i_uid = task->euid;
 		inode->i_gid = task->egid;
 	}

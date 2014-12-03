@@ -1,26 +1,12 @@
-
 /*
- *
  * Copyright (C) Eicon Technology Corporation, 2000.
  *
  * Eicon File Revision :    1.9  
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2, or (at your option)
- * any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY OF ANY KIND WHATSOEVER INCLUDING ANY 
- * implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  
- * See the GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ * This software may be used and distributed according to the terms
+ * of the GNU General Public License, incorporated herein by reference.
  *
  */
-
 
 #include <linux/fs.h>
 #undef N_DATA   /* Because we have our own definition */
@@ -42,12 +28,6 @@
 #include <linux/pci.h>
 #include <linux/kernel.h>
 #include <linux/ioport.h>
-
-#define HW_ID_EICON_PCI			0x1133
-#define HW_ID_DIVA_SERVER_P		0xE014
-#define HW_ID_DIVA_SERVER_B_ST	0xE010
-#define HW_ID_DIVA_SERVER_B_U	0xE013
-#define HW_ID_DIVA_SERVER_Q   	0xE012
 
 struct file_operations Divas_fops;
 int Divas_major;
@@ -73,8 +53,8 @@ int DivasCardsDiscover(void)
 	
 	while (wDeviceIndex < 10)
 	{
-		wPCIConsultation = pcibios_find_device(HW_ID_EICON_PCI, 
-				HW_ID_DIVA_SERVER_Q, 
+		wPCIConsultation = pcibios_find_device(PCI_VENDOR_ID_EICON, 
+				PCI_DEVICE_ID_EICON_MAESTRAQ, 
 				wDeviceIndex, 
 				&byBus, &byFunc);
 
@@ -174,8 +154,8 @@ int DivasCardsDiscover(void)
 
 	while (wDeviceIndex < 10)
 	{
-		wPCIConsultation = pcibios_find_device(HW_ID_EICON_PCI, 
-				HW_ID_DIVA_SERVER_B_ST, 
+		wPCIConsultation = pcibios_find_device(PCI_VENDOR_ID_EICON, 
+				PCI_DEVICE_ID_EICON_MAESTRA, 
 				wDeviceIndex, 
 				&byBus, &byFunc);
 
@@ -232,8 +212,8 @@ int DivasCardsDiscover(void)
 			wNumCards++;
 		}
 
-		wPCIConsultation = pcibios_find_device(HW_ID_EICON_PCI, 
-				HW_ID_DIVA_SERVER_B_U, 
+		wPCIConsultation = pcibios_find_device(PCI_VENDOR_ID_EICON, 
+				PCI_DEVICE_ID_EICON_MAESTRAQ_U, 
 				wDeviceIndex, 
 				&byBus, &byFunc);
 
@@ -298,8 +278,8 @@ int DivasCardsDiscover(void)
 
 	while (wDeviceIndex < 10)
 	{
-		wPCIConsultation = pcibios_find_device(HW_ID_EICON_PCI, 
-				HW_ID_DIVA_SERVER_P, 
+		wPCIConsultation = pcibios_find_device(PCI_VENDOR_ID_EICON, 
+				PCI_DEVICE_ID_EICON_MAESTRAP, 
 				wDeviceIndex, 
 				&byBus, &byFunc);
 

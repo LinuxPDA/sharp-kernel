@@ -131,13 +131,6 @@
 
 #define	LVM_DIR_PREFIX	"/dev/"
 
-#ifndef min
-#define min(a,b) (((a)<(b))?(a):(b))
-#endif
-#ifndef max
-#define max(a,b) (((a)>(b))?(a):(b))
-#endif
-
 /* set the default structure version */
 #if ( LVM_STRUCT_VERSION == 1)
 #define pv_t pv_v2_t
@@ -290,8 +283,9 @@
 #define	LVM_MAX_STRIPES		128	/* max # of stripes */
 #define	LVM_MAX_SIZE            ( 1024LU * 1024 / SECTOR_SIZE * 1024 * 1024)	/* 1TB[sectors] */
 #define	LVM_MAX_MIRRORS    	2	/* future use */
-#define	LVM_MIN_READ_AHEAD	2	/* minimum read ahead sectors */
-#define	LVM_MAX_READ_AHEAD	120	/* maximum read ahead sectors */
+#define	LVM_MIN_READ_AHEAD	0	/* minimum read ahead sectors */
+#define	LVM_DEFAULT_READ_AHEAD	1024	/* default read ahead sectors for 512k scsi segments */
+#define	LVM_MAX_READ_AHEAD	10000	/* maximum read ahead sectors */
 #define	LVM_MAX_LV_IO_TIMEOUT	60	/* seconds I/O timeout (future use) */
 #define	LVM_PARTITION           0xfe	/* LVM partition id */
 #define	LVM_NEW_PARTITION       0x8e	/* new LVM partition id (10/09/1999) */
@@ -299,7 +293,7 @@
 
 #define	LVM_SNAPSHOT_MAX_CHUNK	1024	/* 1024 KB */
 #define	LVM_SNAPSHOT_DEF_CHUNK	64	/* 64  KB */
-#define	LVM_SNAPSHOT_MIN_CHUNK	1	/* 1   KB */
+#define	LVM_SNAPSHOT_MIN_CHUNK	(PAGE_SIZE/1024)	/* 4 or 8 KB */
 
 #define	UNDEF	-1
 #define FALSE	0
@@ -585,7 +579,7 @@ typedef struct {
 } le_remap_req_t;
 
 typedef struct lv_bmap {
-	ulong lv_block;
+	uint32_t lv_block;
 	dev_t lv_dev;
 } lv_bmap_t;
 

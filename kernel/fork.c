@@ -8,7 +8,7 @@
  *  'fork.c' contains the help-routines for the 'fork' system call
  * (see also entry.S and others).
  * Fork is rather simple, once you get the hang of it, but the memory
- * management can be a bitch. See 'mm/memory.c': 'copy_page_tables()'
+ * management can be a bitch. See 'mm/memory.c': 'copy_page_range()'
  */
 
 #include <linux/config.h>
@@ -18,6 +18,8 @@
 #include <linux/smp_lock.h>
 #include <linux/module.h>
 #include <linux/vmalloc.h>
+#include <linux/completion.h>
+#include <linux/personality.h>
 
 #include <asm/pgtable.h>
 #include <asm/pgalloc.h>
@@ -38,8 +40,8 @@ void add_wait_queue(wait_queue_head_t *q, wait_queue_t * wait)
 {
 	unsigned long flags;
 
-	wq_write_lock_irqsave(&q->lock, flags);
 	wait->flags &= ~WQ_FLAG_EXCLUSIVE;
+	wq_write_lock_irqsave(&q->lock, flags);
 	__add_wait_queue(q, wait);
 	wq_write_unlock_irqrestore(&q->lock, flags);
 }
@@ -48,8 +50,8 @@ void add_wait_queue_exclusive(wait_queue_head_t *q, wait_queue_t * wait)
 {
 	unsigned long flags;
 
-	wq_write_lock_irqsave(&q->lock, flags);
 	wait->flags |= WQ_FLAG_EXCLUSIVE;
+	wq_write_lock_irqsave(&q->lock, flags);
 	__add_wait_queue_tail(q, wait);
 	wq_write_unlock_irqrestore(&q->lock, flags);
 }
@@ -70,7 +72,7 @@ void __init fork_init(unsigned long mempages)
 	 * value: the thread structures can take up at most half
 	 * of memory.
 	 */
-	max_threads = mempages / (THREAD_SIZE/PAGE_SIZE) / 2;
+	max_threads = mempages / (THREAD_SIZE/PAGE_SIZE) / 8;
 
 	init_task.rlim[RLIMIT_NPROC].rlim_cur = max_threads/2;
 	init_task.rlim[RLIMIT_NPROC].rlim_max = max_threads/2;
@@ -100,6 +102,7 @@ inside:
 		for_each_task(p) {
 			if(p->pid == last_pid	||
 			   p->pgrp == last_pid	||
+			   p->tgid == last_pid	||
 			   p->session == last_pid) {
 				if(++last_pid >= next_safe) {
 					if(last_pid & 0xffff8000)
@@ -130,12 +133,24 @@ static inline int dup_mmap(struct mm_struct * mm)
 	flush_cache_mm(current->mm);
 	mm->locked_vm = 0;
 	mm->mmap = NULL;
-	mm->mmap_avl = NULL;
 	mm->mmap_cache = NULL;
 	mm->map_count = 0;
+	mm->rss = 0;
 	mm->cpu_vm_mask = 0;
 	mm->swap_address = 0;
 	pprev = &mm->mmap;
+
+	/*
+	 * Add it to the mmlist after the parent.
+	 * Doing it this way means that we can order the list,
+	 * and fork() won't mess up the ordering significantly.
+	 * Add it first so that swapoff can see any swap entries.
+	 */
+	spin_lock(&mmlist_lock);
+	list_add(&mm->mmlist, &current->mm->mmlist);
+	mmlist_nr++;
+	spin_unlock(&mmlist_lock);
+
 	for (mpnt = current->mm->mmap ; mpnt ; mpnt = mpnt->vm_next) {
 		struct file *file;
 
@@ -148,7 +163,6 @@ static inline int dup_mmap(struct mm_struct * mm)
 		*tmp = *mpnt;
 		tmp->vm_flags &= ~VM_LOCKED;
 		tmp->vm_mm = mm;
-		mm->map_count++;
 		tmp->vm_next = NULL;
 		file = tmp->vm_file;
 		if (file) {
@@ -167,24 +181,25 @@ static inline int dup_mmap(struct mm_struct * mm)
 			spin_unlock(&inode->i_mapping->i_shared_lock);
 		}
 
-		/* Copy the pages, but defer checking for errors */
-		retval = copy_page_range(mm, current->mm, tmp);
-		if (!retval && tmp->vm_ops && tmp->vm_ops->open)
-			tmp->vm_ops->open(tmp);
-
 		/*
-		 * Link in the new vma even if an error occurred,
-		 * so that exit_mmap() can clean up the mess.
+		 * Link in the new vma and copy the page table entries:
+		 * link in first so that swapoff can see swap entries.
 		 */
+		spin_lock(&mm->page_table_lock);
 		*pprev = tmp;
 		pprev = &tmp->vm_next;
+		mm->map_count++;
+		retval = copy_page_range(mm, current->mm, tmp);
+		spin_unlock(&mm->page_table_lock);
+
+		if (tmp->vm_ops && tmp->vm_ops->open)
+			tmp->vm_ops->open(tmp);
 
 		if (retval)
 			goto fail_nomem;
 	}
 	retval = 0;
-	if (mm->map_count >= AVL_MIN_MAP_COUNT)
-		build_mmap_avl(mm);
+	build_mmap_rb(mm);
 
 fail_nomem:
 	flush_tlb_mm(current->mm);
@@ -245,6 +260,9 @@ inline void __mmdrop(struct mm_struct *mm)
 void mmput(struct mm_struct *mm)
 {
 	if (atomic_dec_and_lock(&mm->mm_users, &mmlist_lock)) {
+		extern struct mm_struct *swap_mm;
+		if (swap_mm == mm)
+			swap_mm = list_entry(mm->mmlist.next, struct mm_struct, mmlist);
 		list_del(&mm->mmlist);
 		mmlist_nr--;
 		spin_unlock(&mmlist_lock);
@@ -269,11 +287,12 @@ void mmput(struct mm_struct *mm)
 void mm_release(void)
 {
 	struct task_struct *tsk = current;
+	struct completion *vfork_done = tsk->vfork_done;
 
 	/* notify parent sleeping on vfork() */
-	if (tsk->flags & PF_VFORK) {
-		tsk->flags &= ~PF_VFORK;
-		up(tsk->p_opptr->vfork_sem);
+	if (vfork_done) {
+		tsk->vfork_done = NULL;
+		complete(vfork_done);
 	}
 }
 
@@ -317,18 +336,6 @@ static int copy_mm(unsigned long clone_flags, struct task_struct * tsk)
 	down_write(&oldmm->mmap_sem);
 	retval = dup_mmap(mm);
 	up_write(&oldmm->mmap_sem);
-
-	/*
-	 * Add it to the mmlist after the parent.
-	 *
-	 * Doing it this way means that we can order
-	 * the list, and fork() won't mess up the
-	 * ordering significantly.
-	 */
-	spin_lock(&mmlist_lock);
-	list_add(&mm->mmlist, &oldmm->mmlist);
-	mmlist_nr++;
-	spin_unlock(&mmlist_lock);
 
 	if (retval)
 		goto free_pt;
@@ -536,12 +543,10 @@ static inline void copy_flags(unsigned long clone_flags, struct task_struct *p)
 {
 	unsigned long new_flags = p->flags;
 
-	new_flags &= ~(PF_SUPERPRIV | PF_USEDFPU | PF_VFORK);
+	new_flags &= ~(PF_SUPERPRIV | PF_USEDFPU);
 	new_flags |= PF_FORKNOEXEC;
 	if (!(clone_flags & CLONE_PTRACE))
 		p->ptrace = 0;
-	if (clone_flags & CLONE_VFORK)
-		new_flags |= PF_VFORK;
 	p->flags = new_flags;
 }
 
@@ -557,18 +562,22 @@ static inline void copy_flags(unsigned long clone_flags, struct task_struct *p)
 int do_fork(unsigned long clone_flags, unsigned long stack_start,
 	    struct pt_regs *regs, unsigned long stack_size)
 {
-	int retval = -ENOMEM;
+	int retval;
 	struct task_struct *p;
-	DECLARE_MUTEX_LOCKED(sem);
+	struct completion vfork;
 
+	retval = -EPERM;
+
+	/* 
+	 * CLONE_PID is only allowed for the initial SMP swapper
+	 * calls
+	 */
 	if (clone_flags & CLONE_PID) {
-		/* This is only allowed from the boot up thread */
 		if (current->pid)
-			return -EPERM;
+			goto fork_out;
 	}
-	
-	current->vfork_sem = &sem;
 
+	retval = -ENOMEM;
 	p = alloc_task_struct();
 	if (!p)
 		goto fork_out;
@@ -578,6 +587,7 @@ int do_fork(unsigned long clone_flags, unsigned long stack_start,
 	retval = -EAGAIN;
 	if (atomic_read(&p->user->processes) >= p->rlim[RLIMIT_NPROC].rlim_cur)
 		goto bad_fork_free;
+
 	atomic_inc(&p->user->__count);
 	atomic_inc(&p->user->processes);
 
@@ -604,14 +614,13 @@ int do_fork(unsigned long clone_flags, unsigned long stack_start,
 	p->run_list.next = NULL;
 	p->run_list.prev = NULL;
 
-	if ((clone_flags & CLONE_VFORK) || !(clone_flags & CLONE_PARENT)) {
-		p->p_opptr = current;
-		if (!(p->ptrace & PT_PTRACED))
-			p->p_pptr = current;
-	}
 	p->p_cptr = NULL;
 	init_waitqueue_head(&p->wait_chldexit);
-	p->vfork_sem = NULL;
+	p->vfork_done = NULL;
+	if (clone_flags & CLONE_VFORK) {
+		p->vfork_done = &vfork;
+		init_completion(&vfork);
+	}
 	spin_lock_init(&p->alloc_lock);
 
 	p->sigpending = 0;
@@ -639,6 +648,8 @@ int do_fork(unsigned long clone_flags, unsigned long stack_start,
 #endif
 	p->lock_depth = -1;		/* -1 = no lock */
 	p->start_time = jiffies;
+
+	INIT_LIST_HEAD(&p->local_pages);
 
 	retval = -ENOMEM;
 	/* copy all the process information */
@@ -685,11 +696,24 @@ int do_fork(unsigned long clone_flags, unsigned long stack_start,
 	retval = p->pid;
 	p->tgid = retval;
 	INIT_LIST_HEAD(&p->thread_group);
+
+	/* Need tasklist lock for parent etc handling! */
 	write_lock_irq(&tasklist_lock);
+
+	/* CLONE_PARENT and CLONE_THREAD re-use the old parent */
+	p->p_opptr = current->p_opptr;
+	p->p_pptr = current->p_pptr;
+	if (!(clone_flags & (CLONE_PARENT | CLONE_THREAD))) {
+		p->p_opptr = current;
+		if (!(p->ptrace & PT_PTRACED))
+			p->p_pptr = current;
+	}
+
 	if (clone_flags & CLONE_THREAD) {
 		p->tgid = current->tgid;
 		list_add(&p->thread_group, &current->thread_group);
 	}
+
 	SET_LINKS(p);
 	hash_pid(p);
 	nr_threads++;
@@ -700,10 +724,10 @@ int do_fork(unsigned long clone_flags, unsigned long stack_start,
 
 	wake_up_process(p);		/* do this last */
 	++total_forks;
+	if (clone_flags & CLONE_VFORK)
+		wait_for_completion(&vfork);
 
 fork_out:
-	if ((clone_flags & CLONE_VFORK) && (retval > 0)) 
-		down(&sem);
 	return retval;
 
 bad_fork_cleanup_mm:

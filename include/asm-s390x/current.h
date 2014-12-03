@@ -19,8 +19,8 @@ static inline struct task_struct * get_current(void)
 {
         struct task_struct *current;
         __asm__("lghi  %0,-16384\n\t"
-                "ngr   %0,15"
-                : "=&r" (current) );
+                "alg   %0,0xd40"
+                : "=&r" (current) : : "cc" );
         return current;
  }
 

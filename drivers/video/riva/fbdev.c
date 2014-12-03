@@ -191,6 +191,8 @@ static struct pci_device_id rivafb_pci_tbl[] __devinitdata = {
 	  PCI_ANY_ID, PCI_ANY_ID, 0, 0, CH_GEFORCE2_GTS },
 	{ PCI_VENDOR_ID_NVIDIA, PCI_DEVICE_ID_NVIDIA_GEFORCE2_GTS2,
 	  PCI_ANY_ID, PCI_ANY_ID, 0, 0, CH_GEFORCE2_GTS },
+	{ PCI_VENDOR_ID_NVIDIA, PCI_DEVICE_ID_NVIDIA_GEFORCE2_ULTRA,
+	  PCI_ANY_ID, PCI_ANY_ID, 0, 0, CH_GEFORCE2_ULTRA },
 	{ PCI_VENDOR_ID_NVIDIA, PCI_DEVICE_ID_NVIDIA_QUADRO2_PRO,
 	  PCI_ANY_ID, PCI_ANY_ID, 0, 0, CH_QUADRO2_PRO },
 	{ 0, } /* terminate list */
@@ -258,7 +260,7 @@ static char nomtrr __initdata = 0;
 #endif
 
 #ifndef MODULE
-static const char *mode_option __initdata = NULL;
+static char *mode_option __initdata = NULL;
 #else
 static char *font = NULL;
 #endif
@@ -1107,6 +1109,9 @@ static int riva_get_cmap_len(const struct fb_var_screeninfo *var)
 		break;
 #endif
 #ifdef FBCON_HAS_CFB16
+	case 15:
+		rc = 15;	/* fix for 15 bpp depths on Riva 128 based cards */
+		break;
 	case 16:
 		rc = 16;	/* directcolor... 16 entries SW palette */
 		break;		/* Mystique: truecolor, 16 entries SW palette, HW palette hardwired into 1:1 mapping */
@@ -1117,7 +1122,6 @@ static int riva_get_cmap_len(const struct fb_var_screeninfo *var)
 		break;		/* Mystique: truecolor, 16 entries SW palette, HW palette hardwired into 1:1 mapping */
 #endif
 	default:
-		assert(0);
 		/* should not occur */
 		break;
 	}
@@ -2041,8 +2045,7 @@ int __init rivafb_setup(char *options)
 	if (!options || !*options)
 		return 0;
 
-	for (this_opt = strtok(options, ","); this_opt;
-	     this_opt = strtok(NULL, ",")) {
+	while (this_opt = strsep(&options, ",")) {
 		if (!strncmp(this_opt, "font:", 5)) {
 			char *p;
 			int i;
@@ -2128,3 +2131,4 @@ MODULE_PARM_DESC(nomtrr, "Disables MTRR support (0 or 1=disabled) (default=0)");
 
 MODULE_AUTHOR("Ani Joshi, maintainer");
 MODULE_DESCRIPTION("Framebuffer driver for nVidia Riva 128, TNT, TNT2");
+MODULE_LICENSE("GPL");

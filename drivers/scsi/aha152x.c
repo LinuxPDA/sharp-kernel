@@ -238,6 +238,7 @@
 #include <linux/interrupt.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
+#include <linux/isapnp.h>
 #include <asm/semaphore.h>
 #include <linux/spinlock.h>
 
@@ -332,6 +333,8 @@ enum {
 #if defined(MODULE)
 MODULE_AUTHOR("Jürgen Fischer");
 MODULE_DESCRIPTION(AHA152X_REVID);
+MODULE_LICENSE("GPL");
+
 MODULE_PARM(io, "1-2i");
 MODULE_PARM_DESC(io,"base io address of controller");
 static int io[] = {0, 0};
@@ -385,6 +388,14 @@ MODULE_PARM(aha152x1, "1-9i");
 MODULE_PARM_DESC(aha152x1, "parameters for second controller");
 static int aha152x1[]  = {0, 11, 7, 1, 1, 1, DELAY_DEFAULT, 0, DEBUG_DEFAULT};
 #endif /* !defined(AHA152X_DEBUG) */
+
+#ifdef __ISAPNP__
+static struct isapnp_device_id id_table[] __devinitdata = {
+	{ ISAPNP_DEVICE_SINGLE('A','D','P',0x1505, 'A','D','P',0x1505), },
+	{ ISAPNP_DEVICE_SINGLE_END, }
+};
+MODULE_DEVICE_TABLE(isapnp, id_table);
+#endif /* ISAPNP */
 #endif /* MODULE */
 
 /* set by aha152x_setup according to the command line */
@@ -613,7 +624,7 @@ static void msgi_end(struct Scsi_Host *shpnt);
 static void parerr_run(struct Scsi_Host *shpnt);
 static void rsti_run(struct Scsi_Host *shpnt);
 
-static void complete(struct Scsi_Host *shpnt);
+static void is_complete(struct Scsi_Host *shpnt);
 
 /*
  * driver states
@@ -940,12 +951,18 @@ static void swintr(int irqno, void *dev_id, struct pt_regs *regs)
 	SETPORT(DMACNTRL0, INTEN);
 }
 
-
+#ifdef __ISAPNP__
+static struct pci_dev *pnpdev[2];
+static int num_pnpdevs;
+#endif
 int aha152x_detect(Scsi_Host_Template * tpnt)
 {
 	int i, j, ok;
 #if defined(AUTOCONF)
 	aha152x_config conf;
+#ifdef __ISAPNP__
+	struct pci_dev *dev = NULL;
+#endif
 #endif
 	tpnt->proc_name = "aha152x"; 
 
@@ -962,6 +979,7 @@ int aha152x_detect(Scsi_Host_Template * tpnt)
 			}
 		printk("ok\n");
 	}
+
 #if defined(SETUP0)
 	if (setup_count < 2) {
 		struct aha152x_setup override = SETUP0;
@@ -1090,6 +1108,41 @@ int aha152x_detect(Scsi_Host_Template * tpnt)
 			       setup[setup_count].ext_trans);
 	}
 #endif
+
+#ifdef __ISAPNP__
+	while ( setup_count<2 && (dev=isapnp_find_dev(NULL, ISAPNP_VENDOR('A','D','P'), ISAPNP_FUNCTION(0x1505), dev)) ) {
+		if (dev->prepare(dev) < 0)
+			continue;
+		if (dev->active)
+			continue;
+		if (!(dev->resource[0].flags & IORESOURCE_IO))
+			continue;
+		dev->resource[0].flags |= IORESOURCE_AUTO;
+		if (dev->activate(dev) < 0)
+			continue;
+		if ( setup_count==1 && dev->resource[0].start==setup[0].io_port) {
+			dev->deactivate(dev);
+			continue;
+		}
+		setup[setup_count].io_port     = dev->resource[0].start;
+		setup[setup_count].irq         = dev->irq_resource[0].start;
+		setup[setup_count].scsiid      = 7;
+		setup[setup_count].reconnect   = 1;
+		setup[setup_count].parity      = 1;
+		setup[setup_count].synchronous = 1;
+		setup[setup_count].delay       = DELAY_DEFAULT;
+		setup[setup_count].ext_trans   = 0;
+#if defined(AHA152X_DEBUG)
+		setup[setup_count].debug       = DEBUG_DEFAULT;
+#endif
+		pnpdev[num_pnpdevs++] = dev;
+		printk (KERN_INFO
+			"aha152x: found ISAPnP AVA-1505A at io=0x%03x, irq=%d\n",
+			setup[setup_count].io_port, setup[setup_count].irq);
+		setup_count++;
+	}
+#endif
+
 
 #if defined(AUTOCONF)
 	if (setup_count < 2) {
@@ -1349,6 +1402,10 @@ int aha152x_release(struct Scsi_Host *shpnt)
 	if (shpnt->io_port)
 		release_region(shpnt->io_port, IO_RANGE);
 
+#ifdef __ISAPNP__
+	while (num_pnpdevs--)
+		pnpdev[num_pnpdevs]->deactivate(pnpdev[num_pnpdevs]);
+#endif
 	scsi_unregister(shpnt);
 
 	return 0;
@@ -1825,7 +1882,7 @@ static void run(void)
 		struct Scsi_Host *shpnt = aha152x_host[i];
 		if (shpnt && HOSTDATA(shpnt)->service) {
 			HOSTDATA(shpnt)->service=0;
-			complete(shpnt);
+			is_complete(shpnt);
 		}
 	}
 }
@@ -2891,7 +2948,7 @@ static void rsti_run(struct Scsi_Host *shpnt)
  * bottom-half handler
  *
  */
-static void complete(struct Scsi_Host *shpnt)
+static void is_complete(struct Scsi_Host *shpnt)
 {
 	int dataphase;
 	unsigned long flags;

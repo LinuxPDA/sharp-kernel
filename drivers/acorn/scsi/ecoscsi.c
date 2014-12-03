@@ -292,3 +292,8 @@ static void __exit ecoscsi_exit(void)
 
 module_init(ecoscsi_init);
 module_exit(ecoscsi_exit);
+
+MODULE_AUTHOR("Russell King");
+MODULE_DESCRIPTION("Econet-SCSI driver for Acorn machines");
+MODULE_LICENSE("GPL");
+EXPORT_NO_SYMBOLS;

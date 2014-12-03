@@ -1,4 +1,4 @@
-/* $Id: ethtool.h,v 1.2 2000/11/12 10:05:57 davem Exp $
+/*
  * ethtool.h: Defines for Linux ethtool.
  *
  * Copyright (C) 1998 David S. Miller (davem@redhat.com)
@@ -34,13 +34,29 @@ struct ethtool_drvinfo {
 	char	bus_info[32];	/* Bus info for this interface.  For PCI
 				 * devices, use pci_dev->slot_name. */
 	char	reserved1[32];
-	char	reserved2[32];
+	char	reserved2[28];
+	u32	regdump_len;	/* Amount of data from ETHTOOL_GREGS */
+};
+
+#define SOPASS_MAX	6
+/* wake-on-lan settings */
+struct ethtool_wolinfo {
+	u32	cmd;
+	u32	supported;
+	u32	wolopts;
+	u8	sopass[SOPASS_MAX]; /* SecureOn(tm) password */
 };
 
 /* CMDs currently supported */
 #define ETHTOOL_GSET		0x00000001 /* Get settings. */
 #define ETHTOOL_SSET		0x00000002 /* Set settings, privileged. */
 #define ETHTOOL_GDRVINFO	0x00000003 /* Get driver info. */
+#define ETHTOOL_GREGS		0x00000004 /* Get NIC registers, privileged. */
+#define ETHTOOL_GWOL		0x00000005 /* Get wake-on-lan options. */
+#define ETHTOOL_SWOL		0x00000006 /* Set wake-on-lan options, priv. */
+#define ETHTOOL_GMSGLVL		0x00000007 /* Get driver message level */
+#define ETHTOOL_SMSGLVL		0x00000008 /* Set driver msg level, priv. */
+#define ETHTOOL_NWAY_RST	0X00000009 /* Restart autonegotiation, priv. */
 
 /* compatibility with older code */
 #define SPARC_ETH_GSET		ETHTOOL_GSET
@@ -58,6 +74,7 @@ struct ethtool_drvinfo {
 #define SUPPORTED_AUI			(1 << 8)
 #define SUPPORTED_MII			(1 << 9)
 #define SUPPORTED_FIBRE			(1 << 10)
+#define SUPPORTED_10base2		(1 << 11)
 
 /* Indicates what features are advertised by the interface. */
 #define ADVERTISED_10baseT_Half		(1 << 0)
@@ -71,6 +88,7 @@ struct ethtool_drvinfo {
 #define ADVERTISED_AUI			(1 << 8)
 #define ADVERTISED_MII			(1 << 9)
 #define ADVERTISED_FIBRE		(1 << 10)
+#define ADVERTISED_10base2		(1 << 11)
 
 /* The following are all involved in forcing a particular link
  * mode for the device for setting things.  When getting the
@@ -106,5 +124,14 @@ struct ethtool_drvinfo {
  */
 #define AUTONEG_DISABLE		0x00
 #define AUTONEG_ENABLE		0x01
+
+/* Wake-On-Lan options. */
+#define WAKE_PHY		(1 << 0)
+#define WAKE_UCAST		(1 << 1)
+#define WAKE_MCAST		(1 << 2)
+#define WAKE_BCAST		(1 << 3)
+#define WAKE_ARP		(1 << 4)
+#define WAKE_MAGIC		(1 << 5)
+#define WAKE_MAGICSECURE	(1 << 6) /* only meaningful if WAKE_MAGIC */
 
 #endif /* _LINUX_ETHTOOL_H */

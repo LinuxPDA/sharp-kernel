@@ -23,94 +23,38 @@
 
 #include "ieee1394_types.h"
 
-#define IEEE1394_USE_BOTTOM_HALVES 1
-
 #define OHCI1394_DRIVER_NAME      "ohci1394"
 
-#define USE_DEVICE 0
+#define OHCI1394_MAX_AT_REQ_RETRIES	0x2
+#define OHCI1394_MAX_AT_RESP_RETRIES	0x2
+#define OHCI1394_MAX_PHYS_RESP_RETRIES	0x8
+#define OHCI1394_MAX_SELF_ID_ERRORS	16
 
-#if USE_DEVICE
+#define AR_REQ_NUM_DESC		4		/* number of AR req descriptors */
+#define AR_REQ_BUF_SIZE		PAGE_SIZE	/* size of AR req buffers */
+#define AR_REQ_SPLIT_BUF_SIZE	PAGE_SIZE	/* split packet buffer */
 
-#ifndef PCI_DEVICE_ID_TI_OHCI1394_LV22
-#define PCI_DEVICE_ID_TI_OHCI1394_LV22 0x8009
-#endif
+#define AR_RESP_NUM_DESC	4		/* number of AR resp descriptors */
+#define AR_RESP_BUF_SIZE	PAGE_SIZE	/* size of AR resp buffers */
+#define AR_RESP_SPLIT_BUF_SIZE	PAGE_SIZE	/* split packet buffer */
 
-#ifndef PCI_DEVICE_ID_TI_OHCI1394_LV23
-#define PCI_DEVICE_ID_TI_OHCI1394_LV23 0x8019
-#endif
+#define IR_NUM_DESC		16		/* number of IR descriptors */
+#define IR_BUF_SIZE		PAGE_SIZE	/* 4096 bytes/buffer */
+#define IR_SPLIT_BUF_SIZE	PAGE_SIZE	/* split packet buffer */
 
-#ifndef PCI_DEVICE_ID_TI_OHCI1394_LV26
-#define PCI_DEVICE_ID_TI_OHCI1394_LV26 0x8020
-#endif
+#define IT_NUM_DESC		16	/* number of IT descriptors */
 
-#ifndef PCI_DEVICE_ID_TI_OHCI1394_PCI4450
-#define PCI_DEVICE_ID_TI_OHCI1394_PCI4450 0x8011
-#endif
+#define AT_REQ_NUM_DESC		32	/* number of AT req descriptors */
+#define AT_RESP_NUM_DESC	32	/* number of AT resp descriptors */
 
-#ifndef PCI_DEVICE_ID_VIA_OHCI1394
-#define PCI_DEVICE_ID_VIA_OHCI1394 0x3044
-#endif
+#define OHCI_LOOP_COUNT		100	/* Number of loops for reg read waits */
 
-#ifndef PCI_VENDOR_ID_SONY
-#define PCI_VENDOR_ID_SONY 0x104d
-#endif
+#define OHCI_CONFIG_ROM_LEN	1024	/* Length of the mapped configrom space */
 
-#ifndef PCI_DEVICE_ID_SONY_CXD3222
-#define PCI_DEVICE_ID_SONY_CXD3222 0x8039
-#endif
+#define OHCI1394_SI_DMA_BUF_SIZE	8192 /* length of the selfid buffer */
 
-#ifndef PCI_DEVICE_ID_NEC_1394
-#define PCI_DEVICE_ID_NEC_1394 0x00cd
-#endif
-
-#ifndef PCI_DEVICE_ID_NEC_UPD72862
-#define PCI_DEVICE_ID_NEC_UPD72862      0x0063
-#endif
-
-#ifndef PCI_DEVICE_ID_NEC_UPD72870
-#define PCI_DEVICE_ID_NEC_UPD72870      0x00cd
-#endif
-
-#ifndef PCI_DEVICE_ID_NEC_UPD72871
-#define PCI_DEVICE_ID_NEC_UPD72871      0x00ce
-#endif
-
-#ifndef PCI_DEVICE_ID_ALI_OHCI1394_M5251
-#define PCI_DEVICE_ID_ALI_OHCI1394_M5251 0x5251
-#endif
-
-#ifndef PCI_VENDOR_ID_LUCENT
-#define PCI_VENDOR_ID_LUCENT 0x11c1
-#endif
-
-#ifndef PCI_DEVICE_ID_LUCENT_FW323
-#define PCI_DEVICE_ID_LUCENT_FW323 0x5811
-#endif
-
-#endif /* USE_DEVICE */
-
-
-#define MAX_OHCI1394_CARDS        4
-
-#define OHCI1394_MAX_AT_REQ_RETRIES       0x2
-#define OHCI1394_MAX_AT_RESP_RETRIES      0x2
-#define OHCI1394_MAX_PHYS_RESP_RETRIES    0x8
-#define OHCI1394_MAX_SELF_ID_ERRORS       16
-
-#define AR_REQ_NUM_DESC                   4 /* number of AR req descriptors */
-#define AR_REQ_BUF_SIZE           PAGE_SIZE /* size of AR req buffers */
-#define AR_REQ_SPLIT_BUF_SIZE     PAGE_SIZE /* split packet buffer */
-
-#define AR_RESP_NUM_DESC                  4 /* number of AR resp descriptors */
-#define AR_RESP_BUF_SIZE          PAGE_SIZE /* size of AR resp buffers */
-#define AR_RESP_SPLIT_BUF_SIZE    PAGE_SIZE /* split packet buffer */
-
-#define IR_NUM_DESC                      16 /* number of IR descriptors */
-#define IR_BUF_SIZE               PAGE_SIZE /* 4096 bytes/buffer */
-#define IR_SPLIT_BUF_SIZE         PAGE_SIZE /* split packet buffer */
-
-#define AT_REQ_NUM_DESC                  32 /* number of AT req descriptors */
-#define AT_RESP_NUM_DESC                 32 /* number of AT resp descriptors */
+/* PCI configuration space addresses */
+#define OHCI1394_PCI_HCI_Control 0x40
 
 struct dma_cmd {
         u32 control;
@@ -137,6 +81,7 @@ struct dma_rcv_ctx {
 	void *ohci;
 	int ctx;
 	unsigned int num_desc;
+
 	unsigned int buf_size;
 	unsigned int split_buf_size;
 
@@ -152,7 +97,7 @@ struct dma_rcv_ctx {
         unsigned int buf_offset;
         quadlet_t *spb;
         spinlock_t lock;
-        struct tq_struct task;
+        struct tasklet_struct task;
 	int ctrlClear;
 	int ctrlSet;
 	int cmdPtr;
@@ -182,7 +127,7 @@ struct dma_trm_ctx {
         struct hpsb_packet *pending_last;
 
         spinlock_t lock;
-        struct tq_struct task;
+        struct tasklet_struct task;
 	int ctrlClear;
 	int ctrlSet;
 	int cmdPtr;
@@ -198,6 +143,8 @@ struct video_template {
 struct ti_ohci {
         int id; /* sequential card number */
 
+	struct list_head list;
+
         struct pci_dev *dev;
 
         u32 state;
@@ -212,6 +159,7 @@ struct ti_ohci {
 	/* buffer for csr config rom */
         quadlet_t *csr_config_rom_cpu; 
         dma_addr_t csr_config_rom_bus; 
+	int csr_config_rom_length;
 
 	unsigned int max_packet_size;
 
@@ -229,6 +177,7 @@ struct ti_ohci {
 	int nb_iso_rcv_ctx;
 
         /* iso transmit */
+	struct dma_trm_ctx *it_context;
 	int nb_iso_xmit_ctx;
 
         u64 ISO_channel_usage;
@@ -239,12 +188,17 @@ struct ti_ohci {
         int phyid, isroot;
 
         spinlock_t phy_reg_lock;
+	spinlock_t event_lock;
 
 	int self_id_errors;
-        int NumBusResets;
 
 	/* video device */
 	struct video_template *video_tmpl;
+
+	/* Swap the selfid buffer? */
+	unsigned int selfid_swap:1;
+	/* Some Apple chipset seem to swap incoming headers for us */
+	unsigned int no_swap_incoming:1;
 };
 
 static inline int cross_bound(unsigned long addr, unsigned int size)
@@ -377,14 +331,16 @@ static inline u32 reg_read(const struct ti_ohci *ohci, int offset)
 #define OHCI1394_phyRegRcvd              0x04000000
 #define OHCI1394_masterIntEnable         0x80000000
 
-#define OUTPUT_MORE                      0x00000000
-#define OUTPUT_MORE_IMMEDIATE            0x02000000
-#define OUTPUT_LAST                      0x103c0000
-#define OUTPUT_LAST_IMMEDIATE            0x123c0000
-
-#define DMA_SPEED_100                    0x0
-#define DMA_SPEED_200                    0x1
-#define DMA_SPEED_400                    0x2
+/* DMA Control flags */
+#define DMA_CTL_OUTPUT_MORE              0x00000000
+#define DMA_CTL_OUTPUT_LAST              0x10000000
+#define DMA_CTL_INPUT_MORE               0x20000000
+#define DMA_CTL_INPUT_LAST               0x30000000
+#define DMA_CTL_UPDATE                   0x08000000
+#define DMA_CTL_IMMEDIATE                0x02000000
+#define DMA_CTL_IRQ                      0x00300000
+#define DMA_CTL_BRANCH                   0x000c0000
+#define DMA_CTL_WAIT                     0x00030000
 
 #define OHCI1394_TCODE_PHY               0xE
 

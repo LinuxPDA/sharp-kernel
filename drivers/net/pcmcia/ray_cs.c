@@ -221,6 +221,8 @@ static unsigned int ray_mem_speed = 500;
 
 MODULE_AUTHOR("Corey Thomas <corey@world.std.com>");
 MODULE_DESCRIPTION("Raylink/WebGear wireless LAN driver");
+MODULE_LICENSE("GPL");
+
 MODULE_PARM(irq_mask,"i");
 MODULE_PARM(net_type,"i");
 MODULE_PARM(hop_dwell,"i");
@@ -1449,9 +1451,12 @@ static int ray_dev_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 #endif	/* WIRELESS_SPY */
 
       /* ------------------ PRIVATE IOCTL ------------------ */
-#define SIOCSIPFRAMING	SIOCDEVPRIVATE		/* Set framing mode */
-#define SIOCGIPFRAMING	SIOCDEVPRIVATE + 1	/* Get framing mode */
-#define SIOCGIPCOUNTRY	SIOCDEVPRIVATE + 3	/* Get country code */
+#ifndef SIOCIWFIRSTPRIV
+#define SIOCIWFIRSTPRIV	SIOCDEVPRIVATE
+#endif /* SIOCIWFIRSTPRIV */
+#define SIOCSIPFRAMING	SIOCIWFIRSTPRIV		/* Set framing mode */
+#define SIOCGIPFRAMING	SIOCIWFIRSTPRIV + 1	/* Get framing mode */
+#define SIOCGIPCOUNTRY	SIOCIWFIRSTPRIV + 3	/* Get country code */
     case SIOCSIPFRAMING:
       if(!capable(CAP_NET_ADMIN))	/* For private IOCTLs, we need to check permissions */
 	{

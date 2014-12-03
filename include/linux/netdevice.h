@@ -64,7 +64,7 @@ struct divert_blk;
 
 #endif
 
-#define MAX_ADDR_LEN	7		/* Largest hardware address length */
+#define MAX_ADDR_LEN	8		/* Largest hardware address length */
 
 /*
  *	Compute the worst case header length according to the protocols
@@ -298,7 +298,6 @@ struct net_device
 
 	/* Interface address info. */
 	unsigned char		broadcast[MAX_ADDR_LEN];	/* hw bcast add	*/
-	unsigned char		pad;		/* make dev_addr aligned to 8 bytes */
 	unsigned char		dev_addr[MAX_ADDR_LEN];	/* hw address	*/
 	unsigned char		addr_len;	/* hardware address length	*/
 
@@ -345,7 +344,7 @@ struct net_device
 #define NETIF_F_HW_CSUM		8	/* Can checksum all the packets. */
 #define NETIF_F_DYNALLOC	16	/* Self-dectructable device. */
 #define NETIF_F_HIGHDMA		32	/* Can DMA to high memory. */
-#define NETIF_F_FRAGLIST	1	/* Scatter/gather IO. */
+#define NETIF_F_FRAGLIST	64	/* Scatter/gather IO. */
 
 	/* Called after device is detached from network. */
 	void			(*uninit)(struct net_device *dev);
@@ -487,7 +486,7 @@ static inline void __netif_schedule(struct net_device *dev)
 		local_irq_save(flags);
 		dev->next_sched = softnet_data[cpu].output_queue;
 		softnet_data[cpu].output_queue = dev;
-		__cpu_raise_softirq(cpu, NET_TX_SOFTIRQ);
+		cpu_raise_softirq(cpu, NET_TX_SOFTIRQ);
 		local_irq_restore(flags);
 	}
 }
@@ -536,7 +535,7 @@ static inline void dev_kfree_skb_irq(struct sk_buff *skb)
 		local_irq_save(flags);
 		skb->next = softnet_data[cpu].completion_queue;
 		softnet_data[cpu].completion_queue = skb;
-		__cpu_raise_softirq(cpu, NET_TX_SOFTIRQ);
+		cpu_raise_softirq(cpu, NET_TX_SOFTIRQ);
 		local_irq_restore(flags);
 	}
 }
@@ -562,6 +561,17 @@ extern void		dev_queue_xmit_nit(struct sk_buff *skb, struct net_device *dev);
 extern void		dev_init(void);
 
 extern int		netdev_nit;
+
+/* Post buffer to the network code from _non interrupt_ context.
+ * see net/core/dev.c for netif_rx description.
+ */
+static inline int netif_rx_ni(struct sk_buff *skb)
+{
+       int err = netif_rx(skb);
+       if (softirq_pending(smp_processor_id()))
+               do_softirq();
+       return err;
+}
 
 static inline void dev_init_buffers(struct net_device *dev)
 {
@@ -625,6 +635,41 @@ static inline void netif_device_attach(struct net_device *dev)
  		__netdev_watchdog_up(dev);
 	}
 }
+
+/*
+ * Network interface message level settings
+ */
+#define HAVE_NETIF_MSG 1
+
+enum {
+	NETIF_MSG_DRV		= 0x0001,
+	NETIF_MSG_PROBE		= 0x0002,
+	NETIF_MSG_LINK		= 0x0004,
+	NETIF_MSG_TIMER		= 0x0008,
+	NETIF_MSG_IFDOWN	= 0x0010,
+	NETIF_MSG_IFUP		= 0x0020,
+	NETIF_MSG_RX_ERR	= 0x0040,
+	NETIF_MSG_TX_ERR	= 0x0080,
+	NETIF_MSG_TX_QUEUED	= 0x0100,
+	NETIF_MSG_INTR		= 0x0200,
+	NETIF_MSG_TX_DONE	= 0x0400,
+	NETIF_MSG_RX_STATUS	= 0x0800,
+	NETIF_MSG_PKTDATA	= 0x1000,
+};
+
+#define netif_msg_drv(p)	((p)->msg_enable & NETIF_MSG_DRV)
+#define netif_msg_probe(p)	((p)->msg_enable & NETIF_MSG_PROBE)
+#define netif_msg_link(p)	((p)->msg_enable & NETIF_MSG_LINK)
+#define netif_msg_timer(p)	((p)->msg_enable & NETIF_MSG_TIMER)
+#define netif_msg_ifdown(p)	((p)->msg_enable & NETIF_MSG_IFDOWN)
+#define netif_msg_ifup(p)	((p)->msg_enable & NETIF_MSG_IFUP)
+#define netif_msg_rx_err(p)	((p)->msg_enable & NETIF_MSG_RX_ERR)
+#define netif_msg_tx_err(p)	((p)->msg_enable & NETIF_MSG_TX_ERR)
+#define netif_msg_tx_queued(p)	((p)->msg_enable & NETIF_MSG_TX_QUEUED)
+#define netif_msg_intr(p)	((p)->msg_enable & NETIF_MSG_INTR)
+#define netif_msg_tx_done(p)	((p)->msg_enable & NETIF_MSG_TX_DONE)
+#define netif_msg_rx_status(p)	((p)->msg_enable & NETIF_MSG_RX_STATUS)
+#define netif_msg_pktdata(p)	((p)->msg_enable & NETIF_MSG_PKTDATA)
 
 /* These functions live elsewhere (drivers/net/net_init.c, but related) */
 

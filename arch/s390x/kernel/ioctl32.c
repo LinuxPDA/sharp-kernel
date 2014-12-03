@@ -23,9 +23,11 @@
 #include <linux/netdevice.h>
 #include <linux/route.h>
 #include <linux/ext2_fs.h>
+#include <linux/hdreg.h>
 #include <asm/types.h>
 #include <asm/uaccess.h>
 #include <asm/dasd.h>
+#include <asm/sockios.h>
 
 #include "linux32.h"
 
@@ -349,14 +351,14 @@ static struct ioctl32_list ioctl32_handler_table[] = {
 	IOCTL32_DEFAULT(FIBMAP),
 	IOCTL32_DEFAULT(FIGETBSZ),
 
+	IOCTL32_DEFAULT(DASDAPIVER),
 	IOCTL32_DEFAULT(BIODASDDISABLE),
 	IOCTL32_DEFAULT(BIODASDENABLE),
 	IOCTL32_DEFAULT(BIODASDRSRV),
 	IOCTL32_DEFAULT(BIODASDRLSE),
 	IOCTL32_DEFAULT(BIODASDSLCK),
-	IOCTL32_DEFAULT(BIODASDRSID),
-	IOCTL32_DEFAULT(BIODASDFORMAT),
-	IOCTL32_DEFAULT(BIODASDRWTB),
+	IOCTL32_DEFAULT(BIODASDINFO),
+	IOCTL32_DEFAULT(BIODASDFMT),
 
 	IOCTL32_DEFAULT(BLKRRPART),
 
@@ -450,6 +452,8 @@ static struct ioctl32_list ioctl32_handler_table[] = {
 	IOCTL32_DEFAULT(VT_RESIZEX),
 	IOCTL32_DEFAULT(VT_LOCKSWITCH),
 	IOCTL32_DEFAULT(VT_UNLOCKSWITCH),
+
+	IOCTL32_DEFAULT(SIOCGSTAMP),
 
 	IOCTL32_HANDLER(SIOCGIFNAME, dev_ifname32),
 	IOCTL32_HANDLER(SIOCGIFCONF, dev_ifconf),

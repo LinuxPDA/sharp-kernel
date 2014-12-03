@@ -71,6 +71,7 @@ static int lance_debug = 1;
 #endif
 MODULE_PARM(lance_debug, "i");
 MODULE_PARM_DESC(lance_debug, "SUN3 Lance debug level (0-3)");
+MODULE_LICENSE("GPL");
 
 #define	DPRINTK(n,a) \
 	do {  \
@@ -881,7 +882,7 @@ static void set_multicast_list( struct net_device *dev )
 
 
 #ifdef MODULE
-static char devicename[9] = { 0, };
+static char devicename[9];
 
 static struct net_device sun3lance_dev =
 {

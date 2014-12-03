@@ -48,7 +48,15 @@ static const struct {
 	{ "SiS540",	PCI_DEVICE_ID_SI_540,	SIS5513_FLAG_ATA_66, },
 	{ "SiS620",	PCI_DEVICE_ID_SI_620,	SIS5513_FLAG_ATA_66|SIS5513_FLAG_LATENCY, },
 	{ "SiS630",	PCI_DEVICE_ID_SI_630,	SIS5513_FLAG_ATA_66|SIS5513_FLAG_LATENCY, },
+	{ "SiS635",	PCI_DEVICE_ID_SI_635,	SIS5513_FLAG_ATA_66|SIS5513_FLAG_LATENCY, },
+	{ "SiS640",	PCI_DEVICE_ID_SI_640,	SIS5513_FLAG_ATA_66|SIS5513_FLAG_LATENCY, },
+	{ "SiS645",	PCI_DEVICE_ID_SI_645,	SIS5513_FLAG_ATA_66|SIS5513_FLAG_LATENCY, },
+	{ "SiS650",	PCI_DEVICE_ID_SI_650,	SIS5513_FLAG_ATA_66|SIS5513_FLAG_LATENCY, },
 	{ "SiS730",	PCI_DEVICE_ID_SI_730,	SIS5513_FLAG_ATA_66|SIS5513_FLAG_LATENCY, },
+	{ "SiS735",	PCI_DEVICE_ID_SI_735,	SIS5513_FLAG_ATA_66|SIS5513_FLAG_LATENCY, },
+	{ "SiS740",	PCI_DEVICE_ID_SI_740,	SIS5513_FLAG_ATA_66|SIS5513_FLAG_LATENCY, },
+	{ "SiS745",	PCI_DEVICE_ID_SI_745,	SIS5513_FLAG_ATA_66|SIS5513_FLAG_LATENCY, },
+	{ "SiS750",	PCI_DEVICE_ID_SI_750,	SIS5513_FLAG_ATA_66|SIS5513_FLAG_LATENCY, },
 	{ "SiS5591",	PCI_DEVICE_ID_SI_5591,	SIS5513_FLAG_ATA_33, },
 	{ "SiS5597",	PCI_DEVICE_ID_SI_5597,	SIS5513_FLAG_ATA_33, },
 	{ "SiS5600",	PCI_DEVICE_ID_SI_5600,	SIS5513_FLAG_ATA_33, },
@@ -88,7 +96,7 @@ static struct _udma_mode_mapping {
 	{ 4, "Mode 2" }, 
 	{ 3, "Mode 3" },
 	{ 2, "Mode 4" },
-	{ 0, "Undefined" }
+	{ 0, "Mode 5" }
 };
 
 static __inline__ char * find_udma_mode (byte cycle_time)
@@ -127,7 +135,7 @@ static char *recovery_time [] ={
 };
 
 static char * cycle_time [] = {
-	"Undefined", "2 CLCK",
+	"2 CLK", "2 CLK",
 	"3 CLK", "4 CLK",
 	"5 CLK", "6 CLK",
 	"7 CLK", "8 CLK"
@@ -338,7 +346,15 @@ static int sis5513_tune_chipset (ide_drive_t *drive, byte speed)
 			case PCI_DEVICE_ID_SI_540:
 			case PCI_DEVICE_ID_SI_620:
 			case PCI_DEVICE_ID_SI_630:
+			case PCI_DEVICE_ID_SI_635:
+			case PCI_DEVICE_ID_SI_640:
+			case PCI_DEVICE_ID_SI_645:
+			case PCI_DEVICE_ID_SI_650:
 			case PCI_DEVICE_ID_SI_730:
+			case PCI_DEVICE_ID_SI_735:
+			case PCI_DEVICE_ID_SI_740:
+			case PCI_DEVICE_ID_SI_745:
+			case PCI_DEVICE_ID_SI_750:
 				unmask   = 0xF0;
 				four_two = 0x01;
 				break;
@@ -423,7 +439,15 @@ static int config_chipset_for_dma (ide_drive_t *drive, byte ultra)
 
 	if (host_dev) {
 		switch(host_dev->device) {
+			case PCI_DEVICE_ID_SI_635:
+			case PCI_DEVICE_ID_SI_640:
+			case PCI_DEVICE_ID_SI_645:
+			case PCI_DEVICE_ID_SI_650:
 			case PCI_DEVICE_ID_SI_730:
+			case PCI_DEVICE_ID_SI_735:
+			case PCI_DEVICE_ID_SI_740:
+			case PCI_DEVICE_ID_SI_745:
+			case PCI_DEVICE_ID_SI_750:
 				ultra_100 = 1;
 			case PCI_DEVICE_ID_SI_530:
 			case PCI_DEVICE_ID_SI_540:
@@ -471,7 +495,7 @@ static int config_chipset_for_dma (ide_drive_t *drive, byte ultra)
 	printk("%s: %s drive%d\n", drive->name, ide_xfer_verbose(speed), drive->dn);
 #endif /* SIS5513_DEBUG_DRIVE_INFO */
 
-	return ((int)	((id->dma_ultra >> 11) & 3) ? ide_dma_on :
+	return ((int)	((id->dma_ultra >> 11) & 7) ? ide_dma_on :
 			((id->dma_ultra >> 8) & 7) ? ide_dma_on :
 			((id->dma_mword >> 8) & 7) ? ide_dma_on :
 			((id->dma_1word >> 8) & 7) ? ide_dma_on :
@@ -491,7 +515,7 @@ static int config_drive_xfer_rate (ide_drive_t *drive)
 		}
 		dma_func = ide_dma_off_quietly;
 		if (id->field_valid & 4) {
-			if (id->dma_ultra & 0x001F) {
+			if (id->dma_ultra & 0x003F) {
 				/* Force if Capable UltraDMA */
 				dma_func = config_chipset_for_dma(drive, 1);
 				if ((id->field_valid & 2) &&
@@ -598,7 +622,15 @@ unsigned int __init ata66_sis5513 (ide_hwif_t *hwif)
 			case PCI_DEVICE_ID_SI_540:
 			case PCI_DEVICE_ID_SI_620:
 			case PCI_DEVICE_ID_SI_630:
+			case PCI_DEVICE_ID_SI_635:
+			case PCI_DEVICE_ID_SI_640:
+			case PCI_DEVICE_ID_SI_645:
+			case PCI_DEVICE_ID_SI_650:
 			case PCI_DEVICE_ID_SI_730:
+			case PCI_DEVICE_ID_SI_735:
+			case PCI_DEVICE_ID_SI_740:
+			case PCI_DEVICE_ID_SI_745:
+			case PCI_DEVICE_ID_SI_750:
 				ata66 = (reg48h & mask) ? 0 : 1;
 			default:
 				break;
@@ -625,7 +657,15 @@ void __init ide_init_sis5513 (ide_hwif_t *hwif)
 			case PCI_DEVICE_ID_SI_540:
 			case PCI_DEVICE_ID_SI_620:
 			case PCI_DEVICE_ID_SI_630:
+			case PCI_DEVICE_ID_SI_635:
+			case PCI_DEVICE_ID_SI_640:
+			case PCI_DEVICE_ID_SI_645:
+			case PCI_DEVICE_ID_SI_650:
 			case PCI_DEVICE_ID_SI_730:
+			case PCI_DEVICE_ID_SI_735:
+			case PCI_DEVICE_ID_SI_740:
+			case PCI_DEVICE_ID_SI_745:
+			case PCI_DEVICE_ID_SI_750:
 			case PCI_DEVICE_ID_SI_5600:
 			case PCI_DEVICE_ID_SI_5597:
 			case PCI_DEVICE_ID_SI_5591:

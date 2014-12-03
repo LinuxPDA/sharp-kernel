@@ -20,10 +20,34 @@
 #define INIT_TQ_HEAD(tq) INIT_LIST_HEAD(&(tq))
 #endif
 
+/* This showed up around this time */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,4,12)
+
+# ifndef MODULE_LICENSE
+# define MODULE_LICENSE(x)
+# endif
+
+# ifndef min
+# define min(x,y) ({ \
+	const typeof(x) _x = (x);       \
+	const typeof(y) _y = (y);       \
+	(void) (&_x == &_y);            \
+	_x < _y ? _x : _y; })
+# endif
+
+#endif /* Linux version < 2.4.12 */
+
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,3,18)
 #include <asm/spinlock.h>
 #else
 #include <linux/spinlock.h>
+#endif
+
+#ifndef list_for_each_safe
+#define list_for_each_safe(pos, n, head) \
+	for (pos = (head)->next, n = pos->next; pos != (head); \
+		pos = n, n = pos->next)
+
 #endif
 
 #ifndef MIN
@@ -43,6 +67,10 @@ typedef u16 nodeid_t;
 #define LOCAL_BUS 0xffc0
 #define ALL_NODES 0x003f
 
+#define NODE_BUS_FMT    "%d:%d"
+#define NODE_BUS_ARGS(nodeid) \
+	(nodeid & NODE_MASK), ((nodeid & BUS_MASK) >> 6)
+
 #define HPSB_PRINT(level, fmt, args...) printk(level "ieee1394: " fmt "\n" , ## args)
 
 #define HPSB_DEBUG(fmt, args...) HPSB_PRINT(KERN_DEBUG, fmt , ## args)
@@ -58,9 +86,10 @@ typedef u16 nodeid_t;
 
 #ifdef __BIG_ENDIAN
 
-static __inline__ void *memcpy_le32(u32 *dest, const u32 *src, size_t count)
+static __inline__ void *memcpy_le32(u32 *dest, const u32 *__src, size_t count)
 {
         void *tmp = dest;
+	u32 *src = (u32 *)__src;
 
         count /= 4;
 

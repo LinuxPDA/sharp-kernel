@@ -19,6 +19,7 @@
 #include <linux/delay.h>
 
 #include <asm/io.h>
+#include <asm/console.h>
 #include <asm/hwrpb.h>
 #include <asm/uaccess.h>
 #include <asm/processor.h>
@@ -57,6 +58,11 @@ EXPORT_SYMBOL(disable_irq_nosync);
 EXPORT_SYMBOL(probe_irq_mask);
 EXPORT_SYMBOL(screen_info);
 EXPORT_SYMBOL(perf_irq);
+#ifdef CONFIG_ALPHA_SRM
+EXPORT_SYMBOL(callback_getenv);
+EXPORT_SYMBOL(callback_setenv);
+EXPORT_SYMBOL(callback_save_env);
+#endif /* CONFIG_ALPHA_SRM */
 
 /* platform dependent support */
 EXPORT_SYMBOL(_inb);
@@ -71,6 +77,14 @@ EXPORT_SYMBOL(_readl);
 EXPORT_SYMBOL(_writeb);
 EXPORT_SYMBOL(_writew);
 EXPORT_SYMBOL(_writel);
+EXPORT_SYMBOL(___raw_readb); 
+EXPORT_SYMBOL(___raw_readw); 
+EXPORT_SYMBOL(___raw_readl); 
+EXPORT_SYMBOL(___raw_readq); 
+EXPORT_SYMBOL(___raw_writeb); 
+EXPORT_SYMBOL(___raw_writew); 
+EXPORT_SYMBOL(___raw_writel); 
+EXPORT_SYMBOL(___raw_writeq); 
 EXPORT_SYMBOL(_memcpy_fromio);
 EXPORT_SYMBOL(_memcpy_toio);
 EXPORT_SYMBOL(_memset_c_io);
@@ -113,10 +127,16 @@ EXPORT_SYMBOL(__direct_map_size);
 EXPORT_SYMBOL(pci_alloc_consistent);
 EXPORT_SYMBOL(pci_free_consistent);
 EXPORT_SYMBOL(pci_map_single);
+EXPORT_SYMBOL(pci_map_page);
 EXPORT_SYMBOL(pci_unmap_single);
+EXPORT_SYMBOL(pci_unmap_page);
 EXPORT_SYMBOL(pci_map_sg);
 EXPORT_SYMBOL(pci_unmap_sg);
 EXPORT_SYMBOL(pci_dma_supported);
+EXPORT_SYMBOL(pci_dac_dma_supported);
+EXPORT_SYMBOL(pci_dac_page_to_dma);
+EXPORT_SYMBOL(pci_dac_dma_to_page);
+EXPORT_SYMBOL(pci_dac_dma_to_offset);
 #endif
 
 EXPORT_SYMBOL(dump_thread);
@@ -178,10 +198,6 @@ EXPORT_SYMBOL(down);
 EXPORT_SYMBOL(down_interruptible);
 EXPORT_SYMBOL(down_trylock);
 EXPORT_SYMBOL(up);
-EXPORT_SYMBOL(down_read);
-EXPORT_SYMBOL(down_write);
-EXPORT_SYMBOL(up_read);
-EXPORT_SYMBOL(up_write);
 
 /* 
  * SMP-specific symbols.
@@ -198,6 +214,8 @@ EXPORT_SYMBOL(smp_imb);
 EXPORT_SYMBOL(cpu_data);
 EXPORT_SYMBOL(__cpu_number_map);
 EXPORT_SYMBOL(smp_num_cpus);
+EXPORT_SYMBOL(smp_call_function);
+EXPORT_SYMBOL(smp_call_function_on_cpu);
 EXPORT_SYMBOL(global_irq_holder);
 EXPORT_SYMBOL(__global_cli);
 EXPORT_SYMBOL(__global_sti);

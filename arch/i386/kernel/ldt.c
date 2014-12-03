@@ -45,6 +45,25 @@ out:
 	return err;
 }
 
+static int read_default_ldt(void * ptr, unsigned long bytecount)
+{
+	int err;
+	unsigned long size;
+	void *address;
+
+	err = 0;
+	address = &default_ldt[0];
+	size = sizeof(struct desc_struct);
+	if (size > bytecount)
+		size = bytecount;
+
+	err = size;
+	if (copy_to_user(ptr, address, size))
+		err = -EFAULT;
+
+	return err;
+}
+
 static int write_ldt(void * ptr, unsigned long bytecount, int oldmode)
 {
 	struct mm_struct * mm = current->mm;
@@ -70,34 +89,19 @@ static int write_ldt(void * ptr, unsigned long bytecount, int oldmode)
 	}
 
 	/*
-	 * Horrible dependencies! Try to get rid of this. This is wrong,
-	 * as it only reloads the ldt for the first process with this
-	 * mm. The implications are that you should really make sure that
-	 * you have a ldt before you do the first clone(), otherwise
-	 * you get strange behaviour (the kernel is safe, it's just user
-	 * space strangeness).
-	 *
-	 * we have two choices: either we preallocate the LDT descriptor
-	 * and can do a shared modify_ldt(), or we postallocate it and do
-	 * an smp message pass to update it. Currently we are a bit
-	 * un-nice to user-space and reload the LDT only on the next
-	 * schedule. (only an issue on SMP)
-	 *
 	 * the GDT index of the LDT is allocated dynamically, and is
 	 * limited by MAX_LDT_DESCRIPTORS.
 	 */
 	down_write(&mm->mmap_sem);
 	if (!mm->context.segments) {
+		void * segments = vmalloc(LDT_ENTRIES*LDT_ENTRY_SIZE);
 		error = -ENOMEM;
-		mm->context.segments = vmalloc(LDT_ENTRIES*LDT_ENTRY_SIZE);
-		if (!mm->context.segments)
+		if (!segments)
 			goto out_unlock;
-		memset(mm->context.segments, 0, LDT_ENTRIES*LDT_ENTRY_SIZE);
-		
-		/*
-		 * Possibly do an SMP cross-call to other CPUs to reload
-		 * their LDTs?
-		 */
+		memset(segments, 0, LDT_ENTRIES*LDT_ENTRY_SIZE);
+		wmb();
+		mm->context.segments = segments;
+		mm->context.cpuvalid = 1UL << smp_processor_id();
 		load_LDT(mm);
 	}
 
@@ -154,6 +158,9 @@ asmlinkage int sys_modify_ldt(int func, void *ptr, unsigned long bytecount)
 		break;
 	case 1:
 		ret = write_ldt(ptr, bytecount, 1);
+		break;
+	case 2:
+		ret = read_default_ldt(ptr, bytecount);
 		break;
 	case 0x11:
 		ret = write_ldt(ptr, bytecount, 0);

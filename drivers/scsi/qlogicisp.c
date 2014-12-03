@@ -704,6 +704,7 @@ int isp1020_detect(Scsi_Host_Template *tmpt)
 		}
 
 		host->this_id = hostdata->host_param.initiator_scsi_id;
+		host->max_sectors = 64;
 
 		if (request_irq(host->irq, do_isp1020_intr_handler, SA_INTERRUPT | SA_SHIRQ,
 				"qlogicisp", host))
@@ -1993,6 +1994,7 @@ void isp1020_print_scsi_cmd(Scsi_Cmnd *cmd)
 
 #endif /* DEBUG_ISP1020 */
 
+MODULE_LICENSE("GPL");
 
 static Scsi_Host_Template driver_template = QLOGICISP;
 

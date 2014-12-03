@@ -94,7 +94,7 @@
  */
 #undef FIX_WRITE_RETURN_CODE_PROBLEM
 #ifdef FIX_WRITE_RETURN_CODE_PROBLEM
-static int write_blocking = 0; /* disabled by default */
+static int write_blocking; /* disabled by default */
 #endif
 
 /*
@@ -475,11 +475,12 @@ static void mct_u232_close (struct usb_serial_port *port, struct file *filp)
 	--port->open_count;
 
 	if (port->open_count <= 0) {
-		/* shutdown our bulk reads and writes */
-		usb_unlink_urb (port->write_urb);
-		usb_unlink_urb (port->read_urb);
-		/* wgg - do I need this? I think so. */
-		usb_unlink_urb (port->interrupt_in_urb);
+		if (port->serial->dev) {
+			/* shutdown our urbs */
+			usb_unlink_urb (port->write_urb);
+			usb_unlink_urb (port->read_urb);
+			usb_unlink_urb (port->interrupt_in_urb);
+		}
 		port->active = 0;
 	}
 	
@@ -524,7 +525,10 @@ static int mct_u232_write (struct usb_serial_port *port, int from_user,
 		usb_serial_debug_data (__FILE__, __FUNCTION__, size, buf);
 		
 		if (from_user) {
-			copy_from_user(port->write_urb->transfer_buffer, buf, size);
+			if (copy_from_user(port->write_urb->transfer_buffer, buf, size)) {
+				up (&port->sem);
+				return -EFAULT;
+			}
 		}
 		else {
 			memcpy (port->write_urb->transfer_buffer, buf, size);
@@ -815,7 +819,7 @@ static int mct_u232_ioctl (struct usb_serial_port *port, struct file * file,
 {
 	struct usb_serial *serial = port->serial;
 	struct mct_u232_private *priv = (struct mct_u232_private *)port->private;
-	int ret, mask;
+	int mask;
 	
 	dbg (__FUNCTION__ "cmd=0x%x", cmd);
 
@@ -828,7 +832,8 @@ static int mct_u232_ioctl (struct usb_serial_port *port, struct file * file,
 	case TIOCMSET: /* Turns on and off the lines as specified by the mask */
 	case TIOCMBIS: /* turns on (Sets) the lines as specified by the mask */
 	case TIOCMBIC: /* turns off (Clears) the lines as specified by the mask */
-		if ((ret = get_user(mask, (unsigned long *) arg))) return ret;
+		if (get_user(mask, (unsigned long *) arg))
+			return -EFAULT;
 
 		if ((cmd == TIOCMSET) || (mask & TIOCM_RTS)) {
 			/* RTS needs set */
@@ -892,6 +897,7 @@ module_exit(mct_u232_exit);
 
 MODULE_AUTHOR( DRIVER_AUTHOR );
 MODULE_DESCRIPTION( DRIVER_DESC );
+MODULE_LICENSE("GPL");
 
 #ifdef FIX_WRITE_RETURN_CODE_PROBLEM
 MODULE_PARM(write_blocking, "i");

@@ -18,6 +18,12 @@
    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 */
 
+/*
+   Changes
+   2001/08/03  Alvarado   Added methods for changing white balance and 
+                          red/green gains
+ */
+
 /* Control functions for the cam; brightness, contrast, video mode, etc. */
 
 #ifdef __KERNEL__
@@ -137,7 +143,7 @@ static struct Timon_table_entry Timon_table[PSZ_MAX][6][4] =
 #include "pwc_timon.h"
 };
 
-/* Entries for the Kiara (730/740) camera */
+/* Entries for the Kiara (730/740/750) camera */
 
 struct Kiara_table_entry
 {
@@ -412,6 +418,7 @@ int pwc_set_video_mode(struct pwc_device *pdev, int width, int height, int frame
 		
 	case 730:
 	case 740:
+	case 750:
 		ret = set_video_mode_Kiara(pdev, size, frames, compression, snapshot);
 		break;
 	}
@@ -427,7 +434,6 @@ int pwc_set_video_mode(struct pwc_device *pdev, int width, int height, int frame
 	pdev->view.y = height;
 	pwc_set_image_buffer_size(pdev);
 	Trace(TRACE_SIZE, "Set viewport to %dx%d, image size is %dx%d, palette = %d.\n", width, height, pwc_image_sizes[size].x, pwc_image_sizes[size].y, pdev->vpalette);
-Debug("bandlength = %d\n", pdev->vbandlength);	
 	return 0;
 }
 
@@ -489,7 +495,7 @@ void pwc_set_image_buffer_size(struct pwc_device *pdev)
 }
 
 
-#ifdef __KERNEL__
+
 /* BRIGHTNESS */
 
 int pwc_get_brightness(struct pwc_device *pdev)
@@ -603,12 +609,12 @@ int pwc_get_saturation(struct pwc_device *pdev)
 	char buf;
 	int ret;
 
-	if (pdev->type < 730)
+	if (pdev->type < 675)
 		return -1;
 	ret = usb_control_msg(pdev->udev, usb_rcvctrlpipe(pdev->udev, 0),
 		GET_CHROM_CTL,
 		USB_DIR_IN | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
-		SATURATION_MODE_FORMATTER1,
+		pdev->type < 730 ? SATURATION_MODE_FORMATTER2 : SATURATION_MODE_FORMATTER1,
 		pdev->vcinterface,
 		&buf, 1, HZ / 2);
 	if (ret < 0)
@@ -620,7 +626,7 @@ int pwc_set_saturation(struct pwc_device *pdev, int value)
 {
 	char buf;
 
-	if (pdev->type < 730)
+	if (pdev->type < 675)
 		return -EINVAL;
 	if (value < 0)
 		value = 0;
@@ -631,7 +637,7 @@ int pwc_set_saturation(struct pwc_device *pdev, int value)
 	return usb_control_msg(pdev->udev, usb_sndctrlpipe(pdev->udev, 0),
 		SET_CHROM_CTL,
 		USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
-		SATURATION_MODE_FORMATTER1,
+		pdev->type < 730 ? SATURATION_MODE_FORMATTER2 : SATURATION_MODE_FORMATTER1,
 		pdev->vcinterface,
 		&buf, 1, HZ / 2);
 }
@@ -752,6 +758,7 @@ static inline int pwc_set_shutter_speed(struct pwc_device *pdev, int mode, int v
 			break;
 		case 730:
 		case 740:
+		case 750:
 			/* speed seems to range from 0x0 to 0xff */
 			buf[1] = 0;
 			buf[0] = value >> 8;
@@ -823,6 +830,231 @@ static inline int pwc_restore_factory(struct pwc_device *pdev)
 		pdev->vcinterface,
 		NULL, 0, HZ / 2);
 }
+
+ /* ************************************************* */
+ /* Patch by Alvarado: (not in the original version   */
+
+ /*
+  * the camera recognizes modes from 0 to 4:
+  *
+  * 00: indoor (incandescant lighting)
+  * 01: outdoor (sunlight)
+  * 02: fluorescent lighting
+  * 03: manual
+  * 04: auto
+  */ 
+static inline int pwc_set_awb(struct pwc_device *pdev, int mode)
+{
+	char buf;
+	int ret;
+	
+	if (mode < 0)
+	    mode = 0;
+	
+	if (mode > 4)
+	    mode = 4;
+	
+	buf = mode & 0x07; /* just the lowest three bits */
+	
+	ret = usb_control_msg(pdev->udev, usb_sndctrlpipe(pdev->udev, 0),
+		SET_CHROM_CTL,
+		USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
+		WB_MODE_FORMATTER,
+		pdev->vcinterface,
+		&buf, 1, HZ / 2);
+	
+	if (ret < 0)
+		return ret;
+	return 0;
+}
+
+static inline int pwc_get_awb(struct pwc_device *pdev)
+{
+	unsigned char buf;
+	int ret;
+	
+	ret = usb_control_msg(pdev->udev, usb_rcvctrlpipe(pdev->udev, 0),
+		GET_CHROM_CTL,
+		USB_DIR_IN | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
+		WB_MODE_FORMATTER,
+		pdev->vcinterface,
+		&buf, 1, HZ / 2);
+
+	if (ret < 0) 
+		return ret;
+	return buf;
+}
+
+static inline int pwc_set_red_gain(struct pwc_device *pdev, int value)
+{
+        unsigned char buf;
+
+	if (value < 0)
+		value = 0;
+	if (value > 0xffff)
+		value = 0xffff;
+
+	/* only the msb are considered */
+	buf = value >> 8;
+
+	return usb_control_msg(pdev->udev, usb_sndctrlpipe(pdev->udev, 0),
+		SET_CHROM_CTL,
+		USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
+		PRESET_MANUAL_RED_GAIN_FORMATTER,
+		pdev->vcinterface,
+		&buf, 1, HZ / 2);
+}
+
+static inline int pwc_get_red_gain(struct pwc_device *pdev)
+{
+	unsigned char buf;
+	int ret;
+	
+	ret = usb_control_msg(pdev->udev, usb_rcvctrlpipe(pdev->udev, 0),
+ 	        GET_STATUS_CTL, 
+		USB_DIR_IN | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
+	        PRESET_MANUAL_RED_GAIN_FORMATTER,
+		pdev->vcinterface,
+		&buf, 1, HZ / 2);
+
+	if (ret < 0)
+	    return ret;
+	
+	return (buf << 8);
+}
+
+
+static inline int pwc_set_blue_gain(struct pwc_device *pdev, int value)
+{
+	unsigned char buf;
+
+	if (value < 0)
+		value = 0;
+	if (value > 0xffff)
+		value = 0xffff;
+
+	/* linear mapping of 0..0xffff to -0x80..0x7f */
+	buf = (value >> 8);
+
+	return usb_control_msg(pdev->udev, usb_sndctrlpipe(pdev->udev, 0),
+		SET_CHROM_CTL,
+		USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
+		PRESET_MANUAL_BLUE_GAIN_FORMATTER,
+		pdev->vcinterface,
+		&buf, 1, HZ / 2);
+}
+
+static inline int pwc_get_blue_gain(struct pwc_device *pdev)
+{
+	unsigned char buf;
+	int ret;
+	
+	ret = usb_control_msg(pdev->udev, usb_rcvctrlpipe(pdev->udev, 0),
+   	        GET_STATUS_CTL,
+		USB_DIR_IN | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
+		PRESET_MANUAL_BLUE_GAIN_FORMATTER,
+		pdev->vcinterface,
+		&buf, 1, HZ / 2);
+
+	if (ret < 0)
+	    return ret;
+	
+	return (buf << 8);
+}
+
+/* The following two functions are different, since they only read the
+   internal red/blue gains, which may be different from the manual 
+   gains set or read above.
+ */   
+static inline int pwc_read_red_gain(struct pwc_device *pdev)
+{
+	unsigned char buf;
+	int ret;
+	
+	ret = usb_control_msg(pdev->udev, usb_rcvctrlpipe(pdev->udev, 0),
+ 	        GET_STATUS_CTL, 
+		USB_DIR_IN | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
+	        READ_RED_GAIN_FORMATTER,
+		pdev->vcinterface,
+		&buf, 1, HZ / 2);
+
+	if (ret < 0)
+	    return ret;
+	
+	return (buf << 8);
+}
+
+static inline int pwc_read_blue_gain(struct pwc_device *pdev)
+{
+	unsigned char buf;
+	int ret;
+	
+	ret = usb_control_msg(pdev->udev, usb_rcvctrlpipe(pdev->udev, 0),
+   	        GET_STATUS_CTL,
+		USB_DIR_IN | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
+		READ_BLUE_GAIN_FORMATTER,
+		pdev->vcinterface,
+		&buf, 1, HZ / 2);
+
+	if (ret < 0)
+	    return ret;
+	
+	return (buf << 8);
+}
+
+int pwc_set_leds(struct pwc_device *pdev, int on_value, int off_value)
+{
+	unsigned char buf[2];
+
+	if (pdev->type < 730)
+		return 0;
+	if (on_value < 0)
+		on_value = 0;
+	if (on_value > 0xff)
+		on_value = 0xff;
+	if (off_value < 0)
+		off_value = 0;
+	if (off_value > 0xff)
+		off_value = 0xff;
+
+	buf[0] = on_value;
+	buf[1] = off_value;
+
+	return usb_control_msg(pdev->udev, usb_sndctrlpipe(pdev->udev, 0),
+		SET_STATUS_CTL,
+		USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
+		LED_FORMATTER,
+		pdev->vcinterface,
+		&buf, 2, HZ / 2);
+}
+
+int pwc_get_leds(struct pwc_device *pdev, int *on_value, int *off_value)
+{
+	unsigned char buf[2];
+	int ret;
+	
+	if (pdev->type < 730) {
+		*on_value = -1;
+		*off_value = -1;
+		return 0;
+	}
+
+	ret = usb_control_msg(pdev->udev, usb_rcvctrlpipe(pdev->udev, 0),
+   	        GET_STATUS_CTL,
+		USB_DIR_IN | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
+		LED_FORMATTER,
+		pdev->vcinterface,
+		&buf, 2, HZ / 2);
+
+	if (ret < 0)
+		return ret;
+	*on_value = buf[0];
+	*off_value = buf[1];
+	return 0;
+}
+
+ /* End of Add-Ons                                    */
+ /* ************************************************* */
 
 int pwc_ioctl(struct pwc_device *pdev, unsigned int cmd, void *arg)
 {
@@ -909,6 +1141,75 @@ int pwc_ioctl(struct pwc_device *pdev, unsigned int cmd, void *arg)
 		break;
 	}
 	
+
+ /* ************************************************* */
+ /* Begin of Add-Ons for color compensation           */
+
+        case VIDIOCPWCSAWB:
+	{
+		struct pwc_whitebalance wb;
+		int ret;
+		
+		if (copy_from_user(&wb, arg, sizeof(wb)))
+			return -EFAULT;
+	
+		ret = pwc_set_awb(pdev, wb.mode);
+		if (ret >= 0 && wb.mode == PWC_WB_MANUAL) {
+			pwc_set_red_gain(pdev, wb.manual_red);
+			pwc_set_blue_gain(pdev, wb.manual_blue);
+		}
+		break;
+	}
+
+	case VIDIOCPWCGAWB:
+	{
+		struct pwc_whitebalance wb;
+		
+		memset(&wb, 0, sizeof(wb));
+		wb.mode = pwc_get_awb(pdev);
+		if (wb.mode < 0)
+			return -EINVAL;
+		wb.manual_red = pwc_get_red_gain(pdev);
+		wb.manual_blue = pwc_get_blue_gain(pdev);
+		if (wb.mode == PWC_WB_AUTO) {
+			wb.read_red = pwc_read_red_gain(pdev);
+			wb.read_blue = pwc_read_blue_gain(pdev);
+		}
+		break;
+	}
+
+        case VIDIOCPWCSLED:
+	{
+		int ret;
+		struct pwc_leds leds;
+
+		if (copy_from_user(&leds, arg, sizeof(leds)))
+			return -EFAULT;
+
+		ret = pwc_set_leds(pdev, leds.led_on, leds.led_off);
+		if (ret<0)
+		    return ret;
+	    break;
+	}
+
+
+
+	case VIDIOCPWCGLED:
+	{
+		int led;
+		struct pwc_leds leds;
+		
+		led = pwc_get_leds(pdev, &leds.led_on, &leds.led_off); 
+		if (led < 0)
+			return -EINVAL;
+		if (copy_to_user(arg, &leds, sizeof(leds)))
+			return -EFAULT;
+		break;
+	}
+
+ /* End of Add-Ons                                    */
+ /* ************************************************* */
+
 	default:
 		return -ENOIOCTLCMD;
 		break;
@@ -916,4 +1217,5 @@ int pwc_ioctl(struct pwc_device *pdev, unsigned int cmd, void *arg)
 	return 0;
 }
 
-#endif
+
+

@@ -8,6 +8,12 @@
  * Authors:   Bjorn Wesen
  *
  * $Log: ptrace.c,v $
+ * Revision 1.7  2001/09/26 11:53:49  bjornw
+ * PTRACE_DETACH works more simple in 2.4.10
+ *
+ * Revision 1.6  2001/07/25 16:08:47  bjornw
+ * PTRACE_ATTACH bulk moved into arch-independant code in 2.4.7
+ *
  * Revision 1.5  2001/03/26 14:24:28  orjanf
  * * Changed loop condition.
  * * Added comment documenting non-standard ptrace behaviour.
@@ -79,6 +85,16 @@ static inline int put_reg(struct task_struct *task, unsigned int regno,
 	return 0;
 }
 
+/*
+ * Called by kernel/ptrace.c when detaching..
+ *
+ * Make sure the single step bit is not set.
+ */
+void ptrace_disable(struct task_struct *child)
+{
+       /* Todo - pending singlesteps? */
+}
+
 /* Note that this implementation of ptrace behaves differently from vanilla
  * ptrace.  Contrary to what the man page says, in the PTRACE_PEEKTEXT,
  * PTRACE_PEEKDATA, and PTRACE_PEEKUSER requests the data variable is not
@@ -115,32 +131,7 @@ asmlinkage int sys_ptrace(long request, long pid, long addr, long data)
 	if (pid == 1)		/* you may not mess with init */
 		goto out_tsk;
 	if (request == PTRACE_ATTACH) {
-		if (child == current)
-			goto out_tsk;
-		if ((!child->dumpable ||
-		    (current->uid != child->euid) ||
-		    (current->uid != child->suid) ||
-		    (current->uid != child->uid) ||
-	 	    (current->gid != child->egid) ||
-		    (current->gid != child->sgid) ||
-	 	    (!cap_issubset(child->cap_permitted, current->cap_permitted)) ||
-	 	    (current->gid != child->gid)) && !capable(CAP_SYS_PTRACE))
-			goto out_tsk;
-		/* the same process cannot be attached many times */
-		if (child->ptrace & PT_PTRACED)
-			goto out_tsk;
-		child->ptrace |= PT_PTRACED;
-
-		write_lock_irq(&tasklist_lock);
-		if (child->p_pptr != current) {
-			REMOVE_LINKS(child);
-			child->p_pptr = current;
-			SET_LINKS(child);
-		}
-		write_unlock_irq(&tasklist_lock);
-
-		send_sig(SIGSTOP, child, 1);
-		ret = 0;
+		ret = ptrace_attach(child);
 		goto out_tsk;
 	}
 	ret = -ESRCH;
@@ -267,24 +258,9 @@ asmlinkage int sys_ptrace(long request, long pid, long addr, long data)
 			break;
 		}
 
-		case PTRACE_DETACH: { /* detach a process that was attached. */
-			long tmp;
-
-			ret = -EIO;
-			if ((unsigned long) data > _NSIG)
-				break;
-			child->ptrace &= ~(PT_PTRACED | PT_TRACESYS);
-			child->exit_code = data;
-			write_lock_irq(&tasklist_lock);
-			REMOVE_LINKS(child);
-			child->p_pptr = child->p_opptr;
-			SET_LINKS(child);
-			write_unlock_irq(&tasklist_lock);
-			/* TODO: make sure any pending breakpoint is killed */
-			wake_up_process(child);
-			ret = 0;
+		case PTRACE_DETACH:
+			ret = ptrace_detach(child, data);
 			break;
-		}
 
 		case PTRACE_GETREGS: { /* Get all gp regs from the child. */
 		  	int i;

@@ -9,6 +9,7 @@
 #include "scsi.h"
 #endif
 #include <linux/devfs_fs_kernel.h>
+#include <linux/completion.h>
 
 /* The tape buffer descriptor. */
 typedef struct {
@@ -67,7 +68,7 @@ typedef struct {
 	kdev_t devt;
 	Scsi_Device *device;
 	struct semaphore lock;	/* For serialization */
-	struct semaphore sem;	/* For SCSI commands */
+	struct completion wait;	/* For SCSI commands */
 	ST_buffer *buffer;
 
 	/* Drive characteristics */
@@ -80,6 +81,7 @@ typedef struct {
 	unsigned char restr_dma;
 	unsigned char scsi2_logical;
 	unsigned char default_drvbuffer;	/* 0xff = don't touch, value 3 bits */
+	unsigned char use_pf;			/* Set Page Format bit in all mode selects? */
 	int tape_type;
 	int write_threshold;
 	int timeout;		/* timeout for normal commands */
@@ -125,6 +127,9 @@ typedef struct {
 #endif
 } Scsi_Tape;
 
+/* Bit masks for use_pf */
+#define USE_PF      1
+#define PF_TESTED   2
 
 /* Values of eof */
 #define	ST_NOEOF	0

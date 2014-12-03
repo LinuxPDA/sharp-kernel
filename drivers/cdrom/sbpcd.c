@@ -4272,6 +4272,12 @@ static int sbpcd_dev_ioctl(struct cdrom_device_info *cdi, u_int cmd,
 		D_S[d].aud_buf=NULL;
 		D_S[d].sbp_audsiz=arg;
 		
+		if (D_S[d].sbp_audsiz>16)
+		{
+			D_S[d].sbp_audsiz = 0;
+			RETURN_UP(D_S[d].sbp_audsiz);
+		}
+	
 		if (D_S[d].sbp_audsiz>0)
 		{
 			D_S[d].aud_buf=(u_char *) vmalloc(D_S[d].sbp_audsiz*CD_FRAMESIZE_RAW);
@@ -4308,7 +4314,7 @@ static int sbpcd_dev_ioctl(struct cdrom_device_info *cdi, u_int cmd,
 		i=verify_area(VERIFY_READ, (void *) arg, sizeof(struct cdrom_read_audio));
 		if (i) RETURN_UP(i);
 		copy_from_user(&read_audio, (void *) arg, sizeof(struct cdrom_read_audio));
-		if (read_audio.nframes>D_S[d].sbp_audsiz) RETURN_UP(-EINVAL);
+		if (read_audio.nframes < 0 || read_audio.nframes>D_S[d].sbp_audsiz) RETURN_UP(-EINVAL);
 		i=verify_area(VERIFY_WRITE, read_audio.buf,
 			      read_audio.nframes*CD_FRAMESIZE_RAW);
 		if (i) RETURN_UP(i);
@@ -6016,6 +6022,9 @@ static int sbpcd_media_changed( struct cdrom_device_info *cdi, int disc_nr)
 {
    return sbpcd_chk_disk_change(cdi->dev);
 }
+
+MODULE_LICENSE("GPL");
+
 /*==========================================================================*/
 /*
  * Overrides for Emacs so that we follow Linus's tabbing style.
@@ -6033,3 +6042,4 @@ static int sbpcd_media_changed( struct cdrom_device_info *cdi, int disc_nr)
  * c-continued-brace-offset: 0
  * End:
  */
+

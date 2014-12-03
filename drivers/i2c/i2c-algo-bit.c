@@ -21,7 +21,7 @@
 /* With some changes from Kyösti Mälkki <kmalkki@cc.hut.fi> and even
    Frodo Looijaard <frodol@dds.nl> */
 
-/* $Id: i2c-algo-bit.c,v 1.27 2000/07/09 15:16:16 frodo Exp $ */
+/* $Id: i2c-algo-bit.c,v 1.30 2001/07/29 02:44:25 mds Exp $ */
 
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -621,6 +621,7 @@ EXPORT_SYMBOL(i2c_bit_del_bus);
 #ifdef MODULE
 MODULE_AUTHOR("Simon G. Vogl <simon@tk.uni-linz.ac.at>");
 MODULE_DESCRIPTION("I2C-Bus bit-banging algorithm");
+MODULE_LICENSE("GPL");
 
 MODULE_PARM(bit_test, "i");
 MODULE_PARM(bit_scan, "i");

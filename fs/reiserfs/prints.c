@@ -1,20 +1,12 @@
 /*
  * Copyright 2000 by Hans Reiser, licensing governed by reiserfs/README
  */
-#ifdef __KERNEL__
 
 #include <linux/config.h>
 #include <linux/sched.h>
 #include <linux/fs.h>
 #include <linux/reiserfs_fs.h>
 #include <linux/string.h>
-
-#else
-
-#include "nokernel.h"
-#include <limits.h>
-
-#endif
 
 #include <stdarg.h>
 
@@ -23,7 +15,7 @@ static char fmt_buf[1024];
 static char off_buf[80];
 
 
-static char * cpu_offset (struct cpu_key * key)
+static char * reiserfs_cpu_offset (struct cpu_key * key)
 {
   if (cpu_key_k_type(key) == TYPE_DIRENTRY)
     sprintf (off_buf, "%Lu(%Lu)", 
@@ -98,11 +90,21 @@ static void sprintf_cpu_key (char * buf, struct cpu_key * key)
 {
   if (key)
     sprintf (buf, "[%d %d %s %s]", key->on_disk_key.k_dir_id,
-	     key->on_disk_key.k_objectid, cpu_offset (key), cpu_type (key));
+	     key->on_disk_key.k_objectid, reiserfs_cpu_offset (key),
+             cpu_type (key));
   else
     sprintf (buf, "[NULL]");
 }
 
+static void sprintf_de_head( char *buf, struct reiserfs_de_head *deh )
+{
+    if( deh )
+        sprintf( buf, "[offset=%d dir_id=%d objectid=%d location=%d state=%04x]", deh_offset(deh), deh_dir_id(deh),
+                 deh_objectid(deh), deh_location(deh), deh_state(deh) );
+    else
+        sprintf( buf, "[NULL]" );
+
+}
 
 static void sprintf_item_head (char * buf, struct item_head * ih)
 {
@@ -111,7 +113,7 @@ static void sprintf_item_head (char * buf, struct item_head * ih)
 	sprintf_le_key (buf + strlen (buf), &(ih->ih_key));
 	sprintf (buf + strlen (buf), ", item_len %d, item_location %d, "
 		 "free_space(entry_count) %d",
-		 ih->ih_item_len, ih->ih_item_location, ih_free_space (ih));
+		 ih_item_len(ih), ih_location(ih), ih_free_space (ih));
     } else
 	sprintf (buf, "[NULL]");
 }
@@ -131,10 +133,6 @@ static void sprintf_block_head (char * buf, struct buffer_head * bh)
 {
   sprintf (buf, "level=%d, nr_items=%d, free_space=%d rdkey ",
 	   B_LEVEL (bh), B_NR_ITEMS (bh), B_FREE_SPACE (bh));
-#if 0
-  if (B_LEVEL (bh) == DISK_LEAF_NODE_LEVEL)
-    sprintf_le_key (buf + strlen (buf), B_PRIGHT_DELIM_KEY (bh));
-#endif
 }
 
 
@@ -151,7 +149,7 @@ static void sprintf_buffer_head (char * buf, struct buffer_head * bh)
 
 static void sprintf_disk_child (char * buf, struct disk_child * dc)
 {
-  sprintf (buf, "[dc_number=%d, dc_size=%u]", dc->dc_block_number, dc->dc_size);
+  sprintf (buf, "[dc_number=%d, dc_size=%u]", dc_block_number(dc), dc_size(dc));
 }
 
 
@@ -161,12 +159,10 @@ static char * is_there_reiserfs_struct (char * fmt, int * what, int * skip)
 
   *skip = 0;
   
-  while (1) {
-    k = strstr (k, "%");
-    if (!k)
-      break;
-    if (k && (k[1] == 'k' || k[1] == 'K' || k[1] == 'h' || k[1] == 't' ||
-	      k[1] == 'z' || k[1] == 'b' || k[1] == 'y')) {
+  while ((k = strstr (k, "%")) != NULL)
+  {
+    if (k[1] == 'k' || k[1] == 'K' || k[1] == 'h' || k[1] == 't' ||
+	      k[1] == 'z' || k[1] == 'b' || k[1] == 'y' || k[1] == 'a' ) {
       *what = k[1];
       break;
     }
@@ -190,59 +186,58 @@ static char * is_there_reiserfs_struct (char * fmt, int * what, int * skip)
            key->k_offset, key->k_uniqueness); 
 */
 
-#define do_reiserfs_warning \
-{\
-  char * fmt1 = fmt_buf;\
-  va_list args;\
-  int i, j;\
-  char * k;\
-  char * p = error_buf;\
-  int what, skip;\
-\
-  strcpy (fmt1, fmt);\
-  va_start(args, fmt);\
-\
-  while (1) {\
-    k = is_there_reiserfs_struct (fmt1, &what, &skip);\
-    if (k != 0) {\
-      *k = 0;\
-      p += vsprintf (p, fmt1, args);\
-\
-      for (i = 0; i < skip; i ++)\
-	j = va_arg (args, int);\
-\
-      switch (what) {\
-      case 'k':\
-	sprintf_le_key (p, va_arg(args, struct key *));\
-	break;\
-      case 'K':\
-	sprintf_cpu_key (p, va_arg(args, struct cpu_key *));\
-	break;\
-      case 'h':\
-	sprintf_item_head (p, va_arg(args, struct item_head *));\
-	break;\
-      case 't':\
-	sprintf_direntry (p, va_arg(args, struct reiserfs_dir_entry *));\
-	break;\
-      case 'y':\
-	sprintf_disk_child (p, va_arg(args, struct disk_child *));\
-	break;\
-      case 'z':\
-	sprintf_block_head (p, va_arg(args, struct buffer_head *));\
-	break;\
-      case 'b':\
-	sprintf_buffer_head (p, va_arg(args, struct buffer_head *));\
-	break;\
-      }\
-      p += strlen (p);\
-      fmt1 = k + 2;\
-    } else {\
-      i = vsprintf (p, fmt1, args);\
-      break;\
-    }\
-  }\
-\
-  va_end(args);\
+
+static void
+prepare_error_buf( const char *fmt, va_list args )
+{
+    char * fmt1 = fmt_buf;
+    char * k;
+    char * p = error_buf;
+    int i, j, what, skip;
+
+    strcpy (fmt1, fmt);
+
+    while( (k = is_there_reiserfs_struct( fmt1, &what, &skip )) != NULL )
+    {
+        *k = 0;
+
+        p += vsprintf (p, fmt1, args);
+
+        for (i = 0; i < skip; i ++)
+            j = va_arg (args, int);
+
+        switch (what) {
+        case 'k':
+            sprintf_le_key (p, va_arg(args, struct key *));
+            break;
+        case 'K':
+            sprintf_cpu_key (p, va_arg(args, struct cpu_key *));
+            break;
+        case 'h':
+            sprintf_item_head (p, va_arg(args, struct item_head *));
+            break;
+        case 't':
+            sprintf_direntry (p, va_arg(args, struct reiserfs_dir_entry *));
+            break;
+        case 'y':
+            sprintf_disk_child (p, va_arg(args, struct disk_child *));
+            break;
+        case 'z':
+            sprintf_block_head (p, va_arg(args, struct buffer_head *));
+            break;
+        case 'b':
+            sprintf_buffer_head (p, va_arg(args, struct buffer_head *));
+            break;
+        case 'a':
+            sprintf_de_head (p, va_arg(args, struct reiserfs_de_head *));
+            break;
+        }
+
+        p += strlen (p);
+        fmt1 = k + 2;
+    }
+    vsprintf (p, fmt1, args);
+
 }
 
 
@@ -255,9 +250,18 @@ static char * is_there_reiserfs_struct (char * fmt, int * what, int * skip)
    %z to print block head (arg must be struct buffer_head *
    %b to print buffer_head
 */
+
+#define do_reiserfs_warning(fmt)\
+{\
+    va_list args;\
+    va_start( args, fmt );\
+    prepare_error_buf( fmt, args );\
+    va_end( args );\
+}
+
 void reiserfs_warning (const char * fmt, ...)
 {
-  do_reiserfs_warning;
+  do_reiserfs_warning(fmt);
   /* console_print (error_buf); */
   printk (KERN_WARNING "%s", error_buf);
 }
@@ -265,7 +269,7 @@ void reiserfs_warning (const char * fmt, ...)
 void reiserfs_debug (struct super_block *s, int level, const char * fmt, ...)
 {
 #ifdef CONFIG_REISERFS_CHECK
-  do_reiserfs_warning;
+  do_reiserfs_warning(fmt);
   printk (KERN_DEBUG "%s", error_buf);
 #else
   ; 
@@ -299,7 +303,7 @@ void reiserfs_debug (struct super_block *s, int level, const char * fmt, ...)
 
     panics in reiserfs_fs.h have numbers from 1000 to 1999
     super.c				        2000 to 2999
-    preserve.c				    3000 to 3999
+    preserve.c (unused)			    3000 to 3999
     bitmap.c				    4000 to 4999
     stree.c				        5000 to 5999
     prints.c				    6000 to 6999
@@ -324,16 +328,12 @@ extern struct tree_balance * cur_tb;
 
 void reiserfs_panic (struct super_block * sb, const char * fmt, ...)
 {
-#ifdef __KERNEL__
   show_reiserfs_locks() ;
-#endif
-  do_reiserfs_warning;
-  printk ("%s", error_buf);
+  do_reiserfs_warning(fmt);
+  printk ( KERN_EMERG "%s", error_buf);
   BUG ();
   // console_print (error_buf);
   // for (;;);
-
-#ifdef __KERNEL__
 
   /* comment before release */
   //for (;;);
@@ -354,9 +354,6 @@ void reiserfs_panic (struct super_block * sb, const char * fmt, ...)
 
   panic ("REISERFS: panic (device %s): %s\n",
 	 sb ? kdevname(sb->s_dev) : "sb == 0", error_buf);
-#else
-  exit (0);
-#endif
 }
 
 
@@ -452,7 +449,7 @@ static int print_leaf (struct buffer_head * bh, int print_mode, int first, int l
 {
     struct block_head * blkh;
     struct item_head * ih;
-    int i;
+    int i, nr;
     int from, to;
 
     if (!B_IS_ITEMS_LEVEL (bh))
@@ -462,23 +459,24 @@ static int print_leaf (struct buffer_head * bh, int print_mode, int first, int l
 
     blkh = B_BLK_HEAD (bh);
     ih = B_N_PITEM_HEAD (bh,0);
+    nr = blkh_nr_item(blkh);
 
     printk ("\n===================================================================\n");
     reiserfs_warning ("LEAF NODE (%ld) contains %z\n", bh->b_blocknr, bh);
 
     if (!(print_mode & PRINT_LEAF_ITEMS)) {
 	reiserfs_warning ("FIRST ITEM_KEY: %k, LAST ITEM KEY: %k\n",
-			  &(ih->ih_key), &((ih + le16_to_cpu (blkh->blk_nr_item) - 1)->ih_key));
+			  &(ih->ih_key), &((ih + nr - 1)->ih_key));
 	return 0;
     }
 
-    if (first < 0 || first > le16_to_cpu (blkh->blk_nr_item) - 1) 
+    if (first < 0 || first > nr - 1) 
 	from = 0;
     else 
 	from = first;
 
-    if (last < 0 || last > le16_to_cpu (blkh->blk_nr_item))
-	to = le16_to_cpu (blkh->blk_nr_item);
+    if (last < 0 || last > nr )
+	to = nr;
     else
 	to = last;
 
@@ -497,52 +495,50 @@ static int print_leaf (struct buffer_head * bh, int print_mode, int first, int l
     return 0;
 }
 
-static char * reiserfs_version (char * buf)
-{
-    __u16 * pversion;
-
-    pversion = (__u16 *)(buf) + 36;
-    if (*pversion == 0)
-	return "0";
-    if (*pversion == 2)
-	return "2";
-    return "Unknown";
-}
-
-
 /* return 1 if this is not super block */
 static int print_super_block (struct buffer_head * bh)
 {
     struct reiserfs_super_block * rs = (struct reiserfs_super_block *)(bh->b_data);
     int skipped, data_blocks;
+    char *version;
     
 
-    if (strncmp (rs->s_magic,  REISERFS_SUPER_MAGIC_STRING, strlen ( REISERFS_SUPER_MAGIC_STRING)) &&
-	strncmp (rs->s_magic,  REISER2FS_SUPER_MAGIC_STRING, strlen ( REISER2FS_SUPER_MAGIC_STRING)))
+    if (strncmp (rs->s_magic,  REISERFS_SUPER_MAGIC_STRING,
+                 strlen ( REISERFS_SUPER_MAGIC_STRING)) == 0) {
+        version = "3.5";
+    } else if( strncmp (rs->s_magic,  REISER2FS_SUPER_MAGIC_STRING,
+                        strlen ( REISER2FS_SUPER_MAGIC_STRING)) == 0) {
+        version = "3.6";
+    } else {
 	return 1;
+    }
 
-    printk ("%s\'s super block in block %ld\n======================\n", kdevname (bh->b_dev), bh->b_blocknr);
-    printk ("Reiserfs version %s\n", reiserfs_version (bh->b_data));
-    printk ("Block count %u\n", le32_to_cpu (rs->s_block_count));
-    printk ("Blocksize %d\n", le16_to_cpu (rs->s_blocksize));
-    printk ("Free blocks %u\n", le32_to_cpu (rs->s_free_blocks));
-    skipped = bh->b_blocknr; // FIXME: this would be confusing if
+    printk ("%s\'s super block in block %ld\n======================\n",
+            kdevname (bh->b_dev), bh->b_blocknr);
+    printk ("Reiserfs version %s\n", version );
+    printk ("Block count %u\n", sb_block_count(rs));
+    printk ("Blocksize %d\n", sb_blocksize(rs));
+    printk ("Free blocks %u\n", sb_free_blocks(rs));
+    // FIXME: this would be confusing if
     // someone stores reiserfs super block in some data block ;)
-    data_blocks = le32_to_cpu (rs->s_block_count) - skipped - 1 -
-      le16_to_cpu (rs->s_bmap_nr) - (le32_to_cpu (rs->s_orig_journal_size) + 1) -
-      le32_to_cpu (rs->s_free_blocks);
+//    skipped = (bh->b_blocknr * bh->b_size) / sb_blocksize(rs);
+    skipped = bh->b_blocknr;
+    data_blocks = sb_block_count(rs) - skipped - 1 -
+                  sb_bmap_nr(rs) - (sb_orig_journal_size(rs) + 1) -
+                  sb_free_blocks(rs);
     printk ("Busy blocks (skipped %d, bitmaps - %d, journal blocks - %d\n"
 	    "1 super blocks, %d data blocks\n", 
-	    skipped, le16_to_cpu (rs->s_bmap_nr), 
-	    (le32_to_cpu (rs->s_orig_journal_size) + 1), data_blocks);
-    printk ("Root block %u\n", le32_to_cpu (rs->s_root_block));
-    printk ("Journal block (first) %d\n", le32_to_cpu (rs->s_journal_block));
-    printk ("Journal dev %d\n", le32_to_cpu (rs->s_journal_dev));    
-    printk ("Journal orig size %d\n", le32_to_cpu (rs->s_orig_journal_size));
+	    skipped, sb_bmap_nr(rs), 
+	    (sb_orig_journal_size(rs) + 1), data_blocks);
+    printk ("Root block %u\n", sb_root_block(rs));
+    printk ("Journal block (first) %d\n", sb_journal_block(rs));
+    printk ("Journal dev %d\n", sb_journal_dev(rs));
+    printk ("Journal orig size %d\n", sb_orig_journal_size(rs));
     printk ("Filesystem state %s\n", 
-	    (le16_to_cpu (rs->s_state) == REISERFS_VALID_FS) ? "VALID" : "ERROR");
-    printk ("Hash function \"%s\"\n", le16_to_cpu (rs->s_hash_function_code) == TEA_HASH ? "tea" :
-	    ((le16_to_cpu (rs->s_hash_function_code) == YURA_HASH) ? "rupasov" : "unknown"));
+	    (sb_state(rs) == REISERFS_VALID_FS) ? "VALID" : "ERROR");
+    printk ("Hash function \"%s\"\n",
+            sb_hash_function_code(rs) == TEA_HASH ? "tea" :
+	    ((sb_hash_function_code(rs) == YURA_HASH) ? "rupasov" : "unknown"));
 
 #if 0
     __u32 s_journal_trans_max ;           /* max number of blocks in a transaction.  */
@@ -551,7 +547,7 @@ static int print_super_block (struct buffer_head * bh)
     __u32 s_journal_max_commit_age ;      /* in seconds, how old can an async commit be */
     __u32 s_journal_max_trans_age ;       /* in seconds, how old can a transaction be */
 #endif
-    printk ("Tree height %d\n", rs->s_tree_height);
+    printk ("Tree height %d\n", sb_tree_height(rs));
     return 0;
 }
 
@@ -677,151 +673,17 @@ void print_cur_tb (char * mes)
     printk ("%s\n%s", mes, print_tb_buf);
 }
 
-
-#ifndef __KERNEL__
-
-void print_bmap_block (int i, char * data, int size, int silent)
-{
-    int j, k;
-    int bits = size * 8;
-    int zeros = 0, ones = 0;
-  
-
-    if (test_bit (0, data)) {
-	/* first block addressed by this bitmap block is used */
-	ones ++;
-	if (!silent)
-	    printf ("Busy (%d-", i * bits);
-	for (j = 1; j < bits; j ++) {
-	    while (test_bit (j, data)) {
-		ones ++;
-		if (j == bits - 1) {
-		    if (!silent)
-			printf ("%d)\n", j + i * bits);
-		    goto end;
-		}
-		j++;
-	    }
-	    if (!silent)
-		printf ("%d) Free(%d-", j - 1 + i * bits, j + i * bits);
-
-	    while (!test_bit (j, data)) {
-		zeros ++;
-		if (j == bits - 1) {
-		    if (!silent)
-			printf ("%d)\n", j + i * bits);
-		    goto end;
-		}
-		j++;
-	    }
-	    if (!silent)
-		printf ("%d) Busy(%d-", j - 1 + i * bits, j + i * bits);
-
-	    j --;
-	end:
-	}
-    } else {
-	/* first block addressed by this bitmap is free */
-	zeros ++;
-	if (!silent)
-	    printf ("Free (%d-", i * bits);
-	for (j = 1; j < bits; j ++) {
-	    k = 0;
-	    while (!test_bit (j, data)) {
-		k ++;
-		if (j == bits - 1) {
-		    if (!silent)
-			printf ("%d)\n", j + i * bits);
-		    zeros += k;
-		    goto end2;
-		}
-		j++;
-	    }
-	    zeros += k;
-	    if (!silent)
-		printf ("%d) Busy(%d-", j - 1 + i * bits, j + i * bits);
-	    
-	    k = 0;
-	    while (test_bit (j, data)) {
-		ones ++;
-		if (j == bits - 1) {
-		    if (!silent)
-			printf ("%d)\n", j + i * bits);
-		    ones += k;
-		    goto end2;
-		}
-		j++;
-	    }
-	    ones += k;
-	    if (!silent)
-		printf ("%d) Busy(%d-", j - 1 + i * bits, j + i * bits);
-	
-	    j --;
-	end2:
-	}
-    }
-
-    printf ("used %d, free %d\n", ones, zeros);
-}
-
-
-/* if silent == 1, do not print details */
-void print_bmap (struct super_block * s, int silent)
-{
-    int bmapnr = SB_BMAP_NR (s);
-    int i;
-
-    printf ("Bitmap blocks are:\n");
-    for (i = 0; i < bmapnr; i ++) {
-	printf ("#%d: block %lu: ", i, SB_AP_BITMAP(s)[i]->b_blocknr);
-	print_bmap_block (i, SB_AP_BITMAP(s)[i]->b_data, s->s_blocksize, silent);
-    }
-
-}
-
-
-
-
-void print_objectid_map (struct super_block * s)
-{
-  int i;
-  struct reiserfs_super_block * rs;
-  unsigned long * omap;
-
-  rs = SB_DISK_SUPER_BLOCK (s);
-  omap = (unsigned long *)(rs + 1);
-  printk ("Map of objectids\n");
-      
-  for (i = 0; i < rs->s_oid_cursize; i ++) {
-    if (i % 2 == 0)
-      printk ("busy(%lu-%lu) ", omap[i], omap[i+1] - 1); 
-    else
-      printk ("free(%lu-%lu) ", 
-	      omap[i], ((i+1) == rs->s_oid_cursize) ? -1 : omap[i+1] - 1);
-    }
-  printk ("\n");
-  
-  printk ("Object id array has size %d (max %d):", rs->s_oid_cursize, 
-	  rs->s_oid_maxsize);
-  
-  for (i = 0; i < rs->s_oid_cursize; i ++)
-    printk ("%lu ", omap[i]); 
-  printk ("\n");
-
-}
-
-#endif	/* #ifndef __KERNEL__ */
-
-
 static void check_leaf_block_head (struct buffer_head * bh)
 {
   struct block_head * blkh;
+  int nr;
 
   blkh = B_BLK_HEAD (bh);
-  if (le16_to_cpu (blkh->blk_nr_item) > (bh->b_size - BLKH_SIZE) / IH_SIZE)
+  nr = blkh_nr_item(blkh);
+  if ( nr > (bh->b_size - BLKH_SIZE) / IH_SIZE)
     reiserfs_panic (0, "vs-6010: check_leaf_block_head: invalid item number %z", bh);
-  if (le16_to_cpu (blkh->blk_free_space) > 
-      bh->b_size - BLKH_SIZE - IH_SIZE * le16_to_cpu (blkh->blk_nr_item))
+  if ( blkh_free_space(blkh) > 
+      bh->b_size - BLKH_SIZE - IH_SIZE * nr )
     reiserfs_panic (0, "vs-6020: check_leaf_block_head: invalid free space %z", bh);
     
 }
@@ -869,9 +731,9 @@ void print_statistics (struct super_block * s)
 {
 
   /*
-  printk ("reiserfs_put_super: session statistics: balances %d, fix_nodes %d, preserve list freeings %d, \
+  printk ("reiserfs_put_super: session statistics: balances %d, fix_nodes %d, \
 bmap with search %d, without %d, dir2ind %d, ind2dir %d\n",
-	  s->u.reiserfs_sb.s_do_balance, s->u.reiserfs_sb.s_fix_nodes, s->u.reiserfs_sb.s_preserve_list_freeings,
+	  s->u.reiserfs_sb.s_do_balance, s->u.reiserfs_sb.s_fix_nodes,
 	  s->u.reiserfs_sb.s_bmaps, s->u.reiserfs_sb.s_bmaps_without_search,
 	  s->u.reiserfs_sb.s_direct2indirect, s->u.reiserfs_sb.s_indirect2direct);
   */

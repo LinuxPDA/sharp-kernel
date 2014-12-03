@@ -348,6 +348,7 @@ static inline unsigned long copy_shminfo_to_user(void *buf, struct shminfo64 *in
 
 static void shm_get_stat (unsigned long *rss, unsigned long *swp) 
 {
+	struct shmem_inode_info *info;
 	int i;
 
 	*rss = 0;
@@ -361,10 +362,11 @@ static void shm_get_stat (unsigned long *rss, unsigned long *swp)
 		if(shp == NULL)
 			continue;
 		inode = shp->shm_file->f_dentry->d_inode;
-		spin_lock (&inode->u.shmem_i.lock);
+		info = SHMEM_I(inode);
+		spin_lock (&info->lock);
 		*rss += inode->i_mapping->nrpages;
-		*swp += inode->u.shmem_i.swapped;
-		spin_unlock (&inode->u.shmem_i.lock);
+		*swp += info->swapped;
+		spin_unlock (&info->lock);
 	}
 }
 
@@ -606,6 +608,11 @@ asmlinkage long sys_shmat (int shmid, char *shmaddr, int shmflg, ulong *raddr)
 	shp = shm_lock(shmid);
 	if(shp == NULL)
 		return -EINVAL;
+	err = shm_checkid(shp,shmid);
+	if (err) {
+		shm_unlock(shmid);
+		return err;
+	}
 	if (ipcperms(&shp->shm_perm, acc_mode)) {
 		shm_unlock(shmid);
 		return -EACCES;

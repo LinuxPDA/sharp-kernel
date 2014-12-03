@@ -1,35 +1,24 @@
-/*  util.h - Header file for util.c
+/*
+ * util.h - Header file for util.c
  *
- *  Copyright (C) 1997 Régis Duchesne
- *  Copyright (C) 2001 Anton Altaparmakov
+ * Copyright (C) 1997 Régis Duchesne
+ * Copyright (C) 2001 Anton Altaparmakov (AIA)
  */
 
-/* Which character set is used for file names. */
-/*  Translate everything to UTF-8. */
-#define nct_utf8             1
-/*  Translate to 8859-1. */
-#define nct_iso8859_1        2
-/*  Quote unprintables with ":". */
-#define nct_uni_xlate        4
-/*  Do that in the vfat way instead of the documented way. */
-#define nct_uni_xlate_vfat   8
-/*  Use a mapping table to determine printables. */
-#define nct_map              16
-
-/* The first 16 inodes correspond to NTFS special files */
+/* The first 16 inodes correspond to NTFS special files. */
 typedef enum {
-	FILE_$Mft	= 0,
-	FILE_$MftMirr	= 1,
-	FILE_$LogFile	= 2,
-	FILE_$Volume	= 3,
-	FILE_$AttrDef	= 4,
-	FILE_$root	= 5,
-	FILE_$BitMap	= 6,
-	FILE_$Boot	= 7,
-	FILE_$BadClus	= 8,
-	FILE_$Secure	= 9,
-	FILE_$UpCase	= 10,
-	FILE_$Extend	= 11,
+	FILE_Mft	= 0,
+	FILE_MftMirr	= 1,
+	FILE_LogFile	= 2,
+	FILE_Volume	= 3,
+	FILE_AttrDef	= 4,
+	FILE_root	= 5,
+	FILE_BitMap	= 6,
+	FILE_Boot	= 7,
+	FILE_BadClus	= 8,
+	FILE_Secure	= 9,
+	FILE_UpCase	= 10,
+	FILE_Extend	= 11,
 	FILE_Reserved12	= 12,
 	FILE_Reserved13	= 13,
 	FILE_Reserved14	= 14,
@@ -41,9 +30,6 @@ void *ntfs_calloc(int size);
 
 /* String operations */
 /*  Copy Unicode <-> ASCII */
-#if 0
-void ntfs_uni2ascii(char *to, char *from, int len);
-#endif
 void ntfs_ascii2uni(short int *to, char *from, int len);
 
 /*  Comparison */

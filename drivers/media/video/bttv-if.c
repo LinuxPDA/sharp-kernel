@@ -209,7 +209,8 @@ static int attach_inform(struct i2c_client *client)
 	if (btv->tuner_type != -1)
 		bttv_call_i2c_clients(btv,TUNER_SET_TYPE,&btv->tuner_type);
         if (bttv_verbose)
-		printk("bttv%d: i2c attach [%s]\n",btv->nr,client->name);
+		printk("bttv%d: i2c attach [client=%s,%s]\n",btv->nr,
+		       client->name, (i < I2C_CLIENTS_MAX) ?  "ok" : "failed");
         return 0;
 }
 
@@ -218,14 +219,15 @@ static int detach_inform(struct i2c_client *client)
         struct bttv *btv = (struct bttv*)client->adapter->data;
 	int i;
 
-        if (bttv_verbose)
-		printk("bttv%d: i2c detach [%s]\n",btv->nr,client->name);
 	for (i = 0; i < I2C_CLIENTS_MAX; i++) {
 		if (btv->i2c_clients[i] == client) {
 			btv->i2c_clients[i] = NULL;
 			break;
 		}
 	}
+        if (bttv_verbose)
+		printk("bttv%d: i2c detach [client=%s,%s]\n",btv->nr,
+		       client->name, (i < I2C_CLIENTS_MAX) ?  "ok" : "failed");
         return 0;
 }
 

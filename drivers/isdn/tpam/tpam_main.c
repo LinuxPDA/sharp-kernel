@@ -1,27 +1,16 @@
-/* $Id: tpam_main.c,v 1.1.2.1 2001/06/05 19:45:37 kai Exp $
+/* $Id: tpam_main.c,v 1.1.2.3 2001/09/23 22:25:03 kai Exp $
  *
  * Turbo PAM ISDN driver for Linux. (Kernel Driver - main routines)
  *
  * Copyright 2001 Stelian Pop <stelian.pop@fr.alcove.com>, Alcôve
  *
+ * This software may be used and distributed according to the terms
+ * of the GNU General Public License, incorporated herein by reference.
+ *
  * For all support questions please contact: <support@auvertech.fr>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2, or (at your option)
- * any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
- *
  */
-#include <linux/config.h>
+
 #include <linux/module.h>
 #include <linux/pci.h>
 #include <linux/sched.h>
@@ -46,9 +35,9 @@ static int cards_num;
 /* Configurable id of the driver */
 static char *id = "tpam\0\0\0\0\0\0\0\0\0\0\0\0";
 
-MODULE_DESCRIPTION("Driver for TurboPAM cards");
-MODULE_AUTHOR("Stelian Pop, Alcove");
-MODULE_SUPPORTED_DEVICE("ISDN subsystem");
+MODULE_DESCRIPTION("ISDN4Linux: Driver for TurboPAM ISDN cards");
+MODULE_AUTHOR("Stelian Pop");
+MODULE_LICENSE("GPL");
 MODULE_PARM_DESC(id,"ID-String of the driver");
 MODULE_PARM(id,"s");
 
@@ -148,7 +137,8 @@ static int __devinit tpam_probe(struct pci_dev *dev, const struct pci_device_id 
 	card->interface.features = 
 		ISDN_FEATURE_P_EURO |
 		ISDN_FEATURE_L2_HDLC |
-		ISDN_FEATURE_L2_MODEM;
+		ISDN_FEATURE_L2_MODEM |
+		ISDN_FEATURE_L3_TRANS;
 	card->interface.hl_hdrlen = 0;
 	card->interface.command = tpam_command;
 	card->interface.writebuf_skb = tpam_writebuf_skb;

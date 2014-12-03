@@ -47,6 +47,7 @@
 #include "hosts.h"   // struct Scsi_Host definition for T handler
 #include "cpqfcTSchip.h"
 #include "cpqfcTSstructs.h"
+#include "cpqfcTStrigger.h"
 
 //#define LOGIN_DBG 1
 
@@ -148,7 +149,6 @@ static void RevalidateSEST( struct Scsi_Host *HostAdapter,
 static void IssueReportLunsCommand( 
               CPQFCHBA* cpqfcHBAdata, 
 	      TachFCHDR_GCMND* fchs);
-
 
 // (see scsi_error.c comments on kernel task creation)
 
@@ -1069,6 +1069,7 @@ void cpqfcTSImplicitLogout( CPQFCHBA* cpqfcHBAdata,
   pFcPort->flogi = FALSE;
   pFcPort->LOGO_timer = 0;
   pFcPort->device_blocked = TRUE; // block Scsi Requests
+  pFcPort->ScsiNexus.VolumeSetAddressing=0;	
 }
 
   
@@ -2934,7 +2935,6 @@ static void IssueReportLunsCommand(
   ULONG ulStatus;
   UCHAR *ucBuff;
 
-
   if( !cpqfcHBAdata->PortDiscDone) // cleared by LDn
   {
     printk("Discard Q'd ReportLun command\n");
@@ -2976,7 +2976,7 @@ static void IssueReportLunsCommand(
 
     Cmnd->channel = pLoggedInPort->ScsiNexus.channel;
     Cmnd->target = pLoggedInPort->ScsiNexus.target;
-    
+
 	    
     ulStatus = cpqfcTSBuildExchange(
       cpqfcHBAdata,
@@ -3338,9 +3338,9 @@ PFC_LOGGEDIN_PORT  fcFindLoggedInPort(
 
   else
   {
-    for( i=0; i<8; i++)  // valid WWN passed?  NULL WWN invalid
+    if( wwn ) // non-null arg? (OK to pass NULL when not searching WWN)
     {
-      if( wwn ) // non-null arg? (OK to pass NULL when not searching WWN)
+      for( i=0; i<8; i++)  // valid WWN passed?  NULL WWN invalid
       {
         if( wwn[i] != 0 )
           wwn_valid = TRUE;  // any non-zero byte makes (presumably) valid
@@ -3393,6 +3393,10 @@ PFC_LOGGEDIN_PORT  fcFindLoggedInPort(
 	  {
             // we KNOW all the valid LUNs... 0xFF is invalid!
             Cmnd->SCp.have_data_in = pLoggedInPort->ScsiNexus.lun[Cmnd->lun];
+	    if (pLoggedInPort->ScsiNexus.lun[Cmnd->lun] == 0xFF)
+		return NULL;
+	    // printk("xlating lun %d to 0x%02x\n", Cmnd->lun, 
+            //	pLoggedInPort->ScsiNexus.lun[Cmnd->lun]);
 	  }
 	  else
 	    Cmnd->SCp.have_data_in = Cmnd->lun; // Linux & target luns match
@@ -3404,7 +3408,7 @@ PFC_LOGGEDIN_PORT  fcFindLoggedInPort(
     if( port_id_valid ) // look for alpa first
     {
       if( pLoggedInPort->port_id == port_id )
-        break;  // found it!
+          break;  // found it!
     }
     if( wwn_valid ) // look for wwn second
     {
@@ -4326,7 +4330,6 @@ ULONG cpqfcTSBuildExchange(
       break;
     
     
-    
     case BLS_ABTS:   // FC defined basic link service command ABTS 
                      // Abort Sequence
                      
@@ -4498,6 +4501,7 @@ ULONG cpqfcTSBuildExchange(
 
                          // Fibre Channel SCSI 'originator' sequences...
                          // (originator means 'initiator' in FCP-SCSI)
+
     case SCSI_IWE: // TachLite Initiator Write Entry
     {
       PFC_LOGGEDIN_PORT pLoggedInPort = 
@@ -6171,7 +6175,18 @@ static int build_FCP_payload( Scsi_Cmnd *Cmnd,
       // 4 bytes Control Field FCP_CNTL
       *payload++ = 0;    // byte 0: (MSB) reserved
       *payload++ = 0;    // byte 1: task codes
-      *payload++ = 0;    // byte 2: task management flags
+
+                         // byte 2: task management flags
+      // another "use" of the spare field to accomplish TDR
+      // note combination needed
+      if( (Cmnd->cmnd[0] == RELEASE) &&
+          (Cmnd->SCp.buffers_residual == FCP_TARGET_RESET) )
+      {
+        Cmnd->cmnd[0] = 0;    // issue "Test Unit Ready" for TDR
+        *payload++ = 0x20;    // target device reset bit
+      }
+      else
+        *payload++ = 0;    // no TDR
 		      // byte 3: (LSB) execution management codes
 		      // bit 0 write, bit 1 read (don't set together)
       

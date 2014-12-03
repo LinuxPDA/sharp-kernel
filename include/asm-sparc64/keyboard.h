@@ -1,4 +1,4 @@
-/* $Id: keyboard.h,v 1.3 1999/04/28 11:59:12 davem Exp $
+/* $Id: keyboard.h,v 1.5 2001/08/18 09:40:46 davem Exp $
  * linux/include/asm-sparc64/keyboard.h
  *
  * Created Aug 29 1997 by Eddie C. Dost (ecd@skynet.be)
@@ -12,6 +12,9 @@
 #define _SPARC64_KEYBOARD_H 1
 
 #ifdef __KERNEL__
+
+#include <linux/kernel.h>
+#include <linux/kd.h>
 
 #define KEYBOARD_IRQ			1
 #define DISABLE_KBD_DURING_INTERRUPTS	0

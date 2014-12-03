@@ -1,29 +1,13 @@
-
 /*
+ * Interface to Unix specific code for performing card I/O
  *
  * Copyright (C) Eicon Technology Corporation, 2000.
  *
  * Eicon File Revision :    1.6  
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2, or (at your option)
- * any later version.
+ * This software may be used and distributed according to the terms
+ * of the GNU General Public License, incorporated herein by reference.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY OF ANY KIND WHATSOEVER INCLUDING ANY 
- * implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  
- * See the GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
- *
- */
-
-
-/*
- * Interface to Unix specific code for performing card I/O
  */
 
 #if !defined(UXIO_H)
@@ -58,10 +42,6 @@ struct ux_diva_card_s
 	isr_fn_t	*user_isr;
 };
 
-void bcopy(void *pSource, void *pDest, dword dwLength);
-void bzero(void *pDataArea, dword dwLength);
-
-
 /*
  * Get a card handle to enable card to be accessed
  */
@@ -79,8 +59,8 @@ void	UxCardHandleFree(ux_diva_card_t *card);
  * Lock and unlock access to a card
  */
 
-int		UxCardLock(ux_diva_card_t *card);
-void	UxCardUnlock(ux_diva_card_t *card, int ipl);
+long		UxCardLock(ux_diva_card_t *card);
+void	UxCardUnlock(ux_diva_card_t *card, long ipl);
 
 /*
  * Set the mapping address for PCI cards

@@ -31,6 +31,20 @@
 #define PT_SINGLESTEP	0x10000
 #define PT_BLOCKSTEP	0x20000
 
+/*
+ * Called by kernel/ptrace.c when detaching..
+ *
+ * Make sure single step bits etc are not set.
+ */
+void ptrace_disable(struct task_struct *child)
+{
+	/* make sure the trap bits are not set */
+	pa_psw(child)->r = 0;
+	pa_psw(child)->t = 0;
+	pa_psw(child)->h = 0;
+	pa_psw(child)->l = 0;
+}
+
 long sys_ptrace(long request, pid_t pid, long addr, long data)
 {
 	struct task_struct *child;
@@ -61,32 +75,7 @@ long sys_ptrace(long request, pid_t pid, long addr, long data)
 		goto out_tsk;
 
 	if (request == PTRACE_ATTACH) {
-		if (child == current)
-			goto out_tsk;
-		if ((!child->dumpable ||
-		    (current->uid != child->euid) ||
-		    (current->uid != child->suid) ||
-		    (current->uid != child->uid) ||
-	 	    (current->gid != child->egid) ||
-	 	    (current->gid != child->sgid) ||
-	 	    (!cap_issubset(child->cap_permitted, current->cap_permitted)) ||
-	 	    (current->gid != child->gid)) && !capable(CAP_SYS_PTRACE))
-			goto out_tsk;
-		/* the same process cannot be attached many times */
-		if (child->ptrace & PT_PTRACED)
-			goto out_tsk;
-		child->ptrace |= PT_PTRACED;
-		if (child->p_pptr != current) {
-			unsigned long flags;
-
-			write_lock_irqsave(&tasklist_lock, flags);
-			REMOVE_LINKS(child);
-			child->p_pptr = current;
-			SET_LINKS(child);
-			write_unlock_irqrestore(&tasklist_lock, flags);
-		}
-		send_sig(SIGSTOP, child, 1);
-		ret = 0;
+		ret = ptrace_attach(child);
 		goto out_tsk;
 	}
 	ret = -ESRCH;
@@ -251,17 +240,8 @@ long sys_ptrace(long request, pid_t pid, long addr, long data)
 		goto out_wake;
 
 	case PTRACE_DETACH:
-		ret = -EIO;
-		if ((unsigned long) data > _NSIG)
-			goto out_tsk;
-		child->ptrace &= ~(PT_PTRACED|PT_TRACESYS|PT_SINGLESTEP|PT_BLOCKSTEP);
-		child->exit_code = data;
-		write_lock_irq(&tasklist_lock);
-		REMOVE_LINKS(child);
-		child->p_pptr = child->p_opptr;
-		SET_LINKS(child);
-		write_unlock_irq(&tasklist_lock);
-		goto out_wake_notrap;
+		ret = ptrace_detach(child, data);
+		goto out_tsk;
 
 	default:
 		ret = -EIO;

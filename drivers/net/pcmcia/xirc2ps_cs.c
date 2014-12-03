@@ -2084,7 +2084,10 @@ static int __init setup_xirc2ps_cs(char *str)
 	MAYBE_SET(irq_list[2], 8);
 	MAYBE_SET(irq_list[3], 9);
 #undef  MAYBE_SET(X,Y)
+
+	return 0;
 }
 
 __setup("xirc2ps_cs=", setup_xirc2ps_cs);
 #endif
+MODULE_LICENSE("GPL");

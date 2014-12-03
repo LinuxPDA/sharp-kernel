@@ -198,10 +198,12 @@ static void cyberjack_close (struct usb_serial_port *port, struct file *filp)
 	--port->open_count;
 
 	if (port->open_count <= 0) {
-		/* shutdown any bulk reads that might be going on */
-		usb_unlink_urb (port->write_urb);
-		usb_unlink_urb (port->read_urb);
-		usb_unlink_urb (port->interrupt_in_urb);
+		if (port->serial->dev) {
+			/* shutdown any bulk reads that might be going on */
+			usb_unlink_urb (port->write_urb);
+			usb_unlink_urb (port->read_urb);
+			usb_unlink_urb (port->interrupt_in_urb);
+		}
 
 		port->active = 0;
 		port->open_count = 0;
@@ -241,7 +243,8 @@ static int cyberjack_write (struct usb_serial_port *port, int from_user, const u
 
 	/* Copy data */
 	if (from_user) {
-		copy_from_user(priv->wrbuf+priv->wrfilled, buf, count);
+		if (copy_from_user(priv->wrbuf+priv->wrfilled, buf, count))
+			return -EFAULT;
 	} else {
 		memcpy (priv->wrbuf+priv->wrfilled, buf, count);
 	}  
@@ -308,16 +311,16 @@ static void cyberjack_read_int_callback( struct urb *urb )
 	struct usb_serial *serial;
 	unsigned char *data = urb->transfer_buffer;
 
+	if (port_paranoia_check (port, __FUNCTION__)) return;
+
 	dbg(__FUNCTION__ " - port %d", port->number);
 
 	/* the urb might have been killed. */
 	if (urb->status)
 		return;
 
-	if (port_paranoia_check (port, "cyberjack_read_interrupt")) return;
-
 	serial = port->serial;
-	if (serial_paranoia_check (serial, "cyberjack_read_interrupt")) return;
+	if (serial_paranoia_check (serial, __FUNCTION__)) return;
 
 	usb_serial_debug_data (__FILE__, __FUNCTION__, urb->actual_length, data);
 
@@ -514,6 +517,7 @@ module_exit(cyberjack_exit);
 
 MODULE_AUTHOR( DRIVER_AUTHOR );
 MODULE_DESCRIPTION( DRIVER_DESC );
+MODULE_LICENSE("GPL");
 
 MODULE_PARM(debug, "i");
 MODULE_PARM_DESC(debug, "Debug enabled or not");

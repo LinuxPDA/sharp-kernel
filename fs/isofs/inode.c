@@ -744,7 +744,7 @@ root_found:
 		if (! s->u.isofs_sb.s_nls_iocharset) {
 			/* Fail only if explicit charset specified */
 			if (opt.iocharset)
-				goto out_freebh;
+				goto out_unlock;
 			s->u.isofs_sb.s_nls_iocharset = load_nls_default();
 		}
 	}
@@ -752,6 +752,7 @@ root_found:
 	s->s_op = &isofs_sops;
 	s->u.isofs_sb.s_mapping = opt.map;
 	s->u.isofs_sb.s_rock = (opt.rock == 'y' ? 2 : 0);
+	s->u.isofs_sb.s_rock_offset = -1; /* initial offset, will guess until SP is found*/
 	s->u.isofs_sb.s_cruft = opt.cruft;
 	s->u.isofs_sb.s_unhide = opt.unhide;
 	s->u.isofs_sb.s_uid = opt.uid;
@@ -1183,11 +1184,14 @@ static void isofs_read_inode(struct inode * inode)
 		inode->i_size = isonum_733 (de->size);
 	}
 
-	/* There are defective discs out there - we do this to protect
-	   ourselves.  A cdrom will never contain more than 800Mb 
-	   .. but a DVD may be up to 1Gig (Ulrich Habel) */
-
-	if ((inode->i_size < 0 || inode->i_size > 1073741824) &&
+	/*
+	 * The ISO-9660 filesystem only stores 32 bits for file size.
+	 * mkisofs handles files up to 2GB-2 = 2147483646 = 0x7FFFFFFE bytes
+	 * in size. This is according to the large file summit paper from 1996.
+	 * WARNING: ISO-9660 filesystems > 1 GB and even > 2 GB are fully
+	 *	    legal. Do not prevent to use DVD's schilling@fokus.gmd.de
+	 */
+	if ((inode->i_size < 0 || inode->i_size > 0x7FFFFFFE) &&
 	    inode->i_sb->u.isofs_sb.s_cruft == 'n') {
 		printk(KERN_WARNING "Warning: defective CD-ROM.  "
 		       "Enabling \"cruft\" mount option.\n");

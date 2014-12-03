@@ -399,6 +399,7 @@ int __init generic_NCR5380_detect(Scsi_Host_Template * tpnt){
 		release_mem_region(overrides[current_override].NCR5380_map_name,
 	                                  	NCR5380_region_size);
 #endif
+		continue;
 	}
 	
 	instance->NCR5380_instance_name = overrides[current_override].NCR5380_map_name;
@@ -911,7 +912,7 @@ MODULE_PARM(ncr_5380, "i");
 MODULE_PARM(ncr_53c400, "i");
 MODULE_PARM(ncr_53c400a, "i");
 MODULE_PARM(dtc_3181e, "i");
-
+MODULE_LICENSE("GPL");
 #else
 
 static int __init do_NCR5380_setup(char *str)
@@ -969,6 +970,8 @@ static struct isapnp_device_id id_table[] __devinitdata = {
 };
 
 MODULE_DEVICE_TABLE(isapnp, id_table);
+MODULE_LICENSE("GPL");
+
 
 #endif
 

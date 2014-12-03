@@ -11,6 +11,10 @@
  *
  * See Documentation/usb/usb-serial.txt for more information on using this driver
  *
+ * (10/10/2001) gkh
+ *	added vendor and product to serial structure.  Needed to determine device
+ *	owner when the device is disconnected.
+ *
  * (05/30/2001) gkh
  *	added sem to port structure and removed port_lock
  *
@@ -96,6 +100,8 @@ struct usb_serial {
 	char				num_interrupt_in;	/* number of interrupt in endpoints we have */
 	char				num_bulk_in;		/* number of bulk in endpoints we have */
 	char				num_bulk_out;		/* number of bulk out endpoints we have */
+	__u16				vendor;			/* vendor id of this device */
+	__u16				product;		/* product id of this device */
 	struct usb_serial_port		port[MAX_NUM_PORTS];
 
 	void *			private;		/* data private to the specific driver */
@@ -153,12 +159,22 @@ extern int  usb_serial_register(struct usb_serial_device_type *new_device);
 extern void usb_serial_deregister(struct usb_serial_device_type *device);
 
 /* determine if we should include the EzUSB loader functions */
-#if defined(CONFIG_USB_SERIAL_KEYSPAN_PDA) || defined(CONFIG_USB_SERIAL_WHITEHEAT) || defined(CONFIG_USB_SERIAL_KEYSPAN) || defined(CONFIG_USB_SERIAL_KEYSPAN_PDA_MODULE) || defined(CONFIG_USB_SERIAL_WHITEHEAT_MODULE) || defined(CONFIG_USB_SERIAL_KEYSPAN_MODULE)
-	#define	USES_EZUSB_FUNCTIONS
-	extern int ezusb_writememory (struct usb_serial *serial, int address, unsigned char *data, int length, __u8 bRequest);
-	extern int ezusb_set_reset (struct usb_serial *serial, unsigned char reset_bit);
-#else
-	#undef 	USES_EZUSB_FUNCTIONS
+#undef USES_EZUSB_FUNCTIONS
+#if defined(CONFIG_USB_SERIAL_KEYSPAN_PDA) || defined(CONFIG_USB_SERIAL_KEYSPAN_PDA_MODULE)
+	#define USES_EZUSB_FUNCTIONS
+#endif
+#if defined(CONFIG_USB_SERIAL_XIRCOM) || defined(CONFIG_USB_SERIAL_XIRCOM_MODULE)
+	#define USES_EZUSB_FUNCTIONS
+#endif
+#if defined(CONFIG_USB_SERIAL_KEYSPAN) || defined(CONFIG_USB_SERIAL_KEYSPAN_MODULE)
+	#define USES_EZUSB_FUNCTIONS
+#endif
+#if defined(CONFIG_USB_SERIAL_WHITEHEAT) || defined(CONFIG_USB_SERIAL_WHITEHEAT_MODULE)
+	#define USES_EZUSB_FUNCTIONS
+#endif
+#ifdef USES_EZUSB_FUNCTIONS
+extern int ezusb_writememory (struct usb_serial *serial, int address, unsigned char *data, int length, __u8 bRequest);
+extern int ezusb_set_reset (struct usb_serial *serial, unsigned char reset_bit);
 #endif
 
 

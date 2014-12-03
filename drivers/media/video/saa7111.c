@@ -28,7 +28,7 @@
 #include <linux/fs.h>
 #include <linux/kernel.h>
 #include <linux/major.h>
-#include <linux/malloc.h>
+#include <linux/slab.h>
 #include <linux/mm.h>
 #include <linux/sched.h>
 
@@ -448,3 +448,4 @@ static void saa7111_exit(void)
 
 module_init(saa7111_init);
 module_exit(saa7111_exit);
+MODULE_LICENSE("GPL");

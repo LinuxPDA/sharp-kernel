@@ -44,8 +44,6 @@
 #include <asm/processor.h>
 #include <asm/irq.h>
 
-spinlock_t semaphore_wake_lock = SPIN_LOCK_UNLOCKED;
-
 asmlinkage void ret_from_fork(void) __asm__("ret_from_fork");
 
 /*
@@ -63,13 +61,6 @@ int cpu_idle(void *unused)
 	wait_psw.mask = _WAIT_PSW_MASK;
 	wait_psw.addr = (unsigned long) &&idle_wakeup | 0x80000000L;
 	while(1) {
-                if (softirq_active(smp_processor_id()) &
-		    softirq_mask(smp_processor_id())) {
-                        do_softirq();
-                        __sti();
-                        if (!current->need_resched)
-                                continue;
-                }
                 if (current->need_resched) {
                         schedule();
                         check_pgt_cache();
@@ -136,9 +127,10 @@ static int sprintf_regs(int line, char *buff, struct task_struct *task, struct p
 		break;
 	case sp_psw:
 		if(regs)
-			linelen=sprintf(buff, "%s PSW:    %08lx %08lx\n", mode,
+			linelen=sprintf(buff, "%s PSW:    %08lx %08lx    %s\n", mode,
 				(unsigned long) regs->psw.mask,
-				(unsigned long) regs->psw.addr);
+				(unsigned long) regs->psw.addr,
+				print_tainted());
 		else
 			linelen=sprintf(buff,"pt_regs=NULL some info unavailable\n");
 		break;
@@ -215,7 +207,7 @@ static int sprintf_regs(int line, char *buff, struct task_struct *task, struct p
 void show_regs(struct pt_regs *regs)
 {
 	char buff[80];
-	int line;
+	int i, line;
 
         printk("CPU:    %d\n",smp_processor_id());
         printk("Process %s (pid: %d, stackpage=%08X)\n",
@@ -223,6 +215,17 @@ void show_regs(struct pt_regs *regs)
 	
 	for (line = 0; sprintf_regs(line, buff, current, regs); line++)
 		printk(buff);
+
+	if (regs->psw.mask & PSW_PROBLEM_STATE)
+	{
+		printk("User Code:\n");
+		memset(buff, 0, 20);
+		copy_from_user(buff,
+			       (char *) (regs->psw.addr & PSW_ADDR_MASK), 20);
+		for (i = 0; i < 20; i++)
+			printk("%02x ", buff[i]);
+		printk("\n");
+	}
 }
 
 char *task_show_regs(struct task_struct *task, char *buffer)
@@ -307,11 +310,11 @@ int copy_thread(int nr, unsigned long clone_flags, unsigned long new_stackp,
 
         frame = (struct stack_frame *) (2*PAGE_SIZE + (unsigned long) p) -1;
         frame = (struct stack_frame *) (((unsigned long) frame)&-8L);
-        p->thread.regs = &frame->childregs;
+        p->thread.regs = (struct pt_regs *)&frame->childregs;
         p->thread.ksp = (unsigned long) frame;
-        frame->childregs = *regs;
+        memcpy(&frame->childregs,regs,sizeof(struct pt_regs));
         frame->childregs.gprs[15] = new_stackp;
-        frame->eos = 0;
+        frame->back_chain = frame->eos = 0;
 
         /* new return point is ret_from_sys_call */
         frame->gprs[8] = ((unsigned long) &ret_from_fork) | 0x80000000;
@@ -330,28 +333,19 @@ int copy_thread(int nr, unsigned long clone_flags, unsigned long new_stackp,
 
 asmlinkage int sys_fork(struct pt_regs regs)
 {
-        int ret;
-
-        lock_kernel();
-        ret = do_fork(SIGCHLD, regs.gprs[15], &regs, 0);
-        unlock_kernel();
-        return ret;
+        return do_fork(SIGCHLD, regs.gprs[15], &regs, 0);
 }
 
 asmlinkage int sys_clone(struct pt_regs regs)
 {
         unsigned long clone_flags;
         unsigned long newsp;
-        int ret;
 
-        lock_kernel();
         clone_flags = regs.gprs[3];
         newsp = regs.orig_gpr2;
         if (!newsp)
                 newsp = regs.gprs[15];
-        ret = do_fork(clone_flags, newsp, &regs, 0);
-        unlock_kernel();
-        return ret;
+        return do_fork(clone_flags, newsp, &regs, 0);
 }
 
 /*
@@ -466,54 +460,3 @@ unsigned long get_wchan(struct task_struct *p)
 #undef last_sched
 #undef first_sched
 
-/*
- * This should be safe even if called from tq_scheduler
- * A typical mask would be sigmask(SIGKILL)|sigmask(SIGINT)|sigmask(SIGTERM) or 0.
- *
- */
-void s390_daemonize(char *name,unsigned long mask,int use_init_fs)
-{
-	struct fs_struct *fs;
-	extern struct task_struct *child_reaper;
-	struct task_struct *this_process=current;
-	
-	/*
-	 * If we were started as result of loading a module, close all of the
-	 * user space pages.  We don't need them, and if we didn't close them
-	 * they would be locked into memory.
-	 */
-	exit_mm(current);
-
-	this_process->session = 1;
-	this_process->pgrp = 1;
-	if(name)
-	{
-		strncpy(current->comm,name,15);
-		current->comm[15]=0;
-	}
-	else
-		current->comm[0]=0;
-	/* set signal mask to what we want to respond */
-        siginitsetinv(&current->blocked,mask);
-	/* exit_signal isn't set up */
-        /* if we inherit from cpu idle  */
-	this_process->exit_signal=SIGCHLD;
-	/* if priority=0 schedule can go into a tight loop */
-	this_process->policy= SCHED_OTHER;
-	/* nice goes priority=20-nice; */
-	this_process->nice=10;
-	if(use_init_fs)
-	{
-		exit_fs(this_process);	/* current->fs->count--; */
-		fs = init_task.fs;
-		current->fs = fs;
-		atomic_inc(&fs->count);
-		exit_files(current);
-	}
-	write_lock_irq(&tasklist_lock);
-	/* We want init as our parent */
-	REMOVE_LINKS(this_process);
-	this_process->p_opptr=this_process->p_pptr=child_reaper;
-	SET_LINKS(this_process);
-	write_unlock_irq(&tasklist_lock);
-}

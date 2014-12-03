@@ -86,22 +86,6 @@
 
 #include <linux/wavefront.h>
 
-/*
- *	This sucks, hopefully it'll get standardised
- */
- 
-#if defined(__alpha__)
-#ifdef CONFIG_SMP
-#define LOOPS_PER_TICK cpu_data[smp_processor_id()].loops_per_jiffy
-#else
-#define LOOPS_PER_TICK	loops_per_jiffy
-#endif
-#endif
-
-#if defined(__i386__)
-#define LOOPS_PER_TICK current_cpu_data.loops_per_jiffy
-#endif
- 
 #define _MIDI_SYNTH_C_
 #define MIDI_SYNTH_NAME	"WaveFront MIDI"
 #define MIDI_SYNTH_CAPS	SYNTH_CAP_INPUT
@@ -166,7 +150,7 @@ static int (*midi_load_patch) (int devno, int format, const char *addr,
 
 /*** Module-accessible parameters ***************************************/
 
-int wf_raw = 0; /* we normally check for "raw state" to firmware
+int wf_raw;     /* we normally check for "raw state" to firmware
 		   loading. if set, then during driver loading, the
 		   state of the board is ignored, and we reset the
 		   board and load the firmware anyway.
@@ -179,7 +163,7 @@ int fx_raw = 1; /* if this is zero, we'll leave the FX processor in
 		   operation, whatever that means.
 		*/
 
-int debug_default = 0;  /* you can set this to control debugging
+int debug_default;      /* you can set this to control debugging
 			      during driver loading. it takes any combination
 			      of the WF_DEBUG_* flags defined in
 			      wavefront.h
@@ -191,21 +175,17 @@ char *ospath = "/etc/sound/wavefront.os"; /* where to find a processed
 					     version of the WaveFront OS
 					  */
 
-int wait_usecs = 150; /* This magic number seems to give pretty optimal
-			 throughput based on my limited experimentation.
-			 If you want to play around with it and find a better
-			 value, be my guest. Remember, the idea is to
-			 get a number that causes us to just busy wait
-			 for as many WaveFront commands as possible, without
-			 coming up with a number so large that we hog the
-			 whole CPU.
+int wait_polls = 2000;	/* This is a number of tries we poll the status register
+			   before resorting to sleeping. WaveFront being an ISA
+			   card each poll takes about 1.2us. So before going to
+			   sleep we wait up to 2.4ms in a loop.
+			*/
 
-			 Specifically, with this number, out of about 134,000
-			 status waits, only about 250 result in a sleep.
-		      */
+int sleep_length = HZ/100; /* This says how long we're going to sleep between polls.
+			      10ms sounds reasonable for fast response.
+			   */
 
-int sleep_interval = 100;     /* HZ/sleep_interval seconds per sleep */
-int sleep_tries = 50;       /* number of times we'll try to sleep */
+int sleep_tries = 50;       /* Wait for status 0.5 seconds total. */
 
 int reset_time = 2;        /* hundreths of a second we wait after a HW reset for
 			      the expected interrupt.
@@ -222,8 +202,8 @@ int osrun_time = 10;       /* time in seconds we wait for the OS to
 MODULE_PARM(wf_raw,"i");
 MODULE_PARM(fx_raw,"i");
 MODULE_PARM(debug_default,"i");
-MODULE_PARM(wait_usecs,"i");
-MODULE_PARM(sleep_interval,"i");
+MODULE_PARM(wait_polls,"i");
+MODULE_PARM(sleep_length,"i");
 MODULE_PARM(sleep_tries,"i");
 MODULE_PARM(ospath,"s");
 MODULE_PARM(reset_time,"i");
@@ -437,54 +417,30 @@ wavefront_status (void)
 }
 
 static int
-wavefront_sleep (int limit)
-
-{
-	current->state = TASK_INTERRUPTIBLE;
-	schedule_timeout(limit);
-
-	return signal_pending(current);
-}
-
-static int
 wavefront_wait (int mask)
 
 {
-	int             i;
-	static int      short_loop_cnt = 0;
+	int i;
 
-	/* Compute the loop count that lets us sleep for about the
-	   right amount of time, cache issues, bus speeds and all
-	   other issues being unequal but largely irrelevant.
-	*/
-
-	if (short_loop_cnt == 0) {
-		short_loop_cnt = wait_usecs *
-			(LOOPS_PER_TICK / (1000000 / HZ));
-	}
-
-	/* Spin for a short period of time, because >99% of all
-	   requests to the WaveFront can be serviced inline like this.
-	*/
-
-	for (i = 0; i < short_loop_cnt; i++) {
-		if (wavefront_status() & mask) {
+	for (i = 0; i < wait_polls; i++)
+		if (wavefront_status() & mask)
 			return 1;
-		}
-	}
 
 	for (i = 0; i < sleep_tries; i++) {
 
 		if (wavefront_status() & mask) {
+			set_current_state(TASK_RUNNING);
 			return 1;
 		}
 
-		if (wavefront_sleep (HZ/sleep_interval)) {
-			return (0);
-		}
+		set_current_state(TASK_INTERRUPTIBLE);
+		schedule_timeout(sleep_length);
+		if (signal_pending(current))
+			break;
 	}
 
-	return (0);
+	set_current_state(TASK_RUNNING);
+	return 0;
 }
 
 static int
@@ -1947,12 +1903,6 @@ wavefront_synth_control (int cmd, wavefront_control *wc)
 /* WaveFront: Linux file system interface (for access via raw synth)    */
 /***********************************************************************/
 
-static loff_t
-wavefront_llseek(struct file *file, loff_t offset, int origin)
-{
-	return -ESPIPE;
-}
-
 static int 
 wavefront_open (struct inode *inode, struct file *file)
 {
@@ -2002,7 +1952,7 @@ wavefront_ioctl(struct inode *inode, struct file *file,
 
 static /*const*/ struct file_operations wavefront_fops = {
 	owner:		THIS_MODULE,
-	llseek:		wavefront_llseek,
+	llseek:		no_llseek,
 	ioctl:		wavefront_ioctl,
 	open:		wavefront_open,
 	release:	wavefront_release,
@@ -3536,6 +3486,7 @@ static int irq = -1;
 
 MODULE_AUTHOR      ("Paul Barton-Davis <pbd@op.net>");
 MODULE_DESCRIPTION ("Turtle Beach WaveFront Linux Driver");
+MODULE_LICENSE("GPL");
 MODULE_PARM        (io,"i");
 MODULE_PARM        (irq,"i");
 

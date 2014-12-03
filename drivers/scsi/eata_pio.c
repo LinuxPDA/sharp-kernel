@@ -161,7 +161,7 @@ void eata_pio_int_handler(int irq, void *dev_id, struct pt_regs * regs)
 			    IncStat(&cmd->SCp,1);
 			    odd=FALSE;
 			}
-			x=min(z,cmd->SCp.this_residual/2);
+			x=min_t(unsigned int,z,cmd->SCp.this_residual/2);
 			insw(base+HA_RDATA,cmd->SCp.ptr,x);
 			z-=x; 
 			IncStat(&cmd->SCp,2*x);
@@ -191,7 +191,7 @@ void eata_pio_int_handler(int irq, void *dev_id, struct pt_regs * regs)
 			    z--; 
 			    odd=FALSE; 
 			}
-			x=min(z,cmd->SCp.this_residual/2);
+			x=min_t(unsigned int,z,cmd->SCp.this_residual/2);
 			outsw(base+HA_RDATA,cmd->SCp.ptr,x);
 			z-=x; 
 			IncStat(&cmd->SCp,2*x);
@@ -995,6 +995,7 @@ int eata_pio_detect(Scsi_Host_Template * tpnt)
 static Scsi_Host_Template driver_template = EATA_PIO;
 
 #include "scsi_module.c"
+MODULE_LICENSE("GPL");
 
 /*
  * Overrides for Emacs so that we almost follow Linus's tabbing style.

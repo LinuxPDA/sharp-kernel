@@ -45,7 +45,6 @@ struct nfs_inode_info {
 	unsigned long		read_cache_jiffies;
 	__u64			read_cache_ctime;
 	__u64			read_cache_mtime;
-	__u64			read_cache_atime;
 	__u64			read_cache_isize;
 	unsigned long		attrtimeo;
 	unsigned long		attrtimeo_timestamp;
@@ -73,6 +72,9 @@ struct nfs_inode_info {
 	struct inode		*hash_next,
 				*hash_prev;
 	unsigned long		nextscan;
+
+	/* Credentials for shared mmap */
+	struct rpc_cred		*mm_cred;
 };
 
 /*
@@ -97,5 +99,6 @@ struct nfs_lock_info {
  * Lock flag values
  */
 #define NFS_LCK_GRANTED		0x0001		/* lock has been granted */
+#define NFS_LCK_RECLAIM		0x0002		/* lock marked for reclaiming */
 
 #endif

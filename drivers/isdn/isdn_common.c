@@ -1,24 +1,13 @@
-/* $Id: isdn_common.c,v 1.114.6.12 2001/06/09 15:14:15 kai Exp $
-
+/* $Id: isdn_common.c,v 1.114.6.15 2001/09/23 22:24:31 kai Exp $
+ *
  * Linux ISDN subsystem, common used functions (linklevel).
  *
  * Copyright 1994-1999  by Fritz Elfert (fritz@isdn4linux.de)
  * Copyright 1995,96    Thinking Objects Software GmbH Wuerzburg
  * Copyright 1995,96    by Michael Hipp (Michael.Hipp@student.uni-tuebingen.de)
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2, or (at your option)
- * any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ * This software may be used and distributed according to the terms
+ * of the GNU General Public License, incorporated herein by reference.
  *
  */
 
@@ -49,9 +38,13 @@
 /* Debugflags */
 #undef ISDN_DEBUG_STATCALLB
 
+MODULE_DESCRIPTION("ISDN4Linux: link layer");
+MODULE_AUTHOR("Fritz Elfert");
+MODULE_LICENSE("GPL");
+
 isdn_dev *dev;
 
-static char *isdn_revision = "$Revision: 1.114.6.12 $";
+static char *isdn_revision = "$Revision: 1.114.6.15 $";
 
 extern char *isdn_net_revision;
 extern char *isdn_tty_revision;
@@ -280,7 +273,7 @@ isdn_timer_funct(ulong dummy)
 	}
 	if (tf) 
 	{
-		int flags;
+		unsigned long flags;
 
 		save_flags(flags);
 		cli();
@@ -292,7 +285,8 @@ isdn_timer_funct(ulong dummy)
 void
 isdn_timer_ctrl(int tf, int onoff)
 {
-	int flags, old_tflags;
+	unsigned long flags;
+	int old_tflags;
 
 	save_flags(flags);
 	cli();
@@ -792,7 +786,6 @@ isdn_getnum(char **p)
 int
 isdn_readbchan(int di, int channel, u_char * buf, u_char * fp, int len, wait_queue_head_t *sleep)
 {
-	int left;
 	int count;
 	int count_pull;
 	int count_put;
@@ -808,10 +801,11 @@ isdn_readbchan(int di, int channel, u_char * buf, u_char * fp, int len, wait_que
 		else
 			return 0;
 	}
-	left = MIN(len, dev->drv[di]->rcvcount[channel]);
+	if (len > dev->drv[di]->rcvcount[channel])
+		len = dev->drv[di]->rcvcount[channel];
 	cp = buf;
 	count = 0;
-	while (left) {
+	while (len) {
 		if (!(skb = skb_peek(&dev->drv[di]->rpqueue[channel])))
 			break;
 #ifdef CONFIG_ISDN_AUDIO
@@ -824,8 +818,8 @@ isdn_readbchan(int di, int channel, u_char * buf, u_char * fp, int len, wait_que
 
 			dflag = 0;
 			count_pull = count_put = 0;
-			while ((count_pull < skb->len) && (left > 0)) {
-				left--;
+			while ((count_pull < skb->len) && (len > 0)) {
+				len--;
 				if (dev->drv[di]->DLEflag & DLEmask) {
 					*cp++ = DLE;
 					dev->drv[di]->DLEflag &= ~DLEmask;
@@ -846,14 +840,14 @@ isdn_readbchan(int di, int channel, u_char * buf, u_char * fp, int len, wait_que
 #endif
 			/* No DLE's in buff, so simply copy it */
 			dflag = 1;
-			if ((count_pull = skb->len) > left) {
-				count_pull = left;
+			if ((count_pull = skb->len) > len) {
+				count_pull = len;
 				dflag = 0;
 			}
 			count_put = count_pull;
 			memcpy(cp, skb->data, count_put);
 			cp += count_put;
-			left -= count_put;
+			len -= count_put;
 #ifdef CONFIG_ISDN_AUDIO
 		}
 #endif
@@ -1048,12 +1042,15 @@ isdn_read(struct file *file, char *buf, size_t count, loff_t * off)
 			}
 			interruptible_sleep_on(&(dev->drv[drvidx]->st_waitq));
 		}
-		if (dev->drv[drvidx]->interface->readstat)
+		if (dev->drv[drvidx]->interface->readstat) {
+			if (count > dev->drv[drvidx]->stavail)
+				count = dev->drv[drvidx]->stavail;
 			len = dev->drv[drvidx]->interface->
-			    readstat(buf, MIN(count, dev->drv[drvidx]->stavail),
-				     1, drvidx, isdn_minor2chan(minor));
-		else
+				readstat(buf, count, 1, drvidx,
+					 isdn_minor2chan(minor));
+		} else {
 			len = 0;
+		}
 		save_flags(flags);
 		cli();
 		if (len)
@@ -1075,12 +1072,6 @@ isdn_read(struct file *file, char *buf, size_t count, loff_t * off)
  out:
 	unlock_kernel();
 	return retval;
-}
-
-static loff_t
-isdn_llseek(struct file *file, loff_t offset, int orig)
-{
-	return -ESPIPE;
 }
 
 static ssize_t
@@ -1748,7 +1739,7 @@ isdn_close(struct inode *ino, struct file *filep)
 static struct file_operations isdn_fops =
 {
 	owner:		THIS_MODULE,
-	llseek:		isdn_llseek,
+	llseek:		no_llseek,
 	read:		isdn_read,
 	write:		isdn_write,
 	poll:		isdn_poll,
@@ -2399,7 +2390,7 @@ static int __init isdn_init(void)
  */
 static void __exit isdn_exit(void)
 {
-	int flags;
+	unsigned long flags;
 	int i;
 
 #ifdef CONFIG_ISDN_PPP

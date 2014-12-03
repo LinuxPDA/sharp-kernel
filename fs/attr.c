@@ -11,6 +11,7 @@
 #include <linux/smp_lock.h>
 #include <linux/dnotify.h>
 #include <linux/fcntl.h>
+#include <linux/quotaops.h>
 
 /* Taken over from the old code... */
 
@@ -57,16 +58,21 @@ error:
 	return retval;
 }
 
-void inode_setattr(struct inode * inode, struct iattr * attr)
+int inode_setattr(struct inode * inode, struct iattr * attr)
 {
 	unsigned int ia_valid = attr->ia_valid;
+	int error = 0;
+
+	if (ia_valid & ATTR_SIZE) {
+		error = vmtruncate(inode, attr->ia_size);
+		if (error)
+			goto out;
+	}
 
 	if (ia_valid & ATTR_UID)
 		inode->i_uid = attr->ia_uid;
 	if (ia_valid & ATTR_GID)
 		inode->i_gid = attr->ia_gid;
-	if (ia_valid & ATTR_SIZE)
-		vmtruncate(inode, attr->ia_size);
 	if (ia_valid & ATTR_ATIME)
 		inode->i_atime = attr->ia_atime;
 	if (ia_valid & ATTR_MTIME)
@@ -79,6 +85,8 @@ void inode_setattr(struct inode * inode, struct iattr * attr)
 			inode->i_mode &= ~S_ISGID;
 	}
 	mark_inode_dirty(inode);
+out:
+	return error;
 }
 
 static int setattr_mask(unsigned int ia_valid)
@@ -124,8 +132,13 @@ int notify_change(struct dentry * dentry, struct iattr * attr)
 		error = inode->i_op->setattr(dentry, attr);
 	else {
 		error = inode_change_ok(inode, attr);
-		if (!error)
-			inode_setattr(inode, attr);
+		if (!error) {
+			if ((ia_valid & ATTR_UID && attr->ia_uid != inode->i_uid) ||
+			    (ia_valid & ATTR_GID && attr->ia_gid != inode->i_gid))
+				error = DQUOT_TRANSFER(inode, attr) ? -EDQUOT : 0;
+			if (!error)
+				error = inode_setattr(inode, attr);
+		}
 	}
 	unlock_kernel();
 	if (!error) {

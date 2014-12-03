@@ -290,8 +290,9 @@ void fbcon_afb_putcs(struct vc_data *conp, struct display *p,
     int fg0, bg0, fg, bg;
 
     dest0 = p->screen_base+yy*fontheight(p)*p->next_line+xx;
-    fg0 = attr_fgcol(p, scr_readw(s));
-    bg0 = attr_bgcol(p, scr_readw(s));
+    c1 = scr_readw(s);
+    fg0 = attr_fgcol(p, c1);
+    bg0 = attr_bgcol(p, c1);
 
     while (count--)
 	if (xx&3 || count < 3) {	/* Slow version */
@@ -422,6 +423,8 @@ struct display_switch fbcon_afb = {
 
 
 #ifdef MODULE
+MODULE_LICENSE("GPL");
+
 int init_module(void)
 {
     return 0;

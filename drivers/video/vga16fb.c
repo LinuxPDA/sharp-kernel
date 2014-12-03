@@ -33,7 +33,7 @@
 #define dac_val	(0x3c9)
 
 #define VGA_FB_PHYS 0xA0000
-#define VGA_FB_PHYS_LEN 65535
+#define VGA_FB_PHYS_LEN 65536
 
 /* --------------------------------------------------------------------- */
 
@@ -692,7 +692,7 @@ int vga16fb_setup(char *options)
 	if (!options || !*options)
 		return 0;
 	
-	for(this_opt=strtok(options,","); this_opt; this_opt=strtok(NULL,",")) {
+	while (this_opt = strsep(&options, ",")) {
 		if (!*this_opt) continue;
 		
 		if (!strncmp(this_opt, "font:", 5))
@@ -954,6 +954,7 @@ static void __exit vga16fb_exit(void)
 }
 
 #ifdef MODULE
+MODULE_LICENSE("GPL");
 module_init(vga16fb_init);
 #endif
 module_exit(vga16fb_exit);

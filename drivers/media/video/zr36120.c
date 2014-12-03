@@ -62,6 +62,8 @@ static int vbi_nr = -1;
 
 MODULE_AUTHOR("Pauline Middelink <middelin@polyware.nl>");
 MODULE_DESCRIPTION("Zoran ZR36120 based framegrabber");
+MODULE_LICENSE("GPL");
+
 MODULE_PARM(triton1,"i");
 MODULE_PARM(cardtype,"1-" __MODULE_STRING(ZORAN_MAX) "i");
 MODULE_PARM(video_nr,"i");
@@ -1056,7 +1058,7 @@ int zoran_ioctl(struct video_device* dev, unsigned int cmd, void *arg)
 		DEBUG(printk(CARD_DEBUG "VIDIOCSCHAN(%d,%d)\n",CARD,v.channel,v.norm));
 
 		/* too many inputs? no decoder -> no channels */
-		if (!ztv->have_decoder || v.channel >= ztv->card->video_inputs)
+		if (!ztv->have_decoder || v.channel >= ztv->card->video_inputs || v.channel < 0)
 			return -EINVAL;
 
 		if (v.norm != VIDEO_MODE_PAL &&
@@ -1189,7 +1191,7 @@ int zoran_ioctl(struct video_device* dev, unsigned int cmd, void *arg)
 		if (vw.flags)
 			return -EINVAL;
 
-		if (vw.clipcount>256)
+		if (vw.clipcount <0 || vw.clipcount>256)
 			return -EDOM;   /* Too many! */
 
 		/*

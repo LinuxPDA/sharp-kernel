@@ -8,9 +8,10 @@
 	This software may be used and distributed according to the terms
 	of the GNU General Public License, incorporated herein by reference.
 
-	The author may be reached as becker@CESDIS.gsfc.nasa.gov, or C/O
-	Center of Excellence in Space Data and Information Sciences
-	   Code 930.5, Goddard Space Flight Center, Greenbelt MD 20771
+	The author may be reached as becker@scyld.com, or C/O
+	Scyld Computing Corporation
+	410 Severn Ave., Suite 210
+	Annapolis MD 21403
 
 	This is a device driver for the Allied Telesis AT1700, and
         Fujitsu FMV-181/182/181A/182A/183/184/183A/184A, which are
@@ -157,7 +158,7 @@ struct net_local {
 extern int at1700_probe(struct net_device *dev);
 
 static int at1700_probe1(struct net_device *dev, int ioaddr);
-static int read_eeprom(int ioaddr, int location);
+static int read_eeprom(long ioaddr, int location);
 static int net_open(struct net_device *dev);
 static int	net_send_packet(struct sk_buff *skb, struct net_device *dev);
 static void net_interrupt(int irq, void *dev_id, struct pt_regs *regs);
@@ -470,12 +471,12 @@ err_out:
 #define EE_READ_CMD		(6 << 6)
 #define EE_ERASE_CMD	(7 << 6)
 
-static int __init read_eeprom(int ioaddr, int location)
+static int __init read_eeprom(long ioaddr, int location)
 {
 	int i;
 	unsigned short retval = 0;
-	int ee_addr = ioaddr + EEPROM_Ctrl;
-	int ee_daddr = ioaddr + EEPROM_Data;
+	long ee_addr = ioaddr + EEPROM_Ctrl;
+	long ee_daddr = ioaddr + EEPROM_Data;
 	int read_cmd = location | EE_READ_CMD;
 
 	/* Shift the read command bits out. */
@@ -917,6 +918,8 @@ cleanup_module(void)
 	release_region(dev_at1700.base_addr, AT1700_IO_EXTENT);
 }
 #endif /* MODULE */
+MODULE_LICENSE("GPL");
+
 
 /*
  * Local variables:

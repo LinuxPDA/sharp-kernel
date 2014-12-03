@@ -22,6 +22,12 @@
  *	
  *	 Modified by Torben Mathiasen tmm@image.dk
  *       Resource allocation fixes in sd_init and cleanups.
+ *	
+ *	 Modified by Alex Davis <letmein@erols.com>
+ *       Fix problem where partition info not being read in sd_open.
+ *	
+ *	 Modified by Alex Davis <letmein@erols.com>
+ *       Fix problem where removable media could be ejected after sd_open.
  */
 
 #include <linux/config.h>
@@ -84,6 +90,7 @@ static Scsi_Disk *rscsi_disks;
 static int *sd_sizes;
 static int *sd_blocksizes;
 static int *sd_hardsizes;	/* Hardware sector size */
+static int *sd_max_sectors;
 
 static int check_scsidisk_media_change(kdev_t);
 static int fop_revalidate_scsidisk(kdev_t);
@@ -145,6 +152,9 @@ static int sd_ioctl(struct inode * inode, struct file * file, unsigned int cmd, 
 	int diskinfo[4];
     
 	SDev = rscsi_disks[DEVICE_NR(dev)].device;
+	if (!SDev)
+		return -ENODEV;
+
 	/*
 	 * If we are in the middle of error recovery, don't let anyone
 	 * else try and use this device.  Also, if error recovery fails, it
@@ -221,9 +231,9 @@ static int sd_ioctl(struct inode * inode, struct file * file, unsigned int cmd, 
 			return 0;
 		}
 		case BLKGETSIZE:   /* Return device size */
-			if (!arg)
-				return -EINVAL;
-			return put_user(sd[SD_PARTITION(inode->i_rdev)].nr_sects, (long *) arg);
+			return put_user(sd[SD_PARTITION(inode->i_rdev)].nr_sects, (unsigned long *) arg);
+		case BLKGETSIZE64:
+			return put_user((u64)sd[SD_PARTITION(inode->i_rdev)].nr_sects << 9, (u64 *)arg);
 
 		case BLKROSET:
 		case BLKROGET:
@@ -232,8 +242,10 @@ static int sd_ioctl(struct inode * inode, struct file * file, unsigned int cmd, 
 		case BLKFLSBUF:
 		case BLKSSZGET:
 		case BLKPG:
-                case BLKELVGET:
-                case BLKELVSET:
+		case BLKELVGET:
+		case BLKELVSET:
+		case BLKBSZGET:
+		case BLKBSZSET:
 			return blk_ioctl(inode->i_rdev, cmd, arg);
 
 		case BLKRRPART: /* Re-read partition tables */
@@ -372,7 +384,8 @@ static int sd_init_command(Scsi_Cmnd * SCpnt)
 		   (SCpnt->request.cmd == WRITE) ? "writing" : "reading",
 				 this_count, SCpnt->request.nr_sectors));
 
-	SCpnt->cmnd[1] = (SCpnt->lun << 5) & 0xe0;
+	SCpnt->cmnd[1] = (SCpnt->device->scsi_level <= SCSI_2) ?
+			 ((SCpnt->lun << 5) & 0xe0) : 0;
 
 	if (((this_count > 0xff) || (block > 0x1fffff)) || SCpnt->device->ten) {
 		if (this_count > 0xffff)
@@ -424,7 +437,7 @@ static int sd_init_command(Scsi_Cmnd * SCpnt)
 
 static int sd_open(struct inode *inode, struct file *filp)
 {
-	int target;
+	int target, retval = -ENXIO;
 	Scsi_Device * SDev;
 	target = DEVICE_NR(inode->i_rdev);
 
@@ -448,24 +461,40 @@ static int sd_open(struct inode *inode, struct file *filp)
 
 	while (rscsi_disks[target].device->busy)
 		barrier();
+	/*
+	 * The following code can sleep.
+	 * Module unloading must be prevented
+	 */
+	SDev = rscsi_disks[target].device;
+	if (SDev->host->hostt->module)
+		__MOD_INC_USE_COUNT(SDev->host->hostt->module);
+	if (sd_template.module)
+		__MOD_INC_USE_COUNT(sd_template.module);
+	SDev->access_count++;
+
 	if (rscsi_disks[target].device->removable) {
+		SDev->allow_revalidate = 1;
 		check_disk_change(inode->i_rdev);
+		SDev->allow_revalidate = 0;
 
 		/*
 		 * If the drive is empty, just let the open fail.
 		 */
-		if (!rscsi_disks[target].ready)
-			return -ENXIO;
+		if ((!rscsi_disks[target].ready) && !(filp->f_flags & O_NDELAY)) {
+			retval = -ENOMEDIUM;
+			goto error_out;
+		}
 
 		/*
 		 * Similarly, if the device has the write protect tab set,
 		 * have the open fail if the user expects to be able to write
 		 * to the thing.
 		 */
-		if ((rscsi_disks[target].write_prot) && (filp->f_mode & 2))
-			return -EROFS;
+		if ((rscsi_disks[target].write_prot) && (filp->f_mode & 2)) {
+			retval = -EROFS;
+			goto error_out;
+		}
 	}
-	SDev = rscsi_disks[target].device;
 	/*
 	 * It is possible that the disk changing stuff resulted in the device
 	 * being taken offline.  If this is the case, report this to the user,
@@ -473,26 +502,31 @@ static int sd_open(struct inode *inode, struct file *filp)
 	 * the open actually succeeded.
 	 */
 	if (!SDev->online) {
-		return -ENXIO;
+		goto error_out;
 	}
 	/*
 	 * See if we are requesting a non-existent partition.  Do this
 	 * after checking for disk change.
 	 */
-	if (sd_sizes[SD_PARTITION(inode->i_rdev)] == 0)
-		return -ENXIO;
+	if (sd_sizes[SD_PARTITION(inode->i_rdev)] == 0) {
+		goto error_out;
+	}
 
 	if (SDev->removable)
-		if (!SDev->access_count)
+		if (SDev->access_count==1)
 			if (scsi_block_when_processing_errors(SDev))
 				scsi_ioctl(SDev, SCSI_IOCTL_DOORLOCK, NULL);
 
-	SDev->access_count++;
-	if (SDev->host->hostt->module)
-		__MOD_INC_USE_COUNT(SDev->host->hostt->module);
-	if (sd_template.module)
-		__MOD_INC_USE_COUNT(sd_template.module);
+	
 	return 0;
+
+error_out:
+	SDev->access_count--;
+	if (SDev->host->hostt->module)
+		__MOD_DEC_USE_COUNT(SDev->host->hostt->module);
+	if (sd_template.module)
+		__MOD_DEC_USE_COUNT(sd_template.module);
+	return retval;	
 }
 
 static int sd_release(struct inode *inode, struct file *file)
@@ -502,6 +536,8 @@ static int sd_release(struct inode *inode, struct file *file)
 
 	target = DEVICE_NR(inode->i_rdev);
 	SDev = rscsi_disks[target].device;
+	if (!SDev)
+		return -ENODEV;
 
 	SDev->access_count--;
 
@@ -533,22 +569,16 @@ static struct block_device_operations sd_fops =
 
 static struct gendisk sd_gendisk =
 {
-	SCSI_DISK0_MAJOR,	/* Major number */
-	"sd",			/* Major name */
-	4,			/* Bits to shift to get real from partition */
-	1 << 4,			/* Number of partitions per real */
-	NULL,			/* hd struct */
-	NULL,			/* block sizes */
-	0,			/* number */
-	NULL,			/* internal */
-	NULL,			/* next */
-        &sd_fops,		/* file operations */
+	major:		SCSI_DISK0_MAJOR,
+	major_name:	"sd",
+	minor_shift:	4,
+	max_p:		1 << 4,
+	fops:		&sd_fops,
 };
 
 static struct gendisk *sd_gendisks = &sd_gendisk;
 
 #define SD_GENDISK(i)    sd_gendisks[(i) / SCSI_DISKS_PER_MAJOR]
-#define LAST_SD_GENDISK  sd_gendisks[N_USED_SD_MAJORS - 1]
 
 /*
  * rw_intr is the interrupt routine for the device driver.
@@ -734,8 +764,17 @@ static int sd_init_onedisk(int i)
 	 */
 
 	SRpnt = scsi_allocate_request(rscsi_disks[i].device);
+	if (!SRpnt) {
+		printk(KERN_WARNING "(sd_init_onedisk:) Request allocation failure.\n");
+		return i;
+	}
 
 	buffer = (unsigned char *) scsi_malloc(512);
+	if (!buffer) {
+		printk(KERN_WARNING "(sd_init_onedisk:) Memory allocation failure.\n");
+		scsi_release_request(SRpnt);
+		return i;
+	}
 
 	spintime = 0;
 
@@ -746,12 +785,13 @@ static int sd_init_onedisk(int i)
 
 		while (retries < 3) {
 			cmd[0] = TEST_UNIT_READY;
-			cmd[1] = (rscsi_disks[i].device->lun << 5) & 0xe0;
+			cmd[1] = (rscsi_disks[i].device->scsi_level <= SCSI_2) ?
+				 ((rscsi_disks[i].device->lun << 5) & 0xe0) : 0;
 			memset((void *) &cmd[2], 0, 8);
 			SRpnt->sr_cmd_len = 0;
 			SRpnt->sr_sense_buffer[0] = 0;
 			SRpnt->sr_sense_buffer[2] = 0;
-			SRpnt->sr_data_direction = SCSI_DATA_READ;
+			SRpnt->sr_data_direction = SCSI_DATA_NONE;
 
 			scsi_wait_req (SRpnt, (void *) cmd, (void *) buffer,
 				0/*512*/, SD_TIMEOUT, MAX_RETRIES);
@@ -787,7 +827,8 @@ static int sd_init_onedisk(int i)
 			if (!spintime) {
 				printk("%s: Spinning up disk...", nbuff);
 				cmd[0] = START_STOP;
-				cmd[1] = (rscsi_disks[i].device->lun << 5) & 0xe0;
+				cmd[1] = (rscsi_disks[i].device->scsi_level <= SCSI_2) ?
+				 	 ((rscsi_disks[i].device->lun << 5) & 0xe0) : 0;
 				cmd[1] |= 1;	/* Return immediately */
 				memset((void *) &cmd[2], 0, 8);
 				cmd[4] = 1;	/* Start spin cycle */
@@ -820,7 +861,8 @@ static int sd_init_onedisk(int i)
 	retries = 3;
 	do {
 		cmd[0] = READ_CAPACITY;
-		cmd[1] = (rscsi_disks[i].device->lun << 5) & 0xe0;
+		cmd[1] = (rscsi_disks[i].device->scsi_level <= SCSI_2) ?
+			 ((rscsi_disks[i].device->lun << 5) & 0xe0) : 0;
 		memset((void *) &cmd[2], 0, 8);
 		memset((void *) buffer, 0, 8);
 		SRpnt->sr_cmd_len = 0;
@@ -977,9 +1019,10 @@ static int sd_init_onedisk(int i)
 
 		memset((void *) &cmd[0], 0, 8);
 		cmd[0] = MODE_SENSE;
-		cmd[1] = (rscsi_disks[i].device->lun << 5) & 0xe0;
+		cmd[1] = (rscsi_disks[i].device->scsi_level <= SCSI_2) ?
+			 ((rscsi_disks[i].device->lun << 5) & 0xe0) : 0;
 		cmd[2] = 0x3f;	/* Get all pages */
-		cmd[4] = 8;     /* But we only want the 8 byte header */
+		cmd[4] = 255;   /* Ask for 255 bytes, even tho we want just the first 8 */
 		SRpnt->sr_cmd_len = 0;
 		SRpnt->sr_sense_buffer[0] = 0;
 		SRpnt->sr_sense_buffer[2] = 0;
@@ -1063,15 +1106,30 @@ static int sd_init()
 	if (!sd_hardsizes)
 		goto cleanup_blocksizes;
 
+	sd_max_sectors = kmalloc((sd_template.dev_max << 4) * sizeof(int), GFP_ATOMIC);
+	if (!sd_max_sectors)
+		goto cleanup_max_sectors;
+
 	for (i = 0; i < sd_template.dev_max << 4; i++) {
 		sd_blocksizes[i] = 1024;
 		sd_hardsizes[i] = 512;
+		/*
+		 * Allow lowlevel device drivers to generate 512k large scsi
+		 * commands if they know what they're doing and they ask for it
+		 * explicitly via the SHpnt->max_sectors API.
+		 */
+		sd_max_sectors[i] = MAX_SEGMENTS*8;
 	}
 
 	for (i = 0; i < N_USED_SD_MAJORS; i++) {
 		blksize_size[SD_MAJOR(i)] = sd_blocksizes + i * (SCSI_DISKS_PER_MAJOR << 4);
 		hardsect_size[SD_MAJOR(i)] = sd_hardsizes + i * (SCSI_DISKS_PER_MAJOR << 4);
+		max_sectors[SD_MAJOR(i)] = sd_max_sectors + i * (SCSI_DISKS_PER_MAJOR << 4);
 	}
+	/*
+	 * FIXME: should unregister blksize_size, hardsect_size and max_sectors when
+	 * the module is unloaded.
+	 */
 	sd = kmalloc((sd_template.dev_max << 4) *
 					  sizeof(struct hd_struct),
 					  GFP_ATOMIC);
@@ -1104,12 +1162,10 @@ static int sd_init()
 		sd_gendisks[i].part = sd + (i * SCSI_DISKS_PER_MAJOR << 4);
 		sd_gendisks[i].sizes = sd_sizes + (i * SCSI_DISKS_PER_MAJOR << 4);
 		sd_gendisks[i].nr_real = 0;
-		sd_gendisks[i].next = sd_gendisks + i + 1;
 		sd_gendisks[i].real_devices =
 		    (void *) (rscsi_disks + i * SCSI_DISKS_PER_MAJOR);
 	}
 
-	LAST_SD_GENDISK.next = NULL;
 	return 0;
 
 cleanup_gendisks_flags:
@@ -1123,6 +1179,8 @@ cleanup_gendisks_de_arr:
 cleanup_sd_gendisks:
 	kfree(sd);
 cleanup_sd:
+	kfree(sd_max_sectors);
+cleanup_max_sectors:
 	kfree(sd_hardsizes);
 cleanup_blocksizes:
 	kfree(sd_blocksizes);
@@ -1141,19 +1199,13 @@ cleanup_devfs:
 
 static void sd_finish()
 {
-	struct gendisk *gendisk;
 	int i;
 
 	for (i = 0; i < N_USED_SD_MAJORS; i++) {
 		blk_dev[SD_MAJOR(i)].queue = sd_find_queue;
+		add_gendisk(&sd_gendisks[i]);
 	}
-	for (gendisk = gendisk_head; gendisk != NULL; gendisk = gendisk->next)
-		if (gendisk == sd_gendisks)
-			break;
-	if (gendisk == NULL) {
-		LAST_SD_GENDISK.next = gendisk_head;
-		gendisk_head = sd_gendisks;
-	}
+
 	for (i = 0; i < sd_template.dev_max; ++i)
 		if (!rscsi_disks[i].capacity && rscsi_disks[i].device) {
 			sd_init_onedisk(i);
@@ -1183,16 +1235,9 @@ static void sd_finish()
 
 static int sd_detect(Scsi_Device * SDp)
 {
-	char nbuff[6];
 	if (SDp->type != TYPE_DISK && SDp->type != TYPE_MOD)
 		return 0;
-
-	sd_devname(sd_template.dev_noticed++, nbuff);
-	printk("Detected scsi %sdisk %s at scsi%d, channel %d, id %d, lun %d\n",
-	       SDp->removable ? "removable " : "",
-	       nbuff,
-	       SDp->host->host_no, SDp->channel, SDp->id, SDp->lun);
-
+	sd_template.dev_noticed++;
 	return 1;
 }
 
@@ -1201,6 +1246,7 @@ static int sd_attach(Scsi_Device * SDp)
         unsigned int devnum;
 	Scsi_Disk *dpnt;
 	int i;
+	char nbuff[6];
 
 	if (SDp->type != TYPE_DISK && SDp->type != TYPE_MOD)
 		return 0;
@@ -1224,10 +1270,15 @@ static int sd_attach(Scsi_Device * SDp)
         SD_GENDISK(i).de_arr[devnum] = SDp->de;
         if (SDp->removable)
 		SD_GENDISK(i).flags[devnum] |= GENHD_FL_REMOVABLE;
+	sd_devname(i, nbuff);
+	printk("Attached scsi %sdisk %s at scsi%d, channel %d, id %d, lun %d\n",
+	       SDp->removable ? "removable " : "",
+	       nbuff, SDp->host->host_no, SDp->channel, SDp->id, SDp->lun);
 	return 0;
 }
 
 #define DEVICE_BUSY rscsi_disks[target].device->busy
+#define ALLOW_REVALIDATE rscsi_disks[target].device->allow_revalidate
 #define USAGE rscsi_disks[target].device->access_count
 #define CAPACITY rscsi_disks[target].capacity
 #define MAYBE_REINIT  sd_init_onedisk(target)
@@ -1248,7 +1299,7 @@ int revalidate_scsidisk(kdev_t dev, int maxusage)
 
 	target = DEVICE_NR(dev);
 
-	if (DEVICE_BUSY || USAGE > maxusage) {
+	if (DEVICE_BUSY || (ALLOW_REVALIDATE == 0 && USAGE > maxusage)) {
 		printk("Device busy for revalidation (usage=%d)\n", USAGE);
 		return -EBUSY;
 	}
@@ -1335,10 +1386,7 @@ static int __init init_sd(void)
 
 static void __exit exit_sd(void)
 {
-	struct gendisk **prev_sdgd_link;
-	struct gendisk *sdgd;
 	int i;
-	int removed = 0;
 
 	scsi_unregister_module(MODULE_SCSI_DEV, &sd_template);
 
@@ -1352,26 +1400,9 @@ static void __exit exit_sd(void)
 		kfree(sd_blocksizes);
 		kfree(sd_hardsizes);
 		kfree((char *) sd);
-
-		/*
-		 * Now remove sd_gendisks from the linked list
-		 */
-		prev_sdgd_link = &gendisk_head;
-		while ((sdgd = *prev_sdgd_link) != NULL) {
-			if (sdgd >= sd_gendisks && sdgd <= &LAST_SD_GENDISK) {
-				removed++;
-				*prev_sdgd_link = sdgd->next;
-				continue;
-			}
-			prev_sdgd_link = &sdgd->next;
-		}
-
-		if (removed != N_USED_SD_MAJORS)
-			printk("%s %d sd_gendisks in disk chain",
-			       removed > N_USED_SD_MAJORS ? "total" : "just", removed);
-
 	}
 	for (i = 0; i < N_USED_SD_MAJORS; i++) {
+		del_gendisk(&sd_gendisks[i]);
 		blk_size[SD_MAJOR(i)] = NULL;
 		hardsect_size[SD_MAJOR(i)] = NULL;
 		read_ahead[SD_MAJOR(i)] = 0;
@@ -1383,3 +1414,4 @@ static void __exit exit_sd(void)
 
 module_init(init_sd);
 module_exit(exit_sd);
+MODULE_LICENSE("GPL");

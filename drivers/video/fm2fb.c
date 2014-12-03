@@ -430,8 +430,7 @@ int __init fm2fb_setup(char *options)
     if (!options || !*options)
 	return 0;
 
-    for (this_opt = strtok(options, ","); this_opt;
-	 this_opt = strtok(NULL, ",")) {
+    while (this_opt = strsep(&options, ",")) {
 	if (!strncmp(this_opt, "pal", 3))
 	    fm2fb_mode = FM2FB_MODE_PAL;
 	else if (!strncmp(this_opt, "ntsc", 4))
@@ -528,3 +527,5 @@ static void do_install_cmap(int con, struct fb_info *info)
     else
 	fb_set_cmap(fb_default_cmap(256), 1, fm2fb_setcolreg, info);
 }
+
+MODULE_LICENSE("GPL");

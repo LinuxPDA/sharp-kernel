@@ -14,7 +14,9 @@
 /*
  * Note that some reads can be aligned on half-word boundaries.
  */
-ENTRY(__arch_readsl)
+ENTRY(__raw_readsl)
+		teq	r2, #0		@ do we have to check for the zero len?
+		moveq	pc, lr
 		ands	ip, r1, #3
 		bne	2f
 
@@ -61,8 +63,8 @@ ENTRY(__arch_readsl)
 		strne	ip, [r1], #4
 		movne	ip, r3, lsr #8
 		bne	7b
-		strb	ip, [r1], #1
-		mov	ip, ip, lsr #8
 		strh	ip, [r1], #2
+		mov	ip, ip, lsr #16
+		strb	ip, [r1]
 		mov	pc, lr
 

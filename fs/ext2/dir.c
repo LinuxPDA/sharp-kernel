@@ -303,7 +303,7 @@ struct ext2_dir_entry_2 * ext2_find_entry (struct inode * dir,
 	const char *name = dentry->d_name.name;
 	int namelen = dentry->d_name.len;
 	unsigned reclen = EXT2_DIR_REC_LEN(namelen);
-	unsigned long n;
+	unsigned long start, n;
 	unsigned long npages = dir_pages(dir);
 	struct page *page = NULL;
 	ext2_dirent * de;
@@ -311,24 +311,32 @@ struct ext2_dir_entry_2 * ext2_find_entry (struct inode * dir,
 	/* OFFSET_CACHE */
 	*res_page = NULL;
 
-	for (n = 0; n < npages; n++) {
+	start = dir->u.ext2_i.i_dir_start_lookup;
+	if (start >= npages)
+		start = 0;
+	n = start;
+	do {
 		char *kaddr;
 		page = ext2_get_page(dir, n);
-		if (IS_ERR(page))
-			continue;
-
-		kaddr = page_address(page);
-		de = (ext2_dirent *) kaddr;
-		kaddr += PAGE_CACHE_SIZE - reclen;
-		for ( ; (char *) de <= kaddr ; de = ext2_next_entry(de))
-			if (ext2_match (namelen, name, de))
-				goto found;
-		ext2_put_page(page);
-	}
+		if (!IS_ERR(page)) {
+			kaddr = page_address(page);
+			de = (ext2_dirent *) kaddr;
+			kaddr += PAGE_CACHE_SIZE - reclen;
+			while ((char *) de <= kaddr) {
+				if (ext2_match (namelen, name, de))
+					goto found;
+				de = ext2_next_entry(de);
+			}
+			ext2_put_page(page);
+		}
+		if (++n >= npages)
+			n = 0;
+	} while (n != start);
 	return NULL;
 
 found:
 	*res_page = page;
+	dir->u.ext2_i.i_dir_start_lookup = n;
 	return de;
 }
 
@@ -363,7 +371,7 @@ ino_t ext2_inode_by_name(struct inode * dir, struct dentry *dentry)
 void ext2_set_link(struct inode *dir, struct ext2_dir_entry_2 *de,
 			struct page *page, struct inode *inode)
 {
-	unsigned from = (char *)de-(char*)page_address(page);
+	unsigned from = (char *) de - (char *) page_address(page);
 	unsigned to = from + le16_to_cpu(de->rec_len);
 	int err;
 
@@ -578,5 +586,6 @@ not_empty:
 struct file_operations ext2_dir_operations = {
 	read:		generic_read_dir,
 	readdir:	ext2_readdir,
+	ioctl:		ext2_ioctl,
 	fsync:		ext2_sync_file,
 };
