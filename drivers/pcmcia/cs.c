@@ -526,7 +526,22 @@ static int setup_socket(socket_info_t *s)
 		if (val & SS_3VCARD)
 		    s->socket.Vcc = s->socket.Vpp = 33;
 		else if (!(val & SS_XVCARD))
+#if 1
+		  /* 
+		   * Workaround for L*nks*s CF WLAN card
+		   * 	24/03/2002, otokawa@slab.tnr.sharp.co.jp
+		   */
+	  {
+	    printk(KERN_NOTICE "val = %d\n", val);
+	    if (val == 176 || val == 192) {
+	      /* printk("too stupid l*nks*s\n"); */
+	      s->socket.Vcc = s->socket.Vpp = 33;
+	    } else
+	      s->socket.Vcc = s->socket.Vpp = 50;
+	  }
+#else
 		    s->socket.Vcc = s->socket.Vpp = 50;
+#endif
 		else {
 		    printk(KERN_NOTICE "cs: socket %p: unsupported "
 			   "voltage key\n", s);

@@ -567,10 +567,7 @@ void netproto_rx_dropped(int interface)
     struct netproto_dev *device;
 
     if ((interface < netproto_devices) && (device = netproto_device_array[interface])) {
-        unsigned long flags;
-        //write_lock_irqsave(&device->rwlock, flags);
         device->stats.rx_dropped++;
-        //write_unlock_irqrestore(&device->rwlock,flags);
         dbg_pinit(0,"%d %ld %ld", interface, 
                 device->stats.rx_dropped, device->stats.rx_errors);
     }
@@ -586,12 +583,9 @@ void netproto_rx_length_error(int interface)
     struct netproto_dev *device;
 
     if ((interface < netproto_devices) && (device = netproto_device_array[interface])) {
-        unsigned long flags;
-        //write_lock_irqsave(&device->rwlock, flags);
         device->stats.rx_length_errors++;
         device->stats.rx_dropped++;
         device->stats.rx_errors++;
-        //write_unlock_irqrestore(&device->rwlock,flags);
         dbg_pinit(0,"%d %ld %ld %ld", interface, 
                 device->stats.rx_length_errors, device->stats.rx_dropped, device->stats.rx_errors);
     }
@@ -607,12 +601,9 @@ void netproto_rx_over_error(int interface)
     struct netproto_dev *device;
 
     if ((interface < netproto_devices) && (device = netproto_device_array[interface])) {
-        unsigned long flags;
-        //write_lock_irqsave(&device->rwlock, flags);
         device->stats.rx_over_errors++;
         device->stats.rx_dropped++;
         device->stats.rx_errors++;
-        //write_unlock_irqrestore(&device->rwlock,flags);
         dbg_pinit(0,"%d %ld %ld %ld", interface, device->stats.rx_over_errors, device->stats.rx_dropped, device->stats.rx_errors);
     }
 }
@@ -628,12 +619,9 @@ void netproto_rx_crc_error(int interface)
     //return;
 
     if ((interface < netproto_devices) && (device = netproto_device_array[interface])) {
-        unsigned long flags;
-        //write_lock_irqsave(&device->rwlock, flags);
         device->stats.rx_crc_errors++;
         device->stats.rx_dropped++;
         device->stats.rx_errors++;
-        //write_unlock_irqrestore(&device->rwlock,flags);
         dbg_pinit(0,"%d %ld %ld %ld", interface, device->stats.rx_crc_errors, device->stats.rx_dropped, device->stats.rx_errors);
     }
 }
@@ -649,12 +637,9 @@ void netproto_rx_frame_error(int interface)
     //return;
 
     if ((interface < netproto_devices) && (device = netproto_device_array[interface])) {
-        unsigned long flags;
-        //write_lock_irqsave(&device->rwlock, flags);
         device->stats.rx_frame_errors++;
         device->stats.rx_dropped++;
         device->stats.rx_errors++;
-        //write_unlock_irqrestore(&device->rwlock,flags);
         dbg_pinit(0,"%d %ld %ld %ld", interface, 
                 device->stats.rx_frame_errors, device->stats.rx_dropped, device->stats.rx_errors);
     }
@@ -671,12 +656,9 @@ void netproto_rx_fifo_error(int interface)
     //return;
 
     if ((interface < netproto_devices) && (device = netproto_device_array[interface])) {
-        unsigned long flags;
-        //write_lock_irqsave(&device->rwlock, flags);
         device->stats.rx_fifo_errors++;
         device->stats.rx_dropped++;
         device->stats.rx_errors++;
-        //write_unlock_irqrestore(&device->rwlock,flags);
         dbg_pinit(0,"%d %ld %ld %ld", interface, device->stats.rx_fifo_errors, device->stats.rx_dropped, device->stats.rx_errors);
     }
 }
@@ -692,12 +674,9 @@ void netproto_rx_missed_error(int interface)
     //return;
 
     if ((interface < netproto_devices) && (device = netproto_device_array[interface])) {
-        unsigned long flags;
-        //write_lock_irqsave(&device->rwlock, flags);
         device->stats.rx_missed_errors++;
         device->stats.rx_dropped++;
         device->stats.rx_errors++;
-        //write_unlock_irqrestore(&device->rwlock,flags);
         dbg_pinit(0,"%d %ld %ld %ld", interface, 
                 device->stats.rx_missed_errors, device->stats.rx_dropped, device->stats.rx_errors);
     }
@@ -715,11 +694,8 @@ void netproto_rx_packets(int interface, int len)
     //return;
 
     if ((interface < netproto_devices) && (device = netproto_device_array[interface])) {
-        unsigned long flags;
-        //write_lock_irqsave(&device->rwlock, flags);
         device->stats.rx_packets++;
         device->stats.rx_bytes += len;
-        //write_unlock_irqrestore(&device->rwlock,flags);
     }
 }
 
@@ -735,10 +711,7 @@ void netproto_tx_dropped(int interface)
     //return;
 
     if ((interface < netproto_devices) && (device = netproto_device_array[interface])) {
-        unsigned long flags;
-        //write_lock_irqsave(&device->rwlock, flags);
         device->stats.tx_dropped++;
-        //write_unlock_irqrestore(&device->rwlock,flags);
     }
 }
 
@@ -753,11 +726,8 @@ void netproto_tx_carrier_errors(int interface)
     //return;
 
     if ((interface < netproto_devices) && (device = netproto_device_array[interface])) {
-        unsigned long flags;
-        //write_lock_irqsave(&device->rwlock, flags);
         device->stats.tx_errors++;
         device->stats.tx_carrier_errors++;
-        //write_unlock_irqrestore(&device->rwlock,flags);
     }
 }
 
@@ -772,11 +742,8 @@ void netproto_tx_fifo_errors(int interface)
     //return;
 
     if ((interface < netproto_devices) && (device = netproto_device_array[interface])) {
-        unsigned long flags;
-        //write_lock_irqsave(&device->rwlock, flags);
         device->stats.tx_errors++;
         device->stats.tx_fifo_errors++;
-        //write_unlock_irqrestore(&device->rwlock,flags);
     }
 }
 
@@ -791,11 +758,8 @@ void netproto_tx_packets(int interface, int len)
     //return;
 
     if ((interface < netproto_devices) && (device = netproto_device_array[interface])) {
-        unsigned long flags;
-        //write_lock_irqsave(&device->rwlock, flags);
         device->stats.tx_packets++;
         device->stats.tx_bytes += len;
-        //write_unlock_irqrestore(&device->rwlock,flags);
     }
 }
 

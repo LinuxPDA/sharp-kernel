@@ -119,8 +119,13 @@ extern inline void setup_timer (void)
 	    if( timeout++ > 0x08000000 ) break; // fail safe
 	  }
 	  RTTR = RTC_DEF_DIVIDER + (RTC_DEF_TRIM << 16);
+#ifdef CONFIG_COLLIE_G
+	  RCNR = ( mktime(2002,1,1,0,0,0) - ( 1*60*60 ) );
+	  xtime.tv_sec = ( mktime(2002,1,1,0,0,0) - ( 1*60*60 ) );
+#else
 	  RCNR = ( mktime(2002,1,1,0,0,0) + ( 5*60*60 ) );
 	  xtime.tv_sec = ( mktime(2002,1,1,0,0,0) + ( 5*60*60 ) );
+#endif
 	} else {
 	  xtime.tv_sec = sa1100_get_rtc_time();
 	}

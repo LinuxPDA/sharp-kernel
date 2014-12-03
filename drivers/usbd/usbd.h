@@ -442,7 +442,8 @@ typedef enum usb_device_event {
 struct usb_endpoint_instance {
     int                 endpoint_address;       // logical endpoint address 
 
-    						// control
+                                                // control
+    int                 status;                 // halted
 						
     struct urb_link     events;                 // events
 
@@ -552,6 +553,7 @@ typedef enum usb_device_status {
     USBD_OK,			// ok to use
     USBD_SUSPENDED,		// we are currently suspended
     USBD_CLOSING,		// we are currently closing
+    USBD_CLOSED,		// we are closed
 } usb_device_status_t;
 
 #if 0

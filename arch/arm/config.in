@@ -79,6 +79,7 @@ dep_bool '    Using Test Sample'  CONFIG_COLLIE_TS $CONFIG_SA1100_COLLIE
 dep_bool '    Using Trial 0'  CONFIG_COLLIE_TR0 $CONFIG_SA1100_COLLIE
 dep_bool '    Using Trial 1'  CONFIG_COLLIE_TR1 $CONFIG_SA1100_COLLIE
 dep_bool '    Using Developer Unit'  CONFIG_COLLIE_DEV $CONFIG_SA1100_COLLIE
+dep_bool '    Using SL-5500G Unit'  CONFIG_COLLIE_G $CONFIG_SA1100_COLLIE
 dep_bool '  Compaq iPAQ H3600 (Bitsy)' CONFIG_SA1100_BITSY $CONFIG_ARCH_SA1100
 #dep_bool '  Empeg' CONFIG_SA1100_EMPEG $CONFIG_ARCH_SA1100
 dep_bool '  Extenex HandHeld Theater (Squashtail)' CONFIG_SA1100_EXTENEX1 $CONFIG_ARCH_SA1100

@@ -111,7 +111,9 @@ int sa1100_bi_receive_data(int , void *, int , int );
 
 void sa1100_bi_do_event(int , usb_device_event_t );
 
-#define SET_AND_TEST(s,t,c) for (c=10; ((s), (t)) && c--;)
+#define SET_AND_TEST(s,t,c) for (c=20; ((s), (t)) && c--;udelay(1))
+#define IOIOIO(reg,val,set,test,rc) do { SET_AND_TEST(set,test,rc); } while(0)
+
 
 extern int udc_connected(void);
 extern void sa1100_cable_event(void);

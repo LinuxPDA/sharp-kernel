@@ -84,6 +84,8 @@ extern void collie_kbd_activate_all(void);
 # define GET_REAL_COL_FROM_COL(c)    (c)
 # ifdef CONFIG_COLLIE_TS
 #  define RAW_MAP "collie_rawmap.h"
+# elif defined(CONFIG_COLLIE_G)
+#  define RAW_MAP "collie_rawmapG.h"
 # else
 #  define RAW_MAP "collie_rawmap1.h"
 # endif

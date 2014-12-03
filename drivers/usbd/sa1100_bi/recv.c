@@ -159,19 +159,12 @@ void ep1_enable(struct usb_device_instance *device, struct usb_endpoint_instance
         }
 
         // setup the dma engine operating parameters
-        /*
-        {
-            unsigned long flags;
-            save_flags_cli(flags);
-            */
-            dma_active = 0;
-            dma_enabled = 1;
-            ep1_endpoint->rcv_urb = first_urb_detached(&ep1_endpoint->rdy);
-            /*
-            ep1_endpoint->rcv_urb = first_urb_detached_irq(&ep1_endpoint->rdy);
-            restore_flags(flags);
+        dma_active = 0;
+        dma_enabled = 1;
+        if (!ep1_endpoint->rcv_urb) {
+                ep1_endpoint->rcv_urb = first_urb_detached(&ep1_endpoint->rdy);
         }
-        */
+
         ep1_start_dma(ep1_endpoint->rcv_urb);
     }
 }

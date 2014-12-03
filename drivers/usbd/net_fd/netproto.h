@@ -127,6 +127,13 @@ extern int dbgflg_usbdfd_ptx;
 extern debug_option *netproto_get_dbg_table(void);
 
 
+/* proc file system */
+#define NET_DEVICE_CONDITION_UNKNOWN 0
+#define NET_DEVICE_CONDITION_RESET   1
+#define NET_DEVICE_CONDITION_OK      2
+#define NET_DEVICE_CONDITION_FAIL    3
+
+
 /**
  * netproto
  *
@@ -426,6 +433,12 @@ static __inline__ int netproto_recv(int interface, struct sk_buff *skb)
     }
 
     netproto_rx_packets(interface, skb->len);
+    
+    {
+        extern int net_device_condition;
+        if (net_device_condition == NET_DEVICE_CONDITION_RESET)
+	    net_device_condition = NET_DEVICE_CONDITION_OK;
+    }
 
     return 0;
 }

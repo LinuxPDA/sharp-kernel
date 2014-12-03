@@ -214,7 +214,7 @@ static void sa1100_tick(void *data)
     if (data) {
 
         if ( _udc(UDCAR) != usb_address) {
-            printk(KERN_DEBUG"sa1100_tick: ADDRESS ERROR DETECTED\n");
+            dbg_udc(0, "sa1100_tick: ADDRESS ERROR DETECTED %02x %02x", *(UDCAR), usb_address);
             udc_address_errors++;
             udc_fixed++;
         }
@@ -308,10 +308,12 @@ static void int_hndlr_device(int irq, void *dev_id, struct pt_regs *regs)
     // Handle common interrupts first, IN (tx) and OUT (recv)
 
     if (status & UDCSR_RIR) {
+        *(UDCAR) = usb_address;
         ep1_int_hndlr(status);
     }
 
     if (status & UDCSR_TIR) {
+        *(UDCAR) = usb_address;
         ep2_int_hndlr(status, 1);
     }
 
@@ -331,7 +333,9 @@ static void int_hndlr_device(int irq, void *dev_id, struct pt_regs *regs)
             sus_interrupts++;
             usbd_device_event(udc_device, DEVICE_BUS_INACTIVE, 0);
             udc_suspended_interrupts(udc_device);
+#if !defined(STUB_OUT_TICK)
             udc_ticker_poke();
+#endif
         }
 
         if (status & UDCSR_RESIR) {
@@ -339,14 +343,16 @@ static void int_hndlr_device(int irq, void *dev_id, struct pt_regs *regs)
             res_interrupts++;
             usbd_device_event(udc_device, DEVICE_BUS_ACTIVITY, 0);
             udc_all_interrupts(udc_device);
+#if !defined(STUB_OUT_TICK)
             udc_ticker_poke();
+#endif
         }
     }
 
     // Check that the UDC has not forgotton it's address, force it back to correct value
-    if ( _udc(UDCAR) != usb_address) {
-        udc_address_errors++;
-    }
+    //if ( _udc(UDCAR) != usb_address) {
+    //    udc_address_errors++;
+    //}
     *(UDCAR) = usb_address;
 
 }
@@ -516,7 +522,7 @@ void udc_set_address(unsigned char address)
     // address can be setup, udc will wait until ack received
     //dbg_udc(0, "udc_set_address: %d", address);
     usb_address = address;
-    *(UDCAR) = address;
+    //*(UDCAR) = address;
 }
 
 #ifdef CONFIG_SA1100_BITSY
@@ -548,6 +554,10 @@ int __init udc_serial_init(struct usb_bus_instance *bus)
     u32 id = getCPUID(&stepping);
 
     dbg_init(2,"serial number");
+
+#ifdef CONFIG_SA1100_COLLIE
+    dbg_init(0,"cpuID#%x stepping %s",id,stepping);
+#endif
 
 #ifdef CONFIG_SA1100_BITSY
     if (machine_is_bitsy()) {
@@ -662,8 +672,10 @@ void udc_setup_ep(struct usb_device_instance * device, unsigned int ep, struct u
 
             case 1:         // OUT
                 // XXX XXX 
-                usbd_fill_rcv(device, endpoint, 5);
-                endpoint->rcv_urb = first_urb_detached(&endpoint->rdy);
+                if (!endpoint->rcv_urb) {
+                    usbd_fill_rcv(device, endpoint, 5);
+                    endpoint->rcv_urb = first_urb_detached(&endpoint->rdy);
+                }
                 ep1_enable(device, endpoint, usbd_rcv_dma);
                 break;
 
@@ -979,8 +991,8 @@ void udc_startup_events(struct usb_device_instance *device)
 {
     usbd_device_event(device, DEVICE_INIT, 0);
     usbd_device_event(device, DEVICE_CREATE, 0);
-    usbd_device_event(device, DEVICE_HUB_CONFIGURED, 0);
-    usbd_device_event(device, DEVICE_RESET, 0);            // XXX should be done from device event
+    //usbd_device_event(device, DEVICE_HUB_CONFIGURED, 0);
+    //usbd_device_event(device, DEVICE_RESET, 0);            // XXX should be done from device event
 }
 
 

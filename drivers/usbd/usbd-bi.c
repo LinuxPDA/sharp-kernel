@@ -105,6 +105,7 @@ static __initdata unsigned char default_dev_addr[ETH_ALEN] = {
 
 int have_cable_irq;
 
+#if !defined(STUB_OUT_TICK)
 /* ticker */
 
 int ticker_terminating;
@@ -119,6 +120,7 @@ void ticker_kickoff(void);
  * killoff_thread - stop management thread
  */
 void ticker_killoff(void);
+#endif
 
 #if 0
 #ifdef CONFIG_PM
@@ -143,6 +145,31 @@ int bi_cancel_urb(struct urb *urb)
 }
 
 
+
+/**
+ * bi_find_endpoint - find endpoint
+ * @device: device
+ * @endpoint_address: endpoint address
+ */
+struct usb_endpoint_instance *bi_find_endpoint(struct usb_device_instance *device, int endpoint_address)
+{
+    if (device && device->bus && device->bus->endpoint_array) {
+        int i;          
+        for (i = 0; i < udc_max_endpoints (); i++) {
+            struct usb_endpoint_instance *endpoint;
+            if ((endpoint = device->bus->endpoint_array + i)) {
+                if ((endpoint->endpoint_address & 0x7f) == (endpoint_address & 0x7f)) {
+                    return endpoint;
+                }    
+            }
+        }
+    }                               
+    return NULL;            
+}                               
+
+
+
+
 /**
  * bi_endpoint_halted - check if endpoint halted
  * @device: device
@@ -150,8 +177,14 @@ int bi_cancel_urb(struct urb *urb)
  *
  * Used by the USB Device Core to check endpoint halt status.
  */
-int bi_endpoint_halted(struct usb_device_instance *device, int endpoint)
+int bi_endpoint_halted(struct usb_device_instance *device, int endpoint_address)
 {
+    struct usb_endpoint_instance *endpoint;
+    if ((endpoint = bi_find_endpoint(device, endpoint_address))) {
+        dbg_ep0 (1, "endpoint: %d status: %d", endpoint_address, endpoint->status);
+        return endpoint->status;
+    }
+    dbg_ep0 (0, "endpoint: %02x NOT FOUND", endpoint_address);
     return 0;
 }
 
@@ -164,19 +197,29 @@ int bi_endpoint_halted(struct usb_device_instance *device, int endpoint)
  *
  * Used by the USB Device Core to check endpoint halt status.
  */
-int bi_device_feature(struct usb_device_instance *device, int endpoint, int flag)
+int bi_device_feature(struct usb_device_instance *device, int endpoint_address, int flag)
 {
-    if (flag) {
-        dbg_ep0(1,"stalling endpoint");
-        // XXX logical to physical?
-        udc_stall_ep(endpoint);
+    struct usb_endpoint_instance *endpoint;
+    dbg_ep0 (0, "endpoint: %d flag: %d", endpoint_address, flag);
+    if (endpoint = bi_find_endpoint(device, endpoint_address)) {
+
+        dbg_ep0 (1, "endpoint: %d status: %d", endpoint_address, endpoint->status);
+        if (flag && !endpoint->status) {
+            dbg_ep0 (1, "stalling endpoint");
+            // XXX logical to physical?
+            udc_stall_ep (endpoint_address);
+            endpoint->status = 1;
+        }
+        else if (!flag && endpoint->status){
+            dbg_ep0 (1, "reseting endpoint %d", endpoint_address);
+            udc_reset_ep (endpoint_address);
+            endpoint->status = 0;
+        }
         return 0;
     }
+    dbg_ep0 (0, "endpoint: %d NOT FOUND", endpoint_address);
+    return -EINVAL;
 
-    dbg_ep0(1,"reseting endpoint %d", endpoint);
-
-    udc_reset_ep(endpoint);
-    return 0;
 }
 
 /* 
@@ -277,14 +320,20 @@ static int bi_config(struct usb_device_instance *device)
                 endpoint->tx_transferSize = transfersize&0xfff;
                 endpoint->tx_packetSize = endpoint_descriptor->wMaxPacketSize;
                 endpoint->last = 0;
-                endpoint->tx_urb = NULL;
+                if (endpoint->tx_urb) {
+                    usbd_dealloc_urb(endpoint->tx_urb);
+                    endpoint->tx_urb = NULL;
+                }
             }
             else {
                 found_rx++;
                 endpoint->rcv_attributes = endpoint_descriptor->bmAttributes;
                 endpoint->rcv_transferSize = transfersize&0xfff;
                 endpoint->rcv_packetSize = endpoint_descriptor->wMaxPacketSize;
-                endpoint->rcv_urb = NULL;
+                if (endpoint->rcv_urb) {
+                    usbd_dealloc_urb(endpoint->rcv_urb);
+                    endpoint->rcv_urb = NULL;
+                }
             }
         }
     }
@@ -786,8 +835,10 @@ static int __init bi_modinit(void)
     // hopefully device enumeration will finish this process
     udc_startup_events(device);
 
+#if !defined(STUB_OUT_TICK)
     // start ticker
     ticker_kickoff();
+#endif
 
     dbgLEAVE(dbgflg_usbdbi_init,1);
     return 0;
@@ -803,15 +854,21 @@ static void __exit bi_modexit(void)
 
     dbgENTER(dbgflg_usbdbi_init,1);
 
+    // Turn off the pullup and shut down the UDC unconditionally.
+    dbg_init(1,"UDC_DISCONNECT");
+    udc_disconnect();
+    dbg_init(1,"UDC_DISABLE");
+    udc_disable();
+
     if ((device = device_array[0])) {
 
         // XXX moved to usbd_deregister_device()
         //device->status = USBD_CLOSING;
 
-        udc_disconnect();
-
+#if !defined(STUB_OUT_TICK)
         // XXX XXX
         ticker_killoff();
+#endif
 
         bus = device->bus;
         data = bus->privdata;
@@ -835,7 +892,9 @@ static void __exit bi_modexit(void)
         bi_udc_exit();
 
         device_array[0] = NULL;
-        bus->privdata = NULL;
+        // Too soon, still needed for any pending BH calls. 
+        // Moved into usbd_deregister_device().
+        // bus->privdata = NULL;
 
 
 #if 0
@@ -878,6 +937,7 @@ static void __exit bi_modexit(void)
 /* Clock Tick Debug support ****************************************************************** */
 
 
+#if !defined(STUB_OUT_TICK)
 #define RETRYTIME 10
 
 int ticker_terminating;
@@ -1036,6 +1096,7 @@ void ticker_killoff(void)
         down(&ticker_sem_start);
     }
 }
+#endif
 
 
 /* module */

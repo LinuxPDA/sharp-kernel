@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 set -x
 
@@ -12,7 +12,7 @@ echo ${USBD}
 (
 cd ../; 
 
-#find usbd 
+find usbd 
 ( find ${USBD} \
 	-name "[A-Z]*" -o \
 	-name "*.[hc]"  -o \

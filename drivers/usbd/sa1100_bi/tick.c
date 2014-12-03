@@ -56,6 +56,9 @@
 
 #include "sa1100.h"
 
+#if defined(CONFIG_SA1100_COLLIE)
+#define STUB_OUT_TICK 1
+#endif
 
 extern unsigned char usb_address;
 extern unsigned int udc_interrupts;
@@ -99,6 +102,7 @@ unsigned int udc_ep2_sst;
 unsigned int udc_ep2_fst;
 
 
+#if !defined(STUB_OUT_TICK)
 static unsigned long tx_queue_head_timestamp(unsigned long now)
 {
     /* Return the timestamp from the urb at the head of the TX
@@ -198,9 +202,11 @@ static void show_info(void)
     rx_interrupts_last = rx_interrupts;
     tx_interrupts_last = tx_interrupts;
 }
+#endif
 
 int udc_regs(void *data) 
 {
+#if !defined(STUB_OUT_TICK)
     if ( _udc(UDCAR) != usb_address) {
         printk(KERN_DEBUG"ADDRESS ERROR DETECTED\n");
         udc_address_errors++;
@@ -208,6 +214,7 @@ int udc_regs(void *data)
     *(UDCAR) = usb_address;
 
     show_info();
+#endif
     return 0;
 }
 

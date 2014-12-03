@@ -1,1 +1,1 @@
-#define USBD_EXPORT_DATE    "2001-12-09 00:57"
+#define USBD_EXPORT_DATE    "2002-07-11 16:08"

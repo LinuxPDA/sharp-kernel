@@ -372,6 +372,10 @@ static __initdata unsigned char default_dev_addr[ETH_ALEN] = {
 };
 
 
+/* proc file system ********************************************************************** */
+static void net_device_check_condition(usb_device_event_t event);
+
+
 /* USB Configuration Description ************************************************************* */
 
 #if !defined(CONFIG_USBD_NET_SAFE) && !defined(CONFIG_USBD_NET_CDC)
@@ -855,12 +859,6 @@ void net_event(struct usb_device_instance *device, usb_device_event_t event, int
     dbg_usbe(3, "");
     switch (event) {
 
-    case DEVICE_UNKNOWN:
-        break;
-
-    case DEVICE_INIT:                   // a bus interface driver has created a usb device
-        break;
-
     case DEVICE_CREATE:                 // a bus interface driver has created a usb device
         dbg_usbe(3, "DEVICE_CREATE");
         if (alwaysup) {
@@ -868,12 +866,9 @@ void net_event(struct usb_device_instance *device, usb_device_event_t event, int
         }
         break;
 
-    case DEVICE_HUB_CONFIGURED:         // cable connected
-        dbg_usbe(3, "DEVICE_HUB_CONFIGURED");
-        break;
-
     case DEVICE_RESET:
         dbg_usbe(3, "DEVICE_RESET");
+	net_device_check_condition(DEVICE_RESET);
         if (!alwaysup) {
             net_destroy(device);
         }
@@ -881,12 +876,7 @@ void net_event(struct usb_device_instance *device, usb_device_event_t event, int
 
     case DEVICE_ADDRESS_ASSIGNED:       // the host has found and enumerated the device
         dbg_usbe(3, "DEVICE_ADDRESS_ASSIGNED");
-
-#ifdef CONFIG_USBD_NET_MACADDR_FROM_USBADDR
-        default_dev_addr[ETH_ALEN - 1] = device->address;
-#else
-        default_dev_addr[ETH_ALEN - 1] = 1;
-#endif
+	net_device_check_condition(DEVICE_ADDRESS_ASSIGNED);
         if (!alwaysup) {
             net_create(device, function);
         }
@@ -894,75 +884,40 @@ void net_event(struct usb_device_instance *device, usb_device_event_t event, int
 
     case DEVICE_CONFIGURED:             // the host has found a driver that matches
         dbg_usbe(3, "DEVICE_CONFIGURED");
+#ifdef CONFIG_USBD_NET_CDC
         break;
+#else
+        device->interface = 0;
+        device->alternate = 0;
+#endif
 
     case DEVICE_SET_INTERFACE:          // the host driver has selected an interface
         dbg_usbe(3, "DEVICE_SET_INTERFACE");
 
-        if ((net_private = function->privdata)) {
-            netproto_on(net_private->interface);
-
-#ifdef CONFIG_USBD_NET_CDC
-            switch (device->configuration) {
-            case 1:
-                net_private->crc = 1;
-            case 0:
-                net_private->maxtransfer = MAXTRANSFER + 4 + in_pkt_sz;
-                break;
-            }
-            break;
-#else /* CONFIG_USBD_NET_CDC */
-            net_private->crc = 1;
-            net_private->maxtransfer = MAXTRANSFER + 4 + in_pkt_sz;
-#endif /* CONFIG_USBD_NET_CDC */
-
-            // XXX FIXME
-            net_private->crc = 1;
-            net_private->maxtransfer = MAXTRANSFER + 4 + in_pkt_sz;
+        if (!alwaysup) {
+            net_create(device, function);
         }
-
-        break;
-
-    case DEVICE_SET_FEATURE:
-        dbg_usbe(3, "DEVICE_SET_FEATURE");
-        break;
-
-    case DEVICE_CLEAR_FEATURE:
-        dbg_usbe(3, "DEVICE_CLEAR_FEATURE");
-        break;
-
-    case DEVICE_DE_CONFIGURED:
-        dbg_usbe(3, "DEVICE_DE_CONFIGURED");
         break;
 
     case DEVICE_BUS_INACTIVE:           // suspend
         dbg_usbe(3, "DEVICE_BUS_INACTIVE");
+	net_device_check_condition(DEVICE_BUS_INACTIVE);
+        if ((net_private = function->privdata)) {
+                netproto_off (net_private->interface);
+        }
         break;
 
     case DEVICE_BUS_ACTIVITY:           // resume
         dbg_usbe(3, "DEVICE_BUS_ACTIVITY");
-        break;
-
-    case DEVICE_POWER_INTERRUPTION:     // cable disconnected
-        dbg_usbe(3, "DEVICE_POWER_INTERRUPTION");
-        if (!alwaysup) {
-            net_destroy(device);
+	net_device_check_condition(DEVICE_BUS_ACTIVITY);
+        if ((net_private = function->privdata)) {
+                netproto_on (net_private->interface);
         }
-        break;
-
-    case DEVICE_HUB_RESET:
-        dbg_usbe(3, "DEVICE_HUB_RESET");
         break;
 
     case DEVICE_DESTROY:                // the bus interface driver is unloading
         dbg_usbe(3, "DEVICE_DESTROY");
         net_destroy(device);
-        
-        if ((net_private = function->privdata)) {
-            netproto_off(net_private->interface);
-        }
-
-        dbg_usbe(3, "DEVICE_DESTROY - COMPLETE");
         break;
 
     case DEVICE_FUNCTION_PRIVATE:
@@ -974,6 +929,9 @@ void net_event(struct usb_device_instance *device, usb_device_event_t event, int
         }
         break;
 
+    default:
+        dbg_usbe(3, "%d IGNORED", event);
+        break;
     }
 }
 
@@ -1147,7 +1105,6 @@ int net_urb_sent (struct urb *urb, int rc)
     int port = 0; // XXX compound device
     struct usb_device_instance *device = urb->device;
     struct usb_net_private *net_private = (device->function_instance_array+port)->privdata;
-    int interface = net_private->interface;
     struct sk_buff *skb;
 
     // retrieve skb pointer and unlink from urb pointers
@@ -1162,7 +1119,10 @@ int net_urb_sent (struct urb *urb, int rc)
     usbd_dealloc_urb(urb);
 
     // tell netproto we are done with the skb, it will test for NULL
-    netproto_done(interface, skb, rc != SEND_FINISHED_OK );
+    if (net_private) {
+        netproto_done(net_private->interface, skb, rc != SEND_FINISHED_OK );
+    }
+
     return 0;
 }
 
@@ -1345,6 +1305,146 @@ struct usb_function_driver function_driver = {
 
 
 
+/* proc file system ********************************************************************** */
+int net_device_condition = NET_DEVICE_CONDITION_UNKNOWN;
+static int net_device_received_command = 0;
+static int net_device_bus_active = 0;
+static struct timer_list net_device_fail_check_timer;
+
+#if defined(CONFIG_SA1100_COLLIE)
+#include <asm/hardware.h>
+#endif
+
+static void net_device_fail_check(unsigned long data)
+{
+    if (net_device_condition == NET_DEVICE_CONDITION_RESET) {
+	net_device_condition = NET_DEVICE_CONDITION_FAIL;
+    } 
+}
+
+static void net_device_check_condition(usb_device_event_t event)
+{
+
+    switch (event) {
+    case DEVICE_RESET:
+        if (net_device_condition == NET_DEVICE_CONDITION_RESET)
+            del_timer(&net_device_fail_check_timer);
+
+        net_device_condition = NET_DEVICE_CONDITION_RESET;
+        net_device_received_command = 0;
+	net_device_bus_active = 1;
+
+        net_device_fail_check_timer.function = net_device_fail_check;
+        net_device_fail_check_timer.expires = jiffies + 30 * 100;
+        add_timer(&net_device_fail_check_timer);
+        break;
+
+    case DEVICE_ADDRESS_ASSIGNED:
+        net_device_received_command = 1;
+        break;
+
+    case DEVICE_BUS_INACTIVE:
+	net_device_bus_active = 0;
+	break;
+
+    case DEVICE_BUS_ACTIVITY:
+	net_device_bus_active = 1;
+	break;
+
+    default:
+        break;
+    }
+}
+
+/* *
+ * net_device_proc_read - implement proc file system read.
+ * @file: xx
+ * @buf:  xx
+ * @count:  xx
+ * @pos:  xx
+ *
+ * Standard proc file system read function.
+ *
+ * We let upper layers iterate for us, *pos will indicate which device to return * statistics for.
+ */
+static ssize_t
+net_device_proc_read_condition(struct file *file, char *buf, size_t count, loff_t * pos)
+{
+    int len = 0;
+    char *p;
+
+    if (*pos > 0)
+        return 0;
+
+    switch (net_device_condition) {
+    case NET_DEVICE_CONDITION_UNKNOWN:
+    default:
+        p = "Unknown\n";
+        break;
+    case NET_DEVICE_CONDITION_RESET:
+        p = "Enumeration Start\n";
+        break;
+    case NET_DEVICE_CONDITION_OK:
+	if ( !net_device_bus_active ) {
+	    p = "Unknown -- bus inactive\n";
+	} else {
+	    p = "Enumeration OK\n";
+	}
+        break;
+    case NET_DEVICE_CONDITION_FAIL:
+#if defined(CONFIG_SA1100_COLLIE)
+	if (!( GPLR & GPIO_AC_IN )) {
+            p = "Unknown -- AC off line\n";	// USB cable not connected
+	} else 
+#endif
+	if ( !net_device_bus_active ) {
+	    p = "Unknown -- bus inactive\n";
+	} else
+        if ( !net_device_received_command ) {
+            p = "Unknown -- command wasn't received from host\n";	// USB cable not connected
+	} else {
+            p = "Enumeration Fail\n";
+	}
+        break;
+    }
+
+    len = strlen(p);
+    *pos += len;
+    if (len > count) {
+        len = -EINVAL;
+    }
+    else if (len > 0 && copy_to_user(buf, p, len)) {
+        len = -EFAULT;
+    }
+    return len;
+}
+
+/* *
+ * usbd_monitor_proc_write - implement proc file system write.
+ * @file
+ * @buf
+ * @count
+ * @pos
+ *
+ * Proc file system write function, used to signal monitor actions complete.
+ * (Hotplug script (or whatever) writes to the file to signal the completion
+ * of the script.)  An ugly hack.
+ */
+static ssize_t 
+net_device_proc_write_condition(struct file *file, char *buf, size_t count, loff_t * pos)
+{
+    if (net_device_condition != NET_DEVICE_CONDITION_RESET)
+        net_device_condition = NET_DEVICE_CONDITION_UNKNOWN;
+    return count;
+}
+
+static struct file_operations net_device_proc_operations_condition = {
+    read: net_device_proc_read_condition,
+    write:net_device_proc_write_condition,
+};
+
+
+
 /* Module init and exit ********************************************************************** */
 
 unsigned char hexdigit(char c) {
@@ -1458,6 +1558,17 @@ static int __init net_modinit(void)
         return -EINVAL;
     }
 
+    {
+        struct proc_dir_entry *p;
+	if ((p = create_proc_entry("usb-condition", 0, 0)) == NULL) {
+            netproto_modexit();
+            return -ENOMEM;
+	}
+        p->proc_fops = &net_device_proc_operations_condition;
+
+        init_timer(&net_device_fail_check_timer);
+    }
+
     return 0;
 }
 
@@ -1478,6 +1589,9 @@ static void __exit net_modexit(void)
 
     // tell the netproto library to exit
     netproto_modexit();
+
+    remove_proc_entry("usb-condition", NULL);
+    del_timer(&net_device_fail_check_timer);
 
 }
 

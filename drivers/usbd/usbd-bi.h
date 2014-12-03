@@ -27,6 +27,10 @@
 
 #define MAX_DEVICES 1
 
+#if defined(CONFIG_SA1100_COLLIE)
+#define STUB_OUT_TICK 1
+#endif
+
 /* struct udc_bi_data
  *
  * private data structure for this bus interface driver
@@ -289,4 +293,6 @@ void udc_release_io(void);
  */
 void udc_cable_event(void);
 
+#if !defined(STUB_OUT_TICK)
 void udc_ticker_poke(void);
+#endif

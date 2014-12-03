@@ -260,6 +260,9 @@ usbd_device_configuration_instance(struct usb_device_instance *device, unsigned 
     struct usb_function_instance *function_instance;
     struct usb_function_driver *function_driver;
 
+    // XXX
+    configuration = configuration ? configuration - 1 : 0;
+
     if (!(function_instance = usbd_device_function_instance(device, port))) {
         dbg_init(0, "function_instance NULL");
         return NULL;
@@ -570,8 +573,7 @@ struct urb * usbd_alloc_urb(
     for (i=0; i < device->bus->driver->max_endpoints; i++) {
         struct usb_endpoint_instance *endpoint = device->bus->endpoint_array + i;
 
-        dbg_urbmem(2,"i=%d epa=%d want %d",i,
-                   (endpoint->endpoint_address&0x7f),endpoint_address);
+        dbg_urbmem(2,"i=%d epa=%d want %d",i, (endpoint->endpoint_address&0x7f),endpoint_address);
         if ((endpoint->endpoint_address&0x7f) == endpoint_address) {
 
             struct urb *urb;
@@ -600,14 +602,14 @@ struct urb * usbd_alloc_urb(
             else {
                 urb->buffer_length = urb->actual_length = 0;
             }
+            dbg_urbmem(1, "[%d] urb: %p len: %d", endpoint_address, urb, urb->buffer_length);
             return urb;
         }
     }   
     dbg_urbmem(0,"can't find endpoint #%02x!",endpoint_address);
     for (i=0; i < device->bus->driver->max_endpoints; i++) {
         struct usb_endpoint_instance *endpoint = device->bus->endpoint_array + i;
-        dbg_urbmem(0,"i=%d epa=%d want %d",i,
-                   (endpoint->endpoint_address&0x7f),endpoint_address);
+        dbg_urbmem(0,"i=%d epa=%d want %d",i, (endpoint->endpoint_address&0x7f),endpoint_address);
         if ((endpoint->endpoint_address&0x7f) == endpoint_address) {
             dbg_urbmem(0,"found it, but too late");
             break;
@@ -616,6 +618,27 @@ struct urb * usbd_alloc_urb(
     return NULL;
 }
 
+/**
+ * usbd_dealloc_urb - deallocate an URB and associated buffer
+ * @urb: pointer to an urb structure
+ *
+ * Deallocate an urb structure and associated data.
+ */
+void usbd_dealloc_urb(struct urb *urb)
+{
+    dbg_urbmem(1, "[%d] urb: %p len: %d", urb->endpoint->endpoint_address, urb, urb->buffer_length);
+    if (urb) {
+        if (urb->buffer) {
+            if (urb->function_instance && urb->function_instance->function_driver->ops->dealloc_urb_data) {
+                urb->function_instance->function_driver->ops->dealloc_urb_data(urb);
+            }
+            else {
+                kfree(urb->buffer);
+            }
+        }
+        kfree(urb);
+    }
+}
 
 /**
  * usbd_device_event - called to respond to various usb events
@@ -1234,7 +1257,7 @@ static struct file_operations usbd_device_proc_operations_devices = {
 
 /* Module init ******************************************************************************* */
 
-
+/*
 unsigned intset(unsigned int a, unsigned b)
 {
     return(a?a:b);
@@ -1243,6 +1266,7 @@ unsigned intset(unsigned int a, unsigned b)
 char * strset(char *s,char *d) {
     return((s&&strlen(s)?s:d));
 }
+*/
 
 static int __init usbd_device_init(void)
 {

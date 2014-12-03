@@ -201,5 +201,10 @@
 #undef CONFIG_USBD_NET_PRODUCTID
 #define CONFIG_USBD_NET_PRODUCTID	0x8004
 #endif
+
+#warning -
+#warning Stubbing out "tick" for COLLIE 
+#define STUB_OUT_TICK                   1
+
 #endif
 

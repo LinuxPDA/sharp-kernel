@@ -160,7 +160,7 @@ static __inline__ void urb_append_irq(urb_link *hd, struct urb *urb)
 }
 
 
-
+#if 0
 /**
  * usbd_dealloc_urb - deallocate an URB and associated buffer
  * @urb: pointer to an urb structure
@@ -181,6 +181,9 @@ static __inline__ void usbd_dealloc_urb(struct urb *urb)
         kfree(urb);
     }
 }
+#else
+void usbd_dealloc_urb(struct urb *urb);
+#endif
 
 /**
  * usbd_schedule_device_bh - schedule bottom half
@@ -206,7 +209,7 @@ static __inline__ void usbd_schedule_device_bh(struct usb_device_instance *devic
 static __inline__ void usbd_schedule_function_bh(struct usb_device_instance *device) 
 {
     if (device && (device->status != USBD_CLOSING) && !device->function_bh.sync) {
-	schedule_task(&device->function_bh);
+        schedule_task(&device->function_bh);
     }
 }
 

@@ -82,7 +82,7 @@ obj-		:=
 
 obj-$(CONFIG_USBD)		+= usbdcore.o 
 obj-$(CONFIG_USBD_MONITOR)	+= usbdmonitor.o 
-obj-$(CONFIG_USBD_MONITOR)	+= usbdserial.o 
+obj-$(CONFIG_USBD_SERIAL)	+= usbdserial.o 
 
 # Object files in subdirectories
 

@@ -130,21 +130,17 @@ static void ep0_event(struct usb_device_instance *device, usb_device_event_t eve
  * ep0_get_status - fill in URB data with appropriate status
  * @device:
  * @urb:
+ * @index:
  * @requesttype:
  *
  */
-static int ep0_get_status(struct usb_device_instance *device, struct urb *urb, int requesttype)
+static int ep0_get_status(struct usb_device_instance *device, struct urb *urb, int index, int requesttype)
 {
     char                *cp;
 
-    dbg_ep0(2, "urb: %p requesttype: %x", urb, requesttype);
-
-    // XXX 
-    return 0;
-
-    //usbd_alloc_urb_data(urb, 2);
     urb->actual_length = 2;
     cp = urb->buffer;
+    cp[0] = cp[1] = 0;
 
     switch(requesttype) {
     case USB_REQ_RECIPIENT_DEVICE:
@@ -153,10 +149,12 @@ static int ep0_get_status(struct usb_device_instance *device, struct urb *urb, i
     case USB_REQ_RECIPIENT_INTERFACE:
         break;
     case USB_REQ_RECIPIENT_ENDPOINT:
-        cp[0] = usbd_endpoint_halted(device, urb->endpoint->endpoint_address);
+        cp[0] = usbd_endpoint_halted(device, index);
         break;
     case USB_REQ_RECIPIENT_OTHER:
         urb->actual_length = 0;
+    default:
+        break;
     }
     dbg_ep0(2, "%2x %2x", cp[0], cp[1]);
     return 0;
@@ -174,9 +172,6 @@ static int ep0_get_status(struct usb_device_instance *device, struct urb *urb, i
  */
 static int ep0_get_one(struct usb_device_instance *device, struct urb *urb, __u8 result)
 {
-    //if ((usbd_alloc_urb_data(urb, 1))) {
-    //    return -EINVAL;
-    //}
     urb->actual_length = 1;                     // XXX 2?
     ((char *)urb->buffer)[0] = result;
     return 0;
@@ -255,12 +250,20 @@ static int ep0_get_descriptor(struct usb_device_instance *device, struct urb *ur
 
     dbg_ep0(3, "max: %x type: %x index: %x", max, descriptor_type, index);
 
+    // XXX temporary fix for StrongARM
+    max &= 0xff;
+
     if (!urb || !urb->buffer || !urb->buffer_length || (urb->buffer_length < 255)) {
         dbg_ep0(2, "invalid urb %p", urb);
         return -EINVAL;
     }
 
-    //usbd_alloc_urb_data(urb, max);
+    // XXX XXX
+
+    if (max > 0xff) {
+            max &= 0xff;
+            dbg_ep0(0, "reseting max: %x", max);
+    }
 
     // setup tx urb
     urb->actual_length = 0;
@@ -512,29 +515,45 @@ static int ep0_recv_setup (struct urb *urb)
         switch (request->bRequest) {
 
         case USB_REQ_GET_STATUS:
-            return ep0_get_status(device, urb, request->bmRequestType&USB_REQ_RECIPIENT_MASK);
+            dbg_ep0(1,"GET_STATUS");
+            return ep0_get_status(device, urb, request->wIndex, request->bmRequestType&USB_REQ_RECIPIENT_MASK);
 
         case USB_REQ_GET_DESCRIPTOR:
+            dbg_ep0(1,"GET_DESCRIPTOR");
             return ep0_get_descriptor(device, urb, 
                     le16_to_cpu(request->wLength), 
                     le16_to_cpu(request->wValue>>8), 
                     le16_to_cpu(request->wValue)&0xff);
 
         case USB_REQ_GET_CONFIGURATION:
+            dbg_ep0(1,"GET_CONFIGURATION");
             return ep0_get_one(device, urb, device->configuration);
 
         case USB_REQ_GET_INTERFACE:
-            return ep0_get_one(device, urb, device->interface);
+            dbg_ep0(1,"GET_INTERFACE");
+            return ep0_get_one(device, urb, device->alternate);
 
         case USB_REQ_SYNCH_FRAME:           // XXX should never see this (?)
+            dbg_ep0(1,"SYNCH_FRAME");
             return -EINVAL;
 
         case USB_REQ_CLEAR_FEATURE:         
+            dbg_ep0(1,"CLEAR_FEATURE X");
+            return -EINVAL;
         case USB_REQ_SET_FEATURE:
+            dbg_ep0(1,"SET_FEATURE X");
+            return -EINVAL;
         case USB_REQ_SET_ADDRESS:
+            dbg_ep0(1,"SET_ADDRESS X");
+            return -EINVAL;
         case USB_REQ_SET_DESCRIPTOR:
+            dbg_ep0(1,"SET_DESCRIPTOR X");
+            return -EINVAL;
         case USB_REQ_SET_CONFIGURATION:
+            dbg_ep0(1,"SET_CONFIGURATION X");
+            return -EINVAL;
         case USB_REQ_SET_INTERFACE:
+            dbg_ep0(1,"SET_INTERFACE X");
             return -EINVAL;
         }
     }
@@ -551,8 +570,10 @@ static int ep0_recv_setup (struct urb *urb)
             case USB_REQ_RECIPIENT_DEVICE:
             case USB_REQ_RECIPIENT_INTERFACE:
             case USB_REQ_RECIPIENT_OTHER:
+                dbg_ep0(1,"{CLEAR|SET}_FEATURE {DEVICE|INTERFACE|OTHER} X");
                 return -EINVAL;
             case USB_REQ_RECIPIENT_ENDPOINT:
+                dbg_ep0(1,"{CLEAR|SET}_FEATURE ENDPOINT");
                 return usbd_device_feature(device, le16_to_cpu(request->wIndex)&0x7f, request->bRequest==USB_REQ_SET_FEATURE);
             }
 
@@ -562,6 +583,7 @@ static int ep0_recv_setup (struct urb *urb)
 
         case USB_REQ_SET_ADDRESS:
             // check if this is a re-address, reset first if it is (this shouldn't be possible)
+            dbg_ep0(1,"SET_ADDRESS");
             if (device->device_state != STATE_DEFAULT) {
                 dbg_ep0(1, "set_address: %02x state: %d", 
                         le16_to_cpu(request->wValue), device->device_state);
@@ -585,12 +607,13 @@ static int ep0_recv_setup (struct urb *urb)
             return -EINVAL;
 
         case USB_REQ_SET_CONFIGURATION:
+            dbg_ep0(1,"SET_CONFIGURATION");
             // c.f. 9.4.7 - the top half of wValue is reserved
             //
             if ((device->configuration = le16_to_cpu(request->wValue)&0x7f) != 0) {
                 // c.f. 9.4.7 - zero is the default or addressed state, in our case this
                 // is the same is configuration zero
-                device->configuration--;
+                device->configuration;
             }
             // reset interface and alternate settings
             device->interface = device->alternate = 0;
@@ -600,6 +623,7 @@ static int ep0_recv_setup (struct urb *urb)
             return 0;
 
         case USB_REQ_SET_INTERFACE:
+            dbg_ep0(1,"SET_INTERFACE");
             device->interface = le16_to_cpu(request->wIndex); 
             device->alternate = le16_to_cpu(request->wValue);
             dbg_ep0(2, "set interface: %d alternate: %d", device->interface, device->alternate);
@@ -607,13 +631,23 @@ static int ep0_recv_setup (struct urb *urb)
             return 0;
 
         case USB_REQ_GET_STATUS:
+            dbg_ep0(1,"GET_STATUS X");
+            return -EINVAL;
         case USB_REQ_GET_DESCRIPTOR:
+            dbg_ep0(1,"GET_DESCRIPTOR X");
+            return -EINVAL;
         case USB_REQ_GET_CONFIGURATION:
+            dbg_ep0(1,"GET_CONFIGURATION X");
+            return -EINVAL;
         case USB_REQ_GET_INTERFACE:
+            dbg_ep0(1,"GET_INTERFACE X");
+            return -EINVAL;
         case USB_REQ_SYNCH_FRAME:           // XXX should never see this (?)
+            dbg_ep0(1,"SYNCH_FRAME X");
             return -EINVAL;
         }
     }
+    dbg_ep0(1,"UNEXPECTED X");
     return -EINVAL;
 }
 

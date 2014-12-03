@@ -102,11 +102,13 @@ void usbd_fill_rcv(struct usb_device_instance *device, struct usb_endpoint_insta
         dbg_init(1, "endpoint: %d packetSize: %d transferSize: %d buffersize: %d", 
                 endpoint->endpoint_address, endpoint->rcv_packetSize, endpoint->rcv_transferSize, buffersize);
 
+        // XXX should we do this here?
+        usbd_flush_rcv(endpoint);
         for (i = 0; i < num; i++) {
             usbd_recycle_urb(usbd_alloc_urb(device, device->function_instance_array, endpoint->endpoint_address, buffersize));
         }
     }
-    else {
+    else if (0 != endpoint->endpoint_address) {
         dbg_init(0, "endpoint: %d packetSize is Zero!", endpoint->endpoint_address);
     }
 
@@ -124,6 +126,7 @@ void usbd_flush_rcv(struct usb_endpoint_instance *endpoint)
     struct urb *rcv_urb = NULL;
     unsigned long flags; 
     
+    dbg_init (1, "endpoint: %d", endpoint->endpoint_address);
     if (endpoint) {
         local_irq_save(flags);
 
@@ -196,59 +199,70 @@ void usbd_flush_ep(struct usb_endpoint_instance *endpoint)
  */      
 void usbd_device_bh(void *data)
 {
-    struct usb_device_instance *device = data;
-    int i;
+    struct usb_device_instance *device;
 
-    for (i = 0; i < device->bus->driver->max_endpoints; i++) {
-        struct usb_endpoint_instance *endpoint = device->bus->endpoint_array + i;
+    if (device = data) {
+        int i;
+        for (i = 0; i < device->bus->driver->max_endpoints; i++) {
+            struct usb_endpoint_instance *endpoint = device->bus->endpoint_array + i;
 
-        // process received urbs
-        if (endpoint->endpoint_address && (endpoint->endpoint_address & USB_REQ_DIRECTION_MASK) == USB_REQ_HOST2DEVICE) {
-            struct urb *urb;
-            while ((urb = first_urb_detached(&endpoint->rcv))) {
-                if ( !urb->function_instance || !urb->function_instance->function_driver->ops->recv_urb) {
-                    printk(KERN_ERR"usbd_device_bh: no recv_urb function\n");
-                    usbd_recycle_urb(urb);
-                }
-                else if (urb->function_instance->function_driver->ops->recv_urb(urb)) {
-                    printk(KERN_ERR"usbd_device_bh: recv_urb failed\n");
-                    usbd_recycle_urb(urb);
-                }
-            }
-        }
-
-        // process sent urbs
-        if (endpoint->endpoint_address && (endpoint->endpoint_address & USB_REQ_DIRECTION_MASK) == USB_REQ_DEVICE2HOST) {
-            struct urb *urb;
-            while ((urb = first_urb_detached(&endpoint->done))) {
-                if ( !urb->function_instance || !urb->function_instance->function_driver->ops->urb_sent ||
-                        urb->function_instance->function_driver->ops->urb_sent(urb, urb->status)) 
-                {
-                    printk(KERN_ERR"usbd_device_bh: no urb_sent function\n");
-                    usbd_dealloc_urb(urb);
+            // process received urbs
+            if (endpoint->endpoint_address && (endpoint->endpoint_address & USB_REQ_DIRECTION_MASK) == USB_REQ_HOST2DEVICE) {
+                struct urb *urb;
+                while ((urb = first_urb_detached(&endpoint->rcv))) {
+                    if ( !urb->function_instance || !urb->function_instance->function_driver->ops->recv_urb) {
+                        printk(KERN_ERR"usbd_device_bh: no recv_urb function\n");
+                        usbd_recycle_urb(urb);
+                    }
+                    else if (urb->function_instance->function_driver->ops->recv_urb(urb)) {
+                        printk(KERN_ERR"usbd_device_bh: recv_urb failed\n");
+                        usbd_recycle_urb(urb);
+                    }
                 }
             }
-        }
 
-    }
+            // process sent urbs
+            if (endpoint->endpoint_address && (endpoint->endpoint_address & USB_REQ_DIRECTION_MASK) == USB_REQ_DEVICE2HOST) {
+                struct urb *urb;
+                while ((urb = first_urb_detached(&endpoint->done))) {
+                    if ( (device->status != USBD_OK) ||
+                            !urb->function_instance || 
+                            !urb->function_instance->function_driver->ops->urb_sent ||
+                            urb->function_instance->function_driver->ops->urb_sent(urb, urb->status)
+                       ) 
+                    {
+                        printk(KERN_ERR"usbd_device_bh: no urb_sent function\n");
+                        usbd_dealloc_urb(urb);
+                    }
+                }
+            }
+
+        }
 
 #if defined(CONFIG_SA1100_COLLIE) && defined(CONFIG_PM)
-    {
-        // Please clear autoPowerCancel flag during the transmission and  the reception.
-        // XXX XXX extern 
-        int    autoPowerCancel;
-        autoPowerCancel = 0;                // Auto Power Off Cancel
-    }
+        {
+            // Please clear autoPowerCancel flag during the transmission and  the reception.
+            // XXX XXX extern 
+            int    autoPowerCancel;
+            autoPowerCancel = 0;                // Auto Power Off Cancel
+        }
 #endif
 
 #if defined(CONFIG_SA1110_CALYPSO) && defined(CONFIG_PM)
-    // Shouldn't need to make this atomic, all we need is a change indicator
-    device->usbd_rxtx_timestamp = jiffies;
+        // Shouldn't need to make this atomic, all we need is a change indicator
+        device->usbd_rxtx_timestamp = jiffies;
 #endif
 
-    //MOD_DEC_USE_COUNT;
-    //printk(KERN_DEBUG"usbd_device_bh: USE: %d\n", GET_USE_COUNT(THIS_MODULE));
-    return;
+        //MOD_DEC_USE_COUNT;
+        //printk(KERN_DEBUG"usbd_device_bh: USE: %d\n", GET_USE_COUNT(THIS_MODULE));
+
+        if (device->status == USBD_CLOSING) {
+            device->device_bh.data = NULL;
+        }
+    }
+    else {
+        printk(KERN_ERR"usbd_device_bh: device NULL\n");
+    }
 }
 
 /**
@@ -261,7 +275,7 @@ void usbd_function_bh(void *data)
 {
     struct usb_device_instance *device;
 
-    if ((device = data) && (device->status != USBD_CLOSING)) {
+    if (device = data) {
         int i;
 
         // XXX this should only be done for endpoint zero...
@@ -269,23 +283,28 @@ void usbd_function_bh(void *data)
             struct usb_endpoint_instance *endpoint = device->bus->endpoint_array + i;
 
             // process event urbs
-            if (!endpoint->endpoint_address) {
-                struct urb *urb;
-                while ((urb = first_urb_detached(&endpoint->events))) {
-                    if (device->function_instance_array && (device->function_instance_array+0)->function_driver->ops->event) {
-                        (device->function_instance_array+0)->function_driver->ops->event(device, urb->event, urb->data);
+            struct urb *urb;
+            while ((urb = first_urb_detached(&endpoint->events))) {
+                if (device->status != USBD_CLOSING) {
+                    if (!endpoint->endpoint_address) {
+                        if (device->function_instance_array && 
+                                (device->function_instance_array+0)->function_driver->ops->event) 
+                        {
+                            (device->function_instance_array+0)->function_driver->ops->event(device, urb->event, urb->data);
+                        }
                     }
-                    usbd_dealloc_urb(urb);
                 }
+                usbd_dealloc_urb(urb);
             }
         }
+        if (device->status == USBD_CLOSING) {
+            device->function_bh.data = NULL;
+        }
     }
-#if 0
     // Not an error if closing in progress
-    else if (NULL == device) {
+    else {
         printk(KERN_ERR"usbd_function_bh: device NULL\n");
     }
-#endif
 }
 
 
@@ -484,15 +503,26 @@ void __exit usbd_deregister_device(struct usb_device_instance *device)
        above fails to clear the queued task.  It should never happen, but ... */
 #endif
     // wait for pending device and function bottom halfs to finish
-    while (device->device_bh.sync || device->function_bh.sync) {
-        dbg_init(1, "wainting for usbd_device_bh");
-        schedule_timeout(10*HZ);
+    //while (device->device_bh.sync || device->function_bh.sync) {
+    while (device->device_bh.data || device->function_bh.data) {
+
+
+        if (device->device_bh.data) {
+            dbg_init(0, "waiting for usbd_device_bh %d %p", device->device_bh.sync, device->device_bh.data);
+            schedule_task(&device->device_bh);
+        }
+        if (device->function_bh.data) {
+            dbg_init(0, "waiting for usbd_function_bh %d %p", device->function_bh.sync, device->function_bh.data);
+            schedule_task(&device->function_bh);
+        }
+        schedule_timeout(200*HZ);
     }
 
     // tell the function driver to close
     usbd_function_close(device);
 
     // disconnect from bus
+    device->bus->privdata = NULL;
     device->bus = NULL;
     
     // remove from devices queue
