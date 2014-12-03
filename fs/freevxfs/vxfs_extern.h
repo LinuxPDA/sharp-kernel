@@ -30,7 +30,6 @@
 #ifndef _VXFS_EXTERN_H_
 #define _VXFS_EXTERN_H_
 
-#ident "$Id: vxfs_extern.h,v 1.22 2001/12/28 20:50:47 hch Exp hch $"
 
 /*
  * Veritas filesystem driver - external prototypes.

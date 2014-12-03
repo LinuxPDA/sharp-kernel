@@ -8,7 +8,7 @@
  */
 
 
-/* $Id$
+/* 
  *
  * ARCS hardware/memory inventory/configuration and system ID definitions.
  */

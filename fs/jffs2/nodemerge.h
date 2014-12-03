@@ -6,7 +6,6 @@
  * May be copied or modified under the terms of the GNU General Public
  * License.  See linux/COPYING for more information.
  *
- * $Id: nodemerge.h,v 1.1.1.1 2002/12/18 10:29:25 yamade Exp $
  *
  * ChangLog:
  *     05-Dec-2002 SHARP  nodemerge-thershold is changable

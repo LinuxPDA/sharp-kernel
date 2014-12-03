@@ -7,7 +7,6 @@
  *
  * For licensing information, see the file 'LICENCE' in this directory.
  *
- * $Id: nodelist.h,v 1.83 2002/09/06 16:46:29 dwmw2 Exp $
  *
  * ChangeLog:
  *     05-Dec-2002 SHARP  adjust REVERVED_BLOCKS values for storage-full

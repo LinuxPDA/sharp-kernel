@@ -857,6 +857,24 @@ static int nand_read_ecc (struct mtd_info *mtd, loff_t from, size_t len,
 #if defined (CONFIG_ARCH_PXA_AKITA) || defined (CONFIG_ARCH_PXA_BORZOI)	
 			if (mtd->oobblock == 2048) { /* read second, if pagesize = 512 */
 				int k;
+#if defined(CONFIG_ARCH_PXA_TERRIER)
+				u_long *data_poi_ul = (u_long*)data_poi;
+				volatile unsigned long data1, data2;
+				if ( ecc == 256 && (((u_long)data_poi_ul & 0x3) == 0) ){
+					for (k = 0;  k < (mtd->oobblock/256); k++) {
+						this->enable_hwecc (NAND_ECC_READ);
+						j = 64*k; // 64 = ecc/4byte
+						while (j < 64*(k+1)){
+							data1 = readl (this->IO_ADDR_R);
+							data2 = readl (this->IO_ADDR_R);
+							data_poi_ul[j++] = ((data2<<8)&0xff000000) | ((data2<<16)&0xff0000) |
+								((data1>>8)&0xff00) | (data1 & 0xff);
+						}
+						this->calculate_ecc (&data_poi[256*k], &ecc_calc[3*k]); /* read from hardware */
+					}
+					break;
+				}
+#endif
 				/* 256*8 byte read */
 				for (k = 0;  k < (mtd->oobblock/ecc); k++) {
 					this->enable_hwecc (NAND_ECC_READ);

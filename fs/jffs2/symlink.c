@@ -7,7 +7,6 @@
  *
  * For licensing information, see the file 'LICENCE' in this directory.
  *
- * $Id: symlink.c,v 1.11 2002/07/23 17:00:45 dwmw2 Exp $
  *
  */
 

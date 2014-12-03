@@ -1,7 +1,7 @@
 #ifndef __LINUX_JFFS2PORT_H__
 #define __LINUX_JFFS2PORT_H__
 
-/* $Id: jffs2port.h,v 1.1 2002/07/11 10:55:30 dwmw2 Exp $ */
+
 
 #include <pkgconf/system.h>
 #include <pkgconf/hal.h>

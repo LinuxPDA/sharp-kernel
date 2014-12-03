@@ -7,7 +7,6 @@
  *
  * For licensing information, see the file 'LICENCE' in this directory.
  *
- * $Id: fs-ecos.c,v 1.1 2002/07/11 10:55:30 dwmw2 Exp $
  *
  */
 

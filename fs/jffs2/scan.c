@@ -7,7 +7,6 @@
  *
  * For licensing information, see the file 'LICENCE' in this directory.
  *
- * $Id: scan.c,v 1.91 2002/09/09 07:47:53 dwmw2 Exp $
  *
  * ChangeLog:
  *     24-Nov-2002 SHARP  add erasing_dirty_size

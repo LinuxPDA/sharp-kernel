@@ -7,7 +7,6 @@
  *
  * For licensing information, see the file 'LICENCE' in this directory.
  *
- * $Id: pushpull.h,v 1.8 2002/05/20 14:56:38 dwmw2 Exp $
  *
  */
 

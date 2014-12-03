@@ -7,7 +7,6 @@
  *
  * For licensing information, see the file 'LICENCE' in this directory.
  *
- * $Id: background.c,v 1.31 2002/08/20 15:41:28 gleixner Exp $
  *
  * ChangeLog:
  *     05-Dec-2002 SHARP  adjust gc-end conditions

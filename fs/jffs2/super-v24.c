@@ -7,7 +7,6 @@
  *
  * For licensing information, see the file 'LICENCE' in this directory.
  *
- * $Id: super-v24.c,v 1.63 2002/05/20 14:56:39 dwmw2 Exp $
  *
  * ChangeLog:
  *     08-Nov-2002 Lineo Japan, Inc.  add /proc/fs/jffs2 files for JFFS2 information

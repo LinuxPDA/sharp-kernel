@@ -7,7 +7,6 @@
  *
  * For licensing information, see the file 'LICENCE' in this directory.
  *
- * $Id: wbuf.c,v 1.23 2003/01/14 14:54:32 dwmw2 Exp $
  *
  * ChangeLog:
  *     25-Oct-2002 Lineo Japan, Inc.  deal with 1bit corruption of oob area

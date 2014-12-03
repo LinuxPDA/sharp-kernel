@@ -6,7 +6,6 @@
  * May be copied or modified under the terms of the GNU General Public
  * License.  See linux/COPYING for more information.
  *
- * $Id: jffs2_proc.c,v 1.1.1.1 2002/12/18 10:29:25 yamade Exp $
  *
  * Derived from fs/jffs/jffs_proc.c
  *

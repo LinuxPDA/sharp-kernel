@@ -7,7 +7,6 @@
  *
  * For licensing information, see the file 'LICENCE' in this directory.
  *
- * $Id: readinode.c,v 1.90 2002/09/06 16:46:29 dwmw2 Exp $
  *
  * ChangeLog:
  *   05-Dec-2002 SHARP  nodemerge-thershold is changable

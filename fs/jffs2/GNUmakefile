@@ -1,5 +1,4 @@
 # GNUmakefile for JFFS2 build outside kernel tree
-# $Id: GNUmakefile,v 1.6 2002/09/03 16:38:24 dwmw2 Exp $
 
 LINUXDIR=/lib/modules/$(shell uname -r)/build
 

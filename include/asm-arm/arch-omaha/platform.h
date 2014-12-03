@@ -11,7 +11,6 @@
  * 	NOTE: This is a multi-hosted header file for use with uHAL and
  * 	      supported debuggers.
  * 
- * 	$Id: platform.h,v 1.12 2002/08/22 15:49:56 ahaigh Exp $
  * 
  *     Everything is defined in terms of PLAT_* and then the key values
  *     are redefined as required for uHAL.

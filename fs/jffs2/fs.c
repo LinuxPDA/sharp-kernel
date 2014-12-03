@@ -7,7 +7,6 @@
  *
  * For licensing information, see the file 'LICENCE' in this directory.
  *
- * $Id: fs.c,v 1.17 2002/08/21 10:42:12 dwmw2 Exp $
  *
  * ChangeLog:
  *     19-Nov-2002 Lineo Japan, Inc.  add function jffs2_get_nr_inodes()

@@ -7,7 +7,6 @@
  *
  * For licensing information, see the file 'LICENCE' in this directory.
  *
- * $Id: compr.c,v 1.24 2002/05/20 14:56:37 dwmw2 Exp $
  *
  * ChangeLog:
  *     20-Nov-2002 Lineo Japan, Inc.  don't choose rtime compressor

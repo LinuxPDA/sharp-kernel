@@ -7,7 +7,6 @@
  *
  * For licensing information, see the file 'LICENCE' in this directory.
  *
- * $Id: writev.c,v 1.3 2002/08/08 08:35:21 dwmw2 Exp $
  *
  */
 

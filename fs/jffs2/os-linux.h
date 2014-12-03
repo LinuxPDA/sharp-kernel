@@ -7,7 +7,6 @@
  *
  * For licensing information, see the file 'LICENCE' in this directory.
  *
- * $Id: os-linux.h,v 1.19 2002/05/20 14:56:38 dwmw2 Exp $
  *
  * ChangeLog:
  *     19-Nov-2002 Lineo Japan, Inc.  add counter of fragtree elements

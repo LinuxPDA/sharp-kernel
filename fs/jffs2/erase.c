@@ -7,7 +7,6 @@
  *
  * For licensing information, see the file 'LICENCE' in this directory.
  *
- * $Id: erase.c,v 1.42 2002/09/06 14:12:44 dwmw2 Exp $
  *
  * ChangeLog:
  *     29-Oct-2002 Lineo Japan, Inc.  add member struct jffs2_sb_info#nr_bad_blocks

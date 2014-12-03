@@ -7,7 +7,6 @@
  *
  * For licensing information, see the file 'LICENCE' in this directory.
  *
- * $Id: nodemgmt.c,v 1.77 2002/09/06 16:46:29 dwmw2 Exp $
  *
  * ChangeLog:
  *     27-Nov-2002 Lineo Japan, Inc.  add effective-gc mode

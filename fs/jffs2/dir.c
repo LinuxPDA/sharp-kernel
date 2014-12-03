@@ -7,7 +7,6 @@
  *
  * For licensing information, see the file 'LICENCE' in this directory.
  *
- * $Id: dir.c,v 1.73 2002/08/26 15:00:51 dwmw2 Exp $
  *
  * ChangeLog:
  *     10-Dec-2002 Lineo Japan, Inc.  fix long filename bug

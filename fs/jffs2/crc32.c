@@ -37,7 +37,6 @@
  *      polynomial $edb88320
  */
 
-/* $Id: crc32.c,v 1.4 2002/01/03 15:20:44 dwmw2 Exp $ */
 
 #include "crc32.h"
 

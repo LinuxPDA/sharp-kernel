@@ -7,7 +7,6 @@
  *
  * For licensing information, see the file 'LICENCE' in this directory.
  *
- * $Id: read.c,v 1.27 2002/09/06 14:12:44 dwmw2 Exp $
  *
  * ChangeLog:
  *     18-Nov-2002 Lineo Japan, Inc.  add dynamic construction of fragtree

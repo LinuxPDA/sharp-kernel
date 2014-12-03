@@ -30,7 +30,7 @@
  * http://oss.sgi.com/projects/GenInfo/NoticeExplan
  */
 
-/* $Id: ioc3.h,v 1.2 2000/11/16 19:49:17 pfg Exp $
+/* 
  *
  * Copyright (C) 1999 Ralf Baechle
  * This file is part of the Linux driver for the SGI IOC3.

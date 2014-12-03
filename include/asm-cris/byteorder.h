@@ -1,4 +1,4 @@
-/* $Id: byteorder.h,v 1.1 2000/07/10 16:32:31 bjornw Exp $ */
+
 
 #ifndef _CRIS_BYTEORDER_H
 #define _CRIS_BYTEORDER_H

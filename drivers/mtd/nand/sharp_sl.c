@@ -396,17 +396,44 @@ sharp_sl_nand_read_page(struct mtd_info* mtd,
 			int end)
 {
     int j = 0;
+#if defined(CONFIG_ARCH_PXA_TERRIER)
+    volatile unsigned long data1, data2;
+    u_long *p_data_ul;
+#endif
 
     START_MEASUREMENT(nand_read_page);
 #if defined (CONFIG_ARCH_PXA_AKITA) || defined (CONFIG_ARCH_PXA_BORZOI)
     {
         int i,j;
+#if defined(CONFIG_ARCH_PXA_TERRIER)
+	if ( ecc == 256 && (((u_long)data_poi & 0x3) == 0) ){
+	  p_data_ul = (u_long*)data_poi;
+	  for (i=0; i<8; i++) { 
+	    this->enable_hwecc (NAND_ECC_READ);	
+	    for (j=i*64; j < (i+1)*64; j++){
+	      data1 = readl (this->IO_ADDR_R);
+	      data2 = readl (this->IO_ADDR_R);
+	      p_data_ul[j] = ((data2<<8)&0xff000000) | ((data2<<16)&0xff0000) |
+		((data1>>8)&0xff00) | (data1 & 0xff);
+	    }
+	    this->calculate_ecc (&data_poi[256*i], &ecc_calc[3*i]);	/* read from hardware */
+	  }
+	}else{
+	  for (i=0; i<8; i++) { 
+	    this->enable_hwecc (NAND_ECC_READ);	
+	    for (j=i*ecc; j < (i+1)*ecc; j++)
+	      data_poi[j] = readb (this->IO_ADDR_R);
+	    this->calculate_ecc (&data_poi[ecc*i], &ecc_calc[3*i]);	/* read from hardware */
+	  }
+	}
+#else
 	for (i=0; i<8; i++) { 
 	    this->enable_hwecc (NAND_ECC_READ);	
 	    for (j=i*ecc; j < (i+1)*ecc; j++)
 	        data_poi[j] = readb (this->IO_ADDR_R);
 	    this->calculate_ecc (&data_poi[ecc*i], &ecc_calc[3*i]);	/* read from hardware */
 	}
+#endif
     }
 #else
     this->enable_hwecc (NAND_ECC_READ);	
@@ -421,8 +448,23 @@ sharp_sl_nand_read_page(struct mtd_info* mtd,
 
 #endif
     /* read oobdata */
+#if defined(CONFIG_ARCH_PXA_TERRIER)
+    if (mtd->oobsize == 64 && ((u_long)oob_data & 0x3) == 0){
+      p_data_ul = (ulong*)oob_data;
+      for (j = 0; j < 16; j++) {
+	data1 = readl (this->IO_ADDR_R);
+	data2 = readl (this->IO_ADDR_R);
+	p_data_ul[j] = ((data2<<8)&0xff000000) | ((data2<<16)&0xff0000) |
+	  ((data1>>8)&0xff00) | (data1 & 0xff);
+      }
+    }else{
+      for (j = 0; j <  mtd->oobsize; j++) 
+	oob_data[j] = readb (this->IO_ADDR_R);
+    }
+#else
     for (j = 0; j <  mtd->oobsize; j++) 
 	oob_data[j] = readb (this->IO_ADDR_R);
+#endif
 
     ACCUMULATE_ELAPSED_TIME(nand_read_page);
     COUNTER_INC(nand_read_nr_pages);
@@ -441,17 +483,44 @@ sharp_sl_nand_read_page_fast(struct mtd_info* mtd,
 			int page)
 {
     int j = 0;
+#if defined(CONFIG_ARCH_PXA_TERRIER)
+    volatile unsigned long data1, data2;
+    u_long *p_data_ul;
+#endif
 
     START_MEASUREMENT(nand_read_page);
     {
         int len = end - from;
         int i,j;
+#if defined(CONFIG_ARCH_PXA_TERRIER)
+	if ( ecc == 256 && (((u_long)data_poi & 0x3) == 0) ){
+	  p_data_ul = (u_long*)data_poi;
+	  for (i =0 ; i < len/256; i++) { 
+	    this->enable_hwecc (NAND_ECC_READ);	
+	    for (j=i*64; j < (i+1)*64; j++){
+	      data1 = readl (this->IO_ADDR_R);
+	      data2 = readl (this->IO_ADDR_R);
+	      p_data_ul[j] = ((data2<<8)&0xff000000) | ((data2<<16)&0xff0000) |
+		((data1>>8)&0xff00) | (data1 & 0xff);
+	    }
+	    this->calculate_ecc (&data_poi[256*i], &ecc_calc[3*i]);	/* read from hardware */
+	  }
+	}else{
+	  for (i =0 ; i < len/ecc; i++) { 
+	    this->enable_hwecc (NAND_ECC_READ);	
+	    for (j=i*ecc; j < (i+1)*ecc; j++)
+	      data_poi[j] = readb (this->IO_ADDR_R);
+	    this->calculate_ecc (&data_poi[ecc*i], &ecc_calc[3*i]);	/* read from hardware */
+	  }
+	}
+#else
 	for (i =0 ; i < len/ecc; i++) { 
 	    this->enable_hwecc (NAND_ECC_READ);	
 	    for (j=i*ecc; j < (i+1)*ecc; j++)
 	        data_poi[j] = readb (this->IO_ADDR_R);
 	    this->calculate_ecc (&data_poi[ecc*i], &ecc_calc[3*i]);	/* read from hardware */
 	}
+#endif
     }
 
     for (j = 0; j < NAND_BUSY_TIMEOUT; j++)
@@ -469,8 +538,23 @@ sharp_sl_nand_read_page_fast(struct mtd_info* mtd,
     }
 
     /* read oobdata */
+#if defined(CONFIG_ARCH_PXA_TERRIER)
+    if (mtd->oobsize == 64 && ((u_long)oob_data & 0x3) == 0){
+      p_data_ul = (ulong*)oob_data;
+      for (j = 0; j < 16; j++) {
+	data1 = readl (this->IO_ADDR_R);
+	data2 = readl (this->IO_ADDR_R);
+	p_data_ul[j] = ((data2<<8)&0xff000000) | ((data2<<16)&0xff0000) |
+	  ((data1>>8)&0xff00) | (data1 & 0xff);
+      }
+    }else{
+      for (j = 0; j <  mtd->oobsize; j++) 
+	oob_data[j] = readb (this->IO_ADDR_R);
+    }
+#else
     for (j = 0; j <  mtd->oobsize; j++) 
 	oob_data[j] = readb (this->IO_ADDR_R);
+#endif
 
     ACCUMULATE_ELAPSED_TIME(nand_read_page);
     COUNTER_INC(nand_read_nr_pages);

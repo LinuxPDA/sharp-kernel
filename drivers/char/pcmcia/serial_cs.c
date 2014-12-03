@@ -629,6 +629,18 @@ void serial_config(dev_link_t *link)
 	}
       }
     }
+    tuple.DesiredTuple = CISTPL_FUNCID;
+    if (info->manfid == 0xc01e && !first_tuple(handle, &tuple, &parse)) {
+      if (parse.funcid.func == CISTPL_FUNCID_SERIAL) {
+	tuple.DesiredTuple = CISTPL_VERS_1;
+	if (!first_tuple(handle, &tuple, &parse) && parse.version_1.ns > 1) {
+	  if (strstr(parse.version_1.str + parse.version_1.ofs[1], 
+		     "PHS CH-S202C/TD")){
+	    sharpsl_serial_out_wait = 1;
+	  }
+	}
+      }
+    }
 #endif
 
 

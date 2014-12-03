@@ -1,7 +1,6 @@
 #
 # Makefile for the linux Journalling Flash FileSystem (JFFS) routines.
 #
-# $Id: Makefile,v 1.34 2002/03/08 11:27:59 dwmw2 Exp $
 #
 # Note! Dependencies are done automagically by 'make dep', which also
 # removes any old dependencies. DON'T put your own dependencies here

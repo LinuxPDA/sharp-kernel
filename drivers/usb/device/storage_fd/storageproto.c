@@ -108,7 +108,8 @@ MODULE_PARM(storage_device, "s");
 **************************************/
 
 static struct file*     DeviceFile      = NULL;
-static unsigned int     DeviceSize      = 0;
+static unsigned int     DeviceSize      = 0;  
+static unsigned int     DeviceBlockNum = 0;  //=DeviceSize/DeviceBlockSize  //for terrier-j 
 static unsigned int     DeviceBlockSize = DEVICE_BLOCK_SIZE;
 static int              DeviceWrProtect = WR_PROTECT_OFF;
 
@@ -332,7 +333,9 @@ static void scsi_read_capacity_analysis(struct usb_device_instance* device,
         memset(&data, 0x00, sizeof(data));
 
         /* data set */
-        last_lba  = (DeviceSize / DeviceBlockSize) - 1;
+	//for terrier-j
+	//        last_lba  = (DeviceSize / DeviceBlockSize) - 1; 
+	last_lba  = DeviceBlockNum - 1;
         block_len = DeviceBlockSize;
         last_lba  = htonl(last_lba);
         block_len = htonl(block_len);
@@ -413,13 +416,19 @@ static void scsi_read_10_analysis(struct usb_device_instance* device,
     COMMAND_STATUS_WRAPPER  csw;
     unsigned char           status = 0;
     unsigned short          len;
-    unsigned long           lba, size, offset;
+    //for terrier
+    //    unsigned long           lba, size, offset;
+    unsigned long           lba, size;
+    long long           offset;
 
     memcpy(&lba, command->LogicalBlockAddress, sizeof(lba));
     memcpy(&len, command->TransferLength, sizeof(len));
     lba    = ntohl(lba);
     len    = ntohs(len);
-    offset = lba * DeviceBlockSize;
+
+    //change terrier-j
+    //    offset = lba * DeviceBlockSize;
+    offset = (long long)lba * DeviceBlockSize;
     size   = cbw->dCBWDataTransferLength;
 
     if(DeviceFile == NULL){
@@ -565,7 +574,8 @@ static void scsi_mode_sense_analysis(struct usb_device_instance* device,
     else{
         sector   = (unsigned short)DeviceBlockSize;
         size     = DEF_NUMBER_OF_HEADS * DEF_SECTORS_PER_TRACK * sector;
-        cylinder = DeviceSize / size;
+	//        cylinder = DeviceSize / size;
+	cylinder = DeviceBlockNum /(DEF_NUMBER_OF_HEADS * DEF_SECTORS_PER_TRACK) ;
         sector   = htons(sector);
         cylinder = htons(cylinder);
 
@@ -898,14 +908,20 @@ static void scsi_bulkout_write_10_analysis(struct usb_device_instance* device,
         /* buffer full */
         SCSI_WRITE_10_COMMAND*  command = (SCSI_WRITE_10_COMMAND*)&KeepCBW.CBWCB;
         unsigned short          len;
-        unsigned long           lba, offset;
+	//for terrier
+	//        unsigned long           lba, offset;
+        unsigned long           lba;
+        long long           offset;
 
         memcpy(&lba, command->LogicalBlockAddress, sizeof(lba));
         memcpy(&len, command->TransferLength, sizeof(len));
         lba = ntohl(lba);
         len = ntohs(len);
 
-        offset = (lba * DeviceBlockSize) +
+	//for terrier-j
+	//        offset = (lba * DeviceBlockSize) +
+        //         (sizeof(BlockBuffer) * ((BulkOutLength - 1) / sizeof(BlockBuffer)));
+        offset = ((long long)lba * DeviceBlockSize) +
                  (sizeof(BlockBuffer) * ((BulkOutLength - 1) / sizeof(BlockBuffer)));
 
         /* device check */
@@ -1186,10 +1202,13 @@ int storageproto_device_open_check(void)
     dev = inode->i_rdev;
 
     if (blk_size[MAJOR(dev)]){
-        DeviceSize = blk_size[MAJOR(dev)][MINOR(dev)] << BLOCK_SIZE_BITS;
+      //for  terrier-j
+      //        DeviceSize = blk_size[MAJOR(dev)][MINOR(dev)] << BLOCK_SIZE_BITS;
+      DeviceBlockNum = blk_size[MAJOR(dev)][MINOR(dev)]*(BLOCK_SIZE/DEVICE_BLOCK_SIZE);
     }
     else{
-        DeviceSize = INT_MAX << BLOCK_SIZE_BITS;
+      //        DeviceSize = INT_MAX << BLOCK_SIZE_BITS;
+        DeviceBlockNum = INT_MAX*(BLOCK_SIZE/DEVICE_BLOCK_SIZE) ;
     }
 
     if(blksize_size[MAJOR(dev)] && blksize_size[MAJOR(dev)][MINOR(dev)]){
@@ -1461,9 +1480,12 @@ ssize_t storageproto_proc_read(struct file* file, char* buf, size_t count,
 
     len += sprintf(string + len, "Device file descriptor:0x%p\n",
             DeviceFile);
-
+    /*
     len += sprintf(string + len, "Device size:0x%d(%08x)\n",
             DeviceSize,DeviceSize);
+    */
+    len += sprintf(string + len, "Device Block Num:0x%d(%08x)\n",
+            DeviceBlockNum,DeviceBlockNum);
 
     len += sprintf(string + len, "Device block size:0x%d\n",
             DeviceBlockSize);

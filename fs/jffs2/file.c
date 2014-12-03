@@ -7,7 +7,6 @@
  *
  * For licensing information, see the file 'LICENCE' in this directory.
  *
- * $Id: file.c,v 1.79 2002/10/07 12:41:16 dwmw2 Exp $
  *
  * ChangeLog:
  *     28-Nov-2002 Lineo Japan, Inc.  fix deadlock between f->sem and c->alloc_sem

@@ -1,7 +1,6 @@
 #ifndef CRC32_H
 #define CRC32_H
 
-/* $Id: crc32.h,v 1.4 2002/01/03 15:20:44 dwmw2 Exp $ */
 
 #include <linux/types.h>
 

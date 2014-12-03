@@ -1,4 +1,4 @@
-/* $Id: semaphore-helper.h,v 1.3 2001/03/26 15:00:33 orjanf Exp $
+/* 
  *
  * SMP- and interrupt-safe semaphores helper functions. Generic versions, no
  * optimizations whatsoever... 

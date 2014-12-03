@@ -1111,7 +1111,11 @@ CodeOnCache_161:
 
 CCCR_ValAdr_high:	.word	0x02000210
 MSC0_ValAdr_high:	.word	0x7ff02DD8
-MSC1_ValAdr_high:	.word	0x7ff434D4
+#if defined(CONFIG_ARCH_PXA_TERRIER)
+MSC1_ValAdr_high:	.word	0x249C34D4
+#else
+MSC1_ValAdr_high:	.word	0x7ff434D4	
+#endif
 MSC2_ValAdr_high:	.word	0x7FF034D4
 MDREFR_ValAdr_high_pre:	.word	0x001BC00B
 MDREFR_ValAdr_high:	.word	0x001BC030
@@ -1159,7 +1163,11 @@ CodeOnCache_high:
 
 CCCR_ValAdr_low:	.word	0x02000108
 MSC0_ValAdr_low:	.word	0x7ff01888
+#if defined(CONFIG_ARCH_PXA_TERRIER)
+MSC1_ValAdr_low:	.word	0x124C1264
+#else
 MSC1_ValAdr_low:	.word	0x7ff41264
+#endif
 MSC2_ValAdr_low:	.word	0x7FF01264
 MDREFR_ValAdr_low_pre:	.word	0x001BC00B
 @MDREFR_ValAdr_low:	.word	0x0019C017
@@ -1253,7 +1261,11 @@ CodeOnCache_DisableFastBus:
 	
 CCCR_ValAdr_91:		.word	0x00000107
 MSC0_ValAdr_91:		.word	0x7ff01888
+#if defined(CONFIG_ARCH_PXA_TERRIER)
+MSC1_ValAdr_91:		.word	0x124C1264	
+#else
 MSC1_ValAdr_91:		.word	0x7ff41264
+#endif
 MSC2_ValAdr_91:		.word	0x7FF01264
 MDREFR_ValAdr_91_pre:	.word	0x001BC00B
 MDREFR_ValAdr_91:	.word	0x001BC013
@@ -1297,7 +1309,11 @@ CodeOnCache_91:
 
 CCCR_ValAdr_208:	.word	0x02000210
 MSC0_ValAdr_208:	.word	0x7ff02DD8
-MSC1_ValAdr_208:	.word	0x7ff434D4
+#if defined(CONFIG_ARCH_PXA_TERRIER)
+MSC1_ValAdr_208:	.word	0x249C34D4
+#else
+MSC1_ValAdr_208:	.word	0x7ff434D4	
+#endif
 MSC2_ValAdr_208:	.word	0x7FF034D4
 MDREFR_ValAdr_208:	.word	0x001BC00B
 		

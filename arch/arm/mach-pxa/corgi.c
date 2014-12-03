@@ -24,6 +24,7 @@
  *  29-Sep-2004 Lineo Solutions, Inc.  for Spitz
  *  28-Feb-2005 Sharp Corporation for Akita
  *  05-Apr-2005 Sharp Corporation for Borzoi
+ *  16-Jan-2006 Sharp Corporation for Terrier
  *
  */
 #include <linux/init.h>
@@ -341,10 +342,16 @@ void resume_init(void)
 	
 	ICCR = 1; //Only enabled and unmasked will bring the Cotulla out of IDLE mode.
 #endif
+
+#if defined(CONFIG_ARCH_PXA_TERRIER)
+	MSC1 |= (0x8 << 16); 
+#endif
 	
 	CKEN |= 0x03; 
 	CKEN |= CKEN3_SSP;
 	CKEN |= CKEN1_PWM1;
+
+
 }
 
 #if defined(CONFIG_CPU_PXA27X)
@@ -407,6 +414,10 @@ static int __init corgi_hw_init(void)
 	printk("GPDR1=%x\n",GPDR1);
 	printk("GPDR2=%x\n",GPDR2);
 	printk("GPDR3=%x\n",GPDR3);
+#endif
+
+#if defined(CONFIG_ARCH_PXA_TERRIER)
+	MSC1 |= (0x8 << 16); 
 #endif
 
   /* i2c initialize */
@@ -566,7 +577,9 @@ static void __init corgi_map_io(void)
 	PCFR |= PCFR_OPDE;
 }
 
-#if defined(CONFIG_ARCH_PXA_BORZOI)
+#if defined(CONFIG_ARCH_PXA_TERRIER)
+MACHINE_START(CORGI, "SHARP Terrier")
+#elif defined(CONFIG_ARCH_PXA_BORZOI)
 MACHINE_START(CORGI, "SHARP Borzoi")
 #elif defined(CONFIG_ARCH_PXA_AKITA)
 MACHINE_START(CORGI, "SHARP Akita")

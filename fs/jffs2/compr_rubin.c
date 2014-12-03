@@ -7,7 +7,6 @@
  *
  * For licensing information, see the file 'LICENCE' in this directory.
  *
- * $Id: compr_rubin.c,v 1.17 2002/05/20 14:56:37 dwmw2 Exp $
  *
  */
 
