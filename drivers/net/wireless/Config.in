@@ -1,0 +1,27 @@
+#
+# Wireless LAN device configuration
+#
+
+if [ "$CONFIG_ISA" = "y" -o "$CONFIG_PCI" = "y" ]; then
+   tristate '  Cisco/Aironet 34X/35X/4500/4800 ISA and PCI cards' CONFIG_AIRO
+fi
+
+if [ "$CONFIG_ALL_PPC" = "y" ]; then
+   tristate '  Apple Airport support (built-in)' CONFIG_APPLE_AIRPORT
+fi
+
+# If Pcmcia is compiled in, offer Pcmcia cards...
+if [ "$CONFIG_PCMCIA" != "n" ]; then
+   comment 'Wireless Pcmcia cards support' 
+
+   tristate '  Hermes support (Orinoco/WavelanIEEE/PrismII/Symbol 802.11b cards)' CONFIG_PCMCIA_HERMES
+   tristate '  Cisco/Aironet 34X/35X/4500/4800 PCMCIA cards' CONFIG_AIRO_CS
+fi
+
+# yes, this works even when no drivers are selected
+if [ "$CONFIG_ISA" = "y" -o "$CONFIG_PCI" = "y" -o \
+     "$CONFIG_ALL_PPC" = "y" -o "$CONFIG_PCMCIA" != "n" ]; then
+   define_bool CONFIG_NET_WIRELESS y
+else
+   define_bool CONFIG_NET_WIRELESS n
+fi
