@@ -6,6 +6,7 @@
 struct scatterlist {
 	char		*address;	/* virtual address		 */
 	struct page	*page;		/* Location for highmem page, if any */
+	unsigned int	offset;		/* buffer address		 */
 	dma_addr_t	dma_address;	/* dma address			 */
 	unsigned int	length;		/* length			 */
 };

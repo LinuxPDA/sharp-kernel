@@ -22,6 +22,9 @@
  *     provide warranty for any of this software. This material is 
  *     provided "AS-IS" and at no charge.
  *
+ * ChangeLog:
+ *	06-21-2002 SHARP	make sure the callback function exists
+ *	03-06-2003 SHARP	support suspend/resume
  ********************************************************************/
 
 #include <linux/config.h>
@@ -731,7 +734,8 @@ void iriap_connect_request(struct iriap_cb *self)
 				    NULL, NULL);
 	if (ret < 0) {
 		IRDA_DEBUG(0, "%s(), connect failed!\n", __FUNCTION__);
-		self->confirm(IAS_DISCONNECT, 0, NULL, self->priv);
+	    if (self->confirm)
+		  self->confirm(IAS_DISCONNECT, 0, NULL, self->priv);
 	}
 }
 
@@ -1001,24 +1005,26 @@ int irias_proc_read(char *buf, char **start, off_t offset, int len)
 				       attrib->name);
 			len += sprintf(buf+len, "value[%s]: ", 
 				       ias_value_types[attrib->value->type]);
-			
 			switch (attrib->value->type) {
 			case IAS_INTEGER:
-				len += sprintf(buf+len, "%d\n", 
+				len += sprintf(buf+len, "%d", 
 					       attrib->value->t.integer);
 				break;
 			case IAS_STRING:
-				len += sprintf(buf+len, "\"%s\"\n", 
+				len += sprintf(buf+len, "\"%s\"", 
 					       attrib->value->t.string);
 				break;
 			case IAS_OCT_SEQ:
-				len += sprintf(buf+len, "octet sequence (%d bytes)\n", attrib->value->len);
+				len += sprintf(buf+len,
+					       "octet sequence (%d bytes)",
+					       attrib->value->len);
 				break;
 			case IAS_MISSING:
-				len += sprintf(buf+len, "missing\n");
+				len += sprintf(buf+len, "missing");
 				break;
 			default:
-				IRDA_DEBUG(0, "%s(), Unknown value type!\n", __FUNCTION__);
+				IRDA_DEBUG(0, __FUNCTION__ 
+				      "(), Unknown value type!");
 				return -1;
 			}
 			len += sprintf(buf+len, "\n");
@@ -1027,6 +1033,7 @@ int irias_proc_read(char *buf, char **start, off_t offset, int len)
 				hashbin_get_next(obj->attribs);
 		}
 	        obj = (struct ias_object *) hashbin_get_next(objects);
+		len += sprintf(buf+len, "\n");
  	} 
 	restore_flags(flags);
 
@@ -1034,3 +1041,19 @@ int irias_proc_read(char *buf, char **start, off_t offset, int len)
 }
 
 #endif /* PROC_FS */
+
+#ifdef CONFIG_PM
+void iriap_suspend(void)
+{
+	struct iriap_cb *self;
+
+	self = (struct iriap_cb *) hashbin_get_first( iriap );
+	while (self != NULL) {
+		ASSERT(self->magic == IAS_MAGIC, break;);
+
+		del_timer(&self->watchdog_timer);
+		self = (struct iriap_cb *) hashbin_get_next(iriap);
+		IRDA_DEBUG(2, __FUNCTION__"() delete iap timers\n");
+	}	return;
+}
+#endif

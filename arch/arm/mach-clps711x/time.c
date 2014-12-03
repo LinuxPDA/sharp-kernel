@@ -49,6 +49,15 @@ void __init clps711x_setup_timer(void)
 	clps_writel(syscon, SYSCON1);
 
 	clps_writel(LATCH-1, TC2D); /* 512kHz / 100Hz - 1 */
-
+	
 	xtime.tv_sec = clps_readl(RTCDR);
+
+#ifdef CONFIG_RTHAL
+	// build a free running timer (tsc)
+	syscon = clps_readl(SYSCON1);
+	syscon |= SYSCON1_TC1S ;
+	clps_writel(syscon, SYSCON1);
+	clps_writel(0,TC1D);
+#endif
+
 }

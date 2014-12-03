@@ -67,6 +67,7 @@
 #define TIOCGICOUNT	0x545D	/* read serial port inline interrupt counts */
 #define TIOCGHAYESESP   0x545E  /* Get Hayes ESP configuration */
 #define TIOCSHAYESESP   0x545F  /* Set Hayes ESP configuration */
+#define TIOCGDB         0x547F  /* enable GDB stub mode on this tty */
 
 /* Used for packet mode */
 #define TIOCPKT_DATA		 0

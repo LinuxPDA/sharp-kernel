@@ -113,6 +113,10 @@
 #include <asm/io.h>
 #include <asm/uaccess.h>
 
+#ifdef CONFIG_LEDMAN
+#include <linux/ledman.h>
+#endif
+
 #define RTL8139_DRIVER_NAME   DRV_NAME " Fast Ethernet driver " DRV_VERSION
 #define PFX DRV_NAME ": "
 
@@ -260,6 +264,13 @@ static struct pci_device_id rtl8139_pci_tbl[] __devinitdata = {
 	{0x1259, 0xa117, PCI_ANY_ID, PCI_ANY_ID, 0, 0, ALLIED8139 },
 	{0x14ea, 0xab06, PCI_ANY_ID, PCI_ANY_ID, 0, 0, FNW3603TX },
 	{0x14ea, 0xab07, PCI_ANY_ID, PCI_ANY_ID, 0, 0, FNW3800TX },
+
+#ifdef CONFIG_MTD_NETtel
+	/* Bogus 8139 silicon reports 8129 without external PROM :-( */
+	{0x10ec, 0x8129, PCI_ANY_ID, PCI_ANY_ID, 0, 0, RTL8139 },
+#endif
+
+	{0x1186, 0x1340, PCI_ANY_ID, PCI_ANY_ID, 0, 0, DFE690TXD },
 
 #ifdef CONFIG_8139TOO_8129
 	{0x10ec, 0x8129, PCI_ANY_ID, PCI_ANY_ID, 0, 0, RTL8129 },
@@ -605,7 +616,9 @@ MODULE_PARM_DESC (max_interrupt_work, "8139too maximum events handled per interr
 MODULE_PARM_DESC (media, "8139too: Bits 4+9: force full duplex, bit 5: 100Mbps");
 MODULE_PARM_DESC (full_duplex, "8139too: Force full duplex for board(s) (1)");
 
+#ifndef CONFIG_MTD_NETtel
 static int read_eeprom (void *ioaddr, int location, int addr_len);
+#endif
 static int rtl8139_open (struct net_device *dev);
 static int mdio_read (struct net_device *dev, int phy_id, int location);
 static void mdio_write (struct net_device *dev, int phy_id, int location,
@@ -741,6 +754,10 @@ static void rtl8139_chip_reset (void *ioaddr)
 			break;
 		udelay (10);
 	}
+#if 1
+	if (i <= 0)
+		printk("%s(%d): chip reset timeout??\n", __FILE__, __LINE__);
+#endif
 }
 
 
@@ -914,10 +931,13 @@ static int __devinit rtl8139_init_one (struct pci_dev *pdev,
 {
 	struct net_device *dev = NULL;
 	struct rtl8139_private *tp;
-	int i, addr_len, option;
+	int i, option;
 	void *ioaddr;
 	static int board_idx = -1;
 	u8 pci_rev;
+#ifndef CONFIG_MTD_NETtel
+	int addr_len;
+#endif
 
 	assert (pdev != NULL);
 	assert (ent != NULL);
@@ -955,10 +975,16 @@ static int __devinit rtl8139_init_one (struct pci_dev *pdev,
 	assert (dev != NULL);
 	assert (tp != NULL);
 
+#ifdef CONFIG_MTD_NETtel
+	/* Don't rely on the eeprom, get MAC from chip. */
+	for (i = 0; (i < 6); i++)
+		dev->dev_addr[i] = readb(ioaddr + MAC0 + i);
+#else
 	addr_len = read_eeprom (ioaddr, 0, 8) == 0x8129 ? 8 : 6;
 	for (i = 0; i < 3; i++)
 		((u16 *) (dev->dev_addr))[i] =
 		    le16_to_cpu (read_eeprom (ioaddr, i + 7, addr_len));
+#endif
 
 	/* The Rtl8139-specific entries in the device structure. */
 	dev->open = rtl8139_open;
@@ -1087,7 +1113,7 @@ static void __devexit rtl8139_remove_one (struct pci_dev *pdev)
 	__rtl8139_cleanup_dev (dev);
 }
 
-
+#ifndef CONFIG_MTD_NETtel
 /* Serial EEPROM section. */
 
 /*  EEPROM_Ctrl bits. */
@@ -1148,6 +1174,7 @@ static int __devinit read_eeprom (void *ioaddr, int location, int addr_len)
 
 	return retval;
 }
+#endif
 
 /* MII serial management: mostly bogus for now. */
 /* Read and write the MII management registers using software-generated
@@ -1191,6 +1218,7 @@ static void mdio_sync (void *mdio_addr)
 	}
 }
 #endif
+
 
 static int mdio_read (struct net_device *dev, int phy_id, int location)
 {
@@ -1366,9 +1394,12 @@ static void rtl8139_hw_start (struct net_device *dev)
 
 	/* unlock Config[01234] and BMCR register writes */
 	RTL_W8_F (Cfg9346, Cfg9346_Unlock);
+
+#ifndef CONFIG_MTD_NETtel
 	/* Restore our idea of the MAC address. */
 	RTL_W32_F (MAC0 + 0, cpu_to_le32 (*(u32 *) (dev->dev_addr + 0)));
 	RTL_W32_F (MAC0 + 4, cpu_to_le32 (*(u32 *) (dev->dev_addr + 4)));
+#endif
 
 	/* Must enable Tx/Rx before setting transfer thresholds! */
 	RTL_W8 (ChipCmd, CmdRxEnb | CmdTxEnb);
@@ -1678,6 +1709,11 @@ static int rtl8139_start_xmit (struct sk_buff *skb, struct net_device *dev)
 	unsigned int entry;
 	unsigned int len = skb->len;
 
+#ifdef CONFIG_LEDMAN
+	ledman_cmd(LEDMAN_CMD_SET,
+		(dev->name[3] == '0') ? LEDMAN_LAN1_TX : LEDMAN_LAN2_TX);
+#endif
+
 	/* Calculate the next Tx descriptor entry. */
 	entry = tp->cur_tx % NUM_TX_DESC;
 
@@ -1874,6 +1910,11 @@ static void rtl8139_rx_interrupt (struct net_device *dev,
 	assert (tp != NULL);
 	assert (ioaddr != NULL);
 
+#ifdef CONFIG_LEDMAN
+	ledman_cmd(LEDMAN_CMD_SET,
+		(dev->name[3] == '0') ? LEDMAN_LAN1_RX : LEDMAN_LAN2_RX);
+#endif
+
 	rx_ring = tp->rx_ring;
 	cur_rx = tp->cur_rx;
 
@@ -2019,12 +2060,16 @@ static void rtl8139_weird_interrupt (struct net_device *dev,
 	if (status & (RxUnderrun | RxFIFOOver))
 		tp->stats.rx_fifo_errors++;
 	if (status & PCIErr) {
-		u16 pci_cmd_status;
+		u16 pci_cmd_status, s;
 		pci_read_config_word (tp->pci_dev, PCI_STATUS, &pci_cmd_status);
 		pci_write_config_word (tp->pci_dev, PCI_STATUS, pci_cmd_status);
+		pci_read_config_word (tp->pci_dev, PCI_STATUS, &s);
 
-		printk (KERN_ERR "%s: PCI Bus error %4.4x.\n",
-			dev->name, pci_cmd_status);
+		printk (KERN_ERR "%s: PCI Bus error %4.4x (%04x).\n",
+			dev->name, pci_cmd_status, s);
+
+		printk (KERN_ERR "%s: reseting interface...\n", dev->name);
+		rtl8139_hw_start (dev);
 	}
 }
 

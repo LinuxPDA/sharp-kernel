@@ -41,6 +41,10 @@
 			  module by all drivers that require it.
   Alan Cox		: Spinlocking work, added 'BUG_83C690'
   Paul Gortmaker	: Separate out Tx timeout code from Tx path.
+ 
+  Greg Ungerer		: added some coldfire addressing code.
+
+  Yoshinori Sato    : added H8/300H support.
 
   Sources:
   The National Semiconductor LAN Databook, and the 3Com 3c503 databook.
@@ -73,8 +77,28 @@ static const char version[] =
 #include <linux/netdevice.h>
 #include <linux/etherdevice.h>
 
+#ifdef CONFIG_VR4181A
+#define flush_bus_queue()	inb_p(e8390_base+E8390_CMD);
+#endif
+
 #define NS8390_CORE
 #include "8390.h"
+
+#ifdef CONFIG_COLDFIRE
+#ifdef CONFIG_NE2K_PCI
+#include <asm/mcfpci.h>
+#else
+#include <asm/mcfne.h>
+#endif /* CONFIG_NE2K_PCI */
+#endif /* CONFIG_COLDFIRE */
+
+#if defined(CONFIG_CPU_H8300H)
+#include <asm/h8300_ne.h>
+#endif
+
+#ifdef CONFIG_LEDMAN
+#include <linux/ledman.h>
+#endif
 
 #define BUG_83C690
 
@@ -333,6 +357,9 @@ static int ei_start_xmit(struct sk_buff *skb, struct net_device *dev)
 		spin_unlock(&ei_local->page_lock);
 		enable_irq(dev->irq);
 		ei_local->stat.tx_errors++;
+#ifdef CONFIG_VR4181A
+		flush_bus_queue();
+#endif
 		return 1;
 	}
 
@@ -392,6 +419,9 @@ static int ei_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	dev_kfree_skb (skb);
 	ei_local->stat.tx_bytes += send_length;
     
+#ifdef CONFIG_VR4181A
+	flush_bus_queue();
+#endif
 	return 0;
 }
 
@@ -420,6 +450,10 @@ void ei_interrupt(int irq, void *dev_id, struct pt_regs * regs)
 		printk ("net_interrupt(): irq %d for unknown device.\n", irq);
 		return;
 	}
+
+#ifdef CONFIG_M5272
+    ne2000_irqack(irq);
+#endif
     
 	e8390_base = dev->base_addr;
 	ei_local = (struct ei_device *) dev->priv;
@@ -461,6 +495,17 @@ void ei_interrupt(int irq, void *dev_id, struct pt_regs * regs)
 			interrupts = 0;
 			break;
 		}
+#ifdef CONFIG_LEDMAN
+        if (interrupts & (ENISR_TX|ENISR_TX_ERR)) {
+            ledman_cmd(LEDMAN_CMD_SET,
+                    strcmp(dev->name, "eth0") == 0 ? LEDMAN_LAN1_TX :
+							LEDMAN_LAN2_TX);
+        } else {
+            ledman_cmd(LEDMAN_CMD_SET,
+                    strcmp(dev->name, "eth0") == 0 ? LEDMAN_LAN1_RX :
+							LEDMAN_LAN2_RX);
+        }
+#endif
 		if (interrupts & ENISR_OVER) 
 			ei_rx_overrun(dev);
 		else if (interrupts & (ENISR_RX+ENISR_RX_ERR)) 
@@ -507,6 +552,9 @@ void ei_interrupt(int irq, void *dev_id, struct pt_regs * regs)
 		}
 	}
 	spin_unlock(&ei_local->page_lock);
+#ifdef CONFIG_VR4181A
+	flush_bus_queue();
+#endif
 	return;
 }
 
@@ -947,8 +995,9 @@ static void do_set_multicast_list(struct net_device *dev)
 	 * Ultra32 EISA) appears to have this bug fixed.
 	 */
 	 
-	if (netif_running(dev))
+	if (netif_running(dev)) {
 		outb_p(E8390_RXCONFIG, e8390_base + EN0_RXCR);
+	}
 	outb_p(E8390_NODMA + E8390_PAGE1, e8390_base + E8390_CMD);
 	for(i = 0; i < 8; i++) 
 	{
@@ -1065,9 +1114,23 @@ void NS8390_init(struct net_device *dev, int startp)
 	/* Copy the station address into the DS8390 registers. */
 
 	outb_p(E8390_NODMA + E8390_PAGE1 + E8390_STOP, e8390_base+E8390_CMD); /* 0x61 */
+#if CONFIG_TOADKK_TCS8000 /*@@@@@*/
+	printk ( KERN_ERR __FUNCTION__ "addr = %02x:%02x:%02x:%02x:%02x:%02x "
+			 "offset = %08x\n",
+			 dev->dev_addr[0],
+			 dev->dev_addr[1],
+			 dev->dev_addr[2],
+			 dev->dev_addr[3],
+			 dev->dev_addr[4],
+			 dev->dev_addr[5],
+			 e8390_base + EN1_PHYS_SHIFT(0) );
+#endif
 	for(i = 0; i < 6; i++) 
 	{
 		outb_p(dev->dev_addr[i], e8390_base + EN1_PHYS_SHIFT(i));
+#if CONFIG_TOADKK_TCS8000 /*@@@@@*/
+		udelay (1);
+#endif
 		if(inb_p(e8390_base + EN1_PHYS_SHIFT(i))!=dev->dev_addr[i])
 			printk(KERN_ERR "Hw. address read/write mismap %d\n",i);
 	}
@@ -1112,6 +1175,9 @@ static void NS8390_trigger_send(struct net_device *dev, unsigned int length,
 	outb_p(length >> 8, e8390_base + EN0_TCNTHI);
 	outb_p(start_page, e8390_base + EN0_TPSR);
 	outb_p(E8390_NODMA+E8390_TRANS+E8390_START, e8390_base+E8390_CMD);
+#ifdef CONFIG_VR4181A
+	flush_bus_queue();
+#endif
 }
 
 EXPORT_SYMBOL(ei_open);

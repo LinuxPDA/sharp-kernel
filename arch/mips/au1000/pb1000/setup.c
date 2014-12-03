@@ -52,7 +52,7 @@
 #define CONFIG_AU1000_OHCI_FIX
 #endif
 
-#if defined(CONFIG_AU1000_SERIAL_CONSOLE)
+#if defined(CONFIG_AU1X00_SERIAL_CONSOLE)
 extern void console_setup(char *, int *);
 char serial_console[20];
 #endif
@@ -67,6 +67,7 @@ extern struct ide_ops std_ide_ops;
 extern struct ide_ops *ide_ops;
 #endif
 
+void (*__wbflush) (void);
 extern struct rtc_ops no_rtc_ops;
 extern char * __init prom_getcmdline(void);
 extern void au1000_restart(char *);
@@ -77,19 +78,24 @@ extern struct resource iomem_resource;
 
 void __init bus_error_init(void) { /* nothing */ }
 
-void __init au1000_setup(void)
+void au1000_wbflush(void)
+{
+	__asm__ volatile ("sync");
+}
+
+void __init au1x00_setup(void)
 {
 	char *argptr;
 	u32 pin_func, static_cfg0;
 	u32 sys_freqctrl, sys_clksrc;
-	u32 prid = read_32bit_cp0_register(CP0_PRID);
+	u32 prid = read_c0_prid();
 
 	argptr = prom_getcmdline();
 
 	/* Various early Au1000 Errata corrected by this */
-	set_cp0_config(1<<19); /* Config[OD] */
+	set_c0_config(1<<19); /* Config[OD] */
 
-#ifdef CONFIG_AU1000_SERIAL_CONSOLE
+#ifdef CONFIG_AU1X00_SERIAL_CONSOLE
 	if ((argptr = strstr(argptr, "console=")) == NULL) {
 		argptr = prom_getcmdline();
 		strcat(argptr, " console=ttyS0,115200");
@@ -97,6 +103,7 @@ void __init au1000_setup(void)
 #endif
 
 	rtc_ops = &no_rtc_ops;
+        __wbflush = au1000_wbflush;
 	_machine_restart = au1000_restart;
 	_machine_halt = au1000_halt;
 	_machine_power_off = au1000_power_off;
@@ -119,7 +126,7 @@ void __init au1000_setup(void)
 	au_writel(0, SYS_PINSTATERD);
 	udelay(100);
 
-#if defined (CONFIG_USB_OHCI) || defined (CONFIG_AU1000_USB_DEVICE)
+#if defined (CONFIG_USB_OHCI) || defined (CONFIG_AU1X00_USB_DEVICE)
 #ifdef CONFIG_USB_OHCI
 	if ((argptr = strstr(argptr, "usb_ohci=")) == NULL) {
 	        char usb_args[80];
@@ -181,7 +188,7 @@ void __init au1000_setup(void)
 #ifdef CONFIG_USB_OHCI
 	sys_clksrc |= ((4<<12) | (0<<11) | (0<<10));
 #endif
-#ifdef CONFIG_AU1000_USB_DEVICE
+#ifdef CONFIG_AU1X00_USB_DEVICE
 	sys_clksrc |= ((4<<7) | (0<<6) | (0<<5));
 #endif
 	au_writel(sys_clksrc, SYS_CLKSRC);
@@ -200,14 +207,14 @@ void __init au1000_setup(void)
 	// configure pins GPIO[14:9] as GPIO
 	pin_func = au_readl(SYS_PINFUNC) & (u32)(~0x8080);
 
-#ifndef CONFIG_AU1000_USB_DEVICE
+#ifndef CONFIG_AU1X00_USB_DEVICE
 	// 2nd USB port is USB host
 	pin_func |= 0x8000;
 #endif
 	au_writel(pin_func, SYS_PINFUNC);
 	au_writel(0x2800, SYS_TRIOUTCLR);
 	au_writel(0x0030, SYS_OUTPUTCLR);
-#endif // defined (CONFIG_USB_OHCI) || defined (CONFIG_AU1000_USB_DEVICE)
+#endif // defined (CONFIG_USB_OHCI) || defined (CONFIG_AU1X00_USB_DEVICE)
 
 	// make gpio 15 an input (for interrupt line)
 	pin_func = au_readl(SYS_PINFUNC) & (u32)(~0x100);

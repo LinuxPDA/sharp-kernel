@@ -1,0 +1,26 @@
+/*
+ * Copyright (c) 2003 Lineo uSolutions, Inc.
+ *
+ * include/asm-arm/arch-dbmx1/serial_dbmx1.h
+ *
+ */
+
+#define	UART1_BASE	((void *)IO_ADDRESS(DBMX1_UART1_BASE))
+#define	UART2_BASE	((void *)IO_ADDRESS(DBMX1_UART2_BASE))
+#define	IRQ_UART1	IRQ_UART1_MINT_RX
+#define	IRQ_UART2	IRQ_UART2_MINT_RX
+
+#define BASE_BAUD     (8192000/16)
+#define STD_COM_FLAGS (ASYNC_BOOT_AUTOCONF|ASYNC_SKIP_TEST)
+
+#define RS_TABLE_SIZE 2
+#define STD_SERIAL_PORT_DEFNS \
+/* UART	CLK     	PORT		IRQ		FLAGS	*/ \
+{ 0,	BASE_BAUD,	UART1_BASE,	IRQ_UART1,	STD_COM_FLAGS }, \
+{ 0,	BASE_BAUD,	UART2_BASE,	IRQ_UART2,	STD_COM_FLAGS }, \
+
+#define EXTRA_SERIAL_PORT_DEFNS
+
+#define SERIAL_PORT_DFNS		\
+	STD_SERIAL_PORT_DEFNS		\
+	EXTRA_SERIAL_PORT_DEFNS

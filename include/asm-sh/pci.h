@@ -12,7 +12,7 @@
 #define pcibios_assign_all_busses()	1
 
 #if defined(CONFIG_CPU_SUBTYPE_ST40STB1)
-/* These are currently the correct values for the STM overdrive board. 
+/* These are currently the correct values for the ST40 based chips.
  * We need some way of setting this on a board specific way, it will 
  * not be the same on other boards I think
  */
@@ -25,13 +25,29 @@
 #elif defined(CONFIG_SH_BIGSUR) && defined(CONFIG_CPU_SUBTYPE_SH7751)
 #define PCIBIOS_MIN_IO		0x2000
 #define PCIBIOS_MIN_MEM		0xFD000000
-
+#elif defined(CONFIG_SH_RTS7751R2D)
+ #define PCIBIOS_MIN_IO          0x4000
+ #define PCIBIOS_MIN_MEM         0xFD000000
 #elif defined(CONFIG_SH_7751_SOLUTION_ENGINE)
+#define PCIBIOS_MIN_IO          0x0000 /* for support ALi M1543C(SuperI/O) */
+#define PCIBIOS_MIN_MEM         0xFD000000
+#elif defined(CONFIG_SH_SECUREEDGE5410)
 #define PCIBIOS_MIN_IO          0x4000
 #define PCIBIOS_MIN_MEM         0xFD000000
+#elif defined(CONFIG_PCI_SD0001)
+#define PCIBIOS_MIN_IO		0x2000
+#define PCIBIOS_MIN_MEM		0x01000000L
 #endif
 
 struct pci_dev;
+
+#if defined(CONFIG_SH_RTS7751R2D)
+/* The PCI address space does equal the physical memory
+ * address space.  The networking and block device layers use
+ * this boolean for bounce buffer decisions.
+ */
+#define PCI_DMA_BUS_IS_PHYS	(1)
+#endif
 
 extern void pcibios_set_master(struct pci_dev *dev);
 
@@ -49,6 +65,14 @@ static inline void pcibios_penalize_isa_irq(int irq)
 #include <asm/scatterlist.h>
 #include <linux/string.h>
 #include <asm/io.h>
+
+struct pci_dev;
+
+/* The PCI address space does equal the physical memory
+ * address space.  The networking and block device layers use
+ * this boolean for bounce buffer decisions.
+ */
+#define PCI_DMA_BUS_IS_PHYS	(1)
 
 /* Allocate and map kernel buffer using consistent mode DMA for a device.
  * hwdev should be valid struct pci_dev pointer for PCI devices,
@@ -142,14 +166,44 @@ static inline void pci_unmap_single(struct pci_dev *hwdev, dma_addr_t dma_addr,
  * Device ownership issues as mentioned above for pci_map_single are
  * the same here.
  */
+
+static inline dma_addr_t pci_map_page(struct pci_dev *hwdev, struct page *page,
+                               unsigned long offset, size_t size, int direction)
+{
+       unsigned long addr;
+       if (direction == PCI_DMA_NONE)
+                BUG();
+
+#ifdef CONFIG_SH_PCIDMA_NONCOHERENT
+       addr = (unsigned long)page_address(page) + offset;
+       dma_cache_wback_inv((void *)addr, size);
+#endif
+       return virt_to_bus((void *)(page_to_phys(page) + offset));
+}
+
+static inline void pci_unmap_page(struct pci_dev *hwdev, dma_addr_t dma_address,
+                                  size_t size, int direction)
+{
+        if (direction == PCI_DMA_NONE)
+               BUG();
+        /* Nothing to do */
+}
+
 static inline int pci_map_sg(struct pci_dev *hwdev, struct scatterlist *sg,
 			     int nents, int direction)
 {
 #ifdef CONFIG_SH_PCIDMA_NONCOHERENT
 	int i;
 
+#if defined(CONFIG_SH_RTS7751R2D)
+	for (i=0; i<nents; i++) {
+		dma_cache_wback_inv(page_address(sg[i].page) + sg[i].offset, sg[i].length);
+		sg[i].dma_address = page_to_phys(sg[i].page) + sg[i].offset;
+	}
+#else
 	for (i=0; i<nents; i++)
 		dma_cache_wback_inv(sg[i].address, sg[i].length);
+#endif
 #endif
 	if (direction == PCI_DMA_NONE)
                 BUG();
@@ -205,8 +259,15 @@ static inline void pci_dma_sync_sg(struct pci_dev *hwdev,
 #ifdef CONFIG_SH_PCIDMA_NONCOHERENT
 	int i;
 
+#if defined(CONFIG_SH_RTS7751R2D)
+	for (i=0; i<nelems; i++) {
+		dma_cache_wback_inv(page_address(sg[i].page) + sg[i].offset, sg[i].length);
+		sg[i].dma_address = page_to_phys(sg[i].page) + sg[i].offset;
+	}
+#else
 	for (i=0; i<nelems; i++)
 		dma_cache_wback_inv(sg[i].address, sg[i].length);
+#endif
 #endif
 }
 
@@ -235,7 +296,11 @@ static inline int pci_dma_supported(struct pci_dev *hwdev, u64 mask)
  * returns, or alternatively stop on the first sg_dma_len(sg) which
  * is 0.
  */
+#if defined(CONFIG_SH_RTS7751R2D)
+#define sg_dma_address(sg)	(virt_to_bus((sg)->dma_address))
+#else
 #define sg_dma_address(sg)	(virt_to_bus((sg)->address))
+#endif
 #define sg_dma_len(sg)		((sg)->length)
 
 #endif /* __KERNEL__ */

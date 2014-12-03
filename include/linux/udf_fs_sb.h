@@ -18,8 +18,6 @@
 #ifndef _UDF_FS_SB_H
 #define _UDF_FS_SB_H 1
 
-#pragma pack(1)
-
 #define UDF_MAX_BLOCK_LOADED	8
 
 #define UDF_TYPE1_MAP15			0x1511U
@@ -31,13 +29,13 @@ struct udf_sparing_data
 {
 	__u16	s_packet_len;
 	struct buffer_head *s_spar_map[4];
-};
+} __attribute ((packed));
 
 struct udf_virtual_data
 {
 	__u32	s_num_entries;
 	__u16	s_start_offset;
-};
+} __attribute ((packed));
 
 struct udf_bitmap
 {
@@ -45,7 +43,7 @@ struct udf_bitmap
 	__u32			s_extPosition;
 	__u16			s_nr_groups;
 	struct buffer_head 	**s_block_bitmap;
-};
+} __attribute ((packed));
 
 struct udf_part_map
 {
@@ -71,9 +69,7 @@ struct udf_part_map
 	__u32	(*s_partition_func)(struct super_block *, __u32, __u16, __u32);
 	__u16	s_volumeseqnum;
 	__u16	s_partition_flags;
-};
-
-#pragma pack()
+} __attribute ((packed));
 
 struct udf_sb_info
 {

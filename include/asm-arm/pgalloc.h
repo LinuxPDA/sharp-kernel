@@ -6,6 +6,9 @@
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
+ *
+ * ChangeLog:
+ *     04-Apr-2003 Sharp for ARM FCSE
  */
 #ifndef _ASMARM_PGALLOC_H
 #define _ASMARM_PGALLOC_H
@@ -57,40 +60,48 @@ static inline pgd_t *get_pgd_fast(void)
 {
 	unsigned long *ret;
 
+	preempt_disable();
 	if ((ret = pgd_quicklist) != NULL) {
 		pgd_quicklist = (unsigned long *)__pgd_next(ret);
 		ret[1] = ret[2];
 		clean_dcache_entry(ret + 1);
 		pgtable_cache_size--;
 	}
+	preempt_enable();
 	return (pgd_t *)ret;
 }
 
 static inline void free_pgd_fast(pgd_t *pgd)
 {
+	preempt_disable();
 	__pgd_next(pgd) = (unsigned long) pgd_quicklist;
 	pgd_quicklist = (unsigned long *) pgd;
 	pgtable_cache_size++;
+	preempt_enable();
 }
 
 static inline pte_t *pte_alloc_one_fast(struct mm_struct *mm, unsigned long address)
 {
 	unsigned long *ret;
 
+	preempt_disable();
 	if((ret = pte_quicklist) != NULL) {
 		pte_quicklist = (unsigned long *)__pte_next(ret);
 		ret[0] = 0;
 		clean_dcache_entry(ret);
 		pgtable_cache_size--;
 	}
+	preempt_enable();
 	return (pte_t *)ret;
 }
 
 static inline void free_pte_fast(pte_t *pte)
 {
+	preempt_disable();
 	__pte_next(pte) = (unsigned long) pte_quicklist;
 	pte_quicklist = (unsigned long *) pte;
 	pgtable_cache_size++;
+	preempt_enable();
 }
 
 #else	/* CONFIG_NO_PGT_CACHE */
@@ -123,6 +134,31 @@ static inline void free_pte_fast(pte_t *pte)
 extern pgd_t *get_pgd_slow(struct mm_struct *mm);
 extern void free_pgd_slow(pgd_t *pgd);
 
+#ifdef CONFIG_ARM_FCSE
+extern pgd_t *pgd_shared_fcse_process;
+
+static inline pgd_t *pgd_alloc(struct mm_struct *mm)
+{
+	pgd_t *pgd;
+
+	pgd = get_pgd_fast();
+	if (!pgd)
+		pgd = get_pgd_slow(mm);
+
+	if (current->mm->context.cpu_pid && pgd_shared_fcse_process == NULL) {
+		pgd_shared_fcse_process = pgd;
+	}
+
+	return pgd;
+}
+
+static inline void pgd_free(pgd_t *pgd)
+{
+	/* never free pgd_shared_fcse_process */
+	if (pgd_shared_fcse_process == pgd) return;
+	free_pgd_fast(pgd);
+}
+#else
 static inline pgd_t *pgd_alloc(struct mm_struct *mm)
 {
 	pgd_t *pgd;
@@ -135,7 +171,38 @@ static inline pgd_t *pgd_alloc(struct mm_struct *mm)
 }
 
 #define pgd_free(pgd)			free_pgd_fast(pgd)
+#endif
 
 extern int do_check_pgt_cache(int, int);
 
+#ifdef CONFIG_RTHAL
+extern inline void set_pgdir(unsigned long address, pgd_t entry)
+{
+	struct task_struct * p;
+	pgd_t *pgd;
+#ifdef CONFIG_SMP
+	int i;
 #endif
+
+	read_lock(&tasklist_lock);
+	for_each_task(p) {
+		if (!p->mm)
+			continue;
+		*pgd_offset(p->mm,address) = entry;
+	}
+	read_unlock(&tasklist_lock);
+#ifndef CONFIG_SMP
+	for (pgd = (pgd_t *)pgd_quicklist; pgd; pgd = (pgd_t *)__pgd_next(pgd))
+		pgd[pgd_index(address)] = entry;
+#else
+	/* To pgd_alloc/pgd_free, one holds master kernel lock and so does our callee, so we can
+	   modify pgd caches of other CPUs as well. -jj */
+	for (i = 0; i < NR_CPUS; i++)
+		for (pgd = (pgd_t *)cpu_data[i].pgd_quick; pgd; pgd = (pgd_t *)__pgd_next(pgd))
+			pgd[pgd_index(address)] = entry;
+#endif
+}
+#endif /* CONFIG_RTHAL */
+
+#endif
+

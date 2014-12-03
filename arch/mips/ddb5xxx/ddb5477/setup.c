@@ -45,10 +45,8 @@
 
 // #define	USE_CPU_COUNTER_TIMER	/* whether we use cpu counter */
 
-#ifndef USE_CPU_COUNTER_TIMER
 #define	SP_TIMER_BASE			DDB_SPT1CTRL_L
 #define	SP_TIMER_IRQ			VRC5477_IRQ_SPT1
-#endif
 
 static int bus_frequency = CONFIG_DDB5477_BUS_FREQUENCY*1000;
 
@@ -143,7 +141,7 @@ static void __init ddb_time_init(void)
 	}
 
 	/* mips_counter_frequency is 1/2 of the cpu core freq */
-	i =  (read_32bit_cp0_register(CP0_CONFIG) >> 28 ) & 7;
+	i =  (read_c0_config() >> 28 ) & 7;
 	if ((mips_cpu.cputype == CPU_R5432) && (i == 3))
 		i = 4;
 	mips_counter_frequency = bus_frequency*(i+4)/4;
@@ -159,8 +157,8 @@ static void __init ddb_timer_setup(struct irqaction *irq)
 	setup_irq(CPU_IRQ_BASE + 7, irq);
 
         /* to generate the first timer interrupt */
-        count = read_32bit_cp0_register(CP0_COUNT);
-        write_32bit_cp0_register(CP0_COMPARE, count + 1000);
+        count = read_c0_count();
+        write_c0_compare(count + 1000);
 
 #else
 

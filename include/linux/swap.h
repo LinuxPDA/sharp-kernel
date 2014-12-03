@@ -1,3 +1,9 @@
+/*
+ * ChangLog:
+ *	12-Dec-2002 Lineo Japan, Inc.
+ *	16-Apr-2003 Sharp for SL-Zaurus
+ */
+
 #ifndef _LINUX_SWAP_H
 #define _LINUX_SWAP_H
 
@@ -41,12 +47,14 @@ union swap_header {
 
 #ifdef __KERNEL__
 
+#ifndef NO_MM
 /*
  * Max bad pages in the new format..
  */
 #define __swapoffset(x) ((unsigned long)&((union swap_header *)0)->x)
 #define MAX_SWAP_BADPAGES \
 	((__swapoffset(magic.magic) - __swapoffset(info.badpages)) / sizeof(int))
+#endif /* NO_MM */
 
 #include <asm/atomic.h>
 
@@ -136,6 +144,9 @@ extern struct page * read_swap_cache_async(swp_entry_t);
 
 /* linux/mm/oom_kill.c */
 extern void out_of_memory(void);
+#ifdef CONFIG_FREEPG_SIGNAL
+extern void reset_out_of_memory_condition(void);
+#endif
 
 /* linux/mm/swapfile.c */
 extern int total_swap_pages;
@@ -184,12 +195,26 @@ do {						\
 	nr_active_pages++;			\
 } while (0)
 
+#ifdef CONFIG_ARCH_SHARP_SL
+#define add_page_to_inactive_list(page)		\
+do {						\
+	DEBUG_LRU_PAGE(page);			\
+	if (!vm_without_swap || page->mapping) {	\
+		list_add(&(page)->lru, &inactive_list);	\
+		nr_inactive_pages++;			\
+	}	\
+	else {	\
+		clear_bit(PG_lru, &(page)->flags);	\
+	}	\
+} while (0)
+#else
 #define add_page_to_inactive_list(page)		\
 do {						\
 	DEBUG_LRU_PAGE(page);			\
 	list_add(&(page)->lru, &inactive_list);	\
 	nr_inactive_pages++;			\
 } while (0)
+#endif
 
 #define del_page_from_active_list(page)		\
 do {						\
@@ -204,12 +229,16 @@ do {						\
 	nr_inactive_pages--;			\
 } while (0)
 
+#ifndef NO_MM
+
 extern spinlock_t swaplock;
 
 #define swap_list_lock()	spin_lock(&swaplock)
 #define swap_list_unlock()	spin_unlock(&swaplock)
 #define swap_device_lock(p)	spin_lock(&p->sdev_lock)
 #define swap_device_unlock(p)	spin_unlock(&p->sdev_lock)
+
+#endif /* NO_MM */
 
 extern void shmem_unuse(swp_entry_t entry, struct page *page);
 

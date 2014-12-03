@@ -30,6 +30,11 @@
  * Version 1.11		added 48-bit lba
  * Version 1.12		adding taskfile io access method
  *			Highmem I/O support, Jens Axboe <axboe@suse.de>
+ *
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
+ *	30-Jul-2002 Lineo Japan, Inc.  for 2.4.18
+ *      26-Feb-2004 Lineo Solutions, Inc.  2 slot support
  */
 
 #define IDEDISK_VERSION	"1.12"
@@ -55,6 +60,10 @@
 #include <asm/irq.h>
 #include <asm/uaccess.h>
 #include <asm/io.h>
+
+#if defined(CONFIG_ARCH_SHARP_SL) && defined(CONFIG_PCMCIA) && defined(USE_HDD_LED)
+extern void set_hdd_led(int slot, int write, int on );
+#endif
 
 #ifdef CONFIG_BLK_DEV_PDC4030
 #define IS_PDC4030_DRIVE (HWIF(drive)->chipset == ide_pdc4030)
@@ -174,6 +183,9 @@ static ide_startstop_t read_intr (ide_drive_t *drive)
 	}
 
 	msect = drive->mult_count;
+#if defined(CONFIG_ARCH_SHARP_SL) && defined(CONFIG_PCMCIA) && defined(USE_HDD_LED)
+	set_hdd_led(sharpsl_pcmcia_irq_to_sock(HWIF(drive)->hw.irq),0,1);
+#endif
 read_next:
 	rq = HWGROUP(drive)->rq;
 	if (msect) {
@@ -190,6 +202,9 @@ read_next:
 		(unsigned long) rq->buffer+(nsect<<9), rq->nr_sectors-nsect);
 #endif
 	ide_unmap_buffer(to, &flags);
+#ifdef CONFIG_DBMX1_TPM102
+	udelay(100);
+#endif
 	rq->sector += nsect;
 	rq->errors = 0;
 	i = (rq->nr_sectors -= nsect);
@@ -201,6 +216,9 @@ read_next:
 		ide_set_handler (drive, &read_intr, WAIT_CMD, NULL);
                 return ide_started;
 	}
+#if defined(CONFIG_ARCH_SHARP_SL) && defined(CONFIG_PCMCIA) && defined(USE_HDD_LED)
+	set_hdd_led(sharpsl_pcmcia_irq_to_sock(HWIF(drive)->hw.irq),0,0);
+#endif
         return ide_stopped;
 }
 
@@ -222,6 +240,9 @@ static ide_startstop_t write_intr (ide_drive_t *drive)
 			drive->name, rq->sector, (unsigned long) rq->buffer,
 			rq->nr_sectors-1);
 #endif
+#if defined(CONFIG_ARCH_SHARP_SL) && defined(CONFIG_PCMCIA) && defined(USE_HDD_LED)
+		set_hdd_led(sharpsl_pcmcia_irq_to_sock(HWIF(drive)->hw.irq),1,1);
+#endif
 		if ((rq->nr_sectors == 1) ^ ((stat & DRQ_STAT) != 0)) {
 			rq->sector++;
 			rq->errors = 0;
@@ -234,13 +255,25 @@ static ide_startstop_t write_intr (ide_drive_t *drive)
 				char *to = ide_map_buffer(rq, &flags);
 				idedisk_output_data (drive, to, SECTOR_WORDS);
 				ide_unmap_buffer(to, &flags);
+#ifdef CONFIG_DBMX1_TPM102
+				udelay(100);
+#endif
 				ide_set_handler (drive, &write_intr, WAIT_CMD, NULL);
                                 return ide_started;
 			}
+#if defined(CONFIG_ARCH_SHARP_SL) && defined(CONFIG_PCMCIA) && defined(USE_HDD_LED)
+			set_hdd_led(sharpsl_pcmcia_irq_to_sock(HWIF(drive)->hw.irq),1,0);
+#endif
                         return ide_stopped;
 		}
+#if defined(CONFIG_ARCH_SHARP_SL) && defined(CONFIG_PCMCIA) && defined(USE_HDD_LED)
+		set_hdd_led(sharpsl_pcmcia_irq_to_sock(HWIF(drive)->hw.irq),1,0);
+#endif
 		return ide_stopped;	/* the original code did this here (?) */
 	}
+#if defined(CONFIG_ARCH_SHARP_SL) && defined(CONFIG_PCMCIA) && defined(USE_HDD_LED)
+	set_hdd_led(sharpsl_pcmcia_irq_to_sock(HWIF(drive)->hw.irq),1,0);
+#endif
 	return ide_error(drive, "write_intr", stat);
 }
 
@@ -558,6 +591,14 @@ static ide_startstop_t lba_48_rw_disk (ide_drive_t *drive, struct request *rq, u
  */
 static ide_startstop_t do_rw_disk (ide_drive_t *drive, struct request *rq, unsigned long block)
 {
+#if defined(CONFIG_ARCH_SHARP_SL) && defined(CONFIG_PCMCIA)
+	ide_hwif_t *hwif = HWIF(drive);
+	if (!is_pcmcia_card_present(hwif->hw.irq)) {
+		ide_end_request(0, HWGROUP(drive));
+		return ide_stopped;
+	}
+#endif
+
 	if (IDE_CONTROL_REG)
 		OUT_BYTE(drive->ctl,IDE_CONTROL_REG);
 

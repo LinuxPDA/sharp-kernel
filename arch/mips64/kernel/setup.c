@@ -13,6 +13,7 @@
 #include <linux/config.h>
 #include <linux/errno.h>
 #include <linux/init.h>
+#include <linux/ioport.h>
 #include <linux/sched.h>
 #include <linux/kernel.h>
 #include <linux/mm.h>
@@ -71,6 +72,8 @@ extern struct ide_ops no_ide_ops;
 struct ide_ops *ide_ops;
 #endif
 
+extern void * __rd_start, * __rd_end;
+
 extern struct rtc_ops no_rtc_ops;
 struct rtc_ops *rtc_ops;
 
@@ -89,7 +92,7 @@ struct boot_mem_map boot_mem_map;
 
 unsigned char aux_device_present;
 
-extern void load_mmu(void);
+extern char _ftext, _etext, _fdata, _edata, _end;
 
 static char command_line[CL_SIZE] = { 0, };
        char saved_command_line[CL_SIZE];
@@ -102,12 +105,8 @@ extern char arcs_cmdline[CL_SIZE];
 const unsigned long mips_io_port_base = -1;
 EXPORT_SYMBOL(mips_io_port_base);
 
-extern void ip22_setup(void);
-extern void ip27_setup(void);
-extern void ip32_setup(void);
-
 /*
- * isa_slot_offset is the address where E(ISA) busaddress 0 is is mapped
+ * isa_slot_offset is the address where E(ISA) busaddress 0 is mapped
  * for the processor.
  */
 unsigned long isa_slot_offset;
@@ -118,6 +117,9 @@ extern void SetUpBootInfo(void);
 extern void load_mmu(void);
 extern ATTRIB_NORET asmlinkage void start_kernel(void);
 extern void prom_init(int, char **, char **, int *);
+
+static struct resource code_resource = { "Kernel code" };
+static struct resource data_resource = { "Kernel data" };
 
 asmlinkage void __init init_arch(int argc, char **argv, char **envp,
 	int *prom_vec)
@@ -145,8 +147,8 @@ asmlinkage void __init init_arch(int argc, char **argv, char **envp,
 	 * Maybe because the kernel is in ckseg0 and not xkphys? Clear it
 	 * anyway ...
 	 */
-	clear_cp0_status(ST0_BEV|ST0_TS|ST0_CU1|ST0_CU2|ST0_CU3);
-	set_cp0_status(ST0_CU0|ST0_KX|ST0_SX|ST0_FR);
+	clear_c0_status(ST0_BEV|ST0_TS|ST0_CU1|ST0_CU2|ST0_CU3);
+	set_c0_status(ST0_CU0|ST0_KX|ST0_SX|ST0_FR);
 
 	start_kernel();
 }
@@ -243,7 +245,12 @@ static inline void parse_mem_cmdline(void)
 	}
 }
 
-void bootmem_init(void)
+
+#define PFN_UP(x)	(((x) + PAGE_SIZE - 1) >> PAGE_SHIFT)
+#define PFN_DOWN(x)	((x) >> PAGE_SHIFT)
+#define PFN_PHYS(x)	((x) << PAGE_SHIFT)
+
+static inline void bootmem_init(void)
 {
 #ifdef CONFIG_BLK_DEV_INITRD
 	unsigned long tmp;
@@ -252,19 +259,26 @@ void bootmem_init(void)
 	unsigned long bootmap_size;
 	unsigned long start_pfn, max_pfn;
 	int i;
-	extern int _end;
 
-#define PFN_UP(x)	(((x) + PAGE_SIZE - 1) >> PAGE_SHIFT)
-#define PFN_DOWN(x)	((x) >> PAGE_SHIFT)
-#define PFN_PHYS(x)	((x) << PAGE_SHIFT)
-
+#ifdef CONFIG_BLK_DEV_INITRD
+	tmp = (((unsigned long)&_end + PAGE_SIZE-1) & PAGE_MASK) - 8;
+	if (tmp < (unsigned long)&_end)
+		tmp += PAGE_SIZE;
+	initrd_header = (unsigned long *)tmp;
+	if (initrd_header[0] == 0x494E5244) {
+		initrd_start = (unsigned long)&initrd_header[2];
+		initrd_end = initrd_start + initrd_header[1];
+	}
+	start_pfn = PFN_UP(CPHYSADDR((&_end)+(initrd_end - initrd_start) + PAGE_SIZE));
+#else
 	/*
 	 * Partially used pages are not usable - thus
 	 * we are rounding upwards.
-	 * start_pfn = PFN_UP(__pa(&_end));
 	 */
-	start_pfn = PFN_UP((unsigned long)&_end - KSEG0);
+	start_pfn = PFN_UP(CPHYSADDR(&_end));
+#endif	/* CONFIG_BLK_DEV_INITRD */
 
+#ifndef CONFIG_SGI_IP27
 	/* Find the highest page frame number we have available.  */
 	max_pfn = 0;
 	for (i = 0; i < boot_mem_map.nr_map; i++) {
@@ -329,35 +343,92 @@ void bootmem_init(void)
 
 	/* Reserve the bootmap memory.  */
 	reserve_bootmem(PFN_PHYS(start_pfn), bootmap_size);
+#endif
 
 #ifdef CONFIG_BLK_DEV_INITRD
-#error "Initrd is broken, please fit it."
-	tmp = (((unsigned long)&_end + PAGE_SIZE-1) & PAGE_MASK) - 8;
-	if (tmp < (unsigned long)&_end)
-		tmp += PAGE_SIZE;
-	initrd_header = (unsigned long *)tmp;
-	if (initrd_header[0] == 0x494E5244) {
-		initrd_start = (unsigned long)&initrd_header[2];
-		initrd_end = initrd_start + initrd_header[1];
-		initrd_below_start_ok = 1;
-		if (initrd_end > memory_end) {
+	/* Board specific code should have set up initrd_start and initrd_end */
+	ROOT_DEV = MKDEV(RAMDISK_MAJOR, 0);
+	if (&__rd_start != &__rd_end) {
+		initrd_start = (unsigned long)&__rd_start;
+		initrd_end = (unsigned long)&__rd_end;
+	}
+	initrd_below_start_ok = 1;
+	if (initrd_start) {
+		unsigned long initrd_size = ((unsigned char *)initrd_end) - ((unsigned char *)initrd_start);
+		printk("Initial ramdisk at: 0x%p (%lu bytes)\n",
+		       (void *)initrd_start,
+		       initrd_size);
+		if (CPHYSADDR(initrd_end) > PFN_PHYS(max_pfn)) {
 			printk("initrd extends beyond end of memory "
-			       "(0x%08lx > 0x%08lx)\ndisabling initrd\n",
-			       initrd_end,memory_end);
+			       "(0x%p > 0x%p)\ndisabling initrd\n",
+			       (void *)CPHYSADDR(initrd_end),
+			       (void *)PFN_PHYS(max_pfn));
 			initrd_start = 0;
-		} else
-			*memory_start_p = initrd_end;
+		}
 	}
 #endif
+}
+
+static inline void resource_init(void)
+{
+	int i;
+
+	code_resource.start = virt_to_bus(&_ftext);
+	code_resource.end = virt_to_bus(&_etext) - 1;
+	data_resource.start = virt_to_bus(&_fdata);
+	data_resource.end = virt_to_bus(&_edata) - 1;
+
+	/*
+	 * Request address space for all standard RAM.
+	 */
+	for (i = 0; i < boot_mem_map.nr_map; i++) {
+		struct resource *res;
+
+		res = alloc_bootmem(sizeof(struct resource));
+		switch (boot_mem_map.map[i].type) {
+		case BOOT_MEM_RAM:
+		case BOOT_MEM_ROM_DATA:
+			res->name = "System RAM";
+			break;
+		case BOOT_MEM_RESERVED:
+		default:
+			res->name = "reserved";
+		}
+
+		res->start = boot_mem_map.map[i].addr;
+		res->end = boot_mem_map.map[i].addr +
+			   boot_mem_map.map[i].size - 1;
+
+		res->flags = IORESOURCE_MEM | IORESOURCE_BUSY;
+		request_resource(&iomem_resource, res);
+
+		/*
+		 *  We dont't know which RAM region contains kernel data,
+		 *  so we try it repeatedly and let the resource manager
+		 *  test it.
+		 */
+		request_resource(res, &code_resource);
+		request_resource(res, &data_resource);
+	}
+}
 
 #undef PFN_UP
 #undef PFN_DOWN
 #undef PFN_PHYS
 
-}
 
 void __init setup_arch(char **cmdline_p)
 {
+	extern void decstation_setup(void);
+	extern void ip22_setup(void);
+	extern void ip27_setup(void);
+	extern void ip32_setup(void);
+	extern void swarm_setup(void);
+	extern void malta_setup(void);
+
+#ifdef CONFIG_DECSTATION
+	decstation_setup();
+#endif
 #ifdef CONFIG_SGI_IP22
 	ip22_setup();
 #endif
@@ -367,7 +438,7 @@ void __init setup_arch(char **cmdline_p)
 #ifdef CONFIG_SGI_IP32
 	ip32_setup();
 #endif
-#ifdef CONFIG_SIBYTE_SWARM
+#ifdef CONFIG_SIBYTE_BOARD
 	swarm_setup();
 #endif
 #ifdef CONFIG_MIPS_MALTA
@@ -385,6 +456,8 @@ void __init setup_arch(char **cmdline_p)
 	bootmem_init();
 
 	paging_init();
+
+	resource_init();
 }
 
 int __init fpu_disable(char *s)

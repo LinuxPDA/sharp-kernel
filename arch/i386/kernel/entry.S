@@ -73,7 +73,7 @@ VM_MASK		= 0x00020000
  * these are offsets into the task-struct.
  */
 state		=  0
-flags		=  4
+preempt_count	=  4
 sigpending	=  8
 addr_limit	= 12
 exec_domain	= 16
@@ -81,8 +81,28 @@ need_resched	= 20
 tsk_ptrace	= 24
 processor	= 52
 
+/* These are offsets into the irq_stat structure
+ * There is one per cpu and it is aligned to 32
+ * byte boundry (we put that here as a shift count)
+ */
+irq_array_shift                 = CONFIG_X86_L1_CACHE_SHIFT
+
+irq_stat_local_irq_count        = 4
+irq_stat_local_bh_count         = 8
+
 ENOSYS = 38
 
+#ifdef CONFIG_SMP
+#define GET_CPU_INDX	movl processor(%ebx),%eax;  \
+                        shll $irq_array_shift,%eax
+#define GET_CURRENT_CPU_INDX GET_CURRENT(%ebx); \
+                             GET_CPU_INDX
+#define CPU_INDX (,%eax)
+#else
+#define GET_CPU_INDX
+#define GET_CURRENT_CPU_INDX GET_CURRENT(%ebx)
+#define CPU_INDX
+#endif
 
 #define SAVE_ALL \
 	cld; \
@@ -184,6 +204,7 @@ ENTRY(lcall27)
 
 
 ENTRY(ret_from_fork)
+	sti
 	pushl %ebx
 	call SYMBOL_NAME(schedule_tail)
 	addl $4, %esp
@@ -210,17 +231,20 @@ ENTRY(system_call)
 	call *SYMBOL_NAME(sys_call_table)(,%eax,4)
 	movl %eax,EAX(%esp)		# save the return value
 ENTRY(ret_from_sys_call)
-	cli				# need_resched and signals atomic test
+	call *SYMBOL_NAME(rthal + 4)	# cli
 	cmpl $0,need_resched(%ebx)
 	jne reschedule
 	cmpl $0,sigpending(%ebx)
 	jne signal_return
+	sti
+	call *SYMBOL_NAME(rthal + 8)	# sti
 restore_all:
 	RESTORE_ALL
 
 	ALIGN
 signal_return:
-	sti				# we can get here from an interrupt handler
+	sti			# we can get here from an interrupt handler
+	call *SYMBOL_NAME(rthal + 8)	# sti
 	testl $(VM_MASK),EFLAGS(%esp)
 	movl %esp,%eax
 	jne v86_signal_return
@@ -255,16 +279,34 @@ badsys:
 	ALIGN
 ENTRY(ret_from_intr)
 	GET_CURRENT(%ebx)
+#ifdef CONFIG_PREEMPT
+	cli
+	decl preempt_count(%ebx)
+#endif
 ret_from_exception:
 	movl EFLAGS(%esp),%eax		# mix EFLAGS and CS
 	movb CS(%esp),%al
 	testl $(VM_MASK | 3),%eax	# return to VM86 mode or non-supervisor?
 	jne ret_from_sys_call
+#ifdef CONFIG_PREEMPT
+	cmpl $0,preempt_count(%ebx)
+	jnz restore_all
+	cmpl $0,need_resched(%ebx)
+	jz restore_all
+	movl SYMBOL_NAME(irq_stat)+irq_stat_local_bh_count CPU_INDX,%ecx
+	addl SYMBOL_NAME(irq_stat)+irq_stat_local_irq_count CPU_INDX,%ecx
+	jnz restore_all
+	incl preempt_count(%ebx)
+	sti
+	call SYMBOL_NAME(preempt_schedule)
+	jmp ret_from_intr
+#else
 	jmp restore_all
+#endif
 
 	ALIGN
 reschedule:
-	call SYMBOL_NAME(schedule)    # test
+	call SYMBOL_NAME(user_schedule)    # test
 	jmp ret_from_sys_call
 
 ENTRY(divide_error)
@@ -297,6 +339,9 @@ error_code:
 	GET_CURRENT(%ebx)
 	call *%edi
 	addl $8,%esp
+#ifdef CONFIG_PREEMPT
+	cli
+#endif
 	jmp ret_from_exception
 
 ENTRY(coprocessor_error)
@@ -316,12 +361,18 @@ ENTRY(device_not_available)
 	movl %cr0,%eax
 	testl $0x4,%eax			# EM (math emulation bit)
 	jne device_not_available_emulate
+#ifdef CONFIG_PREEMPT
+	cli
+#endif
 	call SYMBOL_NAME(math_state_restore)
 	jmp ret_from_exception
 device_not_available_emulate:
 	pushl $0		# temporary storage for ORIG_EIP
 	call  SYMBOL_NAME(math_emulate)
 	addl $4,%esp
+#ifdef CONFIG_PREEMPT
+	cli
+#endif
 	jmp ret_from_exception
 
 ENTRY(debug)
@@ -401,6 +452,31 @@ ENTRY(spurious_interrupt_bug)
 	pushl $0
 	pushl $ SYMBOL_NAME(do_spurious_interrupt_bug)
 	jmp error_code
+
+#ifdef CONFIG_KGDB_THREAD
+ENTRY(kern_schedule)
+	pushl	%ebp
+	movl	%esp, %ebp
+	pushl	%ss		
+	pushl	%ebp
+	pushfl
+	pushl	%cs
+	pushl	4(%ebp)
+	pushl	%eax		
+	pushl	%es
+	pushl	%ds
+	pushl	%eax
+	pushl	(%ebp)
+	pushl	%edi
+	pushl	%esi
+	pushl	%edx
+	pushl	%ecx
+	pushl	%ebx
+	call	kern_do_schedule
+	movl	%ebp, %esp
+	pop	%ebp
+	ret
+#endif
 
 .data
 ENTRY(sys_call_table)

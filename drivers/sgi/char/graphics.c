@@ -258,7 +258,7 @@ sgi_graphics_nopage (struct vm_area_struct *vma, unsigned long address, int
  */
 
 static struct vm_operations_struct graphics_mmap = {
-	nopage:	sgi_graphics_nopage,	/* our magic no-page fault handler */
+	.nopage	= sgi_graphics_nopage,	/* our magic no-page fault handler */
 };
 
 int
@@ -291,20 +291,24 @@ graphics_ops_post_init (int slot)
 #endif
 
 struct file_operations sgi_graphics_fops = {
-	ioctl:		sgi_graphics_ioctl,
-	mmap:		sgi_graphics_mmap,
-	open:		sgi_graphics_open,
-	release:	sgi_graphics_close,
+	.ioctl		= sgi_graphics_ioctl,
+	.mmap		= sgi_graphics_mmap,
+	.open		= sgi_graphics_open,
+	.release	= sgi_graphics_close,
 };
 
 /* /dev/graphics */
 static struct miscdevice dev_graphics = {
-	SGI_GRAPHICS_MINOR, "sgi-graphics", &sgi_graphics_fops
+	.minor	= SGI_GRAPHICS_MINOR,
+	.name	= "sgi-graphics",
+	.fops	= &sgi_graphics_fops,
 };
 
 /* /dev/opengl */
 static struct miscdevice dev_opengl = {
-	SGI_OPENGL_MINOR, "sgi-opengl", &sgi_graphics_fops
+	.minor	= SGI_OPENGL_MINOR,
+	.name	= "sgi-opengl",
+	.fops	= &sgi_graphics_fops,
 };
 
 /* This is called later from the misc-init routine */

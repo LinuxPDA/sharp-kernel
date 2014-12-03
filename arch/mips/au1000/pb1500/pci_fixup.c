@@ -57,8 +57,8 @@ void __init pcibios_fixup(void)
 {
 	int i;
 	struct pci_dev *dev;
-
-	virt_io_addr = (unsigned long)ioremap(Au1500_PCI_IO_START,
+	
+	virt_io_addr = (unsigned long)ioremap(Au1500_PCI_IO_START, 
 			Au1500_PCI_IO_END - Au1500_PCI_IO_START + 1);
 
 	if (!virt_io_addr) {
@@ -66,13 +66,7 @@ void __init pcibios_fixup(void)
 		return;
 	}
 
-	pci_for_each_dev(dev) {
-		for (i=0; i < DEVICE_COUNT_RESOURCE; i++) {
-			if (dev->resource[i].start) {
-				fixup_resource(i, dev);
-			}
-		}
-	}
+	set_io_port_base(virt_io_addr);
 }
 
 void __init pcibios_fixup_irqs(void)
@@ -103,17 +97,7 @@ unsigned int pcibios_assign_all_busses(void)
 	return 0;
 }
 
-static void fixup_resource(int r_num, struct pci_dev *dev)
+static void fixup_resource(int r_num, struct pci_dev *dev) 
 {
-	unsigned long start, size, new_start;
-
-	if (dev->resource[r_num].flags & IORESOURCE_IO) {
-		start = dev->resource[r_num].start;
-		size = dev->resource[r_num].end - start;
-		new_start = virt_io_addr + (start - Au1500_PCI_IO_START);
-		dev->resource[r_num].start = new_start;
-		dev->resource[r_num].end = new_start + size;
-	}
 }
-
 #endif

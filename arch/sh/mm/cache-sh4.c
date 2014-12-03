@@ -33,9 +33,21 @@
 #define CCR_CACHE_ICI	0x0800	/* IC Invalidate */
 #define CCR_CACHE_IIX	0x8000	/* IC Index Enable */
 
+#if defined(CONFIG_CPU_SUBTYPE_SH7750R) || \
+    defined(CONFIG_CPU_SUBTYPE_SH7751R) || \
+    defined(CONFIG_CPU_SUBTYPE_SH7760)
+#define CONFIG_SH_CACHE_ASSOC 1
+#endif
+
+#define CCR_CACHE_EMODE	0x80000000	/* EMODE */
+
 /* Default CCR setup: 8k+16k-byte cache,P1-wb,enable */
 #define CCR_CACHE_VAL	(CCR_CACHE_ICE|CCR_CACHE_CB|CCR_CACHE_OCE)
+#if defined(CONFIG_SH_CACHE_ASSOC)
+#define CCR_CACHE_INIT	(CCR_CACHE_EMODE|CCR_CACHE_VAL|CCR_CACHE_OCI|CCR_CACHE_ICI)
+#else
 #define CCR_CACHE_INIT	(CCR_CACHE_VAL|CCR_CACHE_OCI|CCR_CACHE_ICI)
+#endif
 #define CCR_CACHE_ENABLE (CCR_CACHE_OCE|CCR_CACHE_ICE)
 
 #define CACHE_IC_ADDRESS_ARRAY 0xf0000000
@@ -43,8 +55,14 @@
 #define CACHE_VALID	  1
 #define CACHE_UPDATED	  2
 
+#if defined(CONFIG_SH_CACHE_ASSOC)
+#define CACHE_OC_WAY_SHIFT       14
+#define CACHE_IC_WAY_SHIFT       13
+#define CACHE_NUM_WAYS		  2
+#else
 #define CACHE_OC_WAY_SHIFT       13
 #define CACHE_IC_WAY_SHIFT       13
+#endif
 #define CACHE_OC_ENTRY_SHIFT      5
 #define CACHE_IC_ENTRY_SHIFT      5
 #define CACHE_OC_ENTRY_MASK		0x3fe0
@@ -58,7 +76,11 @@ detect_cpu_and_cache_system(void)
 {
 #ifdef CONFIG_CPU_SUBTYPE_ST40STB1
 	cpu_data->type = CPU_ST40STB1;
-#elif defined(CONFIG_CPU_SUBTYPE_SH7750) || defined(CONFIG_CPU_SUBTYPE_SH7751)
+#elif defined(CONFIG_CPU_SUBTYPE_SH7750)  || \
+      defined(CONFIG_CPU_SUBTYPE_SH7751)  || \
+      defined(CONFIG_CPU_SUBTYPE_SH7750R) || \
+      defined(CONFIG_CPU_SUBTYPE_SH7751R) || \
+      defined(CONFIG_CPU_SUBTYPE_SH7760)
 	cpu_data->type = CPU_SH7750;
 #else
 #error Unknown SH4 CPU type
@@ -78,17 +100,36 @@ void __init cache_init(void)
 		 * XXX: Should check RA here. 
 		 * If RA was 1, we only need to flush the half of the caches.
 		 */
+#if defined(CONFIG_SH_CACHE_ASSOC)
+	    if (ccr & CCR_CACHE_EMODE){
+		unsigned long addr, data, i, j;
+
+		for (i=0; i<CACHE_OC_NUM_ENTRIES; i++) {
+		    for (j=0; j<CACHE_NUM_WAYS; j++) {
+			addr = CACHE_OC_ADDRESS_ARRAY|(j<<CACHE_OC_WAY_SHIFT)|
+				(i<<CACHE_OC_ENTRY_SHIFT);
+			data = ctrl_inl(addr);
+			if ((data & (CACHE_UPDATED|CACHE_VALID)) == 
+					(CACHE_UPDATED|CACHE_VALID))
+			    ctrl_outl(data & ~CACHE_UPDATED, addr);
+		    }
+		}
+	    } else {
+#endif
 		unsigned long addr, data;
 
 		for (addr = CACHE_OC_ADDRESS_ARRAY;
-		     addr < (CACHE_OC_ADDRESS_ARRAY+
-			     (CACHE_OC_NUM_ENTRIES << CACHE_OC_ENTRY_SHIFT));
-		     addr += (1 << CACHE_OC_ENTRY_SHIFT)) {
-			data = ctrl_inl(addr);
-			if ((data & (CACHE_UPDATED|CACHE_VALID))
+			addr < (CACHE_OC_ADDRESS_ARRAY+
+			(CACHE_OC_NUM_ENTRIES << CACHE_OC_ENTRY_SHIFT));
+			addr += (1 << CACHE_OC_ENTRY_SHIFT)) {
+		    data = ctrl_inl(addr);
+		    if ((data & (CACHE_UPDATED|CACHE_VALID))
 			    == (CACHE_UPDATED|CACHE_VALID))
-				ctrl_outl(data & ~CACHE_UPDATED, addr);
+			ctrl_outl(data & ~CACHE_UPDATED, addr);
 		}
+#if defined(CONFIG_SH_CACHE_ASSOC)
+	    }
+#endif
 	}
 
 	ctrl_outl(CCR_CACHE_INIT, CCR);
@@ -194,6 +235,9 @@ void flush_cache_sigtramp(unsigned long addr)
 {
 	unsigned long v, index;
 	unsigned long flags; 
+#if defined(CONFIG_SH_CACHE_ASSOC)
+	unsigned long i, j;
+#endif
 
 	v = addr & ~(L1_CACHE_BYTES-1);
 	asm volatile("ocbwb	%0"
@@ -201,11 +245,26 @@ void flush_cache_sigtramp(unsigned long addr)
 		     : "m" (__m(v)));
 
 	index = CACHE_IC_ADDRESS_ARRAY| (v&CACHE_IC_ENTRY_MASK);
+#if defined(CONFIG_RTHAL)
+	hard_save_flags_and_cli(flags);
+#else
 	save_and_cli(flags);
+#endif
 	jump_to_P2();
+#if defined(CONFIG_SH_CACHE_ASSOC)
+	for (i = 0; i < CACHE_NUM_WAYS; ++i) {
+		j = i << CACHE_IC_WAY_SHIFT;
+		ctrl_outl(0, index + j);   /* Clear out Valid-bit */
+	}
+#else
 	ctrl_outl(0, index);	/* Clear out Valid-bit */
+#endif
 	back_to_P1();
+#if defined(CONFIG_RTHAL)
+	hard_restore_flags(flags);
+#else
 	restore_flags(flags);
+#endif
 }
 
 /*
@@ -215,12 +274,30 @@ static void __flush_dcache_page(unsigned long phys)
 {
 	unsigned long addr, data;
 	unsigned long flags;
+#if defined(CONFIG_SH_CACHE_ASSOC)
+	unsigned long i, j;
+#endif
 
 	phys |= CACHE_VALID;
 
+#if defined(CONFIG_RTHAL)
+	hard_save_flags_and_cli(flags);
+#else
 	save_and_cli(flags);
+#endif
 	jump_to_P2();
 
+#if defined(CONFIG_SH_CACHE_ASSOC)
+	for (i=0; i<CACHE_OC_NUM_ENTRIES; i++) {
+		for (j=0; j<CACHE_NUM_WAYS; j++) {
+			addr = CACHE_OC_ADDRESS_ARRAY|(j<<CACHE_OC_WAY_SHIFT)|
+				(i<<CACHE_OC_ENTRY_SHIFT);
+			data = ctrl_inl(addr)&(0x1ffff000|CACHE_VALID);
+			if (data == phys)
+				ctrl_outl(0, addr);
+		}
+	}
+#else
 	/* Loop all the D-cache */
 	for (addr = CACHE_OC_ADDRESS_ARRAY;
 	     addr < (CACHE_OC_ADDRESS_ARRAY
@@ -230,6 +307,7 @@ static void __flush_dcache_page(unsigned long phys)
 		if (data == phys)
 			ctrl_outl(0, addr);
 	}
+#endif
 
 #if 0 /* DEBUG DEBUG */
 	/* Loop all the I-cache */
@@ -245,7 +323,11 @@ static void __flush_dcache_page(unsigned long phys)
 	}
 #endif
 	back_to_P1();
+#if defined(CONFIG_RTHAL)
+	hard_restore_flags(flags);
+#else
 	restore_flags(flags);
+#endif
 }
 
 /*
@@ -264,19 +346,34 @@ void flush_cache_all(void)
 	unsigned long flags;
 	unsigned long addr;
 
+#if defined(CONFIG_RTHAL)
+	hard_save_flags_and_cli(flags);
+#else
 	save_and_cli(flags);
+#endif
 
 	/* Prefetch the data to write back D-cache */
+#if defined(CONFIG_SH_CACHE_ASSOC)
+	for (addr = (unsigned long)empty_zero_page;
+	     addr < (unsigned long)empty_zero_page + 1024*32;
+	     addr += L1_CACHE_BYTES)
+		asm volatile("pref @%0"::"r" (addr));
+#else
 	for (addr = (unsigned long)empty_zero_page;
 	     addr < (unsigned long)empty_zero_page + 1024*16;
 	     addr += L1_CACHE_BYTES)
 		asm volatile("pref @%0"::"r" (addr));
+#endif
 
 	jump_to_P2();
 	/* Flush D-cache/I-cache */
 	ctrl_outl(CCR_CACHE_INIT, CCR);
 	back_to_P1();
+#if defined(CONFIG_RTHAL)
+	hard_restore_flags(flags);
+#else
 	restore_flags(flags);
+#endif
 }
 
 void flush_cache_mm(struct mm_struct *mm)
@@ -321,6 +418,9 @@ void flush_cache_page(struct vm_area_struct *vma, unsigned long address)
 	pte_t entry;
 	unsigned long phys, addr, data;
 	unsigned long flags;
+#if defined(CONFIG_SH_CACHE_ASSOC)
+	unsigned long i, j;
+#endif
 
 	dir = pgd_offset(vma->vm_mm, address);
 	pmd = pmd_offset(dir, address);
@@ -334,10 +434,42 @@ void flush_cache_page(struct vm_area_struct *vma, unsigned long address)
 	phys = pte_val(entry)&PTE_PHYS_MASK;
 
 	phys |= CACHE_VALID;
+#if defined(CONFIG_RTHAL)
+	hard_save_flags_and_cli(flags);
+#else
 	save_and_cli(flags);
+#endif
 	jump_to_P2();
 
 	/* We only need to flush D-cache when we have alias */
+#if defined(CONFIG_SH_CACHE_ASSOC)
+	if ((address^phys) & CACHE_ALIAS) {
+		/* Loop 4K of the D-cache */
+		for (i=0; i<CACHE_OC_NUM_ENTRIES/4; i++) {
+			for (j=0; j<CACHE_NUM_WAYS; j++) {
+				addr = CACHE_OC_ADDRESS_ARRAY |
+					(address & CACHE_ALIAS) |
+					(j<<CACHE_OC_WAY_SHIFT) |
+					(i<<CACHE_OC_ENTRY_SHIFT);
+				data = ctrl_inl(addr)&(0x1ffff000|CACHE_VALID);
+				if (data == phys)
+					ctrl_outl(0, addr);
+			}
+		}
+		/* Loop another 4K of the D-cache */
+		for (i=0; i<CACHE_OC_NUM_ENTRIES/4; i++) {
+			for (j=0; j<CACHE_NUM_WAYS; j++) {
+				addr = CACHE_OC_ADDRESS_ARRAY |
+					(phys & CACHE_ALIAS) |
+					(j<<CACHE_OC_WAY_SHIFT) |
+					(i<<CACHE_OC_ENTRY_SHIFT);
+				data = ctrl_inl(addr)&(0x1ffff000|CACHE_VALID);
+				if (data == phys)
+					ctrl_outl(0, addr);
+			}
+		}
+	}
+#else
 	if ((address^phys) & CACHE_ALIAS) {
 		/* Loop 4K of the D-cache */
 		for (addr = CACHE_OC_ADDRESS_ARRAY | (address & CACHE_ALIAS);
@@ -358,9 +490,23 @@ void flush_cache_page(struct vm_area_struct *vma, unsigned long address)
 				ctrl_outl(0, addr);
 		}
 	}
+#endif
 
 	if (vma->vm_flags & VM_EXEC)
 		/* Loop 4K of the I-cache */
+#if defined(CONFIG_SH_CACHE_ASSOC)
+		for (i=0; i<CACHE_IC_NUM_ENTRIES/2; i++) {
+			for (j=0; j<CACHE_NUM_WAYS; j++) {
+				addr = CACHE_IC_ADDRESS_ARRAY |
+					(address&0x1000) |
+					(j<<CACHE_IC_WAY_SHIFT)|
+					(i<<CACHE_IC_ENTRY_SHIFT);
+				data = ctrl_inl(addr)&(0x1ffff000|CACHE_VALID);
+				if (data == phys)
+					ctrl_outl(0, addr);
+			}
+		}
+#else
 		for (addr = CACHE_IC_ADDRESS_ARRAY|(address&0x1000);
 		     addr < ((CACHE_IC_ADDRESS_ARRAY|(address&0x1000))
 			     +(CACHE_IC_NUM_ENTRIES/2<<CACHE_IC_ENTRY_SHIFT));
@@ -369,8 +515,13 @@ void flush_cache_page(struct vm_area_struct *vma, unsigned long address)
 			if (data == phys)
 				ctrl_outl(0, addr);
 		}
+#endif
 	back_to_P1();
+#if defined(CONFIG_RTHAL)
+	hard_restore_flags(flags);
+#else
 	restore_flags(flags);
+#endif
 }
 
 /*
@@ -401,9 +552,17 @@ void clear_user_page(void *to, unsigned long address)
 		entry = mk_pte_phys(phys_addr, pgprot);
 		down(&p3map_sem[(address & CACHE_ALIAS)>>12]);
 		set_pte(pte, entry);
+#if defined(CONFIG_RTHAL)
+		hard_save_flags_and_cli(flags);
+#else
 		save_and_cli(flags);
+#endif
 		__flush_tlb_page(get_asid(), p3_addr);
+#if defined(CONFIG_RTHAL)
+		hard_restore_flags(flags);
+#else
 		restore_flags(flags);
+#endif
 		update_mmu_cache(NULL, p3_addr, entry);
 		__clear_user_page((void *)p3_addr, to);
 		pte_clear(pte);
@@ -440,9 +599,17 @@ void copy_user_page(void *to, void *from, unsigned long address)
 		entry = mk_pte_phys(phys_addr, pgprot);
 		down(&p3map_sem[(address & CACHE_ALIAS)>>12]);
 		set_pte(pte, entry);
+#if defined(CONFIG_RTHAL)
+		hard_save_flags_and_cli(flags);
+#else
 		save_and_cli(flags);
+#endif
 		__flush_tlb_page(get_asid(), p3_addr);
+#if defined(CONFIG_RTHAL)
+		hard_restore_flags(flags);
+#else
 		restore_flags(flags);
+#endif
 		update_mmu_cache(NULL, p3_addr, entry);
 		__copy_user_page((void *)p3_addr, from, to);
 		pte_clear(pte);

@@ -1,7 +1,10 @@
+/* $USAGI: ip6_route.h,v 1.9 2002/07/30 12:42:27 takamiya Exp $ */
+
 #ifndef _NET_IP6_ROUTE_H
 #define _NET_IP6_ROUTE_H
 
 #define IP6_RT_PRIO_FW		16
+#define IP6_RT_PRIO_MIPV6      	64
 #define IP6_RT_PRIO_USER	1024
 #define IP6_RT_PRIO_ADDRCONF	256
 #define IP6_RT_PRIO_KERN	512
@@ -52,6 +55,9 @@ extern void			rt6_sndmsg(int type, struct in6_addr *dst,
 					   int dstlen, int srclen,
 					   int metric, __u32 flags);
 
+#define RT6_LOOKUP_FLAG_STRICT	0x1
+#define RT6_LOOKUP_FLAG_NOUSE	0x2
+
 extern struct rt6_info		*rt6_lookup(struct in6_addr *daddr,
 					    struct in6_addr *saddr,
 					    int oif, int flags);
@@ -64,6 +70,7 @@ extern struct rt6_info *	rt6_get_dflt_router(struct in6_addr *addr,
 						    struct net_device *dev);
 extern struct rt6_info *	rt6_add_dflt_router(struct in6_addr *gwaddr,
 						    struct net_device *dev);
+extern struct rt6_info *	rt6_exist_dflt_router(void);
 
 extern void			rt6_purge_dflt_routers(int lst_resort);
 
@@ -107,5 +114,9 @@ static inline void ip6_dst_store(struct sock *sk, struct dst_entry *dst,
 	write_unlock(&sk->dst_lock);
 }
 
+/* Netfilter */
+#ifdef CONFIG_NETFILTER
+int route6_me_harder(struct sk_buff *skb);
+#endif
 #endif
 #endif

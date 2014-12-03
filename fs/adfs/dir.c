@@ -286,10 +286,21 @@ struct dentry *adfs_lookup(struct inode *dir, struct dentry *dentry)
 	return ERR_PTR(error);
 }
 
+#ifdef CONFIG_ADFS_FS_RW
+static int
+adfs_rename(struct inode *old_dir, struct dentry *old_dentry,
+	    struct inode *new_dir, struct dentry *new_dentry)
+{
+}
+#endif
+
 /*
  * directories can handle most operations...
  */
 struct inode_operations adfs_dir_inode_operations = {
 	lookup:		adfs_lookup,
+#ifdef CONFIG_ADFS_FS_RW
+	rename:		adfs_rename,
+#endif
 	setattr:	adfs_notify_change,
 };

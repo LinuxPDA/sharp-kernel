@@ -1,3 +1,5 @@
+/* $USAGI: dev.c,v 1.19.12.1 2003/02/05 07:45:54 yoshfuji Exp $ */
+
 /*
  * 	NET3	Protocol independent device support routines.
  *
@@ -547,6 +549,49 @@ struct net_device *dev_getbyhwaddr(unsigned short type, char *ha)
 }
 
 /**
+ *	__dev_get_by_flags - find any device with given flags
+ *	@flags: IFF_* values
+ *	@mask: bitmask of bits in flags to check
+ *
+ *	Search for any interface with the given flags. Returns NULL if a
+ *	device is not found or a pointer to the device. The caller must
+ *	hold either the RTNL semaphore or @dev_base_lock.
+ */
+
+struct net_device *__dev_get_by_flags(unsigned short flags, unsigned short mask)
+{
+	struct net_device *dev;
+	for (dev = dev_base; dev != NULL; dev = dev->next) {
+		if (((dev->flags ^ flags) & mask) == 0)
+			return dev;
+	}
+	return NULL;
+}
+
+/**
+ *  dev_get_by_flags - find any device with given flags
+ *  @flags: IFF_* values
+ *  @mask: bitmask of bits in flags to check
+ *
+ *  Search for any interface with the given flags. Returns NULL if a
+ *  device is not found or a pointer to the device. The device returned
+ *  has had a reference added and the pointer is safe until the user
+ *  calls dev_put to indicate they have finished with it.
+ */
+
+struct net_device * dev_get_by_flags(unsigned short flags, unsigned short mask)
+{
+	struct net_device *dev;
+
+	read_lock(&dev_base_lock);
+	dev = __dev_get_by_flags(flags, mask);
+	if (dev)
+		dev_hold(dev);
+	read_unlock(&dev_base_lock);
+	return dev;
+}
+
+/**
  *	dev_alloc_name - allocate a name for a device
  *	@dev: device 
  *	@name: name format string
@@ -1049,9 +1094,15 @@ int dev_queue_xmit(struct sk_buff *skb)
 		int cpu = smp_processor_id();
 
 		if (dev->xmit_lock_owner != cpu) {
+			/*
+			 * The spin_lock effectivly does a preempt lock, but 
+			 * we are about to drop that...
+			 */
+			preempt_disable();
 			spin_unlock(&dev->queue_lock);
 			spin_lock(&dev->xmit_lock);
 			dev->xmit_lock_owner = cpu;
+			preempt_enable();
 
 			if (!netif_queue_stopped(dev)) {
 				if (netdev_nit)
@@ -2057,7 +2108,10 @@ static int dev_ifsioc(struct ifreq *ifr, unsigned int cmd)
 			return err;
 
 		case SIOCGIFHWADDR:
-			memcpy(ifr->ifr_hwaddr.sa_data,dev->dev_addr, MAX_ADDR_LEN);
+			if (dev->addr_len < sizeof(ifr->ifr_hwaddr.sa_data))
+				memcpy(ifr->ifr_hwaddr.sa_data, dev->dev_addr, dev->addr_len);
+			else
+				memcpy(ifr->ifr_hwaddr.sa_data, dev->dev_addr, sizeof(ifr->ifr_hwaddr.sa_data));
 			ifr->ifr_hwaddr.sa_family=dev->type;
 			return 0;
 				
@@ -2072,11 +2126,24 @@ static int dev_ifsioc(struct ifreq *ifr, unsigned int cmd)
 			if (!err)
 				notifier_call_chain(&netdev_chain, NETDEV_CHANGEADDR, dev);
 			return err;
-			
+
+#ifdef SIOCGIFHWBROADCAST
+		case SIOCGIFHWBROADCAST:
+			if (dev->addr_len < sizeof(ifr->ifr_hwaddr.sa_data))
+				memcpy(ifr->ifr_hwaddr.sa_data, dev->broadcast, dev->addr_len);
+			else
+				memcpy(ifr->ifr_hwaddr.sa_data, dev->broadcast, sizeof(ifr->ifr_hwaddr.sa_data));
+			ifr->ifr_hwaddr.sa_family=dev->type;
+			return 0;
+#endif
+
 		case SIOCSIFHWBROADCAST:
 			if (ifr->ifr_hwaddr.sa_family!=dev->type)
 				return -EINVAL;
-			memcpy(dev->broadcast, ifr->ifr_hwaddr.sa_data, MAX_ADDR_LEN);
+			if (dev->addr_len < sizeof(ifr->ifr_hwaddr.sa_data))
+				memcpy(dev->broadcast, ifr->ifr_hwaddr.sa_data, dev->addr_len);
+			else
+				memcpy(dev->broadcast, ifr->ifr_hwaddr.sa_data, sizeof(ifr->ifr_hwaddr.sa_data));
 			notifier_call_chain(&netdev_chain, NETDEV_CHANGEADDR, dev);
 			return 0;
 

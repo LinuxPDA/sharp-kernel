@@ -8,6 +8,7 @@
  */
 
 #include <linux/spinlock.h>
+#include <linux/sched.h>
 #include <asm/atomic.h>
 
 int atomic_dec_and_lock(atomic_t *atomic, spinlock_t *lock)

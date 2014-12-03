@@ -17,8 +17,13 @@
 /* #define SND_DEV_SNDPROC	9 */	/* /dev/sndproc for programmable devices (not used) */
 /* #define SND_DEV_DMMIDI	9 */
 #define SND_DEV_SYNTH		9	/* Raw synth access /dev/synth (same as /dev/dmfm) */
+#if defined(CONFIG_SH_MS7720RP)
+#define SND_DEV_TXRX_PLAY	10
+#define SND_DEV_TXRX_REC	11
+#else
 #define SND_DEV_DMFM		10	/* Raw synth access /dev/dmfm */
 #define SND_DEV_UNKNOWN11	11
+#endif
 #define SND_DEV_ADSP		12	/* Like /dev/dsp (obsolete) */
 #define SND_DEV_AMIDI		13	/* Like /dev/midi (obsolete) */
 #define SND_DEV_ADMMIDI		14	/* Like /dev/dmmidi (onsolete) */
@@ -38,3 +43,11 @@ extern void unregister_sound_mixer(int unit);
 extern void unregister_sound_midi(int unit);
 extern void unregister_sound_dsp(int unit);
 extern void unregister_sound_synth(int unit);
+
+#if defined(CONFIG_SH_MS7720RP)
+extern int register_sound_txrx_play(struct file_operations *fops, int dev);
+extern int register_sound_txrx_rec (struct file_operations *fops, int dev);
+extern void unregister_sound_txrx_play(int unit);
+extern void unregister_sound_txrx_rec (int unit);
+#endif
+

@@ -28,6 +28,11 @@
 
 /* async buffer flushing, 1999 Andrea Arcangeli <andrea@suse.de> */
 
+/* 
+ * Change Log
+ *	12-Mar-2002 Lineo Japan, Inc.
+ */
+
 #include <linux/config.h>
 #include <linux/sched.h>
 #include <linux/fs.h>
@@ -367,6 +372,16 @@ asmlinkage long sys_sync(void)
 	return 0;
 }
 
+#ifdef CONFIG_FS_SYNC
+long sync_card(dev_t dev)
+{
+	if (MAJOR(dev) == IDE0_MAJOR || MAJOR(dev) == IDE1_MAJOR ||
+	    MAJOR(dev) == 60 /* mmcsd */)
+		fsync_dev(dev);
+	return 0;
+}
+#endif
+
 /*
  *	filp may be NULL if called via the msync of a vma.
  */
@@ -701,7 +716,7 @@ void invalidate_bdev(struct block_device *bdev, int destroy_dirty_buffers)
 				if (destroy_dirty_buffers || !buffer_dirty(bh)) {
 					remove_inode_queue(bh);
 				}
-			} else
+			} else if (!bdev->bd_openers)
 				printk("invalidate: busy buffer\n");
 
 			write_unlock(&hash_table_lock);
@@ -3032,4 +3047,18 @@ static int __init bdflush_init(void)
 }
 
 module_init(bdflush_init)
+
+#ifdef MAGIC_ROM_PTR
+int bromptr(kdev_t dev, struct vm_area_struct * vma)
+{
+	extern const struct block_device_operations *get_blkfops(unsigned int);
+
+	if (get_blkfops(MAJOR(dev))->romptr!=NULL)
+	{
+		return get_blkfops(MAJOR(dev))->romptr(dev, vma);
+	}
+	return -ENOSYS;
+}
+#endif /* MAGIC_ROM_PTR */
+
 

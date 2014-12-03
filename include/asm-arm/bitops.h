@@ -115,7 +115,11 @@ static inline unsigned long ffz(unsigned long word)
  * differs in spirit from the above ffz (man ffs).
  */
 
+#if __LINUX_ARM_ARCH__ >= 5
+#define ffs(x) __builtin_ffs(x)
+#else
 #define ffs(x) generic_ffs(x)
+#endif
 
 /*
  * hweightN: returns the hamming weight (i.e. the number

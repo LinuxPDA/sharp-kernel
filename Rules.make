@@ -96,7 +96,7 @@ ifdef O_TARGET
 $(O_TARGET): $(obj-y)
 	rm -f $@
     ifneq "$(strip $(obj-y))" ""
-	$(LD) $(EXTRA_LDFLAGS) -r -o $@ $(filter $(obj-y), $^)
+	$(LD) $(LDFLAGS) $(EXTRA_LDFLAGS) -r -o $@ $(filter $(obj-y), $^)
     else
 	$(AR) rcs $@
     endif
@@ -266,7 +266,7 @@ $(active-objs): $(TOPDIR)/include/linux/modversions.h
 
 else
 
-$(TOPDIR)/include/linux/modversions.h:
+$(TOPDIR)/include/linux/modversions.h: $(TOPDIR)/include/linux/modsetver.h
 	@echo "#include <linux/modsetver.h>" > $@
 
 endif # CONFIG_MODVERSIONS

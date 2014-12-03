@@ -40,10 +40,6 @@ struct cpuinfo_mips {
  * System setup and hardware flags..
  */
 extern void (*cpu_wait)(void);
-extern void r3081_wait(void);
-extern void r39xx_wait(void);
-extern void r4k_wait(void);
-extern void au1k_wait(void);
 
 extern struct cpuinfo_mips cpu_data[];
 extern unsigned int vced_count, vcei_count;
@@ -71,9 +67,6 @@ extern int EISA_bus;
  */
 #define wp_works_ok 1
 #define wp_works_ok__is_a_macro /* for versions in ksyms.c */
-
-/* Lazy FPU handling on uni-processor */
-extern struct task_struct *last_task_used_math;
 
 /*
  * User space process size: 2GB. This is hardcoded into a few places,
@@ -188,7 +181,7 @@ struct thread_struct {
 /* Free all resources held by a thread. */
 #define release_thread(thread) do { } while(0)
 
-extern int kernel_thread(int (*fn)(void *), void * arg, unsigned long flags);
+extern int arch_kernel_thread(int (*fn)(void *), void * arg, unsigned long flags);
 
 /* Copy and release all segment info associated with a VM */
 #define copy_segments(p, mm) do { } while(0)
@@ -211,20 +204,16 @@ static inline unsigned long thread_saved_pc(struct thread_struct *t)
 /*
  * Do necessary setup to start up a newly executed thread.
  */
-#define start_thread(regs, new_pc, new_sp) do {				\
-	/* New thread loses kernel and FPU privileges. */	       	\
-	regs->cp0_status = (regs->cp0_status & ~(ST0_CU0|ST0_KSU|ST0_CU1)) | KU_USER;\
-	regs->cp0_epc = new_pc;						\
-	regs->regs[29] = new_sp;					\
-	current->thread.current_ds = USER_DS;				\
-} while (0)
+extern void start_thread(struct pt_regs * regs, unsigned long pc, unsigned long sp);
 
+struct task_struct;
 unsigned long get_wchan(struct task_struct *p);
 
 #define __PT_REG(reg) ((long)&((struct pt_regs *)0)->reg - sizeof(struct pt_regs))
 #define __KSTK_TOS(tsk) ((unsigned long)(tsk) + KERNEL_STACK_SIZE - 32)
 #define KSTK_EIP(tsk) (*(unsigned long *)(__KSTK_TOS(tsk) + __PT_REG(cp0_epc)))
 #define KSTK_ESP(tsk) (*(unsigned long *)(__KSTK_TOS(tsk) + __PT_REG(regs[29])))
+#define KSTK_STATUS(tsk) (*(unsigned long *)(__KSTK_TOS(tsk) + __PT_REG(cp0_status)))
 
 /* Allocation and freeing of basic task resources. */
 /*

@@ -112,6 +112,11 @@ if [ "$CONFIG_SMP" = "y" ]; then
   bool '  Distribute interrupts on all CPUs by default' CONFIG_IRQ_ALL_CPUS
 fi
 
+bool 'Kernel Execute-In-Place(XIP) on ROM support' CONFIG_XIP_KERNEL
+bool 'Real-Time Hardware Abstraction Layer support' CONFIG_RTHAL
+dep_bool '  Real-Time Interrupt Request Handler support' CONFIG_RTIRQ $CONFIG_RTHAL
+bool 'Preemptible kernel support' CONFIG_PREEMPT
+
 if [ "$CONFIG_6xx" = "y" -a "$CONFIG_8260" = "n" ];then
   bool 'AltiVec Support' CONFIG_ALTIVEC
   bool 'Thermal Management Support' CONFIG_TAU
@@ -250,6 +255,7 @@ source drivers/mtd/Config.in
 source drivers/pnp/Config.in
 source drivers/block/Config.in
 source drivers/md/Config.in
+source crypto/Config.in
 
 if [ "$CONFIG_NET" = "y" ]; then
   source net/Config.in

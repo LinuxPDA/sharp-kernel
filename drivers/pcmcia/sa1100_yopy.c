@@ -73,9 +73,6 @@ static int yopy_pcmcia_socket_state(struct pcmcia_state_array *state_array)
 	if (state_array->size != 1)
 		return -1;
 
-	memset(state_array->state, 0,
-	       state_array->size * sizeof(struct pcmcia_state));
-
 	levels = GPLR;
 
 	state_array->state[0].detect = (levels & GPIO_CF_CD)    ? 0 : 1;

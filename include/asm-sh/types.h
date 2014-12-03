@@ -45,6 +45,10 @@ typedef unsigned long long u64;
 
 typedef u32 dma_addr_t;
 
+#if defined(CONFIG_SH_RTS7751R2D)
+typedef u64 dma64_addr_t;
+#endif
+
 #endif /* __KERNEL__ */
 
 #endif /* __ASM_SH_TYPES_H */

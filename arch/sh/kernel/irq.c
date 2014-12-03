@@ -206,6 +206,119 @@ void enable_irq(unsigned int irq)
 	spin_unlock_irqrestore(&desc->lock, flags);
 }
 
+#if defined(CONFIG_RTHAL)
+
+unsigned int do_IRQx(int irq, struct pt_regs* regs)
+{
+	int cpu = smp_processor_id();
+	irq_desc_t *desc;
+	struct irqaction * action;
+	unsigned int status;
+
+	kstat.irqs[cpu][irq]++;
+	desc = irq_desc + irq;
+	spin_lock(&desc->lock);
+	desc->handler->ack(irq);
+	/*
+	   REPLAY is when Linux resends an IRQ that was dropped earlier
+	   WAITING is used by probe to mark irqs that are being tested
+	   */
+	status = desc->status & ~(IRQ_REPLAY | IRQ_WAITING);
+	status |= IRQ_PENDING; /* we _want_ to handle it */
+
+	/*
+	 * If the IRQ is disabled for whatever reason, we cannot
+	 * use the action we have.
+	 */
+	action = NULL;
+	if (!(status & (IRQ_DISABLED | IRQ_INPROGRESS))) {
+		action = desc->action;
+		status &= ~IRQ_PENDING; /* we commit to handling */
+		status |= IRQ_INPROGRESS; /* we are handling it */
+	}
+	desc->status = status;
+
+	/*
+	 * If there is no IRQ handler or it was disabled, exit early.
+	   Since we set PENDING, if another processor is handling
+	   a different instance of this same irq, the other processor
+	   will take care of it.
+	 */
+	if (!action)
+		goto out;
+
+	/*
+	 * Edge triggered interrupts need to remember
+	 * pending events.
+	 * This applies to any hw interrupts that allow a second
+	 * instance of the same irq to arrive while we are in do_IRQ
+	 * or in the handler. But the code here only handles the _second_
+	 * instance of the irq, not the third or fourth. So it is mostly
+	 * useful for irq hardware that does not mask cleanly in an
+	 * SMP environment.
+	 */
+	for (;;) {
+		spin_unlock(&desc->lock);
+		handle_IRQ_event(irq, regs, action);
+		spin_lock(&desc->lock);
+
+		if (!(desc->status & IRQ_PENDING))
+			break;
+		desc->status &= ~IRQ_PENDING;
+	}
+	desc->status &= ~IRQ_INPROGRESS;
+out:
+	/*
+	 * The ->end() handler has to deal with interrupts which got
+	 * disabled while the handler was running.
+	 */
+	desc->handler->end(irq);
+	spin_unlock(&desc->lock);
+
+	if (softirq_pending(cpu))
+		do_softirq();
+
+	return 1;
+}
+
+/*
+ * do_IRQ handles all normal device IRQ's.
+ */
+asmlinkage int do_IRQ(unsigned long r4, unsigned long r5,
+		      unsigned long r6, unsigned long r7,
+		      struct pt_regs regs)
+{	
+	/* 
+	 * We ack quickly, we don't want the irq controller
+	 * thinking we're snobs just because some other CPU has
+	 * disabled global interrupts (we have already done the
+	 * INT_ACK cycles, it's too late to try to pretend to the
+	 * controller that we aren't taking the interrupt).
+	 *
+	 * 0 return value means that this irq is already being
+	 * handled by some other CPU. (or is disabled)
+	 */
+	int irq;
+
+#if defined(CONFIG_APM)
+	{
+		extern void cpu_resume(void);
+		cpu_resume();
+	}
+#endif
+
+	/* Get IRQ number */
+	asm volatile("stc	r2_bank, %0\n\t"
+		     "shlr2	%0\n\t"
+		     "shlr2	%0\n\t"
+		     "shlr	%0\n\t"
+		     "add	#-16, %0\n\t"
+		     :"=z" (irq));
+
+	irq = irq_demux(irq);
+	return rthal.do_IRQ(irq, &regs);
+}
+#else /* CONFIG_RTHAL */
 /*
  * do_IRQ handles all normal device IRQ's.
  */
@@ -229,6 +342,21 @@ asmlinkage int do_IRQ(unsigned long r4, unsigned long r5,
 	struct irqaction * action;
 	unsigned int status;
 
+#if defined(CONFIG_APM)
+	{
+		extern void cpu_resume(void);
+		cpu_resume();
+	}
+#endif
+
+	/*
+	 * At this point we're now about to actually call handlers,
+	 * and interrupts might get reenabled during them... bump
+	 * preempt_count to prevent any preemption while the handler
+ 	 * called here is pending...
+ 	 */
+ 	preempt_disable();
+
 	/* Get IRQ number */
 	asm volatile("stc	r2_bank, %0\n\t"
 		     "shlr2	%0\n\t"
@@ -236,6 +364,7 @@ asmlinkage int do_IRQ(unsigned long r4, unsigned long r5,
 		     "shlr	%0\n\t"
 		     "add	#-16, %0\n\t"
 		     :"=z" (irq));
+
 	irq = irq_demux(irq);
 
 	kstat.irqs[cpu][irq]++;
@@ -298,10 +427,20 @@ out:
 	desc->handler->end(irq);
 	spin_unlock(&desc->lock);
 
+
 	if (softirq_pending(cpu))
 		do_softirq();
+
+	/*
+	 * We're done with the handlers, interrupts should be
+	 * currently disabled; decrement preempt_count now so
+	 * as we return preemption may be allowed...
+	 */
+	preempt_enable_no_resched();
+
 	return 1;
 }
+#endif /* CONFIG_RTHAL */
 
 int request_irq(unsigned int irq, 
 		void (*handler)(int, void *, struct pt_regs *),
@@ -455,6 +594,50 @@ unsigned long probe_irq_on(void)
 	return val;
 }
 
+/*
+ * Return a mask of triggered interrupts (this
+ * can handle only legecy ISA interrupts).
+ */
+
+/*
+ * 	probe_irq_mask - scan a bitmap of interrupt lines
+ * 	@val:	mask of interrupts to consider
+ *
+ * 	Scan the ISA bus interrupt lines and return a bitmap of
+ * 	active interrupts. The interrupt probe logic state is then
+ * 	returned to its previous value.
+ *
+ *	Note: we need to scan all the irq's sven though we will
+ *	only return ISA irq numbers - just so that we reset them
+ *	all to a known state.
+ */
+unsigned int probe_irq_mask(unsigned long val)
+{
+	int i;
+	unsigned int mask;
+
+	mask = 0;
+	for (i=0; i<NR_IRQS; i++) {
+		irq_desc_t *desc = irq_desc + i;
+		unsigned int status;
+
+		spin_lock_irq(&desc->lock);
+		status = desc->status;
+
+		if (status & IRQ_AUTODETECT) {
+			if (i < 16 && !(status & IRQ_WAITING))
+				mask |= 1 << i;
+
+			desc->status = status & ~IRQ_AUTODETECT;
+			desc->handler->shutdown(i);
+		}
+		spin_unlock_irq(&desc->lock);
+	}
+	up(&probe_sem);
+
+	return mask & val;
+}
+
 int probe_irq_off(unsigned long val)
 {
 	int i, irq_found, nr_irqs;
@@ -546,4 +729,5 @@ int setup_irq(unsigned int irq, struct irqaction * new)
 void init_irq_proc(void)
 {
 }
+
 #endif

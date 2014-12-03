@@ -2,10 +2,14 @@
  *  linux/arch/arm/kernel/signal.c
  *
  *  Copyright (C) 1995-2001 Russell King
+ *  Dump registers when abnormal signal is received, 2002 SHARP
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
+ *
+ * Change Log
+ *  17-Mar-2003 Sharp for debug message
  */
 #include <linux/config.h>
 #include <linux/sched.h>
@@ -405,7 +409,7 @@ setup_return(struct pt_regs *regs, struct k_sigaction *ka,
 	regs->ARM_r0 = usig;
 	regs->ARM_sp = (unsigned long)frame;
 	regs->ARM_lr = retcode;
-	regs->ARM_pc = handler & (thumb ? ~1 : ~3);
+	regs->ARM_pc = handler;
 
 #ifdef CONFIG_CPU_32
 	regs->ARM_cpsr = cpsr;
@@ -562,6 +566,20 @@ asmlinkage int do_signal(sigset_t *oldset, struct pt_regs *regs, int syscall)
 		if (!signr)
 			break;
 
+#ifdef CONFIG_DEBUG_COREDUMP_SIGNAL
+		/* 2002/07/05 t.oku@sharp */
+		switch(signr){
+		case SIGQUIT: case SIGILL: case SIGTRAP:
+		case SIGABRT: case SIGFPE: case SIGSEGV:
+		case SIGBUS: case SIGSYS: case SIGXCPU: case SIGXFSZ:
+			printk("process %s(%d) signal = %d\n", current->comm, current->pid, signr);
+			show_regs(regs);
+			break;
+		default:
+			break;
+		}
+#endif
+
 		if ((current->ptrace & PT_PTRACED) && signr != SIGKILL) {
 			/* Let the debugger run.  */
 			current->exit_code = signr;
@@ -613,7 +631,7 @@ asmlinkage int do_signal(sigset_t *oldset, struct pt_regs *regs, int syscall)
 				continue;
 
 			switch (signr) {
-			case SIGCONT: case SIGCHLD: case SIGWINCH:
+			case SIGCONT: case SIGCHLD: case SIGWINCH: case SIGURG:
 				continue;
 
 			case SIGTSTP: case SIGTTIN: case SIGTTOU:
@@ -621,13 +639,17 @@ asmlinkage int do_signal(sigset_t *oldset, struct pt_regs *regs, int syscall)
 					continue;
 				/* FALLTHRU */
 
-			case SIGSTOP:
+			case SIGSTOP: {
+				struct signal_struct *sig;
 				current->state = TASK_STOPPED;
 				current->exit_code = signr;
-				if (!(current->p_pptr->sig->action[SIGCHLD-1].sa.sa_flags & SA_NOCLDSTOP))
+				sig = current->p_pptr->sig;
+				if (sig && !(sig->action[SIGCHLD-1].sa.sa_flags & SA_NOCLDSTOP))
 					notify_parent(current, SIGCHLD);
 				schedule();
+				single_stepping |= ptrace_cancel_bpt(current);
 				continue;
+			}
 
 			case SIGQUIT: case SIGILL: case SIGTRAP:
 			case SIGABRT: case SIGFPE: case SIGSEGV:

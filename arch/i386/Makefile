@@ -105,6 +105,11 @@ arch/i386/mm: dummy
 	$(MAKE) linuxsubdirs SUBDIRS=arch/i386/mm
 
 MAKEBOOT = $(MAKE) -C arch/$(ARCH)/boot
+ifeq ($(CONFIG_REMOTE_DEBUG),y)
+CLEANKERNEL = $(MAKE) -C arch/$(ARCH)/kernel kernelclean
+else
+CLEANKERNEL =
+endif
 
 vmlinux: arch/i386/vmlinux.lds
 
@@ -140,6 +145,7 @@ install: vmlinux
 
 archclean:
 	@$(MAKEBOOT) clean
+	@$(CLEANKERNEL)
 
 archmrproper:
 

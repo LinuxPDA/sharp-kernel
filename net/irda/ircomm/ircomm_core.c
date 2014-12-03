@@ -26,6 +26,9 @@
  *     Foundation, Inc., 59 Temple Place, Suite 330, Boston, 
  *     MA 02111-1307 USA
  *     
+ * ChangeLog:
+ *	06-21-2002 SHARP	add rx-buffer and delayed disconnection control
+ *	11-20-2002 SHARP	apply patch (fix small bugs in /proc)
  ********************************************************************/
 
 #include <linux/config.h>
@@ -456,7 +459,8 @@ void ircomm_disconnect_indication(struct ircomm_cb *self, struct sk_buff *skb,
 						   info->reason, skb);
 	} else {
 		IRDA_DEBUG(0, __FUNCTION__ "(), missing handler\n");
-		dev_kfree_skb(skb);
+		if (skb)
+		  dev_kfree_skb(skb);
 	}
 }
 
@@ -475,6 +479,16 @@ void ircomm_flow_request(struct ircomm_cb *self, LOCAL_FLOW flow)
 
 	if (self->service_type == IRCOMM_3_WIRE_RAW)
 		return;
+
+    /*
+     *	We added a new skb queue on ircomm layer. And that needs a trigger
+     *	to deliver skb to layer above. Do it now.
+     *	modified by SHARP
+	 */
+    if(flow==FLOW_START){
+	  if (self->notify.data_indication)
+		self->notify.data_indication(self->notify.instance, self, NULL);
+	}
 
 	irttp_flow_request(self->tsap, flow);
 }
@@ -498,7 +512,7 @@ int ircomm_proc_read(char *buf, char **start, off_t offset, int len)
 
 	self = (struct ircomm_cb *) hashbin_get_first(ircomm);
 	while (self != NULL) {
-		ASSERT(self->magic == IRCOMM_MAGIC, return len;);
+		ASSERT(self->magic == IRCOMM_MAGIC, break;);
 
 		if(self->line < 0x10)
 			len += sprintf(buf+len, "ircomm%d", self->line);

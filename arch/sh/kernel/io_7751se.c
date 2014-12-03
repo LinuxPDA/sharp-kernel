@@ -2,7 +2,10 @@
  * linux/arch/sh/kernel/io_7751se.c
  *
  * Copyright (C) 2001  Ian da Silva, Jeremy Siegel
+ * Copyright (C) 2003  Takashi Kusuda
  * Based largely on io_se.c.
+ *
+ * Modified to support PCI devices on 7751(R) Solution Engine
  *
  * I/O routine for Hitachi 7751 SolutionEngine.
  *
@@ -66,27 +69,17 @@ port2adr(unsigned int port)
 {
 	if (port >= 0x2000)
 		return (volatile __u16 *) (PA_MRSHPC + (port - 0x2000));
-#if 0
-	else
-		return (volatile __u16 *) (PA_SUPERIO + (port << 1));
-#endif
 	maybebadio(name,(unsigned long)port);
 	return (volatile __u16*)port;
 }
 
-#if 0
-/* The 7751 Solution Engine seems to have everything hooked */
-/* up pretty normally (nothing on high-bytes only...) so this */
-/* shouldn't be needed */
-static inline int
-shifted_port(unsigned long port)
-{
-	/* For IDE registers, value is not shifted */
-	if ((0x1f0 <= port && port < 0x1f8) || port == 0x3f6)
-		return 0;
-	else
-		return 1;
-}
+/* In case you use Compact Flash as Primary IDE Drive,          */
+/* you need check Primary IDE Drive Port(0x1f0-0x1f7 and 0x3f6) */
+#if defined(CONFIG_CF_ENABLER)
+#define CHECK_CF_PRIMARY_IDE_PORT(port)  \
+	((0x1f0 <= port && port <= 0x1f7) || port == 0x3f6)
+#else
+#define CHECK_CF_PRIMARY_IDE_PORT(port)	(0)
 #endif
 
 /* In case someone configures the kernel w/o PCI support: in that */
@@ -97,7 +90,7 @@ shifted_port(unsigned long port)
 #define CHECK_SH7751_PCIIO(port) \
   ((port >= PCIBIOS_MIN_IO) && (port < (PCIBIOS_MIN_IO + SH7751_PCI_IO_SIZE)))
 #else
-#define CHECK_SH_7751_PCIIO(port) (0)
+#define CHECK_SH7751_PCIIO(port) (0)
 #endif
 
 /*
@@ -109,7 +102,9 @@ shifted_port(unsigned long port)
  */
 unsigned char sh7751se_inb(unsigned long port)
 {
-	if (PXSEG(port))
+	if (CHECK_CF_PRIMARY_IDE_PORT(port))
+                return *(volatile unsigned char *)(PA_MRSHPC_IO + port + 0x40000);
+	else if (PXSEG(port))
 		return *(volatile unsigned char *)port;
 	else if (CHECK_SH7751_PCIIO(port))
 		return *(volatile unsigned char *)PCI_IOMAP(port);
@@ -121,19 +116,23 @@ unsigned char sh7751se_inb_p(unsigned long port)
 {
 	unsigned char v;
 
-        if (PXSEG(port))
-                v = *(volatile unsigned char *)port;
+	if (CHECK_CF_PRIMARY_IDE_PORT(port))
+                v = *(volatile unsigned char *)(PA_MRSHPC_IO + port + 0x40000);
+       	else if (PXSEG(port))
+               	v = *(volatile unsigned char *)port;
 	else if (CHECK_SH7751_PCIIO(port))
-                v = *(volatile unsigned char *)PCI_IOMAP(port);
+               	v = *(volatile unsigned char *)PCI_IOMAP(port);
 	else
-		v = (*port2adr(port))&0xff; 
+		v = (*port2adr(port))&0xff;
 	delay();
 	return v;
 }
 
 unsigned short sh7751se_inw(unsigned long port)
 {
-        if (PXSEG(port))
+	if (CHECK_CF_PRIMARY_IDE_PORT(port))
+                return *(volatile unsigned short *)(PA_MRSHPC_IO + port);
+        else if (PXSEG(port))
                 return *(volatile unsigned short *)port;
 	else if (CHECK_SH7751_PCIIO(port))
                 return *(volatile unsigned short *)PCI_IOMAP(port);
@@ -159,9 +158,10 @@ unsigned int sh7751se_inl(unsigned long port)
 
 void sh7751se_outb(unsigned char value, unsigned long port)
 {
-
-        if (PXSEG(port))
-                *(volatile unsigned char *)port = value;
+	if (CHECK_CF_PRIMARY_IDE_PORT(port))
+                *(volatile unsigned char *)(PA_MRSHPC_IO + port + 0x40000) = value;
+       	else if (PXSEG(port))
+               	*(volatile unsigned char *)port = value;
 	else if (CHECK_SH7751_PCIIO(port))
         	*((unsigned char*)PCI_IOMAP(port)) = value;
 	else
@@ -170,8 +170,10 @@ void sh7751se_outb(unsigned char value, unsigned long port)
 
 void sh7751se_outb_p(unsigned char value, unsigned long port)
 {
-        if (PXSEG(port))
-                *(volatile unsigned char *)port = value;
+	if (CHECK_CF_PRIMARY_IDE_PORT(port))
+                *(volatile unsigned char *)(PA_MRSHPC_IO + port + 0x40000) = value;
+        else if (PXSEG(port))
+               	*(volatile unsigned char *)port = value;
 	else if (CHECK_SH7751_PCIIO(port))
         	*((unsigned char*)PCI_IOMAP(port)) = value;
 	else
@@ -181,10 +183,12 @@ void sh7751se_outb_p(unsigned char value, unsigned long port)
 
 void sh7751se_outw(unsigned short value, unsigned long port)
 {
-        if (PXSEG(port))
-                *(volatile unsigned short *)port = value;
+	if (CHECK_CF_PRIMARY_IDE_PORT(port))
+                *(volatile unsigned short *)(PA_MRSHPC_IO + port) = value;
+	else if (PXSEG(port))
+               	*(volatile unsigned short *)port = value;
 	else if (CHECK_SH7751_PCIIO(port))
-        	*((unsigned short *)PCI_IOMAP(port)) = value;
+       		*((unsigned short *)PCI_IOMAP(port)) = value;
 	else if (port >= 0x2000)
 		*port2adr(port) = value;
 	else
@@ -269,29 +273,22 @@ void sh7751se_writel(unsigned int b, unsigned long addr)
         *(volatile unsigned long*)addr = b;
 }
 
-
+void * sh7751se_ioremap(unsigned long offset, unsigned long size)
+{
+        if(offset >= 0xfd000000)
+                return (void *)offset;
+        else
+                return (void *)P2SEGADDR(offset);
+}
+
+void sh7751se_iounmap(void *addr)
+{
+}
 
 /* Map ISA bus address to the real address. Only for PCMCIA.  */
 
 /* ISA page descriptor.  */
 static __u32 sh_isa_memmap[256];
-
-#if 0
-static int
-sh_isa_mmap(__u32 start, __u32 length, __u32 offset)
-{
-	int idx;
-
-	if (start >= 0x100000 || (start & 0xfff) || (length != 0x1000))
-		return -1;
-
-	idx = start >> 12;
-	sh_isa_memmap[idx] = 0xb8000000 + (offset &~ 0xfff);
-	printk("sh_isa_mmap: start %x len %x offset %x (idx %x paddr %x)\n",
-	       start, length, offset, idx, sh_isa_memmap[idx]);
-	return 0;
-}
-#endif
 
 unsigned long
 sh7751se_isa_port2addr(unsigned long offset)

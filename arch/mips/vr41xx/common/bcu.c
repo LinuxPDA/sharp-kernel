@@ -53,6 +53,10 @@
 #define VR4111_CLKSPEEDREG	KSEG1ADDR(0x0b000014)
 #define VR4122_CLKSPEEDREG	KSEG1ADDR(0x0f000014)
 #define VR4131_CLKSPEEDREG	VR4122_CLKSPEEDREG
+#ifdef CONFIG_TOADKK_TCS8000 /*@@@@@*/
+#include <asm/vr41xx/toadkk-tcs8000.h>
+#define VR4181A_CLKSPEED	(VR4181A_INTCS_BASE+0x00b000)
+#endif
  #define CLKSP(x)		((x) & 0x001f)
 
  #define DIV2B			0x8000
@@ -74,6 +78,9 @@ static inline u16 read_clkspeed(void)
 	case CPU_VR4121: return readw(VR4111_CLKSPEEDREG);
 	case CPU_VR4122: return readw(VR4122_CLKSPEEDREG);
 	case CPU_VR4131: return readw(VR4131_CLKSPEEDREG);
+#if 1 /*@@@@@*/
+	case CPU_VR4181A: return readw(VR4181A_CLKSPEED);
+#endif
 	default:
 		printk(KERN_INFO "Unexpected CPU of NEC VR4100 series\n");
 		break;
@@ -89,6 +96,10 @@ static inline unsigned long calculate_pclock(u16 clkspeed)
 	switch (mips_cpu.cputype) {
 	case CPU_VR4111:
 	case CPU_VR4121:
+#if 1 /*@@@@@*/
+	case CPU_VR4181A:
+		/* this is aclock, not pclock at VR4181A */
+#endif
 		pclock = 18432000 * 64;
 		break;
 	case CPU_VR4122:
@@ -103,7 +114,11 @@ static inline unsigned long calculate_pclock(u16 clkspeed)
 	}
 
 	pclock /= CLKSP(clkspeed);
+#ifdef CONFIG_TOADKK_TCS8000 /*@@@@@*/
+	printk(KERN_INFO "AClock: %ldHz\n", pclock);
+#else
 	printk(KERN_INFO "PClock: %ldHz\n", pclock);
+#endif
 
 	return pclock;
 }
@@ -112,6 +127,9 @@ static inline unsigned long calculate_vtclock(u16 clkspeed, unsigned long pclock
 {
 	switch (mips_cpu.cputype) {
 	case CPU_VR4111:
+#if 1 /*@@@@@*/
+	case CPU_VR4181A:
+#endif
 		/* The NEC VR4111 doesn't have the VTClock. */
 		break;
 	case CPU_VR4121:
@@ -161,6 +179,9 @@ static inline unsigned long calculate_tclock(u16 clkspeed, unsigned long pclock,
         		tclock = pclock / 4;
 		break;
 	case CPU_VR4121:
+#if 1 /*@@@@@*/
+	case CPU_VR4181A:
+#endif
 		tclock = pclock / DIVT(clkspeed);
 		break;
 	case CPU_VR4122:

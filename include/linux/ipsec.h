@@ -16,7 +16,11 @@
 #include <linux/config.h>
 #include <linux/socket.h>
 #include <net/sock.h>
+#include <net/route.h>
 #include <linux/skbuff.h>
+#ifdef CONFIG_IP_IPSEC
+#include <net/spd.h>
+#endif
 
 /* Values for the set/getsockopt calls */
 
@@ -64,6 +68,16 @@ static __inline__ int ipsec_sk_policy(struct sock *sk, struct sk_buff *skb)
 	return 1;
 }
 #endif /* CONFIG */
+
+#ifdef CONFIG_SYSCTL
+extern  int sysctl_ipsec_replay_window;
+#ifdef CONFIG_IPSEC_DEBUG
+extern  int sysctl_ipsec_debug_ipv6;
+extern  int sysctl_ipsec_debug_pfkey;
+extern  int sysctl_ipsec_debug_sadb;
+extern  int sysctl_ipsec_debug_spd;
+#endif /* CONFIG_IPSEC_DEBUG */
+#endif /* CONFIG_SYSCTL */
 
 #endif	/* __KERNEL__ */
 #endif	/* _LINUX_IPSEC_H */

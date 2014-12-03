@@ -59,9 +59,17 @@ extern __inline__ void atomic_add(int i, atomic_t * v)
 {
 	unsigned long flags;
 
-	save_and_cli(flags);
+#if defined(CONFIG_RTHAL)
+	hard_save_flags_and_cli(flags);
+#else /* CONFIG_RTHAL */
+	local_irq_save(flags);
+#endif /* CONFIG_RTHAL */
 	v->counter += i;
-	restore_flags(flags);
+#if defined(CONFIG_RTHAL)
+	hard_restore_flags(flags);
+#else /* CONFIG_RTHAL */
+	local_irq_restore(flags);
+#endif /* CONFIG_RTHAL */
 }
 
 /*
@@ -76,9 +84,17 @@ extern __inline__ void atomic_sub(int i, atomic_t * v)
 {
 	unsigned long flags;
 
-	save_and_cli(flags);
+#if defined(CONFIG_RTHAL)
+	hard_save_flags_and_cli(flags);
+#else /* CONFIG_RTHAL */
+	local_irq_save(flags);
+#endif /* CONFIG_RTHAL */
 	v->counter -= i;
-	restore_flags(flags);
+#if defined(CONFIG_RTHAL)
+	hard_restore_flags(flags);
+#else /* CONFIG_RTHAL */
+	local_irq_restore(flags);
+#endif /* CONFIG_RTHAL */
 }
 
 extern __inline__ int atomic_add_return(int i, atomic_t * v)
@@ -86,11 +102,19 @@ extern __inline__ int atomic_add_return(int i, atomic_t * v)
 	unsigned long flags;
 	int temp;
 
-	save_and_cli(flags);
+#if defined(CONFIG_RTHAL)
+	hard_save_flags_and_cli(flags);
+#else /* CONFIG_RTHAL */
+	local_irq_save(flags);
+#endif /* CONFIG_RTHAL */
 	temp = v->counter;
 	temp += i;
 	v->counter = temp;
-	restore_flags(flags);
+#if defined(CONFIG_RTHAL)
+	hard_restore_flags(flags);
+#else /* CONFIG_RTHAL */
+	local_irq_restore(flags);
+#endif /* CONFIG_RTHAL */
 
 	return temp;
 }
@@ -100,11 +124,19 @@ extern __inline__ int atomic_sub_return(int i, atomic_t * v)
 	unsigned long flags;
 	int temp;
 
-	save_and_cli(flags);
+#if defined(CONFIG_RTHAL)
+	hard_save_flags_and_cli(flags);
+#else /* CONFIG_RTHAL */
+	local_irq_save(flags);
+#endif /* CONFIG_RTHAL */
 	temp = v->counter;
 	temp -= i;
 	v->counter = temp;
-	restore_flags(flags);
+#if defined(CONFIG_RTHAL)
+	hard_restore_flags(flags);
+#else /* CONFIG_RTHAL */
+	local_irq_restore(flags);
+#endif /* CONFIG_RTHAL */
 
 	return temp;
 }
@@ -228,7 +260,7 @@ extern __inline__ int atomic_sub_return(int i, atomic_t * v)
  * other cases.  Note that the guaranteed
  * useful range of an atomic_t is only 24 bits.
  */
-#define atomic_inc_and_test(v) (atomic_inc_return(1, (v)) == 0)
+#define atomic_inc_and_test(v) (atomic_inc_return(v) == 0)
 
 /*
  * atomic_dec_and_test - decrement by 1 and test
@@ -268,9 +300,8 @@ extern __inline__ int atomic_sub_return(int i, atomic_t * v)
  * if the result is negative, or false when
  * result is greater than or equal to zero.  Note that the guaranteed
  * useful range of an atomic_t is only 24 bits.
- *
- * Currently not implemented for MIPS.
  */
+#define atomic_add_negative(i,v) (atomic_add_return(i, (v)) < 0)
 
 /* Atomic operations are already serializing */
 #define smp_mb__before_atomic_dec()	smp_mb()

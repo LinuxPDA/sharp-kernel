@@ -75,20 +75,26 @@ static inline pgd_t *get_pgd_fast(void)
 {
 	unsigned long *ret;
 
+	preempt_disable();
 	if ((ret = pgd_quicklist) != NULL) {
 		pgd_quicklist = (unsigned long *)(*ret);
 		ret[0] = 0;
 		pgtable_cache_size--;
-	} else
+		preempt_enable();
+	} else {
+		preempt_enable();
 		ret = (unsigned long *)get_pgd_slow();
+	}
 	return (pgd_t *)ret;
 }
 
 static inline void free_pgd_fast(pgd_t *pgd)
 {
+	preempt_disable();
 	*(unsigned long *)pgd = (unsigned long) pgd_quicklist;
 	pgd_quicklist = (unsigned long *) pgd;
 	pgtable_cache_size++;
+	preempt_enable();
 }
 
 static inline void free_pgd_slow(pgd_t *pgd)
@@ -119,19 +125,23 @@ static inline pte_t *pte_alloc_one_fast(struct mm_struct *mm,
 {
 	unsigned long *ret;
 
+	preempt_disable();
 	if ((ret = (unsigned long *)pte_quicklist) != NULL) {
 		pte_quicklist = (unsigned long *)(*ret);
 		ret[0] = ret[1];
 		pgtable_cache_size--;
 	}
+	preempt_enable();
 	return (pte_t *)ret;
 }
 
 static inline void pte_free_fast(pte_t *pte)
 {
+	preempt_disable();
 	*(unsigned long *)pte = (unsigned long) pte_quicklist;
 	pte_quicklist = (unsigned long *) pte;
 	pgtable_cache_size++;
+	preempt_enable();
 }
 
 static __inline__ void pte_free_slow(pte_t *pte)
@@ -157,6 +167,39 @@ static __inline__ void pte_free_slow(pte_t *pte)
 #define pgd_populate(mm, pmd, pte)	BUG()
 
 extern int do_check_pgt_cache(int, int);
+
+#if defined(CONFIG_RTHAL)
+extern inline void set_pgdir(unsigned long address, pgd_t entry)
+{
+	struct task_struct * p;
+	pgd_t *pgd;
+#ifdef CONFIG_SMP
+	int i;
+#endif	
+
+	read_lock(&tasklist_lock);
+	for_each_task(p) {
+		if (!p->mm) {
+			continue;
+		}
+		*pgd_offset(p->mm,address) = entry;
+	}
+	read_unlock(&tasklist_lock);
+#ifndef CONFIG_SMP
+	for (pgd = (pgd_t *)pgd_quicklist;
+	     pgd; pgd = (pgd_t *)*(unsigned long *)pgd) {
+		pgd[address >> PGDIR_SHIFT] = entry;
+	}
+#else
+	for (i = 0; i < NR_CPUS; i++) {
+		for (pgd = (pgd_t *)cpu_data[i].pgd_quick; pgd;
+		     pgd = (pgd_t *)*(unsigned long *)pgd) {
+			pgd[address >> PGDIR_SHIFT] = entry;
+		}
+	}
+#endif
+}
+#endif
 
 /*
  * TLB flushing:

@@ -170,7 +170,14 @@ static void i2c_stop(struct i2c_algo_bit_data *adap)
  * 1 if the device acknowledged
  * 0 if the device did not ack
  * -ETIMEDOUT if an error occurred (while raising the scl line)
- */
+
+ * tsong@iders.ca: an instruction to disable any timeconsuming interrupt
+   here except the heart beat of timer2 should be added before setsda(adap, sb).
+   because when interrupt occurs during
+   scl is set high, the interrupt service routine is served and may take long,
+   after the interrupt returns, sda could be sampled by the device(slave)
+   more than once, and this cause error problem.
+*/
 static int i2c_outb(struct i2c_adapter *i2c_adap, char c)
 {
 	int i;
@@ -583,9 +590,7 @@ int i2c_bit_add_bus(struct i2c_adapter *adap)
 		printk("\n");
 	}
 
-#ifdef MODULE
 	MOD_INC_USE_COUNT;
-#endif
 	i2c_add_adapter(adap);
 
 	return 0;
@@ -601,15 +606,13 @@ int i2c_bit_del_bus(struct i2c_adapter *adap)
 
 	DEB2(printk("i2c-algo-bit.o: adapter unregistered: %s\n",adap->name));
 
-#ifdef MODULE
 	MOD_DEC_USE_COUNT;
-#endif
 	return 0;
 }
 
-int __init i2c_algo_bit_init (void)
+static int __init i2c_algo_bit_init (void)
 {
-	printk("i2c-algo-bit.o: i2c bit algorithm module\n");
+	printk(KERN_DEBUG "i2c-algo-bit.o: i2c bit algorithm module\n");
 	return 0;
 }
 
@@ -618,7 +621,6 @@ int __init i2c_algo_bit_init (void)
 EXPORT_SYMBOL(i2c_bit_add_bus);
 EXPORT_SYMBOL(i2c_bit_del_bus);
 
-#ifdef MODULE
 MODULE_AUTHOR("Simon G. Vogl <simon@tk.uni-linz.ac.at>");
 MODULE_DESCRIPTION("I2C-Bus bit-banging algorithm");
 MODULE_LICENSE("GPL");
@@ -632,12 +634,4 @@ MODULE_PARM_DESC(bit_scan, "Scan for active chips on the bus");
 MODULE_PARM_DESC(i2c_debug,
             "debug level - 0 off; 1 normal; 2,3 more verbose; 9 bit-protocol");
 
-int init_module(void) 
-{
-	return i2c_algo_bit_init();
-}
-
-void cleanup_module(void) 
-{
-}
-#endif
+module_init(i2c_algo_bit_init);

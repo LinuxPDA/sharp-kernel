@@ -31,6 +31,11 @@
 #include <asm/io.h>
 #include <asm/bugs.h>
 
+#if defined(CONFIG_RTSCHED)
+#include <linux/rt_sched.h>
+#include <linux/pthread.h>
+#endif
+
 #if defined(CONFIG_ARCH_S390)
 #include <asm/s390mach.h>
 #include <asm/ccwcache.h>
@@ -56,6 +61,14 @@
 #include <linux/nubus.h>
 #endif
 
+#if defined(CONFIG_KGDB) && defined(CONFIG_ARM) || defined(CONFIG_REMOTE_DEBUG)
+#include <linux/gdb.h>
+#endif
+
+#ifdef CONFIG_X86_REMOTE_DEBUG
+#include <linux/gdb.h>
+#endif
+
 #ifdef CONFIG_ISAPNP
 #include <linux/isapnp.h>
 #endif
@@ -76,7 +89,11 @@ extern int irda_device_init(void);
  * with a gcc that is known to be too old from the very beginning.
  */
 #if __GNUC__ < 2 || (__GNUC__ == 2 && __GNUC_MINOR__ < 91)
+#ifndef CONFIG_V850E
 #error Sorry, your GCC is too old. It builds incorrect kernels.
+#else
+#warning Sorry, your GCC is too old. It builds incorrect kernels.
+#endif
 #endif
 
 extern char _stext, _etext;
@@ -157,6 +174,9 @@ unsigned long loops_per_jiffy = (1<<12);
    better than 1% */
 #define LPS_PREC 8
 
+#ifdef CONFIG_ARCH_CALIBRATE_DELAY
+extern void __init calibrate_delay(void);
+#else
 void __init calibrate_delay(void)
 {
 	unsigned long ticks, loopbit;
@@ -197,6 +217,7 @@ void __init calibrate_delay(void)
 		loops_per_jiffy/(500000/HZ),
 		(loops_per_jiffy/(5000/HZ)) % 100);
 }
+#endif
 
 static int __init debug_kernel(char *str)
 {
@@ -251,6 +272,20 @@ static void __init parse_options(char *line)
                 }
                 if (next != NULL)
                         *next++ = 0;
+#if defined(CONFIG_KGDB) && defined(CONFIG_ARM)
+		if (!strcmp(line,"gdb")) {
+			gdb_enter = 1;
+			continue;
+		}
+		if (!strncmp(line,"gdbttyS=",7)) {
+			gdb_ttyS = simple_strtoul(line+8,NULL,10);
+			continue;
+		}
+		if (!strncmp(line,"gdbbaud=",7)) {
+			gdb_baud = simple_strtoul(line+8,NULL,10);
+			continue;
+		}
+#endif /* CONFIG_KGDB */
 		if (!strncmp(line,"init=",5)) {
 			line += 5;
 			execute_command = line;
@@ -286,7 +321,6 @@ static void __init parse_options(char *line)
 
 
 extern void setup_arch(char **);
-extern void cpu_idle(void);
 
 unsigned long wait_init_idle;
 
@@ -349,6 +383,7 @@ asmlinkage void __init start_kernel(void)
 {
 	char * command_line;
 	extern char saved_command_line[];
+
 /*
  * Interrupts are still disabled. Do necessary setups, then
  * enable them
@@ -432,6 +467,14 @@ asmlinkage void __init start_kernel(void)
 	 *	make syscalls (and thus be locked).
 	 */
 	smp_init();
+#if defined(CONFIG_KGDB) && defined(CONFIG_ARM) || defined(CONFIG_REMOTE_DEBUG)
+	if (gdb_enter) {
+		printk("entering gdb!\n");
+		gdb_hook();           /* right at boot time */
+	}
+#endif
+
+	
 	rest_init();
 }
 
@@ -543,7 +586,20 @@ extern void prepare_namespace(void);
 static int init(void * unused)
 {
 	lock_kernel();
+#if defined(CONFIG_RTHAL)
+	rthal_init();
+#if defined(CONFIG_RTSCHED)
+	rt_schedule_init();
+	rt_pthread_init(NULL);
+#endif
+#endif
 	do_basic_setup();
+
+#if 0
+	rthal_init();
+	rt_schedule_init();
+	rt_pthread_init(NULL);
+#endif
 
 	prepare_namespace();
 
@@ -560,7 +616,7 @@ static int init(void * unused)
 
 	(void) dup(0);
 	(void) dup(0);
-	
+
 	/*
 	 * We try each of these until one succeeds.
 	 *

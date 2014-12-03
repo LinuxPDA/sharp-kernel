@@ -3,6 +3,15 @@
 
 /* USB constants */
 
+#if defined(CONFIG_SUPERH)
+#if !defined(CONFIG_CPU_SUBTYPE_SH7760) && !defined(CONFIG_SH_RTS7751R2D)
+extern void* KMALLOC(size_t, int);
+extern void  KFREE(void*);
+#define kmalloc(s,x) KMALLOC(s,x)
+#define kfree(p) KFREE(p)
+#endif
+#endif
+
 /*
  * Device and/or Interface Class codes
  */

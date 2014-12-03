@@ -26,6 +26,9 @@
 #include <asm/pgalloc.h>
 #include <asm/hardirq.h>
 #include <asm/mmu_context.h>
+#if defined(CONFIG_SH_KGDB)
+#include <asm/kgdb.h>
+#endif
 
 extern void die(const char *,struct pt_regs *,long);
 
@@ -94,6 +97,11 @@ asmlinkage void do_page_fault(struct pt_regs *regs, unsigned long writeaccess,
 	struct vm_area_struct * vma;
 	unsigned long page;
 	unsigned long fixup;
+
+#if defined(CONFIG_SH_KGDB)
+	if (kgdb_nofault && kgdb_bus_err_hook)
+	  kgdb_bus_err_hook();
+#endif
 
 	tsk = current;
 	mm = tsk->mm;
@@ -243,6 +251,10 @@ asmlinkage int __do_page_fault(struct pt_regs *regs, unsigned long writeaccess,
 	pte_t *pte;
 	pte_t entry;
 
+#if defined(CONFIG_SH_KGDB)
+	if (kgdb_nofault && kgdb_bus_err_hook)
+	  kgdb_bus_err_hook();
+#endif
 	if (address >= P3SEG && address < P4SEG)
 		dir = pgd_offset_k(address);
 	else if (address >= TASK_SIZE)
@@ -303,7 +315,11 @@ void update_mmu_cache(struct vm_area_struct * vma,
 	}
 #endif
 
+#if defined(CONFIG_RTHAL)
+	hard_save_flags_and_cli(flags);
+#else
 	save_and_cli(flags);
+#endif
 
 	/* Set PTEH register */
 	vpn = (address & MMU_VPN_MASK) | get_asid();
@@ -319,12 +335,21 @@ void update_mmu_cache(struct vm_area_struct * vma,
 
 	/* Set PTEL register */
 	pteval &= _PAGE_FLAGS_HARDWARE_MASK; /* drop software flags */
+#if defined(CONFIG_RTHAL)
+#if !defined(__SH4__)
+	pteval &= ~2;
+#endif
+#endif
 	/* conveniently, we want all the software flags to be 0 anyway */
 	ctrl_outl(pteval, MMU_PTEL);
 
 	/* Load the TLB */
 	asm volatile("ldtlb": /* no output */ : /* no input */ : "memory");
+#if defined(CONFIG_RTHAL)
+	hard_restore_flags(flags);
+#else
 	restore_flags(flags);
+#endif
 }
 
 void __flush_tlb_page(unsigned long asid, unsigned long page)
@@ -338,9 +363,19 @@ void __flush_tlb_page(unsigned long asid, unsigned long page)
 	 * It would be simple if we didn't need to set PTEH.ASID...
 	 */
 #if defined(__sh3__)
+#if defined(CONFIG_CPU_SUBTYPE_SH7705) || defined(CONFIG_CPU_SUBTYPE_SH7710) \
+ || defined(CONFIG_CPU_SUBTYPE_SH7720)
+	addr = MMU_TLB_ADDRESS_ARRAY |(page & 0x1F000);
+	data = (page & 0xfffe0000) | asid; /* VALID bit is off */
+	ctrl_outl(data, addr);
+	ctrl_outl(data, addr | ( 1 << 8));
+	ctrl_outl(data, addr | ( 2 << 8));
+	ctrl_outl(data, addr | ( 3 << 8));
+#else
 	addr = MMU_TLB_ADDRESS_ARRAY |(page & 0x1F000)| MMU_PAGE_ASSOC_BIT;
 	data = (page & 0xfffe0000) | asid; /* VALID bit is off */
 	ctrl_outl(data, addr);
+#endif
 #elif defined(__SH4__)
 	addr = MMU_UTLB_ADDRESS_ARRAY | MMU_PAGE_ASSOC_BIT;
 	data = page | asid; /* VALID bit is off */
@@ -360,7 +395,11 @@ void flush_tlb_page(struct vm_area_struct *vma, unsigned long page)
 		asid = vma->vm_mm->context & MMU_CONTEXT_ASID_MASK;
 		page &= PAGE_MASK;
 
+#if defined(CONFIG_RTHAL)
+		hard_save_flags_and_cli(flags);
+#else
 		save_and_cli(flags);
+#endif
 		if (vma->vm_mm != current->mm) {
 			saved_asid = get_asid();
 			set_asid(asid);
@@ -368,7 +407,11 @@ void flush_tlb_page(struct vm_area_struct *vma, unsigned long page)
 		__flush_tlb_page(asid, page);
 		if (saved_asid != MMU_NO_ASID)
 			set_asid(saved_asid);
+#if defined(CONFIG_RTHAL)
+		hard_restore_flags(flags);
+#else
 		restore_flags(flags);
+#endif
 	}
 }
 
@@ -379,7 +422,11 @@ void flush_tlb_range(struct mm_struct *mm, unsigned long start,
 		unsigned long flags;
 		int size;
 
+#if defined(CONFIG_RTHAL)
+		hard_save_flags_and_cli(flags);
+#else
 		save_and_cli(flags);
+#endif
 		size = (end - start + (PAGE_SIZE - 1)) >> PAGE_SHIFT;
 		if (size > (MMU_NTLB_ENTRIES/4)) { /* Too many TLB to flush */
 			mm->context = NO_CONTEXT;
@@ -403,7 +450,11 @@ void flush_tlb_range(struct mm_struct *mm, unsigned long start,
 			if (saved_asid != MMU_NO_ASID)
 				set_asid(saved_asid);
 		}
+#if defined(CONFIG_RTHAL)
+		hard_restore_flags(flags);
+#else
 		restore_flags(flags);
+#endif
 	}
 }
 
@@ -414,11 +465,19 @@ void flush_tlb_mm(struct mm_struct *mm)
 	if (mm->context != NO_CONTEXT) {
 		unsigned long flags;
 
+#if defined(CONFIG_RTHAL)
+		hard_save_flags_and_cli(flags);
+#else
 		save_and_cli(flags);
+#endif
 		mm->context = NO_CONTEXT;
 		if (mm == current->mm)
 			activate_context(mm);
+#if defined(CONFIG_RTHAL)
+		hard_restore_flags(flags);
+#else
 		restore_flags(flags);
+#endif
 	}
 }
 
@@ -433,9 +492,17 @@ void flush_tlb_all(void)
 	 * 	TF-bit for SH-3, TI-bit for SH-4.
 	 *      It's same position, bit #2.
 	 */
+#if defined(CONFIG_RTHAL)
+	hard_save_flags_and_cli(flags);
+#else
 	save_and_cli(flags);
+#endif
 	status = ctrl_inl(MMUCR);
 	status |= 0x04;		
 	ctrl_outl(status, MMUCR);
+#if defined(CONFIG_RTHAL)	
+	hard_restore_flags(flags);
+#else
 	restore_flags(flags);
+#endif
 }

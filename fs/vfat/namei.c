@@ -115,7 +115,9 @@ static int parse_options(char *options,	struct fat_mount_options *opts)
 		opts->shortname = VFAT_SFN_DISPLAY_WIN95
 		  		| VFAT_SFN_CREATE_WIN95;
 	}
-
+#if defined(CONFIG_VFAT_SHORTCUT_SYMLINK) || defined(CONFIG_VFAT_SHORTCUT_SYMLINK_MODULE)
+	opts->shortname = VFAT_SFN_DISPLAY_WINNT | VFAT_SFN_CREATE_WINNT;
+#endif
 	if (!options) return 1;
 	save = 0;
 	savep = NULL;
@@ -1175,15 +1177,24 @@ int vfat_rename(struct inode *old_dir,struct dentry *old_dentry,
 	int res, is_dir;
 	struct vfat_slot_info old_sinfo,sinfo;
 
+#if defined(CONFIG_VFAT_SHORTCUT_SYMLINK) || defined(CONFIG_VFAT_SHORTCUT_SYMLINK_MODULE)
+	struct qstr *d_name = &new_dentry->d_name;
+	char *tmp_name =NULL, *buf_name = NULL;
+	int tmp_len = 0, buf_len = 0;
+	int is_lnk = 0;
+#endif
+
 	old_bh = new_bh = dotdot_bh = NULL;
 	old_inode = old_dentry->d_inode;
 	new_inode = new_dentry->d_inode;
+#if defined(CONFIG_VFAT_SHORTCUT_SYMLINK) || defined(CONFIG_VFAT_SHORTCUT_SYMLINK_MODULE)
+	is_lnk = S_ISLNK(old_inode->i_mode);
+#endif
 	res = vfat_find(old_dir,&old_dentry->d_name,&old_sinfo,&old_bh,&old_de);
 	PRINTK3(("vfat_rename 2\n"));
 	if (res < 0) goto rename_done;
 
 	is_dir = S_ISDIR(old_inode->i_mode);
-
 	if (is_dir && (res = fat_scan(old_inode,MSDOS_DOTDOT,&dotdot_bh,
 				&dotdot_de,&dotdot_ino)) < 0)
 		goto rename_done;
@@ -1204,8 +1215,33 @@ int vfat_rename(struct inode *old_dir,struct dentry *old_dentry,
 		}
 		fat_detach(new_inode);
 	} else {
-		res = vfat_add_entry(new_dir,&new_dentry->d_name,is_dir,&sinfo,
-					&new_bh,&new_de);
+#if defined(CONFIG_VFAT_SHORTCUT_SYMLINK) || defined(CONFIG_VFAT_SHORTCUT_SYMLINK_MODULE)
+		if (is_lnk) {
+			tmp_name = (char*)d_name->name;
+			tmp_len = d_name->len;
+			buf_len = tmp_len + 4;
+	
+			buf_name = kmalloc(buf_len + 1, GFP_KERNEL);
+			if (buf_name == NULL) {
+				res = -1;
+				goto rename_done;
+			}
+			memcpy(buf_name, tmp_name, tmp_len);
+			*(buf_name + tmp_len)     = '.';
+			*(buf_name + tmp_len + 1) = 'l';
+			*(buf_name + tmp_len + 2) = 'n';
+			*(buf_name + tmp_len + 3) = 'k';
+			*(buf_name + tmp_len + 4) = 0;
+			d_name->name = buf_name;
+			d_name->len = buf_len;
+			res = vfat_add_entry(new_dir,d_name,
+				is_dir, &sinfo, &new_bh,&new_de);
+		}
+		else 
+#endif
+			res = vfat_add_entry(new_dir,&new_dentry->d_name,
+				is_dir, &sinfo, &new_bh,&new_de);
+
 		if (res < 0) goto rename_done;
 	}
 
@@ -1244,10 +1280,195 @@ rename_done:
 	fat_brelse(sb, dotdot_bh);
 	fat_brelse(sb, old_bh);
 	fat_brelse(sb, new_bh);
+#if defined(CONFIG_VFAT_SHORTCUT_SYMLINK) || defined(CONFIG_VFAT_SHORTCUT_SYMLINK_MODULE)
+	if (is_lnk) {
+		if (buf_name)
+			kfree(buf_name);
+		d_name->name = tmp_name;
+		d_name->len = tmp_len;
+	}
+#endif
 	return res;
 
 }
 
+#if defined(CONFIG_VFAT_SHORTCUT_SYMLINK) || defined(CONFIG_VFAT_SHORTCUT_SYMLINK_MODULE)
+
+static struct buffer_head *vfat_extend_lnk(struct inode *inode)
+{
+	struct super_block *sb = inode->i_sb;
+	int nr, sector, last_sector;
+	struct buffer_head *bh, *res = NULL;
+	int cluster_size = MSDOS_SB(sb)->cluster_size;
+
+	nr = fat_add_cluster(inode);
+	if (nr < 0)
+		return res;
+	
+	sector = MSDOS_SB(sb)->data_start + (nr - 2) * cluster_size;
+	last_sector = sector + cluster_size;
+	if (MSDOS_SB(sb)->cvf_format && MSDOS_SB(sb)->cvf_format->zero_out_cluster)
+		MSDOS_SB(sb)->cvf_format->zero_out_cluster(inode, nr);
+	else {
+		for ( ; sector < last_sector; sector++) {
+#ifdef DEBUG
+			printk("zeroing sector %d\n", sector);
+#endif
+			if (!(bh = fat_getblk(sb, sector)))
+				printk("getblk failed\n");
+			else {
+				memset(bh->b_data, 0, sb->s_blocksize);
+				fat_set_uptodate(sb, bh, 1);
+				fat_mark_buffer_dirty(sb, bh);
+				if (!res)
+					res = bh;
+				else
+					fat_brelse(sb, bh);
+			}
+		}
+	}
+	if (inode->i_size & (sb->s_blocksize - 1)) {
+		fat_fs_panic(sb, "Odd directory size");
+		inode->i_size = (inode->i_size + sb->s_blocksize)
+			& ~(sb->s_blocksize - 1);
+	}
+	MSDOS_I(inode)->mmu_private += 1 << MSDOS_SB(sb)->cluster_bits;
+	mark_inode_dirty(inode);
+
+	return res;
+}
+
+
+static int vfat_new_lnk(struct inode *dir, struct inode *parent, const char* name)
+{
+	struct super_block *sb = dir->i_sb;
+	struct buffer_head *bh;
+	char *lnk, *cpy;
+	int size;
+	short *pos;
+	char *buf;
+	int i;
+	
+	if ((bh = vfat_extend_lnk(dir)) == NULL) return -ENOSPC;
+
+	size = strlen(name);
+	if (!(buf = kmalloc(size + 1, GFP_KERNEL))) {
+		fat_brelse(sb, bh);
+		 return -ENOSPC;
+	}
+	
+	for (i = 0; i < size; i++) {
+		if (*(name + i) == '/') 
+			*(buf + i) = '\\';
+		else
+			*(buf + i) = *(name + i);
+	}
+	dir->i_size = 0x4c + 4 + size * 2;
+	
+	/* zeroed out, so... */
+	lnk = (char *)&bh->b_data[0];
+	
+	*(lnk + 0x00) = 0x4c;
+	*(lnk + 0x04) = 0x01;
+	*(lnk + 0x05) = 0x14;
+	*(lnk + 0x06) = 0x02;
+	*(lnk + 0x0c) = 0xc0;
+	*(lnk + 0x13) = 0x46;
+	*(lnk + 0x14) = 0x0c;
+	*(lnk + 0x3c) = 0x01;
+
+	// little endian
+	pos = (short *)(lnk + 0x4c);
+	*pos = size;
+	cpy = (char *)pos + 2;
+	memcpy(cpy, name, size);
+
+	pos = (short *)(cpy + size);
+	*pos = size;
+	cpy = (char *)pos + 2;
+	memcpy(cpy, buf, size);
+
+	fat_mark_buffer_dirty(sb, bh);
+	fat_brelse(sb, bh);
+	dir->i_atime = dir->i_ctime = dir->i_mtime = CURRENT_TIME;
+	mark_inode_dirty(dir);
+	kfree(buf);
+	
+	return 0;
+}
+
+static int vfat_symlink(struct inode* dir, struct dentry* dentry, const char* name)
+{
+	struct super_block *sb = dir->i_sb;
+	struct inode *inode = NULL;
+	struct buffer_head *bh = NULL;
+	struct msdos_dir_entry *de;
+	struct vfat_slot_info sinfo;
+	int res;
+
+	struct qstr *d_name = &dentry->d_name;
+	char *tmp_name, *buf_name;
+	int tmp_len, buf_len;
+	
+	tmp_name = (char*)d_name->name;
+	tmp_len = d_name->len;
+	buf_len = tmp_len + 4;
+	
+	buf_name = kmalloc(buf_len + 1, GFP_KERNEL);
+	memcpy(buf_name, tmp_name, tmp_len);
+	*(buf_name + tmp_len)     = '.';
+	*(buf_name + tmp_len + 1) = 'l';
+	*(buf_name + tmp_len + 2) = 'n';
+	*(buf_name + tmp_len + 3) = 'k';
+	*(buf_name + tmp_len + 4) = 0;
+	d_name->name = buf_name;
+	d_name->len = buf_len;
+	
+	res = vfat_add_entry(dir, d_name, 0, &sinfo, &bh, &de);
+	if (res < 0)
+		return res;
+
+	inode = fat_build_inode(sb, de, sinfo.ino, &res);
+	if (!inode) {
+		fat_brelse(sb, bh);
+		return res;
+	}
+	inode->i_mtime = inode->i_atime = inode->i_ctime = CURRENT_TIME;
+
+	mark_inode_dirty(inode);
+	inode->i_version = ++event;
+	dir->i_version = event;
+	res = vfat_new_lnk(inode, dir, name);
+	if (res < 0 )
+		goto error;
+		
+	dentry->d_time = dentry->d_parent->d_inode->i_version;
+	d_instantiate(dentry,inode);
+	fat_brelse(sb, bh);
+
+	kfree(buf_name);
+	d_name->name = tmp_name;
+	d_name->len = tmp_len;
+	
+	return 0;
+error:
+	inode->i_nlink = 0;
+	inode->i_mtime = CURRENT_TIME;
+	inode->i_atime = CURRENT_TIME;
+	fat_detach(inode);
+	mark_inode_dirty(inode);
+	/* releases bh */
+	vfat_remove_entry(dir,&sinfo,bh,de);
+	iput(inode);
+	dir->i_nlink--;
+
+	kfree(buf_name);
+	d_name->name = tmp_name;
+	d_name->len = tmp_len;
+
+	return res;
+}
+#endif
 
 /* Public inode operations for the VFAT fs */
 struct inode_operations vfat_dir_inode_operations = {
@@ -1258,6 +1479,9 @@ struct inode_operations vfat_dir_inode_operations = {
 	rmdir:		vfat_rmdir,
 	rename:		vfat_rename,
 	setattr:	fat_notify_change,
+#if defined(CONFIG_VFAT_SHORTCUT_SYMLINK) || defined(CONFIG_VFAT_SHORTCUT_SYMLINK_MODULE)
+	symlink:	vfat_symlink,
+#endif
 };
 
 struct super_block *vfat_read_super(struct super_block *sb,void *data,

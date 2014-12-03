@@ -498,6 +498,20 @@ machine_init(unsigned long r3, unsigned long r4, unsigned long r5,
 	strcpy(cmd_line, CONFIG_CMDLINE);
 #endif /* CONFIG_CMDLINE */
 
+#ifdef CONFIG_PREEMPT
+	/* Override the irq routines for external & timer interrupts here,
+	 * as the MMU has only been minimally setup at this point and
+	 * there are no protections on page zero.
+	 */
+	{
+		extern int preempt_intercept(struct pt_regs *);
+	
+		do_IRQ_intercept = (unsigned long) &preempt_intercept;
+		timer_interrupt_intercept = (unsigned long) &preempt_intercept;
+
+	}
+#endif /* CONFIG_PREEMPT */
+
 	platform_init(r3, r4, r5, r6, r7);
 
 	if (ppc_md.progress)

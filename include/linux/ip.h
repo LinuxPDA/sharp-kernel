@@ -29,14 +29,14 @@
 
 #define IPTOS_PREC_MASK		0xE0
 #define IPTOS_PREC(tos)		((tos)&IPTOS_PREC_MASK)
-#define IPTOS_PREC_NETCONTROL           0xe0
+#define IPTOS_PREC_NETCONTROL	   0xe0
 #define IPTOS_PREC_INTERNETCONTROL      0xc0
-#define IPTOS_PREC_CRITIC_ECP           0xa0
-#define IPTOS_PREC_FLASHOVERRIDE        0x80
-#define IPTOS_PREC_FLASH                0x60
-#define IPTOS_PREC_IMMEDIATE            0x40
-#define IPTOS_PREC_PRIORITY             0x20
-#define IPTOS_PREC_ROUTINE              0x00
+#define IPTOS_PREC_CRITIC_ECP	   0xa0
+#define IPTOS_PREC_FLASHOVERRIDE	0x80
+#define IPTOS_PREC_FLASH		0x60
+#define IPTOS_PREC_IMMEDIATE	    0x40
+#define IPTOS_PREC_PRIORITY	     0x20
+#define IPTOS_PREC_ROUTINE	      0x00
 
 
 /* IP options */
@@ -97,18 +97,35 @@ struct ip_options {
   unsigned char rr;
   unsigned char ts;
   unsigned char is_setbyuser:1,			/* Set by setsockopt?			*/
-                is_data:1,			/* Options in __data, rather than skb	*/
-                is_strictroute:1,		/* Strict source route			*/
-                srr_is_hit:1,			/* Packet destination addr was our one	*/
-                is_changed:1,			/* IP checksum more not valid		*/	
-                rr_needaddr:1,			/* Need to record addr of outgoing dev	*/
-                ts_needtime:1,			/* Need to record timestamp		*/
-                ts_needaddr:1;			/* Need to record addr of outgoing dev  */
+		is_data:1,			/* Options in __data, rather than skb	*/
+		is_strictroute:1,		/* Strict source route			*/
+		srr_is_hit:1,			/* Packet destination addr was our one	*/
+		is_changed:1,			/* IP checksum more not valid		*/	
+		rr_needaddr:1,			/* Need to record addr of outgoing dev	*/
+		ts_needtime:1,			/* Need to record timestamp		*/
+		ts_needaddr:1;			/* Need to record addr of outgoing dev  */
   unsigned char router_alert;
   unsigned char __pad1;
   unsigned char __pad2;
   unsigned char __data[0];
 };
+
+#ifdef CONFIG_IP_IPSEC
+struct ip_auth_hdr {
+	__u8  nexthdr;
+	__u8  hdrlen;	   /* This one is measured in 32 bit units! */
+	__u16 reserved;
+	__u32 spi;
+	__u32 seq_no;	   /* Sequence number */
+	__u8  auth_data[4];     /* Length variable but >=4. Mind the 64 bit alignment! */
+};
+
+struct ip_esp_hdr {
+	__u32 spi;
+	__u32 seq_no;	   /* Sequence number */
+	__u8  enc_data[8];      /* Length variable but >=8. Mind the 64 bit alignment! */
+};
+#endif /* CONFIG_IP_IPSEC */
 
 #define optlength(opt) (sizeof(struct ip_options) + opt->optlen)
 #endif

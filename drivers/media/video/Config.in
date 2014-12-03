@@ -49,7 +49,18 @@ dep_tristate '  Miro DC10(+) support' CONFIG_VIDEO_ZORAN_DC10 $CONFIG_VIDEO_ZORA
 dep_tristate '  Linux Media Labs LML33 support' CONFIG_VIDEO_ZORAN_LML33 $CONFIG_VIDEO_ZORAN $CONFIG_VIDEO_DEV $CONFIG_PCI $CONFIG_I2C
 dep_tristate '  Zoran ZR36120/36125 Video For Linux' CONFIG_VIDEO_ZR36120 $CONFIG_VIDEO_DEV $CONFIG_PCI $CONFIG_I2C
 if [ "$CONFIG_EXPERIMENTAL" = "y" ]; then
+   # unfortunately, this depends on having CONFIG_FB_CYBER2000
+   # set as well - we hook off of the VGA driver
+   if [ "$CONFIG_ARCH_NETWINDER" = "y" ]; then
+      dep_tristate '  NetWinder Video for Linux (EXPERIMENTAL)' CONFIG_VIDEO_CYBERPRO $CONFIG_VIDEO_DEV
+   fi
+fi
+if [ "$CONFIG_EXPERIMENTAL" = "y" ]; then
   dep_tristate '  Sony Vaio Picturebook Motion Eye Video For Linux' CONFIG_VIDEO_MEYE $CONFIG_VIDEO_DEV $CONFIG_PCI $CONFIG_SONYPI
+fi
+
+if [ "$CONFIG_ARCH_DBMX2" = "y" ]; then
+    bool 'MX2ADS iMagic IM8803 support' CONFIG_VIDEO_MX2ADS
 fi
 
 endmenu

@@ -4,7 +4,7 @@
 mainmenu_option next_comment
 comment 'USB support'
 
-dep_tristate 'Support for USB' CONFIG_USB $CONFIG_PCI
+tristate 'Support for USB' CONFIG_USB
 if [ "$CONFIG_USB" = "y" -o  "$CONFIG_USB" = "m" ]; then
    bool '  USB verbose debug messages' CONFIG_USB_DEBUG
 
@@ -28,6 +28,37 @@ if [ "$CONFIG_USB" = "y" -o  "$CONFIG_USB" = "m" ]; then
       define_bool CONFIG_USB_UHCI_ALT n
    fi
    dep_tristate '  OHCI (Compaq, iMacs, OPTi, SiS, ALi, ...) support' CONFIG_USB_OHCI $CONFIG_USB
+   dep_tristate '  SH7727 OHCI host interface support' CONFIG_USB_OHCI_SH7727 $CONFIG_USB
+   dep_tristate '  SH7xxx OnChip OHCI-compatible host interface support' CONFIG_USB_OHCI_SH $CONFIG_USB
+
+   if [ "$CONFIG_USB_OHCI_SH" = "y" -o "$CONFIG_USB_OHCI_SH" = "m" ]; then
+		if [ "$CONFIG_SH_7760_SOLUTION_ENGINE" = "y" ]; then
+			if [ "$CONFIG_USB_OHCI_SH" = "y" ]; then
+				define_bool CONFIG_USB_USE_INTERNAL_MEMORY y
+				define_bool CONFIG_USB_OHCI_SH7760 y
+			else
+				define_bool CONFIG_USB_USE_INTERNAL_MEMORY y
+				define_bool CONFIG_USB_OHCI_SH7760 m
+			fi
+		fi
+   fi
+
+   dep_tristate '  OHCI-VoyagerGX/SH4 host interface support' CONFIG_USB_OHCI_VOYAGERGX $CONFIG_USB
+
+   if [ "$CONFIG_USB_OHCI_VOYAGERGX" = "y" -o "$CONFIG_USB_OHCI_VOYAGERGX" = "m" ]; then
+       define_bool CONFIG_USB_USE_INTERNAL_MEMORY y
+   fi
+
+   dep_tristate '  TC6393 OHCI-compatible host interface support' CONFIG_USB_OHCI_TC6393 $CONFIG_USB
+   if [ "$CONFIG_USB_OHCI_TC6393" != "n" ]; then
+       define_bool CONFIG_USB_USE_INTERNAL_MEMORY y
+   else
+      define_bool CONFIG_USB_USE_INTERNAL_MEMORY n
+   fi
+
+   if [ "$CONFIG_ARCH_PXA" != "n" ]; then
+      dep_tristate '  OHCI (Intel PXA27x ) support' CONFIG_USB_OHCI_PXA27X $CONFIG_USB
+   fi
 
    comment 'USB Device Class drivers'
    dep_tristate '  USB Audio support' CONFIG_USB_AUDIO $CONFIG_USB $CONFIG_SOUND
@@ -108,4 +139,7 @@ if [ "$CONFIG_USB" = "y" -o  "$CONFIG_USB" = "m" ]; then
    dep_tristate '  Tieman Voyager USB Braille display support (EXPERIMENTAL)' CONFIG_USB_BRLVGER $CONFIG_USB $CONFIG_EXPERIMENTAL
    dep_tristate '  USB LCD device support' CONFIG_USB_LCD $CONFIG_USB
 fi
+
+source drivers/usb/device/Config.in
+
 endmenu

@@ -1,3 +1,5 @@
+/* $USAGI: sysctl.h,v 1.23.2.2.2.1 2003/02/05 07:45:49 yoshfuji Exp $ */
+
 /*
  * sysctl.h: General linux system control interface
  *
@@ -19,6 +21,10 @@
  **
  ****************************************************************
  ****************************************************************
+ *
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
+ *	16-Jan-2003 SHARP add VM switch
  */
 
 #ifndef _LINUX_SYSCTL_H
@@ -27,6 +33,7 @@
 #include <linux/kernel.h>
 #include <linux/types.h>
 #include <linux/list.h>
+#include <linux/config.h>
 
 struct file;
 
@@ -143,6 +150,12 @@ enum
 	VM_MAX_MAP_COUNT=11,	/* int: Maximum number of active map areas */
 	VM_MIN_READAHEAD=12,    /* Min file readahead */
 	VM_MAX_READAHEAD=13,    /* Max file readahead */
+#ifdef CONFIG_FREEPG_SIGNAL
+	VM_FREEPG_SIGNAL_PROC=14,
+#endif
+#ifdef CONFIG_ARCH_SHARP_SL
+	VM_WITHOUT_SWAP=15,     /* switch to enable vm for no swap */
+#endif
 };
 
 
@@ -165,7 +178,8 @@ enum
 	NET_TR=14,
 	NET_DECNET=15,
 	NET_ECONET=16,
-	NET_KHTTPD=17
+	NET_KHTTPD=17,
+	NET_IPSEC=18
 };
 
 /* /proc/sys/kernel/random */
@@ -370,7 +384,26 @@ enum {
 	NET_IPV6_DAD_TRANSMITS=7,
 	NET_IPV6_RTR_SOLICITS=8,
 	NET_IPV6_RTR_SOLICIT_INTERVAL=9,
-	NET_IPV6_RTR_SOLICIT_DELAY=10
+	NET_IPV6_RTR_SOLICIT_DELAY=10,
+#ifdef __KERNEL__
+	NET_IPV6_BINDV6ONLY,
+	NET_IPV6_BINDV6ONLY_RESTRICTION,
+	NET_IPV6_ACCEPT_NI,
+	NET_IPV6_USE_TEMPADDR,
+	NET_IPV6_TEMP_VALID_LFT,
+	NET_IPV6_TEMP_PREFERED_LFT,
+	NET_IPV6_REGEN_MAX_RETRY,
+	NET_IPV6_MAX_DESYNC_FACTOR,
+#endif
+};
+
+/* /proc/net/ipsec */
+enum {
+	NET_IPSEC_REPLAY_WINDOW=1,
+	NET_IPSEC_DEBUG_IPV6=5,
+	NET_IPSEC_DEBUG_PFKEY=6,
+	NET_IPSEC_DEBUG_SADB=7,
+	NET_IPSEC_DEBUG_SPD=8,
 };
 
 /* /proc/sys/net/<protocol>/neigh/<dev> */

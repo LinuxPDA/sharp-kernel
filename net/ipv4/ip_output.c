@@ -124,7 +124,7 @@ int ip_build_and_send_pkt(struct sk_buff *skb, struct sock *sk,
 {
 	struct rtable *rt = (struct rtable *)skb->dst;
 	struct iphdr *iph;
-
+	
 	/* Build the IP header. */
 	if (opt)
 		iph=(struct iphdr *)skb_push(skb,sizeof(struct iphdr) + opt->optlen);
@@ -662,7 +662,7 @@ int ip_build_xmit(struct sock *sk,
 		/*
 		 * 	Check for slow path.
 		 */
-		if (length > rt->u.dst.pmtu || ipc->opt != NULL)  
+		if (length > rt->u.dst.pmtu || ipc->opt != NULL)
 			return ip_build_xmit_slow(sk,getfrag,frag,length,ipc,rt,flags); 
 	} else {
 		if (length > rt->u.dst.dev->mtu) {

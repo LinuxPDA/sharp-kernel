@@ -73,7 +73,11 @@ void pcibios_align_resource(void *data, struct resource *res,
 	}
 }
 
+#if defined(CONFIG_SH_RTS7751R2D) || defined(CONFIG_SH_7751_SOLUTION_ENGINE)
+int pcibios_enable_device(struct pci_dev *dev, int mask)
+#else
 int pcibios_enable_device(struct pci_dev *dev)
+#endif
 {
 	u16 cmd, old_cmd;
 	int idx;
@@ -82,6 +86,10 @@ int pcibios_enable_device(struct pci_dev *dev)
 	pci_read_config_word(dev, PCI_COMMAND, &cmd);
 	old_cmd = cmd;
 	for(idx=0; idx<6; idx++) {
+#if defined(CONFIG_SH_RTS7751R2D) || defined(CONFIG_SH_7751_SOLUTION_ENGINE)
+		if (!(mask & (1 << idx)))
+			continue;
+#endif
 		r = &dev->resource[idx];
 		if (!r->start && r->end) {
 			printk(KERN_ERR "PCI: Device %s not available because of resource collisions\n", dev->slot_name);

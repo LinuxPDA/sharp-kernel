@@ -20,6 +20,10 @@
 #include <linux/interrupt.h>
 #include <linux/pm.h>
 #include <linux/vt_kern.h>
+#ifdef CONFIG_RTHAL
+#include <linux/console.h>
+#include <linux/sched.h>
+#endif
 
 #include <asm/byteorder.h>
 #include <asm/elf.h>
@@ -62,9 +66,11 @@ extern void __modsi3(void);
 extern void __muldi3(void);
 extern void __ucmpdi2(void);
 extern void __udivdi3(void);
+extern void __umoddi3(void);
 extern void __udivmoddi4(void);
 extern void __udivsi3(void);
 extern void __umodsi3(void);
+extern void abort(void);
 
 extern void ret_from_exception(void);
 extern void fpundefinstr(void);
@@ -103,6 +109,9 @@ EXPORT_SYMBOL(kd_mksound);
 
 EXPORT_SYMBOL_NOVERS(__do_softirq);
 
+#ifdef CONFIG_RTHAL
+EXPORT_SYMBOL(console_drivers);
+#endif
 	/* platform dependent support */
 EXPORT_SYMBOL(dump_thread);
 EXPORT_SYMBOL(dump_fpu);
@@ -189,6 +198,7 @@ EXPORT_SYMBOL_NOVERS(memcpy);
 EXPORT_SYMBOL_NOVERS(memmove);
 EXPORT_SYMBOL_NOVERS(memcmp);
 EXPORT_SYMBOL_NOVERS(memscan);
+EXPORT_SYMBOL_NOVERS(memchr);
 EXPORT_SYMBOL_NOVERS(__memzero);
 
 	/* user mem (segment) */
@@ -228,6 +238,7 @@ EXPORT_SYMBOL_NOVERS(__modsi3);
 EXPORT_SYMBOL_NOVERS(__muldi3);
 EXPORT_SYMBOL_NOVERS(__ucmpdi2);
 EXPORT_SYMBOL_NOVERS(__udivdi3);
+EXPORT_SYMBOL_NOVERS(__umoddi3);
 EXPORT_SYMBOL_NOVERS(__udivmoddi4);
 EXPORT_SYMBOL_NOVERS(__udivsi3);
 EXPORT_SYMBOL_NOVERS(__umodsi3);
@@ -248,10 +259,13 @@ EXPORT_SYMBOL(elf_platform);
 EXPORT_SYMBOL(elf_hwcap);
 
 	/* syscalls */
+#ifndef CONFIG_RTHAL
+/* exported elsewhere when CONFIG_RTHAL is on */
 EXPORT_SYMBOL(sys_write);
 EXPORT_SYMBOL(sys_read);
-EXPORT_SYMBOL(sys_lseek);
 EXPORT_SYMBOL(sys_open);
+#endif
+EXPORT_SYMBOL(sys_lseek);
 EXPORT_SYMBOL(sys_exit);
 EXPORT_SYMBOL(sys_wait4);
 
@@ -262,3 +276,11 @@ EXPORT_SYMBOL_NOVERS(__down_trylock_failed);
 EXPORT_SYMBOL_NOVERS(__up_wakeup);
 
 EXPORT_SYMBOL(get_wchan);
+
+	/* RTAI stuff */
+#ifdef CONFIG_RTHAL
+extern struct irqdesc irq_desc[NR_IRQS];
+EXPORT_SYMBOL(irq_desc); 
+EXPORT_SYMBOL(do_timer);
+#endif
+

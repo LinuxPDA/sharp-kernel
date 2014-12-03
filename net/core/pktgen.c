@@ -1,5 +1,5 @@
 /* -*-linux-c-*-
- * $Id: pktgen.c,v 1.8 2002/07/15 19:30:17 robert Exp $
+ * $Id: pktgen.c,v 1.1 2004/08/21 02:23:13 namikosi Exp $
  * pktgen.c: Packet Generator for performance evaluation.
  *
  * Copyright 2001, 2002 by Robert Olsson <robert.olsson@its.uu.se>

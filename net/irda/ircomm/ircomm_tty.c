@@ -27,6 +27,10 @@
  *     Foundation, Inc., 59 Temple Place, Suite 330, Boston, 
  *     MA 02111-1307 USA
  *     
+ * ChangeLog:
+ *	06-21-2002 SHARP	add rx-buffer and delayed disconnection control
+ *	11-20-2002 SHARP	apply patch (fix transmit before ready in ircomm,
+ *						and fix small bugs in /proc)
  ********************************************************************/
 
 #include <linux/config.h>
@@ -222,6 +226,17 @@ static int ircomm_tty_startup(struct ircomm_tty_cb *self)
 		return -ENODEV;
 
 	self->slsap_sel = self->ircomm->slsap_sel;
+
+    /*
+     *	Added a flow control at ircomm layer. So we must know the maximum size
+     *	of buffe.
+     *	modified by SHARP
+	 */
+    self->ldisc_max_buffer = 0;
+    if(self->tty->ldisc.receive_room){
+	  self->ldisc_max_buffer = self->tty->ldisc.receive_room(self->tty);
+	}
+    IRDA_DEBUG(1, "Max ldisc buffer size = %d\n",self->ldisc_max_buffer );
 
 	/* Connect IrCOMM link with remote device */
 	ret = ircomm_tty_attach_cable(self);
@@ -424,6 +439,8 @@ static int ircomm_tty_open(struct tty_struct *tty, struct file *filp)
 
 		/* Init some important stuff */
 		init_timer(&self->watchdog_timer);
+		init_timer(&self->discon_timer);
+		init_timer(&self->flow_timer);
 		init_waitqueue_head(&self->open_wait);
  		init_waitqueue_head(&self->close_wait);
 
@@ -434,6 +451,13 @@ static int ircomm_tty_open(struct tty_struct *tty, struct file *filp)
 		 */
 		tty->termios->c_iflag = 0;
 		tty->termios->c_oflag = 0;
+
+	    /*
+		 *	initialize a disconnection status and new skb queue we added.
+		 *	modified by SHARP
+		 */
+	    self->disc_stat = IRCOMM_DISC_NONE;
+	    skb_queue_head_init(&self->rx_queue);
 
 		/* Insert into hash */
 		hashbin_insert(ircomm_tty, (irda_queue_t *) self, line, NULL);
@@ -512,6 +536,9 @@ static void ircomm_tty_close(struct tty_struct *tty, struct file *filp)
 	if (!tty)
 		return;
 
+	ASSERT(self != NULL, return;);
+	ASSERT(self->magic == IRCOMM_TTY_MAGIC, return;);
+
 	save_flags(flags); 
 	cli();
 
@@ -522,9 +549,6 @@ static void ircomm_tty_close(struct tty_struct *tty, struct file *filp)
 		IRDA_DEBUG(0, "%s(), returning 1\n", __FUNCTION__);
 		return;
 	}
-
-	ASSERT(self != NULL, return;);
-	ASSERT(self->magic == IRCOMM_TTY_MAGIC, return;);
 
 	if ((tty->count == 1) && (self->open_count != 1)) {
 		/*
@@ -948,6 +972,7 @@ static int ircomm_tty_chars_in_buffer(struct tty_struct *tty)
 static void ircomm_tty_shutdown(struct ircomm_tty_cb *self)
 {
 	unsigned long flags;
+	struct sk_buff *skb;
 
 	ASSERT(self != NULL, return;);
 	ASSERT(self->magic == IRCOMM_TTY_MAGIC, return;);
@@ -972,6 +997,14 @@ static void ircomm_tty_shutdown(struct ircomm_tty_cb *self)
 	if (self->tx_skb) {
 		dev_kfree_skb(self->tx_skb);
 		self->tx_skb = NULL;
+	}
+
+    /*
+     *	Flash all skb that remains in rx queue.
+     *	modified by SHARP
+	 */
+	while (skb = skb_dequeue(&self->rx_queue)) {
+	  dev_kfree_skb(skb);
 	}
 
 	ircomm_tty_detach_cable(self);
@@ -1126,16 +1159,24 @@ static int ircomm_tty_data_indication(void *instance, void *sap,
 				      struct sk_buff *skb)
 {
 	struct ircomm_tty_cb *self = (struct ircomm_tty_cb *) instance;
+	int r;
 
 	IRDA_DEBUG(2, "%s()\n", __FUNCTION__);
 	
 	ASSERT(self != NULL, return -1;);
 	ASSERT(self->magic == IRCOMM_TTY_MAGIC, return -1;);
+#ifndef CONFIG_ARCH_SHARP_SL
+    /*
+	 *	Allow NULL skb, as some skb in rx queue can be delivered.
+     *	modified by SHARP
+	 */
 	ASSERT(skb != NULL, return -1;);
+#endif
 
 	if (!self->tty) {
 		IRDA_DEBUG(0, "%s(), no tty!\n", __FUNCTION__);
-		dev_kfree_skb(skb);
+	    if(skb)
+		  dev_kfree_skb(skb);
 		return 0;
 	}
 
@@ -1154,6 +1195,47 @@ static int ircomm_tty_data_indication(void *instance, void *sap,
 		ircomm_tty_link_established(self);
 	}
 
+#ifdef CONFIG_ARCH_SHARP_SL	/* SHARP modified */
+    /*
+     *	Some datas will be lost if available ldisc buffer is smaller than
+     *	the data size. So we added a new skb queue, and store the skb in it.
+     *	modified by SHARP
+	 */
+    if(self->service_type == IRCOMM_3_WIRE_RAW){
+	  self->tty->ldisc.receive_buf(self->tty, skb->data, NULL, skb->len);
+	  dev_kfree_skb(skb);
+
+	  return 0;
+	}
+
+	if (!skb_queue_empty(&self->rx_queue)) {
+	  if(skb){
+		IRDA_DEBUG(2, __FUNCTION__"() queueing\n");
+		skb_queue_tail(&self->rx_queue, skb);
+	  }
+	  skb = skb_dequeue(&self->rx_queue);
+	}
+	
+	while(skb) {
+	  if( r = self->tty->ldisc.receive_room(self->tty) < skb->len ){
+		IRDA_DEBUG(2, "buffer shortage %dbytes\n",skb->len-r );
+		if( r > 16 ){
+		  self->tty->ldisc.receive_buf(self->tty, skb->data, NULL, r);
+		  skb_pull(skb, r);
+		}
+		skb_queue_head(&self->rx_queue, skb);
+		ircomm_flow_request(self->ircomm, FLOW_STOP);
+		ircomm_tty_start_flow_timer(self, 1*HZ);
+		return -ENOMEM;
+	  }
+	  IRDA_DEBUG(3, __FUNCTION__"() receive %dbytes\n",skb->len);
+	  self->tty->ldisc.receive_buf(self->tty, skb->data, NULL, skb->len);
+	  dev_kfree_skb(skb);
+	  skb = skb_dequeue(&self->rx_queue);
+	}
+
+	return 0;
+#else
 	/* 
 	 * Just give it over to the line discipline. There is no need to
 	 * involve the flip buffers, since we are not running in an interrupt 
@@ -1163,6 +1245,7 @@ static int ircomm_tty_data_indication(void *instance, void *sap,
 	dev_kfree_skb(skb);
 
 	return 0;
+#endif
 }
 
 /*

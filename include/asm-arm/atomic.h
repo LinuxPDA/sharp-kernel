@@ -27,80 +27,89 @@ typedef struct { volatile int counter; } atomic_t;
 #define ATOMIC_INIT(i)	{ (i) }
 
 #ifdef __KERNEL__
+
+#ifdef CONFIG_RTHAL
+#include <asm/proc/hard_system.h>
+#define my_local_irq_save(x)    hard_save_flags_cli(x)
+#define my_local_irq_restore(x) hard_restore_flags(x)
+#else
 #include <asm/proc/system.h>
+#define my_local_irq_save(x)    local_irq_save(x)
+#define my_local_irq_restore(x) local_irq_restore(x)
+#endif
 
 #define atomic_read(v)	((v)->counter)
 #define atomic_set(v,i)	(((v)->counter) = (i))
 
-static __inline__ void atomic_add(int i, volatile atomic_t *v)
+static inline void atomic_add(int i, volatile atomic_t *v)
 {
 	unsigned long flags;
 
-	__save_flags_cli(flags);
+	my_local_irq_save(flags);
 	v->counter += i;
-	__restore_flags(flags);
+	my_local_irq_restore(flags);
 }
 
-static __inline__ void atomic_sub(int i, volatile atomic_t *v)
+static inline void atomic_sub(int i, volatile atomic_t *v)
 {
 	unsigned long flags;
 
-	__save_flags_cli(flags);
+	my_local_irq_save(flags);
 	v->counter -= i;
-	__restore_flags(flags);
+	my_local_irq_restore(flags);
 }
 
-static __inline__ void atomic_inc(volatile atomic_t *v)
+static inline void atomic_inc(volatile atomic_t *v)
 {
 	unsigned long flags;
 
-	__save_flags_cli(flags);
+	my_local_irq_save(flags);
 	v->counter += 1;
-	__restore_flags(flags);
+	my_local_irq_restore(flags);
 }
 
-static __inline__ void atomic_dec(volatile atomic_t *v)
+static inline void atomic_dec(volatile atomic_t *v)
 {
 	unsigned long flags;
 
-	__save_flags_cli(flags);
+	my_local_irq_save(flags);
 	v->counter -= 1;
-	__restore_flags(flags);
+	my_local_irq_restore(flags);
 }
 
-static __inline__ int atomic_dec_and_test(volatile atomic_t *v)
+static inline int atomic_dec_and_test(volatile atomic_t *v)
 {
 	unsigned long flags;
-	int result;
+	int val;
 
-	__save_flags_cli(flags);
-	v->counter -= 1;
-	result = (v->counter == 0);
-	__restore_flags(flags);
+	my_local_irq_save(flags);
+	val = v->counter;
+	v->counter = val -= 1;
+	my_local_irq_restore(flags);
 
-	return result;
+	return val == 0;
 }
 
 static inline int atomic_add_negative(int i, volatile atomic_t *v)
 {
 	unsigned long flags;
-	int result;
+	int val;
 
-	__save_flags_cli(flags);
-	v->counter += i;
-	result = (v->counter < 0);
-	__restore_flags(flags);
+	my_local_irq_save(flags);
+	val = v->counter;
+	v->counter = val += i;
+	my_local_irq_restore(flags);
 
-	return result;
+	return val < 0;
 }
 
-static __inline__ void atomic_clear_mask(unsigned long mask, unsigned long *addr)
+static inline void atomic_clear_mask(unsigned long mask, unsigned long *addr)
 {
 	unsigned long flags;
 
-	__save_flags_cli(flags);
+	my_local_irq_save(flags);
 	*addr &= ~mask;
-	__restore_flags(flags);
+	my_local_irq_restore(flags);
 }
 
 /* Atomic operations are already serializing on ARM */

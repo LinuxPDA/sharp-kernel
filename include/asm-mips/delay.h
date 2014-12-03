@@ -27,7 +27,7 @@ __delay(unsigned long loops)
 }
 
 /*
- * division by multiplication: you don't have to worry about
+ * Division by multiplication: you don't have to worry about
  * loss of precision.
  *
  * Use only for very small delays ( < 1 msec).  Should probably use a
@@ -40,11 +40,11 @@ extern __inline__ void __udelay(unsigned long usecs, unsigned long lpj)
 {
 	unsigned long lo;
 
-#if (HZ == 100)
-	usecs *= 0x00068db8;		/* 2**32 / (1000000 / HZ) */
-#elif (HZ == 128)
-	usecs *= 0x0008637b;		/* 2**32 / (1000000 / HZ) */
-#endif
+	/*
+	 * Excessive precission?  Probably ...
+	 */
+	usecs *= (unsigned long) (((0x8000000000000000ULL / (500000 / HZ)) +
+	                           0x80000000ULL) >> 32);
 	__asm__("multu\t%2,%3"
 		:"=h" (usecs), "=l" (lo)
 		:"r" (usecs),"r" (lpj));

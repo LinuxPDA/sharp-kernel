@@ -25,8 +25,6 @@
 #include "i82092aa.h"
 #include "i82365.h"
 
-MODULE_LICENSE("GPL");
-
 /* PCI core routines */
 static struct pci_device_id i82092aa_pci_ids[] = {
 	{

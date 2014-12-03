@@ -33,7 +33,7 @@ struct sgi_zslayout {
 struct serial_struct {
 	int	type;
 	int	line;
-	int	port;
+	unsigned int	port;
 	int	irq;
 	int	flags;
 	int	xmit_fifo_size;
@@ -129,7 +129,7 @@ struct sgi_serial {
 
 	int			magic;
 	int			baud_base;
-	int			port;
+	unsigned int		port;
 	int			irq;
 	int			flags; 		/* defined in tty.h */
 	int			type; 		/* UART type */
@@ -166,9 +166,9 @@ struct sgi_serial {
 #define SERIAL_MAGIC 0x5301
 
 /*
- * The size of the serial xmit buffer is 1 page, or 4096 bytes
+ * The size of the serial xmit buffer is 1 page.
  */
-#define SERIAL_XMIT_SIZE 4096
+#define SERIAL_XMIT_SIZE PAGE_SIZE
 
 /*
  * Events are used to schedule things to happen at timer-interrupt

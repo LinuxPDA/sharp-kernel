@@ -28,11 +28,15 @@ static void __init check_bugs(void)
 		break;
 	case CPU_SH7729:
 		*p++ = '3';
-		printk("CPU: SH7709A/SH7729\n");
+#if defined(CONFIG_CPU_SUBTYPE_SH7290)
+		printk("CPU: SH7290\n");
+#else
+		printk("CPU: SH7709A/SH7710/SH7720/SH7729/SH7727\n");
+#endif
 		break;
 	case CPU_SH7750:
 		*p++ = '4';
-		printk("CPU: SH7750/SH7751\n");
+		printk("CPU: SH7750/SH7751/SH7750R/SH7751R/SH7760\n");
 		break;
 	case CPU_ST40STB1:
 		*p++ = '4';

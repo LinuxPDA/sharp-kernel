@@ -28,7 +28,7 @@
 
 
 		.text
-		.align 4
+		.align	5
 		.set	push
 		.set	reorder
 FEXPORT(ret_from_irq)
@@ -50,6 +50,15 @@ ret_from_schedule:
 		bnez	v0, reschedule
 		bnez	v1, signal_return
 restore_all:	.set	noat
+#if defined(CONFIG_RTHAL)
+		lw	t0, (rthal + 8)	# sti
+		beqz	t0, 1f
+		nop
+		lw	t0, (rthal + 4)	# cli
+		jal	t0
+		nop
+1:
+#endif
 		RESTORE_ALL_AND_RET
 		.set	at
 
@@ -166,6 +175,133 @@ END(except_vec3_r4000)
 
 		__FINIT
 
+#if defined(CONFIG_RTHAL)
+
+#define RT_RA	0
+#define RT_R0	4
+#define RT_R1	8
+#define RT_R2	12
+#define RT_R3	16
+#define RT_R4	20
+#define RT_R5	24
+#define RT_R6	28
+#define RT_R7	32
+#define RT_R8	36
+#define RT_R9	40
+#define RT_R10	44
+#define RT_R11	48
+#define RT_R12	52
+#define RT_R13	56
+#define RT_R14	60
+#define RT_R15	64
+#define RT_R16	68
+#define RT_R17	72
+#define RT_R18	76
+#define RT_R19	80
+#define RT_R20	84
+#define RT_R21	88
+#define RT_R22	92
+#define RT_R23	96
+#define RT_R24	100
+#define RT_R25	104
+#define RT_R26	108
+#define RT_R27	112
+#define RT_R28	116
+#define RT_R29	120
+#define RT_R30	124
+#define RT_R31	128
+#define RT_SIZE 132
+
+		.set	push
+		.set	noreorder
+		.set	noat
+		.set	nomacro
+
+NESTED(rthal_sw_thread, RT_SIZE, sp)
+		.set	push
+
+		subu	sp, RT_SIZE
+		sw	$1, RT_R1(sp)
+		sw	$2, RT_R2(sp)
+		sw	$3, RT_R3(sp)
+		sw	$4, RT_R4(sp)
+		sw	$5, RT_R5(sp)
+		sw	$6, RT_R6(sp)
+		sw	$7, RT_R7(sp)
+		sw	$8, RT_R8(sp)
+		sw	$9, RT_R9(sp)
+		sw	$10, RT_R10(sp)
+		sw	$11, RT_R11(sp)
+		sw	$12, RT_R12(sp)
+		sw	$13, RT_R13(sp)
+		sw	$14, RT_R14(sp)
+		sw	$15, RT_R15(sp)
+		sw	$16, RT_R16(sp)
+		sw	$17, RT_R17(sp)
+		sw	$18, RT_R18(sp)
+		sw	$19, RT_R19(sp)
+		sw	$20, RT_R20(sp)
+		sw	$21, RT_R21(sp)
+		sw	$22, RT_R22(sp)
+		sw	$23, RT_R23(sp)
+		sw	$24, RT_R24(sp)
+		sw	$25, RT_R25(sp)
+		sw	$26, RT_R26(sp)
+		sw	$27, RT_R27(sp)
+		sw	$28, RT_R28(sp)
+		sw	$29, RT_R29(sp)
+		sw	$30, RT_R30(sp)
+		sw	$31, RT_R31(sp)
+
+		lw	$8,  ($4)
+		sw	$29, ($8)
+		sw	$5,  ($4)
+		lw	$29, ($5)
+
+		.set	pop
+		lw	$1, RT_R1(sp)
+		lw	$2, RT_R2(sp)
+		lw	$3, RT_R3(sp)
+		lw	$4, RT_R4(sp)
+		lw	$5, RT_R5(sp)
+		lw	$6, RT_R6(sp)
+		lw	$7, RT_R7(sp)
+		lw	$8, RT_R8(sp)
+		lw	$9, RT_R9(sp)
+		lw	$10, RT_R10(sp)
+		lw	$11, RT_R11(sp)
+		lw	$12, RT_R12(sp)
+		lw	$13, RT_R13(sp)
+		lw	$14, RT_R14(sp)
+		lw	$15, RT_R15(sp)
+		lw	$16, RT_R16(sp)
+		lw	$17, RT_R17(sp)
+		lw	$18, RT_R18(sp)
+		lw	$19, RT_R19(sp)
+		lw	$20, RT_R20(sp)
+		lw	$21, RT_R21(sp)
+		lw	$22, RT_R22(sp)
+		lw	$23, RT_R23(sp)
+		lw	$24, RT_R24(sp)
+		lw	$25, RT_R25(sp)
+		lw	$26, RT_R26(sp)
+		lw	$27, RT_R27(sp)
+		lw	$28, RT_R28(sp)
+		lw	$30, RT_R30(sp)
+		lw	$31, RT_R31(sp)
+		addu	sp, RT_SIZE
+
+		j	$31
+		nop
+
+		.set	at
+		.set	reorder
+		.set	macro
+
+END(rthal_sw_thread)
+
+#endif /* CONFIG_RTHAL */
+
 /*
  * Build a default exception handler for the exceptions that don't need
  * special handlers.  If you didn't know yet - I *like* playing games with
@@ -232,6 +368,7 @@ END(handle_##exception)
 		BUILD_HANDLER(ov,ov,sti,silent)			/* #12 */
 		BUILD_HANDLER(tr,tr,sti,silent)			/* #13 */
 		BUILD_HANDLER(fpe,fpe,fpe,silent)		/* #15 */
+		BUILD_HANDLER(mdmx,mdmx,sti,silent)		/* #22 */
 		BUILD_HANDLER(watch,watch,sti,silent)		/* #23 */
 		BUILD_HANDLER(mcheck,mcheck,cli,silent)		/* #24 */
 		BUILD_HANDLER(reserved,reserved,sti,silent)	/* others */

@@ -8,6 +8,7 @@
  *  Fixes:
  *
  *  	Max Cohan: Fixed invalid FSINFO offset when info_sector is 0
+ *	SHARP Corporation: Support for Win98+USB formatted card (disk).
  */
 
 #include <linux/module.h>
@@ -525,14 +526,22 @@ int fat_dentry_to_fh(struct dentry *de, __u32 *fh, int *lenp, int needparent)
 	return 3;
 }
 
+#if defined(CONFIG_VFAT_SHORTCUT_SYMLINK) || defined(CONFIG_VFAT_SHORTCUT_SYMLINK_MODULE)
+static void fat_read_inode(struct inode*);
+extern struct inode_operations fat_symlink_inode_operations;
+#endif
+
 static struct super_operations fat_sops = { 
 	write_inode:	fat_write_inode,
 	delete_inode:	fat_delete_inode,
 	put_super:	fat_put_super,
 	statfs:		fat_statfs,
 	clear_inode:	fat_clear_inode,
-
+#if defined(CONFIG_VFAT_SHORTCUT_SYMLINK) || defined(CONFIG_VFAT_SHORTCUT_SYMLINK_MODULE)
+	read_inode:	fat_read_inode,
+#else
 	read_inode:	make_bad_inode,
+#endif
 	fh_to_dentry:	fat_fh_to_dentry,
 	dentry_to_fh:	fat_dentry_to_fh,
 };
@@ -711,7 +720,11 @@ fat_read_super(struct super_block *sb, void *data, int silent,
 			|| sbi->clusters + 2 > fat_clusters + MSDOS_MAX_EXTRA
 			|| logical_sector_size < 512
 			|| PAGE_CACHE_SIZE < logical_sector_size
+#if /* for Win98+USB */ defined(CONFIG_ARCH_SHARP_SL)
+			;
+#else /* (original) */
 			|| !b->secs_track || !b->heads;
+#endif /* for Win98+USB */
 	}
 	brelse(bh);
 
@@ -856,6 +869,18 @@ static int is_exec(char *extension)
 	return 0;
 }
 
+#if defined(CONFIG_VFAT_SHORTCUT_SYMLINK) || defined(CONFIG_VFAT_SHORTCUT_SYMLINK_MODULE)
+static int is_lnk(char *extension)
+{
+	char *lnk_extensions = "LNK", *walk;
+
+	for (walk = lnk_extensions; *walk; walk += 3)
+		if (!strncmp(extension, walk, 3))
+			return 1;
+	return 0;
+}
+#endif
+
 static int fat_writepage(struct page *page)
 {
 	return block_write_full_page(page,fat_get_block);
@@ -930,6 +955,12 @@ static void fat_fill_inode(struct inode *inode, struct msdos_dir_entry *de)
 		MSDOS_I(inode)->mmu_private = inode->i_size;
 	} else { /* not a directory */
 		inode->i_generation |= 1;
+#if defined(CONFIG_VFAT_SHORTCUT_SYMLINK) || defined(CONFIG_VFAT_SHORTCUT_SYMLINK_MODULE)
+		if (is_lnk(de->ext)) {
+			inode->i_mode = S_IRWXUGO | S_IFLNK;
+		}
+		else
+#endif
 		inode->i_mode = MSDOS_MKMODE(de->attr,
 		    ((sbi->options.showexec &&
 		       !is_exec(de->ext))
@@ -942,7 +973,16 @@ static void fat_fill_inode(struct inode *inode, struct msdos_dir_entry *de)
 		}
 		MSDOS_I(inode)->i_logstart = MSDOS_I(inode)->i_start;
 		inode->i_size = CF_LE_L(de->size);
+#if defined(CONFIG_VFAT_SHORTCUT_SYMLINK) || defined(CONFIG_VFAT_SHORTCUT_SYMLINK_MODULE)
+		if (S_ISLNK(inode->i_mode)) {
+			inode->i_op = &fat_symlink_inode_operations;
+		}
+		else {
+			inode->i_op = &fat_file_inode_operations;
+		}
+#else
 	        inode->i_op = &fat_file_inode_operations;
+#endif
 	        inode->i_fop = &fat_file_operations;
 		inode->i_mapping->a_ops = &fat_aops;
 		MSDOS_I(inode)->mmu_private = inode->i_size;
@@ -963,6 +1003,20 @@ static void fat_fill_inode(struct inode *inode, struct msdos_dir_entry *de)
 		: inode->i_mtime;
 	MSDOS_I(inode)->i_ctime_ms = de->ctime_ms;
 }
+
+#if defined(CONFIG_VFAT_SHORTCUT_SYMLINK) || defined(CONFIG_VFAT_SHORTCUT_SYMLINK_MODULE)
+void fat_read_inode(struct inode* inode)
+{
+	struct super_block* sb = inode->i_sb;
+
+	make_bad_inode(inode);
+	switch (inode->i_mode & S_IFMT) {
+	case S_IFLNK:
+		inode->i_op = &fat_symlink_inode_operations;
+		break;
+	}
+}
+#endif
 
 void fat_write_inode(struct inode *inode, int wait)
 {

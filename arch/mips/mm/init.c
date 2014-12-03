@@ -364,6 +364,7 @@ extern void prom_free_prom_memory(void);
 
 void free_initmem(void)
 {
+#ifndef CONFIG_XIP_KERNEL
 	unsigned long addr;
 
 	prom_free_prom_memory ();
@@ -378,6 +379,7 @@ void free_initmem(void)
 	}
 	printk(KERN_INFO "Freeing unused kernel memory: %dk freed\n",
 	       (&__init_end - &__init_begin) >> 10);
+#endif
 }
 
 void si_meminfo(struct sysinfo *val)

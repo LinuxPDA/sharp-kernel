@@ -8,6 +8,11 @@
  * published by the Free Software Foundation.
  *
  *  32-bit kernel startup code for all architectures
+ *
+ * Change Log
+ *   12-Nov-2001 Lineo Japan, Inc.
+ *   30-Jul-2002 Lineo Japan, Inc.  for 2.4.18
+ *   31-Jul-2002 Lineo Japan, Inc.  for ARCH_PXA
  */
 #include <linux/config.h>
 #include <linux/linkage.h>
@@ -30,6 +35,7 @@
  *
  * swapper_pg_dir, pgtbl and krnladr are all closely related.
  */
+#ifndef CONFIG_XIP_KERNEL
 #if (TEXTADDR & 0xffff) != 0x8000
 #error TEXTADDR must start at 0xXXXX8000
 #endif
@@ -41,6 +47,32 @@
 		adr	\reg, stext
 		sub	\reg, \reg, #0x4000
 		.endm
+#else
+#if (DATAADDR & 0xffff) != 0x8000
+#error DATAADDR must start at 0xXXXX8000
+#endif
+
+#define	PAGE_OFFSET	0xc0000000
+#ifdef CONFIG_ARCH_LUBBOCK
+#define	PHYS_OFFSET	0xa0000000
+#elif CONFIG_ARCH_OMAP
+#define	PHYS_OFFSET	0x10000000
+#elif CONFIG_ARCH_KATANA
+#define	PHYS_OFFSET	0x10000000
+#elif CONFIG_ARCH_DBMX1
+#define	PHYS_OFFSET	0x08000000
+#elif CONFIG_ARCH_DBMX2
+#define	PHYS_OFFSET	0xc0000000
+#endif
+
+		.globl	SYMBOL_NAME(swapper_pg_dir)
+		.equ	SYMBOL_NAME(swapper_pg_dir), DATAADDR - 0x4000
+
+		.macro	pgtbl, reg, rambase
+		ldr	\reg, PGTBL
+		add	\reg, \reg, #PHYS_OFFSET - PAGE_OFFSET
+		.endm
+#endif
 
 /*
  * Since the page table is closely related to the kernel start address, we
@@ -51,18 +83,51 @@
 		bic	\rd, \pgtable, #0x000ff000
 		.endm
 
+#ifdef CONFIG_ARCH_KATANA
+		.macro	ldrx, rd, addr
+		mov	\rd, \addr&0xff000000
+		add	\rd, \rd, \addr&0x00ff0000
+		add	\rd, \rd, \addr&0x0000ff00
+		add	\rd, \rd, \addr&0x000000ff
+		.endm
+	
+		.macro waitm cn
+		ldrx	r1, #0x80007800 @ RTC
+		ldr	r2, =0x01
+		str	r2, [r1, #0x24] @ clear status
+		ldrx	r2, #(0x147 * \cn) @ 32KHz - 10ms
+		str	r2, [r1, #0x14]
+		ldr	r2, =0x04
+		str	r2, [r1, #0x10] @ countdown ebable
+100:		ldr	r2, [r1, #0x24]
+		tst	r2, #1
+		beq	100b
+		ldr	r2, =0x01
+		str	r2, [r1, #0x24] @ clear status
+		@ module timer off
+		ldr	r2, [r1, #0x10]
+		bic	r2, r2, #0x04
+		str	r2, [r1, #0x10]
+		.endm
+#endif
+
 /*
- *  Kernel startup entry point.
+ * Kernel startup entry point.
+ * ---------------------------
  *
- * The rules are:
- *  r0      - should be 0
- *  r1      - unique architecture number
- *  MMU     - off
- *  I-cache - on or off
- *  D-cache - off
+ * This is normally called from the decompressor code.  The requirements
+ * are: MMU = off, D-cache = off, I-cache = dont care, r0 = 0,
+ * r1 = machine nr.
  *
- * See linux/arch/arm/tools/mach-types for the complete list of numbers
- * for r1.
+ * This code is mostly position independent, so if you link the kernel at
+ * 0xc0008000, you call this at __pa(0xc0008000).
+ *
+ * See linux/arch/arm/tools/mach-types for the complete list of machine
+ * numbers for r1.
+ *
+ * We're trying to keep crap to a minimum; DO NOT add any machine specific
+ * crap here - that's what the boot loader (or in extreme, well justified
+ * circumstances, zImage) is for.
  */
 		.section ".text.init",#alloc,#execinstr
 		.type	stext, #function
@@ -124,6 +189,221 @@ __entry:
  * FIXME - No bootloader, so manually set 'r1' with our architecture number.
  */
 		mov	r1, #MACH_TYPE_L7200
+#elif defined(CONFIG_SA1100_COLLIE)
+		mov	r1, #MACH_TYPE_COLLIE
+#elif defined(CONFIG_SABINAL_DISCOVERY)
+		mov	r1, #0xff
+		add	r1, r1, #MACH_TYPE_DISCOVERY-0xff
+#endif
+#if defined(CONFIG_S1C38000_TTE301)
+		mov	r1, #0xff
+		add	r1, r1, #MACH_TYPE_TTE301-0xff
+#endif
+#if defined(CONFIG_DBMX1_TPM102)
+		mov	r1, #0xff
+		add	r1, r1, #MACH_TYPE_TPM102-0xff
+#endif
+#if defined(CONFIG_ARCH_MX2ADS)
+		mov	r1, #0xff
+		add	r1, r1, #MACH_TYPE_MX2ADS-0xff
+#endif
+
+#ifdef CONFIG_XIP_KERNEL
+
+#if defined(CONFIG_ARCH_LUBBOCK)
+		mov	r1, #MACH_TYPE_LUBBOCK
+#endif
+#if defined(CONFIG_ARCH_KATANA)
+		adr	r1, __entry
+		tst	r1, #0xf0000000
+		addeq	r1, r1, #0xf0000000
+		mov	pc, r1
+__entry:
+		@ supervisor mode - disable IRQ/FIQ - ARM execution
+		ldr	r14, =0xd3
+		msr	cpsr_cxsf, r14
+		@ Disable caches, mmu, etc.
+		ldr     r1, =0x00000070 @ I & D cache off, wb off, mmu off
+		mcr	p15, 0, r1, c1, c0 ,0
+		@ Program External Bus Interface (EBIU)
+		ldrx	r1, #0x8000a800
+		ldr	r2, =0x05
+		ldrx	r3, #0x00008820
+		str	r3, [r1, r2, lsl #2]
+		@ Enable PLL and switch clock source
+		ldrx	r1, #0x80005800
+		ldr	r2, =0x01
+		ldr	r3, =0x00000040
+		str	r3, [r1, r2, lsl #2] @ SBI
+		ldr	r2, =0x02
+		ldrx	r3, #0x0001a113
+		str	r3, [r1, r2, lsl #2] @ PLL1
+		ldr	r2, =0x03
+		ldrx	r3, #0x0001a113
+		str	r3, [r1, r2, lsl #2] @ PLL2
+		ldr	r2, =0x08
+		ldr	r3, =0x0000003c
+		str	r3, [r1, r2, lsl #2] @ Enable GE Clock
+		ldr	r2, =0x00
+		ldr	r3, =0x00000013
+		str	r3, [r1, r2, lsl #2] @ Enable PLL1 & PLL2 & GE
+		waitm	0x05 @ 50[ms] wait
+		ldrx	r1, #0x80005800
+		ldr	r2, =0x07
+		ldr	r3, =0x00000020
+		ldr	r4, [r1, r2, lsl #2]
+		orr	r4, r4, r3
+		str	r4, [r1, r2, lsl #2] @ Switch to PLL1 clock frequency
+		ldr	r2, =0x0a
+		ldrx	r3, #0x000002eb
+		str	r3, [r1, r2, lsl #2] @ ??
+		@ Initilaise SDRAM
+		ldrx	r1, #0x8000a800
+		ldr	r2, =0x00
+		ldr	r3, =0x0000002f	
+		str	r3, [r1, r2, lsl #2] @ EBIU Enable
+		ldr	r2, =0x07
+		ldrx	r3, #0x00804263
+		str	r3, [r1, r2, lsl #2] @ SRAM Interface
+		ldr	r2, =0x08
+		ldrx	r3, #0x0855ca20
+		str	r3, [r1, r2, lsl #2] @ External Peripheral 0 Interface
+		ldr	r2, =0x09
+		ldrx	r3, #0x0855ca21
+		str	r3, [r1, r2, lsl #2] @ External Peripheral 1 Interface
+		ldr	r2, =0x0a
+		ldrx	r3, #0x0025ec7d
+		str	r3, [r1, r2, lsl #2] @ SDRAM Control 1
+		ldr	r2, =0x0b
+		ldr	r3, =0x000e0000
+		str	r3, [r1, r2, lsl #2] @ SDRAM Control 2
+		ldr	r2, =0x0c
+		ldr	r3, =0x00000640
+		str	r3, [r1, r2, lsl #2] @ SDRAM Control 3
+		ldr	r2, =0x0d
+		ldr	r3, =0x00000001
+		str	r3, [r1, r2, lsl #2] @ SDRAM Control 4
+		@  Initialise static memory
+		ldrx	r1, #0x8000a000
+		ldr	r2, =0x01
+		ldrx	r3, #0x064a63a8
+		str	r3, [r1, r2, lsl #2] @ MIU Control 2
+		ldr	r2, =0x05
+		ldrx	r3, #0x000e0041
+		str	r3, [r1, r2, lsl #2] @ MIU Clock Control
+		ldr	r2, =0x00
+		ldr	r3, =0x00000001
+		str	r3, [r1, r2, lsl #2] @  MIU Control 1 -> Enable MIU <-
+		@ Turn on the high vect
+		mrc	p15, 0, r0, c1, c0, 0
+		ldrx	r0, #0x00001070
+		mcr	p15, 0, r0, c1, c0, 0
+		@ UART1 initialize 38400bps
+		ldrx	r1, #0x80004000
+		ldr	r2, =0x00000000
+		str	r2, [r1, #0x00]
+		ldrx	r2, #0x1b1800d8
+		str	r2, [r1, #0x04]
+		ldr	r2, =0x00000000
+		str	r2, [r1, #0x08]
+		ldr	r2, =0x00000001
+		str	r2, [r1, #0x00]
+		ldr	r2, =0x0000000d
+		str	r2, [r1, #0x00]
+		ldrx	sp, #0x10002000
+		@ Machine Type
+		mov	r1, #0xFF
+		add	r1, r1, #MACH_TYPE_KATANA-0xFF
+#endif
+#if defined(CONFIG_ARCH_DBMX1)
+		@ SDRAMC initialize
+		ldr	r2, =0x00221000
+		@ precharge
+		ldr	r0, =0x92130300
+		str	r0, [r2]
+		@ auto refresh
+		ldr	r0, =0xa2130300
+		str	r0, [r2]
+		mov	r0, #0x08000000
+		ldr	r3, [r0]
+		ldr	r3, [r0]
+		ldr	r3, [r0]
+		ldr	r3, [r0]
+		ldr	r3, [r0]
+		ldr	r3, [r0]
+		ldr	r3, [r0]
+		ldr	r3, [r0]
+		@ set mode
+		ldr	r0, =0xb2130300
+		str	r0, [r2]
+		ldr	r0, =0x08119800
+		ldr	r3, [r0]
+		@ set normal mode
+		ldr	r0, =0x8213c300
+		str	r0, [r2]
+#endif
+#if defined(CONFIG_ARCH_DBMX2)
+		@ AHB-Lite IP Interface initialize
+                ldr	r2, =0x10000000
+                ldr	r0, =0x00040304
+		str	r0, [r2], #4
+                ldr	r0, =0xfffbfcfb
+		str	r0, [r2]
+                ldr	r2, =0x10020000
+                ldr	r0, =0x00000000
+		str	r0, [r2], #4
+                ldr	r0, =0xffffffff
+		str	r0, [r2]
+		@ PLL 133MHz
+                ldr	r2, =0x10027000
+                ldr	r0, =0x17000607
+		str	r0, [r2]
+		@ SDRAMC initialize
+		ldr	r2, =0xdf000000
+		@ precharge
+		ldr	r0, =0x92120300
+		str	r0, [r2]
+		@ auto refresh
+		ldr	r0, =0xc0200000
+		ldr	r3, [r0]
+		ldr	r0, =0xa2120300
+		str	r0, [r2]
+		mov	r0, #0xc0000000
+		ldr	r3, [r0]
+		ldr	r3, [r0]
+		ldr	r3, [r0]
+		ldr	r3, [r0]
+		ldr	r3, [r0]
+		ldr	r3, [r0]
+		ldr	r3, [r0]
+		ldr	r3, [r0]
+		@ set mode
+		ldr	r0, =0xb2120300
+		str	r0, [r2]
+		ldr	r0, =0xc0119800
+		ldr	r3, [r0]
+		@ set normal mode
+		ldr	r0, =0x8212f339
+		str	r0, [r2]
+#endif
+		@ Data cache might be active.
+		@ Be sure to flush kernel binary out of the cache,
+		@ whatever state it is, before it is turned off.
+		@ This is done by fetching through currently executed
+		@ memory to be sure we hit the same cache.
+		bic	r2, pc, #0x1f
+		add	r3, r2, #0x10000	@ 64 kb is quite enough...
+1:		ldr	r0, [r2], #32
+		teq	r2, r3
+		bne	1b
+		mcr	p15, 0, r0, c7, c10, 4	@ drain WB
+		mcr	p15, 0, r0, c7, c7, 0	@ flush I & D caches
+
+		@ disabling MMU and caches
+		mrc	p15, 0, r0, c1, c0, 0	@ read control reg
+		bic	r0, r0, #0x05		@ clear DC, MMU
+		bic	r0, r0, #0x1000		@ clear Icache
+		mcr	p15, 0, r0, c1, c0, 0
 #endif
 
 		mov	r0, #F_BIT | I_BIT | MODE_SVC	@ make sure svc mode
@@ -143,7 +423,6 @@ __entry:
 
 		.type	__switch_data, %object
 __switch_data:	.long	__mmap_switched
-		.long	SYMBOL_NAME(compat)
 		.long	SYMBOL_NAME(__bss_start)
 		.long	SYMBOL_NAME(_end)
 		.long	SYMBOL_NAME(processor_id)
@@ -151,28 +430,44 @@ __switch_data:	.long	__mmap_switched
 		.long	SYMBOL_NAME(cr_alignment)
 		.long	SYMBOL_NAME(init_task_union)+8192
 
+/*
+ * Enable the MMU.  This completely changes the structure of the visible
+ * memory space.  You will not be able to trace execution through this.
+ * If you have an enquiry about this, *please* check the linux-arm-kernel
+ * mailing list archives BEFORE sending another post to the list.
+ */
 		.type	__ret, %function
 __ret:		ldr	lr, __switch_data
 		mcr	p15, 0, r0, c1, c0
-		mov	r0, r0
+		mrc	p15, 0, r0, c1, c0, 0		@ read it back.
 		mov	r0, r0
 		mov	r0, r0
 		mov	pc, lr
 
-		/*
-		 * This code follows on after the page
-		 * table switch and jump above.
-		 *
-		 * r0  = processor control register
-		 * r1  = machine ID
-		 * r9  = processor ID
-		 */
+/*
+ * The following fragment of code is executed with the MMU on, and uses
+ * absolute addresses; this is not position independent.
+ *
+ *  r0  = processor control register
+ *  r1  = machine ID
+ *  r9  = processor ID
+ */
 		.align	5
 __mmap_switched:
+#ifdef CONFIG_XIP_KERNEL
+		ldr	r3, ETEXT			@ data section copy
+		ldr	r4, SDATA
+		ldr	r5, EDATA
+1:
+		ldr	r6, [r3], #4
+		str	r6, [r4], #4
+		cmp	r4, r5
+		blo	1b
+#endif
+
 		adr	r3, __switch_data + 4
-		ldmia	r3, {r2, r4, r5, r6, r7, r8, sp}@ r2 = compat
+		ldmia	r3, {r4, r5, r6, r7, r8, sp}@ r2 = compat
 							@ sp = stack pointer
-		str	r12, [r2]
 
 		mov	fp, #0				@ Clear BSS (and zero fp)
 1:		cmp	r4, r5
@@ -219,6 +514,8 @@ __create_page_tables:
 		teq	r0, r2
 		bne	1b
 
+#ifndef CONFIG_XIP_KERNEL
+
 		/*
 		 * Create identity mapping for first MB of kernel to
 		 * cater for the MMU enable.  This identity mapping
@@ -257,8 +554,60 @@ __create_page_tables:
 		add	r3, r8, r2			@ flags + rambase
 		str	r3, [r0]
 
+#else	/* CONFIG_XIP_KERNEL */
+
+		mov	r3, pc, lsr #20
+		mov	r3, r3, lsl #20		@ phys kernel start
+
+		add	r0, r4, r3, lsr #18
+		orr	r3, r3, r8
+		str	r3, [r0]
+
+#if defined(CONFIG_ARCH_DBMX1)
+		orr	r3, r3, #0x10000000
+#endif
+
+		mov	r0, #TEXTADDR & 0xff000000
+		add	r0, r0, #TEXTADDR & 0x00f00000	@ virt kernel start
+		add	r0, r4, r0, lsr #18
+		add	r2, r3, #4 << 20		@ kernel + 4MB
+
+1:
+		str	r3, [r0], #4
+		add	r3, r3, #1 << 20
+		cmp	r3, r2
+		bne	1b
+
+		bic	r3, r4, #0x000ff000		@ ram start
+		add	r0, r4, r3, lsr #18
+		orr	r3, r3, r8
+		str	r3, [r0], #4
+
+		add	r0, r3, #PAGE_OFFSET - PHYS_OFFSET
+		add	r0, r4, r0, lsr #18
+		add	r2, r3, #4 << 20		@ ram + 4MB
+
+1:
+		str	r3, [r0], #4
+		add	r3, r3, #1 << 20
+		cmp	r3, r2
+		bne	1b
+
+#endif	/* CONFIG_XIP_KERNEL */
+
 		bic	r8, r8, #0x0c			@ turn off cacheable
 							@ and bufferable bits
+#ifdef CONFIG_ARCH_KATANA
+	/* create mapping into 0x80000000 for io space in debugging use */
+	/* r7 used to be 0x80000000, but now it's set to MQ9000_REGS_VBASE  */
+	/* hardcode 0x80000c12 section descriptor into location 0x10006000 */
+		add	r0, r4, #0x2000
+		mov	r2, #0
+		add	r2, r2, #0x800 << 20
+		add	r2 ,r2, #0xc00
+		add	r2 ,r2, #0x12
+		str	r2, [r0]
+#endif
 #ifdef CONFIG_DEBUG_LL
 		/*
 		 * Map in IO space for serial debugging.
@@ -369,6 +718,11 @@ __lookup_processor_type:
 		sub	r5, r5, r10			@ convert addresses
 		add	r7, r7, r5			@ to our address space
 		add	r10, r9, r5
+#if defined(CONFIG_ARCH_DBMX2)
+		mrc	p15,0,r6,c15,c0,0
+		orr	r6,r6,#0x10000
+		mcr	p15,0,r6,c15,c0,0
+#endif
 		mrc	p15, 0, r9, c0, c0		@ get processor id
 1:		ldmia	r10, {r5, r6, r8}		@ value, mask, mmuflags
 		and	r6, r6, r9			@ mask wanted bits
@@ -419,3 +773,14 @@ __lookup_architecture_type:
 		mov	pc, lr
 2:		ldmib	r4, {r5, r6, r7}		@ found, get results
 		mov	pc, lr
+
+#ifdef CONFIG_XIP_KERNEL
+
+PGTBL:		.long	SYMBOL_NAME(swapper_pg_dir)
+
+ETEXT:		.long	SYMBOL_NAME(_endtext)
+SDATA:		.long	SYMBOL_NAME(_sdata)
+EDATA:		.long	SYMBOL_NAME(__bss_start)
+
+#endif
+		.data

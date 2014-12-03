@@ -24,6 +24,7 @@
 #include <asm/bootinfo.h>
 #include <asm/branch.h>
 #include <asm/cpu.h>
+#include <asm/fpu.h>
 #include <asm/cachectl.h>
 #include <asm/inst.h>
 #include <asm/jazz.h>
@@ -32,20 +33,12 @@
 #include <asm/io.h>
 #include <asm/siginfo.h>
 #include <asm/watch.h>
+#include <asm/tlbdebug.h>
 #include <asm/types.h>
 #include <asm/system.h>
 #include <asm/traps.h>
 #include <asm/uaccess.h>
 #include <asm/mmu_context.h>
-
-/*
- * Machine specific interrupt handlers
- */
-extern asmlinkage void acer_pica_61_handle_int(void);
-extern asmlinkage void decstation_handle_int(void);
-extern asmlinkage void deskstation_rpc44_handle_int(void);
-extern asmlinkage void deskstation_tyne_handle_int(void);
-extern asmlinkage void mips_magnum_4000_handle_int(void);
 
 extern asmlinkage void handle_mod(void);
 extern asmlinkage void handle_tlbl(void);
@@ -61,6 +54,7 @@ extern asmlinkage void handle_cpu(void);
 extern asmlinkage void handle_ov(void);
 extern asmlinkage void handle_tr(void);
 extern asmlinkage void handle_fpe(void);
+extern asmlinkage void handle_mdmx(void);
 extern asmlinkage void handle_watch(void);
 extern asmlinkage void handle_mcheck(void);
 extern asmlinkage void handle_reserved(void);
@@ -103,7 +97,7 @@ extern unsigned long sc_ops;
 
 static struct task_struct *ll_task = NULL;
 
-static inline void simulate_ll(struct pt_regs *regp, unsigned int opcode)
+static inline void simulate_ll(struct pt_regs *regs, unsigned int opcode)
 {
 	unsigned long value, *vaddr;
 	long offset;
@@ -119,32 +113,37 @@ static inline void simulate_ll(struct pt_regs *regp, unsigned int opcode)
 	offset <<= 16;
 	offset >>= 16;
 
-	vaddr = (unsigned long *)((long)(regp->regs[(opcode & BASE) >> 21]) + offset);
+	vaddr = (unsigned long *)((long)(regs->regs[(opcode & BASE) >> 21]) + offset);
 
 #ifdef CONFIG_PROC_FS
 	ll_ops++;
 #endif
 
-	if ((unsigned long)vaddr & 3)
+	if ((unsigned long)vaddr & 3) {
 		signal = SIGBUS;
-	else if (get_user(value, vaddr))
-		signal = SIGSEGV;
-	else {
-		if (ll_task == NULL || ll_task == current) {
-			ll_bit = 1;
-		} else {
-			ll_bit = 0;
-		}
-		ll_task = current;
-		regp->regs[(opcode & RT) >> 16] = value;
+		goto sig;
 	}
-	if (compute_return_epc(regp))
-		return;
-	if (signal)
-		send_sig(signal, current, 1);
+	if (get_user(value, vaddr)) {
+		signal = SIGSEGV;
+		goto sig;
+	}
+
+	if (ll_task == NULL || ll_task == current) {
+		ll_bit = 1;
+	} else {
+		ll_bit = 0;
+	}
+	ll_task = current;
+	regs->regs[(opcode & RT) >> 16] = value;
+
+	compute_return_epc(regs);
+	return;
+
+sig:
+	send_sig(signal, current, 1);
 }
 
-static inline void simulate_sc(struct pt_regs *regp, unsigned int opcode)
+static inline void simulate_sc(struct pt_regs *regs, unsigned int opcode)
 {
 	unsigned long *vaddr, reg;
 	long offset;
@@ -160,25 +159,32 @@ static inline void simulate_sc(struct pt_regs *regp, unsigned int opcode)
 	offset <<= 16;
 	offset >>= 16;
 
-	vaddr = (unsigned long *)((long)(regp->regs[(opcode & BASE) >> 21]) + offset);
+	vaddr = (unsigned long *)((long)(regs->regs[(opcode & BASE) >> 21]) + offset);
 	reg = (opcode & RT) >> 16;
 
 #ifdef CONFIG_PROC_FS
 	sc_ops++;
 #endif
 
-	if ((unsigned long)vaddr & 3)
+	if ((unsigned long)vaddr & 3) {
 		signal = SIGBUS;
-	else if (ll_bit == 0 || ll_task != current)
-		regp->regs[reg] = 0;
-	else if (put_user(regp->regs[reg], vaddr))
+		goto sig;
+	}
+	if (ll_bit == 0 || ll_task != current) {
+		regs->regs[reg] = 0;
+		goto sig;
+	}
+
+	if (put_user(regs->regs[reg], vaddr))
 		signal = SIGSEGV;
 	else
-		regp->regs[reg] = 1;
-	if (compute_return_epc(regp))
-		return;
-	if (signal)
-		send_sig(signal, current, 1);
+		regs->regs[reg] = 1;
+
+	compute_return_epc(regs);
+	return;
+
+sig:
+	send_sig(signal, current, 1);
 }
 
 /*
@@ -320,7 +326,7 @@ void show_code(unsigned int *pc)
 	}
 }
 
-void show_regs(struct pt_regs * regs)
+void show_regs(struct pt_regs *regs)
 {
 	/*
 	 * Saved main processor registers
@@ -496,9 +502,6 @@ asmlinkage void do_ov(struct pt_regs *regs)
 {
 	siginfo_t info;
 
-	if (compute_return_epc(regs))
-		return;
-
 	info.si_code = FPE_INTOVF;
 	info.si_signo = SIGFPE;
 	info.si_errno = 0;
@@ -541,28 +544,19 @@ asmlinkage void do_fpe(struct pt_regs *regs, unsigned long fcr31)
 
 		/* If something went wrong, signal */
 		if (sig)
-		{
-			/*
-			 * Return EPC is not calculated in the FPU emulator,
-			 * if a signal is being send. So we calculate it here.
-			 */
-			compute_return_epc(regs);
 			force_sig(sig, current);
-		}
 
 		return;
 	}
 
-	if (compute_return_epc(regs))
-		return;
 	force_sig(SIGFPE, current);
 }
 
 static inline int get_insn_opcode(struct pt_regs *regs, unsigned int *opcode)
 {
-	unsigned long *epc;
+	unsigned int *epc;
 
-	epc = (unsigned long *) regs->cp0_epc +
+	epc = (unsigned int *) regs->cp0_epc +
 	      ((regs->cp0_cause & CAUSEF_BD) != 0);
 	if (!get_user(*opcode, epc))
 		return 0;
@@ -611,8 +605,8 @@ asmlinkage void do_bp(struct pt_regs *regs)
 
 asmlinkage void do_tr(struct pt_regs *regs)
 {
-	siginfo_t info;
 	unsigned int opcode, tcode = 0;
+	siginfo_t info;
 
 	if (get_insn_opcode(regs, &opcode))
 		return;
@@ -677,57 +671,33 @@ asmlinkage void do_ri(struct pt_regs *regs)
 	}
 #endif /* CONFIG_CPU_HAS_LLSC */
 
-	if (compute_return_epc(regs))
-		return;
 	force_sig(SIGILL, current);
 }
 
 asmlinkage void do_cpu(struct pt_regs *regs)
 {
 	unsigned int cpid;
-	void fpu_emulator_init_fpu(void);
-	int sig;
 
 	cpid = (regs->cp0_cause >> CAUSEB_CE) & 3;
 	if (cpid != 1)
 		goto bad_cid;
 
-	if (!(mips_cpu.options & MIPS_CPU_FPU))
-		goto fp_emul;
+	die_if_kernel("do_cpu invoked from kernel context!", regs);
 
-	regs->cp0_status |= ST0_CU1;
-	if (last_task_used_math == current)
-		return;
-
+	own_fpu();
 	if (current->used_math) {		/* Using the FPU again.  */
-		lazy_fpu_switch(last_task_used_math);
+		restore_fp(current);
 	} else {				/* First time FPU user.  */
-		if (last_task_used_math != NULL)
-			save_fp(last_task_used_math);
 		init_fpu();
 		current->used_math = 1;
 	}
-	last_task_used_math = current;
 
-	return;
+	if (!(mips_cpu.options & MIPS_CPU_FPU)) {
+		int sig = fpu_emulator_cop1Handler(0, regs, &current->thread.fpu.soft);
+		if (sig)
+			force_sig(sig, current);
+	}
 
-fp_emul:
-	if (last_task_used_math != current) {
-		if (!current->used_math) {
-			fpu_emulator_init_fpu();
-			current->used_math = 1;
-		}
-	}
-	sig = fpu_emulator_cop1Handler(0, regs, &current->thread.fpu.soft);
-	last_task_used_math = current;
-	if (sig) {
-		/*
-		 * Return EPC is not calculated in the FPU emulator, if
-		 * a signal is being send. So we calculate it here.
-		 */
-		compute_return_epc(regs);
-		force_sig(sig, current);
-	}
 	return;
 
 bad_cid:
@@ -739,14 +709,16 @@ bad_cid:
 		return;
 	}
 #endif
-	compute_return_epc(regs);
+	force_sig(SIGILL, current);
+}
+
+asmlinkage void do_mdmx(struct pt_regs *regs)
+{
 	force_sig(SIGILL, current);
 }
 
 asmlinkage void do_watch(struct pt_regs *regs)
 {
-	extern void dump_tlb_all(void);
-
 	/*
 	 * We use the watch exception where available to detect stack
 	 * overflows.
@@ -777,12 +749,13 @@ asmlinkage void do_reserved(struct pt_regs *regs)
 	 * hard/software error.
 	 */
 	show_regs(regs);
-	panic("Caught reserved exception - should not happen.");
+	panic("Caught reserved exception %ld - should not happen.",
+	      (regs->cp0_cause & 0x7f) >> 2);
 }
 
 static inline void watch_init(void)
 {
-	if (mips_cpu.options & MIPS_CPU_WATCH ) {
+	if (mips_cpu.options & MIPS_CPU_WATCH) {
 		set_except_vector(23, handle_watch);
  		watch_available = 1;
  	}
@@ -796,12 +769,10 @@ static inline void parity_protection_init(void)
 {
 	switch (mips_cpu.cputype) {
 	case CPU_5KC:
-		/* Set the PE bit (bit 31) in the CP0_ECC register. */
+		/* Set the PE bit (bit 31) in the c0_ecc register. */
 		printk(KERN_INFO "Enable the cache parity protection for "
 		       "MIPS 5KC CPUs.\n");
-		write_32bit_cp0_register(CP0_ECC,
-		                         read_32bit_cp0_register(CP0_ECC)
-		                         | 0x80000000);
+		write_c0_ecc(read_c0_ecc() | 0x80000000);
 		break;
 	default:
 		break;
@@ -813,13 +784,13 @@ asmlinkage void cache_parity_error(void)
 	unsigned int reg_val;
 
 	/* For the moment, report the problem and hang. */
-	reg_val = read_32bit_cp0_register(CP0_ERROREPC);
+	reg_val = read_c0_errorepc();
 	printk("Cache error exception:\n");
-	printk("cp0_errorepc == %08x\n", reg_val);
-	reg_val = read_32bit_cp0_register(CP0_CACHEERR);
-	printk("cp0_cacheerr == %08x\n", reg_val);
+	printk("cp0_errorepc == %08x\n", read_c0_errorepc());
+	reg_val = read_c0_cacheerr();
+	printk("c0_cacheerr == %08x\n", reg_val);
 
-	printk("Decoded CP0_CACHEERR: %s cache fault in %s reference.\n",
+	printk("Decoded c0_cacheerr: %s cache fault in %s reference.\n",
 	       reg_val & (1<<30) ? "secondary" : "primary",
 	       reg_val & (1<<31) ? "data" : "insn");
 	printk("Error bits: %s%s%s%s%s%s%s\n",
@@ -832,13 +803,13 @@ asmlinkage void cache_parity_error(void)
 	       reg_val & (1<<22) ? "E0 " : "");
 	printk("IDX: 0x%08x\n", reg_val & ((1<<22)-1));
 
-	if (reg_val&(1<<22))
-		printk("DErrAddr0: 0x%08x\n",
-		       read_32bit_cp0_set1_register(CP0_S1_DERRADDR0));
+#if defined(CONFIG_CPU_MIPS32) || defined (CONFIG_CPU_MIPS64)
+	if (reg_val & (1<<22))
+		printk("DErrAddr0: 0x%08x\n", read_c0_derraddr0());
 
-	if (reg_val&(1<<23))
-		printk("DErrAddr1: 0x%08x\n",
-		       read_32bit_cp0_set1_register(CP0_S1_DERRADDR1));
+	if (reg_val & (1<<23))
+		printk("DErrAddr1: 0x%08x\n", read_c0_derraddr1());
+#endif
 
 	panic("Can't handle the cache error!");
 }
@@ -849,31 +820,32 @@ asmlinkage void cache_parity_error(void)
  */
 void ejtag_exception_handler(struct pt_regs *regs)
 {
-        unsigned int depc, old_epc, debug;
+	unsigned long depc, old_epc;
+	unsigned int debug;
 
-        printk("SDBBP EJTAG debug exception - not handled yet, just ignored!\n");
-        depc = read_32bit_cp0_register(CP0_DEPC);
-        debug = read_32bit_cp0_register(CP0_DEBUG);
-        printk("DEPC = %08x, DEBUG = %08x\n", depc, debug);
-        if (debug & 0x80000000) {
-                /*
-                 * In branch delay slot.
-                 * We cheat a little bit here and use EPC to calculate the
-                 * debug return address (DEPC). EPC is restored after the
-                 * calculation.
-                 */
-                old_epc = regs->cp0_epc;
-                regs->cp0_epc = depc;
-                __compute_return_epc(regs);
-                depc = regs->cp0_epc;
-                regs->cp0_epc = old_epc;
-        } else
-                depc += 4;
-        write_32bit_cp0_register(CP0_DEPC, depc);
+	printk("SDBBP EJTAG debug exception - not handled yet, just ignored!\n");
+	depc = read_c0_depc();
+	debug = read_c0_debug();
+	printk("c0_depc = %08lx, DEBUG = %08x\n", depc, debug);
+	if (debug & 0x80000000) {
+		/*
+		 * In branch delay slot.
+		 * We cheat a little bit here and use EPC to calculate the
+		 * debug return address (DEPC). EPC is restored after the
+		 * calculation.
+		 */
+		old_epc = regs->cp0_epc;
+		regs->cp0_epc = depc;
+		__compute_return_epc(regs);
+		depc = regs->cp0_epc;
+		regs->cp0_epc = old_epc;
+	} else
+		depc += 4;
+	write_c0_depc(depc);
 
 #if 0
 	printk("\n\n----- Enable EJTAG single stepping ----\n\n");
-	write_32bit_cp0_register(CP0_DEBUG, debug | 0x100);
+	write_c0_debug(debug | 0x100);
 #endif
 }
 
@@ -910,6 +882,7 @@ void *set_except_vector(int n, void *addr)
 
 asmlinkage int (*save_fp_context)(struct sigcontext *sc);
 asmlinkage int (*restore_fp_context)(struct sigcontext *sc);
+
 extern asmlinkage int _save_fp_context(struct sigcontext *sc);
 extern asmlinkage int _restore_fp_context(struct sigcontext *sc);
 
@@ -921,25 +894,34 @@ void __init per_cpu_trap_init(void)
 	unsigned int cpu = smp_processor_id();
 
 	/* Some firmware leaves the BEV flag set, clear it.  */
-	clear_cp0_status(ST0_BEV);
+	clear_c0_status(ST0_CU1|ST0_CU2|ST0_CU3|ST0_BEV);
+
+	if (mips_cpu.isa_level == MIPS_CPU_ISA_IV)
+		set_c0_status(ST0_XX);
 
 	/*
 	 * Some MIPS CPUs have a dedicated interrupt vector which reduces the
 	 * interrupt processing overhead.  Use it where available.
 	 */
 	if (mips_cpu.options & MIPS_CPU_DIVEC)
-		set_cp0_cause(CAUSEF_IV);
+		set_c0_cause(CAUSEF_IV);
 
 	cpu_data[cpu].asid_cache = ASID_FIRST_VERSION;
-	set_context(cpu << 23);
+	write_c0_context(cpu << 23);
+
+	atomic_inc(&init_mm.mm_count);
+	current->active_mm = &init_mm;
+	if (current->mm)
+		BUG();
+	enter_lazy_tlb(&init_mm, current, cpu);
 }
 
 void __init trap_init(void)
 {
 	extern char except_vec1_generic, except_vec2_generic;
 	extern char except_vec3_generic, except_vec3_r4000;
-	extern char except_vec4;
 	extern char except_vec_ejtag_debug;
+	extern char except_vec4;
 	unsigned long i;
 
 	per_cpu_trap_init();
@@ -947,7 +929,6 @@ void __init trap_init(void)
 	/* Copy the generic exception handler code to it's final destination. */
 	memcpy((void *)(KSEG0 + 0x80), &except_vec1_generic, 0x80);
 	memcpy((void *)(KSEG0 + 0x100), &except_vec2_generic, 0x80);
-	memcpy((void *)(KSEG0 + 0x180), &except_vec3_generic, 0x80);
 
 	/*
 	 * Setup default vectors
@@ -974,7 +955,7 @@ void __init trap_init(void)
 	 */
 	if (mips_cpu.options & MIPS_CPU_DIVEC) {
 		memcpy((void *)(KSEG0 + 0x200), &except_vec4, 8);
-		set_cp0_cause(CAUSEF_IV);
+		set_c0_cause(CAUSEF_IV);
 	}
 
 	/*
@@ -1005,46 +986,23 @@ void __init trap_init(void)
 	set_except_vector(11, handle_cpu);
 	set_except_vector(12, handle_ov);
 	set_except_vector(13, handle_tr);
+	set_except_vector(22, handle_mdmx);
 
 	if ((mips_cpu.options & MIPS_CPU_FPU) &&
 	    !(mips_cpu.options & MIPS_CPU_NOFPUEX))
 		set_except_vector(15, handle_fpe);
+
 	if (mips_cpu.options & MIPS_CPU_MCHECK)
 		set_except_vector(24, handle_mcheck);
 
-	/*
-	 * Handling the following exceptions depends mostly of the cpu type
-	 */
-	if ((mips_cpu.options & MIPS_CPU_4KEX)
-	    && (mips_cpu.options & MIPS_CPU_4KTLB)) {
-		/* Cache error vector already set above.  */
-
-		if (mips_cpu.options & MIPS_CPU_VCE) {
-			memcpy((void *)(KSEG0 + 0x180), &except_vec3_r4000,
-			       0x80);
-		}
-	} else switch (mips_cpu.cputype) {
-	case CPU_SB1:
-		/*
-		 * XXX - This should be folded in to the "cleaner" handling,
-		 * above
-		 */
+	if (mips_cpu.options & MIPS_CPU_VCE)
 		memcpy((void *)(KSEG0 + 0x180), &except_vec3_r4000, 0x80);
-#ifdef CONFIG_SB1_CACHE_ERROR
-		{
-		/* Special cache error handler for SB1 */
-		extern char except_vec2_sb1;
-		memcpy((void *)(KSEG0 + 0x100), &except_vec2_sb1, 0x80);
-		memcpy((void *)(KSEG1 + 0x100), &except_vec2_sb1, 0x80);
-		}
-#endif
+	else if (mips_cpu.options & MIPS_CPU_4KEX)
+		memcpy((void *)(KSEG0 + 0x180), &except_vec3_generic, 0x80);
+	else
+		memcpy((void *)(KSEG0 + 0x080), &except_vec3_generic, 0x80);
 
-		/* Enable timer interrupt and scd mapped interrupt */
-		clear_cp0_status(0xf000);
-		set_cp0_status(0xc00);
-		break;
-	case CPU_R6000:
-	case CPU_R6000A:
+	if (mips_cpu.cputype == CPU_R6000 || mips_cpu.cputype == CPU_R6000A) {
 		/*
 		 * The R6000 is the only R-series CPU that features a machine
 		 * check exception (similar to the R4000 cache error) and
@@ -1055,27 +1013,13 @@ void __init trap_init(void)
 		 */
 		//set_except_vector(14, handle_mc);
 		//set_except_vector(15, handle_ndc);
-	case CPU_R2000:
-	case CPU_R3000:
-	case CPU_R3000A:
-	case CPU_R3041:
-	case CPU_R3051:
-	case CPU_R3052:
-	case CPU_R3081:
-	case CPU_R3081E:
-	case CPU_TX3912:
-	case CPU_TX3922:
-	case CPU_TX3927:
-	case CPU_TX39XX:
-		memcpy((void *)(KSEG0 + 0x80), &except_vec3_generic, 0x80);
-		break;
-
-	case CPU_UNKNOWN:
-	default:
-		panic("Unknown CPU type");
 	}
 
-	flush_icache_range(KSEG0, KSEG0 + 0x400);
+	if (mips_cpu.cputype == CPU_SB1) {
+		/* Enable timer interrupt and scd mapped interrupt */
+		clear_c0_status(0xf000);
+		set_c0_status(0xc00);
+	}
 
 	if (mips_cpu.options & MIPS_CPU_FPU) {
 	        save_fp_context = _save_fp_context;
@@ -1085,10 +1029,9 @@ void __init trap_init(void)
 		restore_fp_context = fpu_emulator_restore_context;
 	}
 
-	if (mips_cpu.isa_level == MIPS_CPU_ISA_IV)
-		set_cp0_status(ST0_XX);
+	flush_icache_range(KSEG0, KSEG0 + 0x400);
 
-	atomic_inc(&init_mm.mm_count);	/* XXX  UP?  */
+	atomic_inc(&init_mm.mm_count);	/* XXX UP?  */
 	current->active_mm = &init_mm;
 
 	/* XXX Must be done for all CPUs  */

@@ -24,6 +24,10 @@
 #include <asm/addrspace.h>
 #include <asm/ptrace.h>
 
+#if defined(CONFIG_RTHAL)
+#include <asm/rthal.h>
+#else /* CONFIG_RTHAL */
+
 __asm__ (
 	".macro\t__sti\n\t"
 	".set\tpush\n\t"
@@ -141,6 +145,8 @@ do {									\
 		: "memory");						\
 } while(0)
 
+#endif /* CONFIG_RTHAL */
+
 #ifdef CONFIG_SMP
 
 extern void __global_sti(void);
@@ -250,11 +256,6 @@ extern asmlinkage void *resume(void *last, void *next);
 
 struct task_struct;
 
-extern asmlinkage void lazy_fpu_switch(void *);
-extern asmlinkage void init_fpu(void);
-extern asmlinkage void save_fp(struct task_struct *);
-extern asmlinkage void restore_fp(struct task_struct *);
-
 #define switch_to(prev,next,last) \
 do { \
 	(last) = resume(prev, next); \
@@ -288,11 +289,10 @@ extern __inline__ unsigned long xchg_u32(volatile int * m, unsigned long val)
 #else
 	unsigned long flags, retval;
 
-	save_flags(flags);
-	cli();
+	local_irq_save(flags);
 	retval = *m;
 	*m = val;
-	restore_flags(flags);	/* implies memory barrier  */
+	local_irq_restore(flags);	/* implies memory barrier  */
 	return retval;
 #endif /* Processor-dependent optimization */
 }
@@ -321,5 +321,19 @@ extern void __die_if_kernel(const char *, struct pt_regs *, const char *file,
 	__die(msg, regs, __FILE__ ":", __FUNCTION__, __LINE__)
 #define die_if_kernel(msg, regs)					\
 	__die_if_kernel(msg, regs, __FILE__ ":", __FUNCTION__, __LINE__)
+
+extern __inline__ int intr_on(void)
+{
+	unsigned long flags;
+	save_flags(flags);
+	return flags & 1;
+}
+
+extern __inline__ int intr_off(void)
+{
+	return ! intr_on();
+}
+
+#define irqs_disabled()	intr_off()
 
 #endif /* _ASM_SYSTEM_H */

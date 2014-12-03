@@ -993,9 +993,17 @@ static int __init sa1100_pcmcia_machine_init(void)
   if(machine_is_graphicsmaster())
     pcmcia_low_level = &graphicsmaster_pcmcia_ops;
 #endif
+#ifdef CONFIG_SA1100_ADSAGC
+  if(machine_is_adsagc())
+    pcmcia_low_level = &graphicsmaster_pcmcia_ops;
+#endif
 #ifdef CONFIG_SA1100_ADSBITSY
   if(machine_is_adsbitsy())
     pcmcia_low_level = &adsbitsy_pcmcia_ops;
+#endif
+#ifdef CONFIG_SA1100_ADSBITSYPLUS
+  if(machine_is_adsbitsyplus())
+    pcmcia_low_level = &adsbitsyplus_pcmcia_ops;
 #endif
 #ifdef CONFIG_SA1100_STORK
   if(machine_is_stork())
@@ -1068,7 +1076,7 @@ static int __init sa1100_pcmcia_driver_init(void)
    * We initialize the MECR to default values here, because we are
    * not guaranteed to see a SetIOMap operation at runtime.
    */
-  mecr = 0;
+  mecr = MECR;
 
   clock = cpufreq_get(0);
 

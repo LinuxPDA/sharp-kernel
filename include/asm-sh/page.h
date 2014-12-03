@@ -77,7 +77,11 @@ typedef struct { unsigned long pgprot; } pgprot_t;
 #endif
 
 #define PAGE_OFFSET		(0x80000000UL)
+#if defined(CONFIG_XIP_KERNEL)
+#define __pa(x)			(((unsigned long)(x))&0x1fffffff)
+#else
 #define __pa(x)			((unsigned long)(x)-PAGE_OFFSET)
+#endif
 #define __va(x)			((void *)((unsigned long)(x)+PAGE_OFFSET))
 
 #ifndef CONFIG_DISCONTIGMEM
@@ -85,6 +89,15 @@ typedef struct { unsigned long pgprot; } pgprot_t;
 #define VALID_PAGE(page)	((page - mem_map) < max_mapnr)
 #define page_to_phys(page)	(((page - mem_map) << PAGE_SHIFT) + __MEMORY_START)
 #endif
+
+#define VM_DATA_DEFAULT_FLAGS	(VM_READ | VM_WRITE | VM_EXEC | \
+				 VM_MAYREAD | VM_MAYWRITE | VM_MAYEXEC)
+
+#define VM_DATA_DEFAULT_FLAGS	(VM_READ | VM_WRITE | VM_EXEC | \
+				 VM_MAYREAD | VM_MAYWRITE | VM_MAYEXEC)
+
+#define VM_DATA_DEFAULT_FLAGS	(VM_READ | VM_WRITE | VM_EXEC | \
+				 VM_MAYREAD | VM_MAYWRITE | VM_MAYEXEC)
 
 #define virt_to_page(kaddr)	phys_to_page(__pa(kaddr))
 

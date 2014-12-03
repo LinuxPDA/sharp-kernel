@@ -95,6 +95,18 @@ extern char _stext, _etext;
 #define __STR(x) #x
 #define STR(x) __STR(x)
 
+#define GET_CURRENT \
+	"movl %esp, %ebx\n\t" \
+	"andl $-8192, %ebx\n\t"
+
+#ifdef CONFIG_PREEMPT
+#define BUMP_LOCK_COUNT \
+	GET_CURRENT \
+	"incl 4(%ebx)\n\t"
+#else
+#define BUMP_LOCK_COUNT
+#endif
+
 #define SAVE_ALL \
 	"cld\n\t" \
 	"pushl %es\n\t" \
@@ -108,14 +120,11 @@ extern char _stext, _etext;
 	"pushl %ebx\n\t" \
 	"movl $" STR(__KERNEL_DS) ",%edx\n\t" \
 	"movl %edx,%ds\n\t" \
-	"movl %edx,%es\n\t"
+	"movl %edx,%es\n\t" \
+	BUMP_LOCK_COUNT
 
 #define IRQ_NAME2(nr) nr##_interrupt(void)
 #define IRQ_NAME(nr) IRQ_NAME2(IRQ##nr)
-
-#define GET_CURRENT \
-	"movl %esp, %ebx\n\t" \
-	"andl $-8192, %ebx\n\t"
 
 /*
  *	SMP has a few special interrupts for IPI messages

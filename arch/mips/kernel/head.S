@@ -91,6 +91,8 @@
 		 nop
 		END(except_vec_ejtag_debug)
 
+		__FINIT
+
 		/*
 		 * EJTAG debug exception handler.
 		 */
@@ -114,10 +116,14 @@
 
 ejtag_return:
 		mfc0	k0, CP0_DESAVE
-		.word	0x4200001f     # DERET, return from EJTAG debug exception.
+		.set	mips32
+		deret
+		.set	0
 		 nop
 		.set	at
 		END(ejtag_debug_handler)
+
+		__INIT
 
 		/*
 		* NMI debug exception handler for MIPS reference boards.
@@ -129,6 +135,8 @@ ejtag_return:
 		j       nmi_handler
 		 nop
 		END(except_vec_nmi)
+
+		__FINIT
 
 		NESTED(nmi_handler, PT_SIZE, sp)
 		.set    noat
@@ -143,11 +151,29 @@ ejtag_return:
 		.set    mips0
 		END(nmi_handler)
 
+		__INIT
+
 		/*
 		 * Kernel entry point
 		 */
 		NESTED(kernel_entry, 16, sp)
 		.set	noreorder
+
+#ifdef CONFIG_XIP_KERNEL
+		/*
+		 * For xip from rom, copy initialized data from end of text
+		 * in rom to _fdata though _edata in ram.
+		 */
+		la	s0, _etext
+		la	s1, _fdata
+		la	s2, _edata
+1:
+		lw	t0, (s0)
+		sw	t0, (s1)
+		addi	s1, 4
+		bne	s1, s2, 1b
+	 	addi	s0, 4
+#endif
 
 		/*
 		 * Stack for kernel and init, current variable

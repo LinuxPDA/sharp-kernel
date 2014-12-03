@@ -2,6 +2,9 @@
  *  linux/fs/exec.c
  *
  *  Copyright (C) 1991, 1992  Linus Torvalds
+ *
+ * ChangLog:
+ *  04-Apr-2003 Sharp for ARM FCSE
  */
 
 /*
@@ -20,6 +23,12 @@
  * table to check for several different types  of binary formats.  We keep
  * trying until we recognize the file or we run out of supported binary
  * formats. 
+ */
+
+/*
+ * uClinux revisions for NO_MM
+ *   Copyright (C) 1998  Kenneth Albanowski <kjahds@kjahds.com>,
+ *   Support for 2.4 (C) 2000 Lineo by David McCullough <davidm@lineo.com>
  */
 
 #include <linux/config.h>
@@ -279,12 +288,15 @@ int copy_strings_kernel(int argc,char ** argv, struct linux_binprm *bprm)
  */
 void put_dirty_page(struct task_struct * tsk, struct page *page, unsigned long address)
 {
+#ifndef NO_MM
 	pgd_t * pgd;
 	pmd_t * pmd;
 	pte_t * pte;
+#endif /* NO_MM */
 
 	if (page_count(page) != 1)
 		printk(KERN_ERR "mem_map disagrees with %p at %08lx\n", page, address);
+#ifndef NO_MM
 	pgd = pgd_offset(tsk->mm, address);
 
 	spin_lock(&tsk->mm->page_table_lock);
@@ -309,11 +321,14 @@ out:
 	spin_unlock(&tsk->mm->page_table_lock);
 	__free_page(page);
 	force_sig(SIGKILL, tsk);
+#endif /* NO_MM */
 	return;
 }
 
+
 int setup_arg_pages(struct linux_binprm *bprm)
 {
+#ifndef NO_MM
 	unsigned long stack_base;
 	struct vm_area_struct *mpnt;
 	int i;
@@ -354,6 +369,7 @@ int setup_arg_pages(struct linux_binprm *bprm)
 	}
 	up_write(&current->mm->mmap_sem);
 	
+#endif /* NO_MM */
 	return 0;
 }
 
@@ -410,6 +426,51 @@ fail:
 	return result;
 }
 
+#ifdef CONFIG_ARM_FCSE
+static long get_address_space_mode(struct linux_binprm *bprm)
+{
+	int i, j, top = 1;
+	int argc = bprm->argc, envc = bprm->envc;
+	char *kaddr;
+	char env_name[ADDRESS_SPACE_ENV_STR_LEN+2];
+
+	for (i = bprm->p & PAGE_MASK; i < PAGE_SIZE * MAX_ARG_PAGES; i += PAGE_SIZE) {
+		kaddr = kmap(bprm->page[i / PAGE_SIZE]);
+		for (j = ((i < bprm->p) ? (bprm->p % PAGE_SIZE) : (0)); j < PAGE_SIZE; j++) {
+			if (argc) {
+				if (kaddr[j] == 0) argc--;
+				continue;
+			}
+			if (kaddr[j] == 0) {
+				envc--;
+				if (envc == 0) {
+					kunmap(bprm->page[i / PAGE_SIZE]);
+					return DEFAULT_ADDRESS_SPACE_MODE;
+				}
+				top = 1;
+				continue;
+			}
+			if (top) {
+				if (j + ADDRESS_SPACE_ENV_STR_LEN + 1 > PAGE_SIZE) {
+					memcpy(env_name, kaddr+j, PAGE_SIZE-j);
+					memcpy(env_name+PAGE_SIZE-j, bprm->page[i/PAGE_SIZE+1], ADDRESS_SPACE_ENV_STR_LEN-PAGE_SIZE+j+1);
+				}
+				else {
+					memcpy(env_name, kaddr+j, ADDRESS_SPACE_ENV_STR_LEN+1);
+				}
+				if (!strncmp(env_name, ADDRESS_SPACE_ENV_STR, ADDRESS_SPACE_ENV_STR_LEN)) {
+					kunmap(bprm->page[i / PAGE_SIZE]);
+					return env_name[ADDRESS_SPACE_ENV_STR_LEN]-'0';
+				}
+				top = 0;
+			}
+		}
+		kunmap(bprm->page[i / PAGE_SIZE]);
+	}
+	return DEFAULT_ADDRESS_SPACE_MODE;
+}
+#endif
+
 static int exec_mmap(void)
 {
 	struct mm_struct * mm, * old_mm;
@@ -440,8 +501,8 @@ static int exec_mmap(void)
 		active_mm = current->active_mm;
 		current->mm = mm;
 		current->active_mm = mm;
-		task_unlock(current);
 		activate_mm(active_mm, mm);
+		task_unlock(current);
 		mm_release();
 		if (old_mm) {
 			if (active_mm != old_mm) BUG();
@@ -567,13 +628,45 @@ int flush_old_exec(struct linux_binprm * bprm)
 	retval = exec_mmap();
 	if (retval) goto mmap_failed;
 
+#ifdef CONFIG_ARM_FCSE
+	if (get_address_space_mode(bprm) == 1 && current->mm->context.cpu_pid == 0) {
+		flush_cache_all();
+		flush_tlb_all();
+		if (current->mm->pgd != pgd_shared_fcse_process) {
+			clear_page_tables(current->mm, FIRST_USER_PGD_NR, USER_PTRS_PER_PGD);
+			pgd_free(current->mm->pgd);
+		}
+		get_cpu_pid(current->mm);
+		if (pgd_shared_fcse_process) {
+			current->mm->pgd = pgd_shared_fcse_process;
+		}
+		else {
+			current->mm->pgd = pgd_alloc(current->mm);
+			map_exception_table_mva(current->mm);
+		}
+		cpu_xscale_set_pgd_without_invalidation(__virt_to_phys((unsigned long)(current->mm->pgd)));
+		cpu_write_pid_register(current->mm->context.cpu_pid);
+	}
+	else if (get_address_space_mode(bprm) != 1 && current->mm->context.cpu_pid != 0) {
+		flush_cache_all();
+		flush_tlb_all();
+		unmap_shared_page_table(current->mm, current->mm->context.cpu_pid);
+		release_cpu_pid(current->mm);
+		current->mm->pgd = pgd_alloc(current->mm);
+		cpu_write_pid_register(0);
+		cpu_xscale_set_pgd_without_invalidation(__virt_to_phys((unsigned long)(current->mm->pgd)));
+	}
+#endif
+
 	/* This is the point of no return */
 	release_old_signals(oldsig);
 
 	current->sas_ss_sp = current->sas_ss_size = 0;
 
-	if (current->euid == current->uid && current->egid == current->gid)
+	if (current->euid == current->uid && current->egid == current->gid) {
 		current->mm->dumpable = 1;
+		current->task_dumpable = 1;
+	}
 	name = bprm->filename;
 	for (i=0; (ch = *(name++)) != '\0';) {
 		if (ch == '/')
@@ -776,6 +869,7 @@ inside:
 	}
 }
 
+
 /*
  * cycle the list of binary formats handler, until one recognizes the image
  */
@@ -924,9 +1018,13 @@ int do_execve(char * filename, char ** argv, char ** envp, struct pt_regs * regs
 		goto out; 
 
 	retval = search_binary_handler(&bprm,regs);
-	if (retval >= 0)
-		/* execve success */
-		return retval;
+	if (retval >= 0) {
+#ifdef NO_MM
+		goto out_ok;
+#else
+		return(retval);
+#endif
+	}
 
 out:
 	/* Something went wrong, return the inode and free the argument pages*/
@@ -934,6 +1032,9 @@ out:
 	if (bprm.file)
 		fput(bprm.file);
 
+#ifdef NO_MM
+out_ok: /* NO_MM needs to free the arg pages always */
+#endif
 	for (i = 0 ; i < MAX_ARG_PAGES ; i++) {
 		struct page * page = bprm.page[i];
 		if (page)
@@ -965,7 +1066,7 @@ int do_coredump(long signr, struct pt_regs * regs)
 	binfmt = current->binfmt;
 	if (!binfmt || !binfmt->core_dump)
 		goto fail;
-	if (!current->mm->dumpable)
+	if (!is_dumpable(current))
 		goto fail;
 	current->mm->dumpable = 0;
 	if (current->rlim[RLIMIT_CORE].rlim_cur < binfmt->min_coredump)

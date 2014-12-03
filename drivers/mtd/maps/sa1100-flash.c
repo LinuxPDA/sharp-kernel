@@ -3,7 +3,7 @@
  * 
  * (C) 2000 Nicolas Pitre <nico@cam.org>
  * 
- * $Id: sa1100-flash.c,v 1.26 2002/03/13 16:30:44 rmk Exp $
+ * $Id: sa1100-flash.c,v 1.28 2002/05/07 13:48:38 abz Exp $
  */
 
 #include <linux/config.h>
@@ -575,6 +575,27 @@ static void jornada720_set_vpp(int vpp)
 
 #endif
 
+#ifdef CONFIG_SA1100_NANOENGINE
+/* nanoEngine has one 28F320B3B Flash part in bank 0: */
+#define NANOENGINE_FLASH_SIZE		0x00400000
+static struct mtd_partition nanoengine_partitions[] = {
+	{
+		name:		"nanoEngine boot firmware and parameter table",
+		size:		0x00010000,  /* 32K */
+		offset:		0x00000000,
+		mask_flags:	MTD_WRITEABLE,  /* force read-only */
+	},{
+		name:		"kernel/initrd reserved",
+		size:		0x002f0000,
+		offset:		0x00010000,
+	},{
+		name:		"experimental filesystem allocation",
+		size:		0x00100000,
+		offset:		0x00300000,
+	}
+};
+#endif
+
 #ifdef CONFIG_SA1100_PANGOLIN
 #define PANGOLIN_FLASH_SIZE		0x04000000
 static struct mtd_partition pangolin_partitions[] = {
@@ -702,6 +723,32 @@ static struct mtd_partition simpad_partitions[] = {
 	}
 };
 #endif /* CONFIG_SA1100_SIMPAD */
+
+#ifdef CONFIG_SA1100_SIMPUTER
+#define SIMPUTER_FLASH_SIZE 0x02000000
+static struct mtd_partition simputer_partitions[] = {
+	{
+		name:		"blob+logo",
+		offset:		0,
+		size:		0x00040000
+	},
+	{
+		name:		"kernel",
+		offset:		MTDPART_OFS_APPEND,
+		size:		0x000C0000
+	},
+	{
+		name:		"/(cramfs)",
+		offset:		MTDPART_OFS_APPEND,
+		size:		0x00200000
+	},
+	{
+		name:		"/usr/local(jffs2)",
+		offset:		MTDPART_OFS_APPEND,
+		size:		MTDPART_SIZ_FULL /* expand till the end */
+	}
+};
+#endif
 
 #ifdef CONFIG_SA1100_STORK
 #define STORK_FLASH_SIZE		0x02000000
@@ -848,6 +895,7 @@ int __init sa1100_mtd_init(void)
 		sa1100_map.size = FRODO_FLASH_SIZE;
 		base = 0x00000000;
 	}
+#endif
 #ifdef CONFIG_SA1100_GRAPHICSCLIENT
 	if (machine_is_graphicsclient()) {
 		parts = graphicsclient_partitions;
@@ -887,6 +935,13 @@ int __init sa1100_mtd_init(void)
 		sa1100_map.set_vpp = jornada720_set_vpp;
 	}
 #endif
+#ifdef CONFIG_SA1100_NANOENGINE
+	if (machine_is_nanoengine()) {
+		parts = nanoengine_partitions;
+		nb_parts = ARRAY_SIZE(nanoengine_partitions);
+		sa1100_map.size = NANOENGINE_FLASH_SIZE;
+	}
+#endif
 #ifdef CONFIG_SA1100_PANGOLIN
 	if (machine_is_pangolin()) {
 		parts = pangolin_partitions;
@@ -920,6 +975,13 @@ int __init sa1100_mtd_init(void)
 		parts = simpad_partitions;
 		nb_parts = ARRAY_SIZE(simpad_partitions);
 		sa1100_map.size = SIMPAD_FLASH_SIZE;
+	}
+#endif
+#ifdef CONFIG_SA1100_SIMPUTER
+	if (machine_is_simputer()) {
+		parts = simputer_partitions;
+		nb_parts = ARRAY_SIZE(simputer_partitions);
+		sa1100_map.size = SIMPUTER_FLASH_SIZE;
 	}
 #endif
 #ifdef CONFIG_SA1100_STORK
@@ -975,11 +1037,11 @@ int __init sa1100_mtd_init(void)
 		}
 	}
 #endif
-#ifdef CONFIG_MTD_BOOTLDR_PARTS
+#ifdef CONFIG_MTD_CMDLINE_PARTS
 	if (parsed_nr_parts == 0) {
-		int ret = parse_bootldr_partitions(mymtd, &parsed_parts);
+		int ret = parse_cmdline_partitions(mymtd, &parsed_parts, "sa1100");
 		if (ret > 0) {
-			part_type = "Compaq bootldr";
+			part_type = "Command Line";
 			parsed_nr_parts = ret;
 		}
 	}

@@ -1,3 +1,5 @@
+/* $USAGI: ksyms.c,v 1.28.12.1 2003/02/05 07:45:52 yoshfuji Exp $ */
+
 /*
  * Herein lies all the functions/variables that are "exported" for linkage
  * with dynamically loaded kernel modules.
@@ -44,6 +46,7 @@
 #include <linux/brlock.h>
 #include <linux/fs.h>
 #include <linux/tty.h>
+#include <linux/md5.h>
 #include <linux/in6.h>
 #include <linux/completion.h>
 #include <linux/seq_file.h>
@@ -73,7 +76,6 @@ __attribute__((section("__ksymtab"))) = {
 };
 #endif
 
-
 EXPORT_SYMBOL(inter_module_register);
 EXPORT_SYMBOL(inter_module_unregister);
 EXPORT_SYMBOL(inter_module_get);
@@ -84,7 +86,9 @@ EXPORT_SYMBOL(try_inc_mod_count);
 /* process memory management */
 EXPORT_SYMBOL(do_mmap_pgoff);
 EXPORT_SYMBOL(do_munmap);
+#ifndef NO_MM
 EXPORT_SYMBOL(do_brk);
+#endif
 EXPORT_SYMBOL(exit_mm);
 EXPORT_SYMBOL(exit_files);
 EXPORT_SYMBOL(exit_fs);
@@ -108,6 +112,9 @@ EXPORT_SYMBOL(kmem_cache_free);
 EXPORT_SYMBOL(kmem_cache_size);
 EXPORT_SYMBOL(kmalloc);
 EXPORT_SYMBOL(kfree);
+#ifdef NO_MM
+EXPORT_SYMBOL(ksize);
+#endif
 EXPORT_SYMBOL(vfree);
 EXPORT_SYMBOL(__vmalloc);
 EXPORT_SYMBOL(vmalloc_to_page);
@@ -116,8 +123,10 @@ EXPORT_SYMBOL(remap_page_range);
 EXPORT_SYMBOL(max_mapnr);
 EXPORT_SYMBOL(high_memory);
 EXPORT_SYMBOL(vmtruncate);
+#ifndef NO_MM
 EXPORT_SYMBOL(find_vma);
 EXPORT_SYMBOL(get_unmapped_area);
+#endif
 EXPORT_SYMBOL(init_mm);
 #ifdef CONFIG_HIGHMEM
 EXPORT_SYMBOL(kmap_high);
@@ -166,7 +175,10 @@ EXPORT_SYMBOL(d_alloc);
 EXPORT_SYMBOL(d_lookup);
 EXPORT_SYMBOL(__d_path);
 EXPORT_SYMBOL(mark_buffer_dirty);
-EXPORT_SYMBOL(set_buffer_async_io); /* for reiserfs_writepage */
+EXPORT_SYMBOL(end_buffer_io_sync);
+EXPORT_SYMBOL(set_buffer_async_io);
+EXPORT_SYMBOL(balance_dirty);
+EXPORT_SYMBOL(__mark_dirty);
 EXPORT_SYMBOL(__mark_buffer_dirty);
 EXPORT_SYMBOL(__mark_inode_dirty);
 EXPORT_SYMBOL(fd_install);
@@ -287,10 +299,12 @@ EXPORT_SYMBOL(dcache_dir_ops);
 /* for stackable file systems (lofs, wrapfs, cryptfs, etc.) */
 EXPORT_SYMBOL(default_llseek);
 EXPORT_SYMBOL(dentry_open);
+#ifndef NO_MM
 EXPORT_SYMBOL(filemap_nopage);
 EXPORT_SYMBOL(filemap_sync);
 EXPORT_SYMBOL(filemap_fdatasync);
 EXPORT_SYMBOL(filemap_fdatawait);
+#endif
 EXPORT_SYMBOL(lock_page);
 EXPORT_SYMBOL(unlock_page);
 
@@ -347,7 +361,9 @@ EXPORT_SYMBOL(unregister_binfmt);
 EXPORT_SYMBOL(search_binary_handler);
 EXPORT_SYMBOL(prepare_binprm);
 EXPORT_SYMBOL(compute_creds);
+#ifndef NO_MM
 EXPORT_SYMBOL(remove_arg_zero);
+#endif
 EXPORT_SYMBOL(set_binfmt);
 
 /* sysctl table registration */
@@ -450,6 +466,12 @@ EXPORT_SYMBOL(sleep_on_timeout);
 EXPORT_SYMBOL(interruptible_sleep_on);
 EXPORT_SYMBOL(interruptible_sleep_on_timeout);
 EXPORT_SYMBOL(schedule);
+#ifdef CONFIG_KGDB_THREAD
+EXPORT_SYMBOL(kern_schedule);
+#endif
+#ifdef CONFIG_PREEMPT
+EXPORT_SYMBOL(preempt_schedule);
+#endif
 EXPORT_SYMBOL(schedule_timeout);
 EXPORT_SYMBOL(yield);
 EXPORT_SYMBOL(__cond_resched);
@@ -482,6 +504,10 @@ EXPORT_SYMBOL(simple_strtoul);
 EXPORT_SYMBOL(simple_strtoull);
 EXPORT_SYMBOL(system_utsname);	/* UTS data */
 EXPORT_SYMBOL(uts_sem);		/* UTS semaphore */
+#ifdef CONFIG_IPV6_NODEINFO
+EXPORT_SYMBOL(icmpv6_sethostname_hook);
+EXPORT_SYMBOL(icmpv6_sethostname_hook_sem);
+#endif
 #ifndef __mips__
 EXPORT_SYMBOL(sys_call_table);
 #endif
@@ -504,8 +530,10 @@ EXPORT_SYMBOL(seq_read);
 EXPORT_SYMBOL(seq_lseek);
 
 /* Program loader interfaces */
+#ifndef NO_MM
 EXPORT_SYMBOL(setup_arg_pages);
 EXPORT_SYMBOL(copy_strings_kernel);
+#endif
 EXPORT_SYMBOL(do_execve);
 EXPORT_SYMBOL(flush_old_exec);
 EXPORT_SYMBOL(kernel_read);
@@ -554,6 +582,10 @@ EXPORT_SYMBOL(get_write_access);
 EXPORT_SYMBOL(strnicmp);
 EXPORT_SYMBOL(strspn);
 EXPORT_SYMBOL(strsep);
+EXPORT_SYMBOL(md5_init);
+EXPORT_SYMBOL(md5_loop);
+EXPORT_SYMBOL(md5_pad);
+EXPORT_SYMBOL(md5_result);
 
 /* software interrupts */
 EXPORT_SYMBOL(tasklet_hi_vec);
@@ -578,4 +610,97 @@ EXPORT_SYMBOL(tasklist_lock);
 EXPORT_SYMBOL(pidhash);
 
 /* debug */
-EXPORT_SYMBOL(dump_stack);
+/* EXPORT_SYMBOL(dump_stack);*/
+
+#if defined(CONFIG_RTSCHED)
+
+#include <linux/rt_sched.h>
+#include <linux/pthread.h>
+
+EXPORT_SYMBOL(rthal);
+
+EXPORT_SYMBOL(rth_self);
+EXPORT_SYMBOL(rth_init);
+EXPORT_SYMBOL(rth_delete);
+EXPORT_SYMBOL(rth_set_signal_handler);
+EXPORT_SYMBOL(rth_set_sched_policy);
+EXPORT_SYMBOL(rth_set_priority);
+EXPORT_SYMBOL(rth_set_resume_time);
+EXPORT_SYMBOL(rth_set_period_time);
+EXPORT_SYMBOL(rth_get_state);
+EXPORT_SYMBOL(rth_get_priority);
+EXPORT_SYMBOL(rth_suspend);
+EXPORT_SYMBOL(rth_resume);
+EXPORT_SYMBOL(rth_make_periodic);
+EXPORT_SYMBOL(rth_wait_periodic);
+EXPORT_SYMBOL(rth_sleep);
+EXPORT_SYMBOL(rt_get_time);
+EXPORT_SYMBOL(rt_get_time_ns);
+EXPORT_SYMBOL(rt_count2nano);
+EXPORT_SYMBOL(rt_nano2count);
+EXPORT_SYMBOL(rt_count2timespec);
+EXPORT_SYMBOL(rt_timespec2count);
+EXPORT_SYMBOL(rsem_init);
+EXPORT_SYMBOL(rsem_delete);
+EXPORT_SYMBOL(rsem_signal);
+EXPORT_SYMBOL(rsem_broadcast);
+EXPORT_SYMBOL(rsem_wait);
+EXPORT_SYMBOL(rsem_wait_timed);
+EXPORT_SYMBOL(rt_printk);
+EXPORT_SYMBOL(rt_schedule_init);
+EXPORT_SYMBOL(rt_cli);
+EXPORT_SYMBOL(rt_sti);
+EXPORT_SYMBOL(rt_save_flags_and_cli);
+EXPORT_SYMBOL(rt_save_flags);
+EXPORT_SYMBOL(rt_restore_flags);
+EXPORT_SYMBOL(rt_startup_irq);
+EXPORT_SYMBOL(rt_shutdown_irq);
+EXPORT_SYMBOL(rt_enable_irq);
+EXPORT_SYMBOL(rt_disable_irq);
+EXPORT_SYMBOL(rt_mask_ack_irq);
+EXPORT_SYMBOL(rt_unmask_irq);
+EXPORT_SYMBOL(rt_pending_irq);
+EXPORT_SYMBOL(rt_request_irq);
+EXPORT_SYMBOL(rt_free_irq);
+
+EXPORT_SYMBOL(pthread_self);
+EXPORT_SYMBOL(pthread_create);
+EXPORT_SYMBOL(pthread_exit);
+EXPORT_SYMBOL(pthread_attr_init);
+EXPORT_SYMBOL(pthread_attr_destroy);
+EXPORT_SYMBOL(pthread_attr_setdetachstate);
+EXPORT_SYMBOL(pthread_attr_getdetachstate);
+EXPORT_SYMBOL(pthread_attr_setschedparam);
+EXPORT_SYMBOL(pthread_attr_getschedparam);
+EXPORT_SYMBOL(pthread_attr_setschedpolicy);
+EXPORT_SYMBOL(pthread_attr_getschedpolicy);
+EXPORT_SYMBOL(pthread_attr_setinheritsched);
+EXPORT_SYMBOL(pthread_attr_getinheritsched);
+EXPORT_SYMBOL(pthread_attr_setscope);
+EXPORT_SYMBOL(pthread_attr_getscope);
+EXPORT_SYMBOL(pthread_mutex_init);
+EXPORT_SYMBOL(pthread_mutex_destroy);
+EXPORT_SYMBOL(pthread_mutexattr_init);
+EXPORT_SYMBOL(pthread_mutexattr_destroy);
+EXPORT_SYMBOL(pthread_mutexattr_setkind_np);
+EXPORT_SYMBOL(pthread_mutexattr_getkind_np);
+EXPORT_SYMBOL(pthread_setschedparam);
+EXPORT_SYMBOL(pthread_getschedparam);
+EXPORT_SYMBOL(pthread_mutex_trylock);
+EXPORT_SYMBOL(pthread_mutex_lock);
+EXPORT_SYMBOL(pthread_mutex_unlock);
+EXPORT_SYMBOL(pthread_cond_init);
+EXPORT_SYMBOL(pthread_cond_destroy);
+EXPORT_SYMBOL(pthread_condattr_init);
+EXPORT_SYMBOL(pthread_condattr_destroy);
+EXPORT_SYMBOL(pthread_cond_wait);
+EXPORT_SYMBOL(pthread_cond_timedwait);
+EXPORT_SYMBOL(pthread_cond_signal);
+EXPORT_SYMBOL(pthread_cond_broadcast);
+EXPORT_SYMBOL(pthread_suspend_np);
+EXPORT_SYMBOL(pthread_resume_np);
+
+EXPORT_SYMBOL(sched_yield);
+EXPORT_SYMBOL(nanosleep);
+
+#endif /* CONFIG_RTSCHED */

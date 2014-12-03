@@ -1,6 +1,14 @@
 #ifndef __ASM_SH_ATOMIC_H
 #define __ASM_SH_ATOMIC_H
 
+#if defined(CONFIG_RTHAL)
+#define __atomic_save_and_cli(x)  hard_save_flags_and_cli(x)
+#define __atomic_restore_flags(x) hard_restore_flags(x)
+#else
+#define __atomic_save_and_cli(x)  save_and_cli(x)
+#define __atomic_restore_flags(x) restore_flags(x)
+#endif
+
 /*
  * Atomic operations that C can't guarantee us.  Useful for
  * resource counting etc..
@@ -26,29 +34,29 @@ static __inline__ void atomic_add(int i, atomic_t * v)
 {
 	unsigned long flags;
 
-	save_and_cli(flags);
+	__atomic_save_and_cli(flags);
 	*(long *)v += i;
-	restore_flags(flags);
+	__atomic_restore_flags(flags);
 }
 
 static __inline__ void atomic_sub(int i, atomic_t *v)
 {
 	unsigned long flags;
 
-	save_and_cli(flags);
+	__atomic_save_and_cli(flags);
 	*(long *)v -= i;
-	restore_flags(flags);
+	__atomic_restore_flags(flags);
 }
 
 static __inline__ int atomic_add_return(int i, atomic_t * v)
 {
 	unsigned long temp, flags;
 
-	save_and_cli(flags);
+	__atomic_save_and_cli(flags);
 	temp = *(long *)v;
 	temp += i;
 	*(long *)v = temp;
-	restore_flags(flags);
+	__atomic_restore_flags(flags);
 
 	return temp;
 }
@@ -57,11 +65,11 @@ static __inline__ int atomic_sub_return(int i, atomic_t * v)
 {
 	unsigned long temp, flags;
 
-	save_and_cli(flags);
+	__atomic_save_and_cli(flags);
 	temp = *(long *)v;
 	temp -= i;
 	*(long *)v = temp;
-	restore_flags(flags);
+	__atomic_restore_flags(flags);
 
 	return temp;
 }
@@ -79,18 +87,18 @@ static __inline__ void atomic_clear_mask(unsigned int mask, atomic_t *v)
 {
 	unsigned long flags;
 
-	save_and_cli(flags);
+	__atomic_save_and_cli(flags);
 	*(long *)v &= ~mask;
-	restore_flags(flags);
+	__atomic_restore_flags(flags);
 }
 
 static __inline__ void atomic_set_mask(unsigned int mask, atomic_t *v)
 {
 	unsigned long flags;
 
-	save_and_cli(flags);
+	__atomic_save_and_cli(flags);
 	*(long *)v |= mask;
-	restore_flags(flags);
+	__atomic_restore_flags(flags);
 }
 
 /* Atomic operations are already serializing on SH */

@@ -68,18 +68,18 @@ static inline void mips64_flush_cache_all_sc(void)
 {
 	unsigned long flags;
 
-	__save_and_cli(flags);
+	local_irq_save(flags);
 	blast_dcache(); blast_icache(); blast_scache();
-	__restore_flags(flags);
+	local_irq_restore(flags);
 }
 
 static inline void mips64_flush_cache_all_pc(void)
 {
 	unsigned long flags;
 
-	__save_and_cli(flags);
+	local_irq_save(flags);
 	blast_dcache(); blast_icache();
-	__restore_flags(flags);
+	local_irq_restore(flags);
 }
 
 static void
@@ -106,7 +106,7 @@ mips64_flush_cache_range_sc(struct mm_struct *mm,
 			pmd_t *pmd;
 			pte_t *pte;
 
-			__save_and_cli(flags);
+			local_irq_save(flags);
 			while(start < end) {
 				pgd = pgd_offset(mm, start);
 				pmd = pmd_offset(pgd, start);
@@ -116,7 +116,7 @@ mips64_flush_cache_range_sc(struct mm_struct *mm,
 					blast_scache_page(start);
 				start += PAGE_SIZE;
 			}
-			__restore_flags(flags);
+			local_irq_restore(flags);
 		}
 	}
 }
@@ -131,9 +131,9 @@ static void mips64_flush_cache_range_pc(struct mm_struct *mm,
 #ifdef DEBUG_CACHE
 		printk("crange[%d,%08lx,%08lx]", (int)mm->context, start, end);
 #endif
-		__save_and_cli(flags);
+		local_irq_save(flags);
 		blast_dcache(); blast_icache();
-		__restore_flags(flags);
+		local_irq_restore(flags);
 	}
 }
 
@@ -181,7 +181,6 @@ static void mips64_flush_cache_page_sc(struct vm_area_struct *vma,
 #ifdef DEBUG_CACHE
 	printk("cpage[%d,%08lx]", (int)mm->context, page);
 #endif
-	__save_and_cli(flags);
 	page &= PAGE_MASK;
 	pgdp = pgd_offset(mm, page);
 	pmdp = pmd_offset(pgdp, page);
@@ -192,7 +191,7 @@ static void mips64_flush_cache_page_sc(struct vm_area_struct *vma,
 	 * in the cache.
 	 */
 	if (!(pte_val(*ptep) & _PAGE_VALID))
-		goto out;
+		return;
 
 	/*
 	 * Doing flushes for another ASID than the current one is
@@ -210,8 +209,6 @@ static void mips64_flush_cache_page_sc(struct vm_area_struct *vma,
 		blast_scache_page_indexed(page);
 	} else
 		blast_scache_page(page);
-out:
-	__restore_flags(flags);
 }
 
 static void mips64_flush_cache_page_pc(struct vm_area_struct *vma,
@@ -233,7 +230,6 @@ static void mips64_flush_cache_page_pc(struct vm_area_struct *vma,
 #ifdef DEBUG_CACHE
 	printk("cpage[%d,%08lx]", (int)mm->context, page);
 #endif
-	__save_and_cli(flags);
 	page &= PAGE_MASK;
 	pgdp = pgd_offset(mm, page);
 	pmdp = pmd_offset(pgdp, page);
@@ -244,7 +240,7 @@ static void mips64_flush_cache_page_pc(struct vm_area_struct *vma,
 	 * in the cache.
 	 */
 	if (!(pte_val(*ptep) & _PAGE_VALID))
-		goto out;
+		return;
 
 	/*
 	 * Doing flushes for another ASID than the current one is
@@ -261,8 +257,6 @@ static void mips64_flush_cache_page_pc(struct vm_area_struct *vma,
 		page = (KSEG0 + (page & ((unsigned long)dcache_size - 1)));
 		blast_dcache_page_indexed(page);
 	}
-out:
-	__restore_flags(flags);
 }
 
 /* If the addresses passed to these routines are valid, they are
@@ -301,13 +295,18 @@ mips64_flush_icache_range(unsigned long start, unsigned long end)
 static void
 mips64_flush_icache_page(struct vm_area_struct *vma, struct page *page)
 {
-	unsigned long address;
-
+	/*
+	 * If there's no context yet, or the page isn't executable, no icache 
+	 * flush is needed.
+	 */
 	if (!(vma->vm_flags & VM_EXEC))
 		return;
 
-	address = KSEG0 + ((unsigned long)page_address(page) & PAGE_MASK & ((unsigned long)icache_size - 1));
-	blast_icache_page_indexed(address);
+	/*
+	 * We're not sure of the virtual address(es) involved here, so
+	 * conservatively flush the entire caches.
+	 */
+	flush_cache_all();
 }
 
 /*
@@ -322,15 +321,15 @@ mips64_dma_cache_wback_inv_pc(unsigned long addr, unsigned long size)
 	if (size >= (unsigned long)dcache_size) {
 		blast_dcache();
 	} else {
-	        __save_and_cli(flags);
+	        local_irq_save(flags);
 		a = addr & ~(dc_lsize - 1);
-		end = (addr + size) & ~((unsigned long)dc_lsize - 1);
+		end = (addr + size - 1) & ~((unsigned long)dc_lsize - 1);
 		while (1) {
 			flush_dcache_line(a); /* Hit_Writeback_Inv_D */
 			if (a == end) break;
 			a += dc_lsize;
 		}
-		__restore_flags(flags);
+		local_irq_restore(flags);
 	}
 	bc_wback_inv(addr, size);
 }
@@ -346,7 +345,7 @@ mips64_dma_cache_wback_inv_sc(unsigned long addr, unsigned long size)
 	}
 
 	a = addr & ~(sc_lsize - 1);
-	end = (addr + size) & ~(sc_lsize - 1);
+	end = (addr + size - 1) & ~(sc_lsize - 1);
 	while (1) {
 		flush_scache_line(a);	/* Hit_Writeback_Inv_SD */
 		if (a == end) break;
@@ -363,15 +362,15 @@ mips64_dma_cache_inv_pc(unsigned long addr, unsigned long size)
 	if (size >= (unsigned long)dcache_size) {
 		blast_dcache();
 	} else {
-	        __save_and_cli(flags);
+	        local_irq_save(flags);
 		a = addr & ~((unsigned long)dc_lsize - 1);
-		end = (addr + size) & ~((unsigned long)dc_lsize - 1);
+		end = (addr + size - 1) & ~((unsigned long)dc_lsize - 1);
 		while (1) {
 			invalidate_dcache_line(a); /* Hit_Inv_D */
 			if (a == end) break;
 			a += (unsigned long)dc_lsize;
 		}
-		__restore_flags(flags);
+		local_irq_restore(flags);
 	}
 
 	bc_inv(addr, size);
@@ -388,7 +387,7 @@ mips64_dma_cache_inv_sc(unsigned long addr, unsigned long size)
 	}
 
 	a = addr & ~(sc_lsize - 1);
-	end = (addr + size) & ~(sc_lsize - 1);
+	end = (addr + size - 1) & ~(sc_lsize - 1);
 	while (1) {
 		invalidate_scache_line(a); /* Hit_Writeback_Inv_SD */
 		if (a == end) break;
@@ -416,7 +415,7 @@ static void mips64_flush_cache_sigtramp(unsigned long addr)
 static void
 mips64_flush_icache_all(void)
 {
-	if (mips_cpu.cputype == CPU_20KC) {
+	if (mips_cpu.icache.flags | MIPS_CACHE_VTAG_CACHE) {
 		blast_icache();
 	}
 }
@@ -428,6 +427,7 @@ static void __init probe_icache(unsigned long config)
         unsigned long config1;
 	unsigned int lsize;
 
+	mips_cpu.icache.flags = 0;
         if (!(config & (1 << 31))) {
 	        /*
 		 * Not a MIPS64 complainant CPU.
@@ -445,7 +445,7 @@ static void __init probe_icache(unsigned long config)
 		mips_cpu.icache.sets =
 			(icache_size / ic_lsize) / mips_cpu.icache.ways;
 	} else {
-	       config1 = read_mips32_cp0_config1();
+	       config1 = read_c0_config1();
 
 	       if ((lsize = ((config1 >> 19) & 7)))
 		       mips_cpu.icache.linesz = 2 << lsize;
@@ -457,6 +457,16 @@ static void __init probe_icache(unsigned long config)
 	       ic_lsize = mips_cpu.icache.linesz;
 	       icache_size = mips_cpu.icache.sets * mips_cpu.icache.ways *
 		             ic_lsize;
+
+	       if ((config & 0x8) || (mips_cpu.cputype == CPU_20KC)) {
+		       /* 
+			* The CPU has a virtually tagged I-cache.
+			* Some older 20Kc chips doesn't have the 'VI' bit in
+			* the config register, so we also check for 20Kc.
+			*/
+		       mips_cpu.icache.flags = MIPS_CACHE_VTAG_CACHE;
+		       printk("Virtually tagged I-cache detected\n");
+	       }
 	}
 	printk("Primary instruction cache %dkb, linesize %d bytes (%d ways)\n",
 	       icache_size >> 10, ic_lsize, mips_cpu.icache.ways);
@@ -467,6 +477,7 @@ static void __init probe_dcache(unsigned long config)
         unsigned long config1;
 	unsigned int lsize;
 
+	mips_cpu.dcache.flags = 0;
         if (!(config & (1 << 31))) {
 	        /*
 		 * Not a MIPS64 complainant CPU.
@@ -483,7 +494,7 @@ static void __init probe_dcache(unsigned long config)
 		mips_cpu.dcache.sets =
 			(dcache_size / dc_lsize) / mips_cpu.dcache.ways;
 	} else {
-	        config1 = read_mips32_cp0_config1();
+	        config1 = read_c0_config1();
 
 		if ((lsize = ((config1 >> 10) & 7)))
 		        mips_cpu.dcache.linesz = 2 << lsize;
@@ -542,7 +553,7 @@ static int __init probe_scache(unsigned long config)
 	/* This is such a bitch, you'd think they would make it
 	 * easy to do this.  Away you daemons of stupidity!
 	 */
-	__save_and_cli(flags);
+	local_irq_save(flags);
 
 	/* Fill each size-multiple cache line with a valid tag. */
 	pow2 = (64 * 1024);
@@ -553,8 +564,8 @@ static int __init probe_scache(unsigned long config)
 	}
 
 	/* Load first line with zero (therefore invalid) tag. */
-	set_taglo(0);
-	set_taghi(0);
+	write_c0_taglo(0);
+	write_c0_taghi(0);
 	__asm__ __volatile__("nop; nop; nop; nop;"); /* avoid the hazard */
 	__asm__ __volatile__("\n\t.set noreorder\n\t"
 			     "cache 8, (%0)\n\t"
@@ -574,11 +585,11 @@ static int __init probe_scache(unsigned long config)
 				     "cache 7, (%0)\n\t"
 				     ".set reorder\n\t" : : "r" (addr));
 		__asm__ __volatile__("nop; nop; nop; nop;"); /* hazard... */
-		if(!get_taglo())
+		if(!read_c0_taglo())
 			break;
 		pow2 <<= 1;
 	}
-	__restore_flags(flags);
+	local_irq_restore(flags);
 	addr -= begin;
 	printk("Secondary cache sized at %dK linesize %d bytes.\n",
 	       (int) (addr >> 10), sc_lsize);
@@ -652,9 +663,9 @@ static inline void __init setup_scache(unsigned int config)
 
 void __init ld_mmu_mips64(void)
 {
-	unsigned long config = read_32bit_cp0_register(CP0_CONFIG);
+	unsigned long config = read_c0_config();
 
-	change_cp0_config(CONF_CM_CMASK, CONF_CM_DEFAULT);
+	change_c0_config(CONF_CM_CMASK, CONF_CM_DEFAULT);
 
 	probe_icache(config);
 	probe_dcache(config);

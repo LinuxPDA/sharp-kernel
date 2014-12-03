@@ -15,6 +15,7 @@
  *              fixed set_rtc_mmss, fixed time.year for >= 2000, new mktime
  *  1998-12-20  Updated NTP code according to technical memorandum Jan '96
  *              "A Kernel Model for Precision Timekeeping" by Dave Mills
+ *  1-Nov-2003 Sharp Corporation   for Tosa
  */
 #include <linux/config.h>
 #include <linux/module.h>
@@ -149,6 +150,15 @@ static void do_leds(void)
 #define do_leds()
 #endif
 
+#ifdef CONFIG_ARCH_PXA_TOSA
+#define AVOID_ROLLBACK
+#ifdef AVOID_ROLLBACK
+int rollback_cancel = 0;
+static unsigned long last_sec = 0;
+static unsigned long last_usec = 0;
+#endif
+#endif
+
 void do_gettimeofday(struct timeval *tv)
 {
 	unsigned long flags;
@@ -171,6 +181,25 @@ void do_gettimeofday(struct timeval *tv)
 		usec -= 1000000;
 		sec++;
 	}
+
+#ifdef CONFIG_ARCH_PXA_TOSA
+#ifdef AVOID_ROLLBACK
+	if (rollback_cancel && last_sec) {
+	  if (last_sec>sec && last_sec-sec<4 ) {
+	      //X	      printk("ERROR: time was fixed!(-%d sec)\n",last_sec-sec);
+	      sec = last_sec;
+	      usec = last_usec+1;
+	  } else if (last_sec==sec) {
+	    if (last_usec>usec) { // usec is always fixed.
+	      //X		printk("ERROR: time was fixed!!(-%d usec)\n",last_usec-usec);
+		usec = last_usec+1;
+	    }
+	  }
+	}
+	last_sec = sec;
+	last_usec = usec;
+#endif
+#endif
 
 	tv->tv_sec = sec;
 	tv->tv_usec = usec;
@@ -199,10 +228,18 @@ void do_settimeofday(struct timeval *tv)
 	time_maxerror = NTP_PHASE_LIMIT;
 	time_esterror = NTP_PHASE_LIMIT;
 	write_unlock_irq(&xtime_lock);
+
+#ifdef CONFIG_ARCH_PXA_TOSA
+#ifdef AVOID_ROLLBACK
+	last_sec = 0;
+	last_usec = 0;
+#endif
+#endif
 }
 
 static struct irqaction timer_irq = {
-	name: "timer",
+	.name	= "timer",
+	.flags	= SA_INTERRUPT,
 };
 
 /*

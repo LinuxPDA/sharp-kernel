@@ -64,8 +64,6 @@ static int __init nokgdb(char *str)
 __setup("nokgdb", nokgdb);
 #endif
 
-#define NR_IRQS 64
-
 static struct hw_interrupt_type sb1250_irq_type = {
 	"SB1250-IMR",
 	startup_sb1250_irq,
@@ -162,7 +160,10 @@ void __init init_sb1250_irqs(void)
 		irq_desc[i].status = IRQ_DISABLED;
 		irq_desc[i].action = 0;
 		irq_desc[i].depth = 1;
-		irq_desc[i].handler = &sb1250_irq_type;
+		if (i < SB1250_NR_IRQS)
+			irq_desc[i].handler = &sb1250_irq_type;
+		else
+			irq_desc[i].handler = &no_irq_type;
 	}
 }
 
@@ -172,12 +173,12 @@ static void sb1250_dummy_handler(int irq, void *dev_id, struct pt_regs *regs)
 }
 
 static struct irqaction sb1250_dummy_action = {
-	handler: sb1250_dummy_handler,
-	flags:   0,
-	mask:    0,
-	name:    "sb1250-private",
-	next:    NULL,
-	dev_id:  0
+	.handler = sb1250_dummy_handler,
+	.flags   = 0,
+	.mask    = 0,
+	.name    = "sb1250-private",
+	.next    = NULL,
+	.dev_id  = 0
 };
 
 int sb1250_steal_irq(int irq)
@@ -186,7 +187,7 @@ int sb1250_steal_irq(int irq)
 	unsigned long flags;
 	int retval = 0;
 
-	if (irq >= NR_IRQS)
+	if (irq >= SB1250_NR_IRQS)
 		return -EINVAL;
 
 	spin_lock_irqsave(&desc->lock,flags);
@@ -198,6 +199,7 @@ int sb1250_steal_irq(int irq)
 		desc->depth = 0;
 	}
 	spin_unlock_irqrestore(&desc->lock,flags);
+	return 0;
 }
 
 /*
@@ -235,7 +237,7 @@ void __init init_IRQ(void)
 		STATUSF_IP1 | STATUSF_IP0;
 
 	/* Default everything to IP2 */
-	for (i = 0; i < NR_IRQS; i++) {	/* was I0 */
+	for (i = 0; i < SB1250_NR_IRQS; i++) {	/* was I0 */
 		out64(IMR_IP2_VAL,
 		      KSEG1 + A_IMR_REGISTER(0,
 					     R_IMR_INTERRUPT_MAP_BASE) +
@@ -283,7 +285,7 @@ void __init init_IRQ(void)
 	imask |= STATUSF_IP6;
 #endif
 	/* Enable necessary IPs, disable the rest */
-	change_cp0_status(ST0_IM, imask);
+	change_c0_status(ST0_IM, imask);
 	set_except_vector(0, sb1250_irq_handler);
 
 #ifdef CONFIG_REMOTE_DEBUG

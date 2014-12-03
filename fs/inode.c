@@ -2,6 +2,9 @@
  * linux/fs/inode.c
  *
  * (C) 1997 Linus Torvalds
+ *
+ * ChangLog:
+ *     19-Nov-2002 Lineo Japan, Inc.  shrink JFFS2 inode cache
  */
 
 #include <linux/config.h>
@@ -17,6 +20,25 @@
 #include <linux/swapctl.h>
 #include <linux/prefetch.h>
 #include <linux/locks.h>
+
+#if defined(CONFIG_ARCH_SHARP_SL) && defined(CONFIG_JFFS2_DYNFRAGTREE)
+#include <linux/jffs2.h>
+unsigned long jffs2_get_nr_inodes(void);
+void jffs2_shrink_inode(struct inode *inode);
+
+#define IS_JFFS2_INODE(inode) \
+(inode->i_sb && inode->i_sb->s_magic == JFFS2_SUPER_MAGIC)
+
+#define JFFS2_KEEP_INODE_CACHES (250)
+
+static int _jffs2_slab_active_page(void);
+static int shrink_jffs2_icache(int goal);
+
+//#define JFFS2_INODE_DEBUG 2
+#ifdef JFFS2_INODE_DEBUG
+static int _jffs2_nr_inode_cache(void);
+#endif
+#endif
 
 /*
  * New inode.c implementation.
@@ -667,6 +689,15 @@ void prune_icache(int goal)
 	struct list_head *entry, *freeable = &list;
 	int count;
 	struct inode * inode;
+#if defined(CONFIG_ARCH_SHARP_SL) && defined(CONFIG_JFFS2_DYNFRAGTREE)
+	unsigned long  jffs2_inode_count = jffs2_get_nr_inodes();
+#ifdef JFFS2_INODE_DEBUG
+	int unused_jffs2_inode=_jffs2_nr_inode_cache();
+	int request=goal;
+	int loop=0;
+	int free_jffs2_inode=0;
+#endif
+#endif
 
 	spin_lock(&inode_lock);
 
@@ -676,6 +707,9 @@ void prune_icache(int goal)
 	{
 		struct list_head *tmp = entry;
 
+#ifdef JFFS2_INODE_DEBUG
+		loop++;
+#endif
 		entry = entry->prev;
 		inode = INODE(tmp);
 		if (inode->i_state & (I_FREEING|I_CLEAR|I_LOCK))
@@ -684,6 +718,16 @@ void prune_icache(int goal)
 			continue;
 		if (atomic_read(&inode->i_count))
 			continue;
+#if defined(CONFIG_ARCH_SHARP_SL) && defined(CONFIG_JFFS2_DYNFRAGTREE)
+		if (IS_JFFS2_INODE(inode)) {
+			if (jffs2_inode_count <= JFFS2_KEEP_INODE_CACHES)
+				continue;
+			jffs2_inode_count--;
+#ifdef JFFS2_INODE_DEBUG
+			free_jffs2_inode++;
+#endif
+		}
+#endif
 		list_del(tmp);
 		list_del(&inode->i_hash);
 		INIT_LIST_HEAD(&inode->i_hash);
@@ -697,6 +741,11 @@ void prune_icache(int goal)
 	spin_unlock(&inode_lock);
 
 	dispose_list(freeable);
+#if (JFFS2_INODE_DEBUG == 2)
+	printk("prune_icache: %dloops %d/%d (jffs2 %d/%d[unused=%d])\n",
+		loop, count, request, free_jffs2_inode,
+		jffs2_inode_count+free_jffs2_inode,unused_jffs2_inode);
+#endif
 
 	/* 
 	 * If we didn't freed enough clean inodes schedule
@@ -721,6 +770,12 @@ int shrink_icache_memory(int priority, int gfp_mask)
 	 */
 	if (!(gfp_mask & __GFP_FS))
 		return 0;
+
+#if defined(CONFIG_ARCH_SHARP_SL) && defined(CONFIG_JFFS2_DYNFRAGTREE)
+	if (shrink_jffs2_icache(0) >= SWAP_CLUSTER_MAX) {
+		return 0;
+	}
+#endif
 
 	count = inodes_stat.nr_unused / priority;
 
@@ -1243,4 +1298,205 @@ void remove_dquot_ref(struct super_block *sb, short type)
 	put_dquot_list(&tofree_head);
 }
 
+#endif
+
+#if defined(CONFIG_ARCH_SHARP_SL) && defined(CONFIG_JFFS2_DYNFRAGTREE)
+
+static void prune_jffs2_icache(int goal)
+{
+	LIST_HEAD(list);
+	struct list_head *entry, *freeable = &list;
+	int count;
+	struct inode * inode;
+#ifdef JFFS2_INODE_DEBUG
+	int unused_jffs2_inode=_jffs2_nr_inode_cache();
+	int request=goal;
+	int loop=0;
+#endif
+
+	spin_lock(&inode_lock);
+
+	count = 0;
+	entry = inode_unused.prev;
+	while (entry != &inode_unused)
+	{
+		struct list_head *tmp = entry;
+
+#ifdef JFFS2_INODE_DEBUG
+		loop++;
+#endif
+		entry = entry->prev;
+		inode = INODE(tmp);
+		if (inode->i_state & (I_FREEING|I_CLEAR|I_LOCK))
+			continue;
+		if (!CAN_UNUSE(inode))
+			continue;
+		if (atomic_read(&inode->i_count))
+			continue;
+		if (!IS_JFFS2_INODE(inode))
+			continue;
+		list_del(tmp);
+		list_del(&inode->i_hash);
+		INIT_LIST_HEAD(&inode->i_hash);
+		list_add(tmp, freeable);
+		inode->i_state |= I_FREEING;
+		count++;
+		if (!--goal)
+			break;
+	}
+	inodes_stat.nr_unused -= count;
+	spin_unlock(&inode_lock);
+
+	dispose_list(freeable);
+#if (JFFS2_INODE_DEBUG == 2)
+	printk("prune_jffs2_icache: %dloops ** %d/%d ** (jffs2 unused %d)\n",
+		loop, count, request,unused_jffs2_inode);
+#endif
+}
+
+
+static int _jffs2_slab_active_page(void)
+{
+	int n, nr_pages = 0;
+
+	if ((n = _kmem_cache_active_page("jffs2_node_frag")) > 0) {
+		nr_pages = n;
+	}
+	if ((n = _kmem_cache_active_page("jffs2_full_dnode")) > 0) {
+		nr_pages += n;
+	}
+	return nr_pages;
+}
+
+
+static int shrink_jffs2_icache(int goal)
+{
+	LIST_HEAD(list);
+	struct list_head *entry;
+	struct inode * inode;
+	int free_pages;
+	int pages = _jffs2_slab_active_page();
+#ifdef JFFS2_INODE_DEBUG
+	int unused_jffs2_inode=_jffs2_nr_inode_cache();
+	int loop=0;
+	int count=0;
+#endif
+
+	spin_lock(&inode_lock);
+
+	entry = inode_unused.prev;
+	while (entry != &inode_unused)
+	{
+		struct list_head *tmp = entry;
+
+#ifdef JFFS2_INODE_DEBUG
+		loop++;
+#endif
+		entry = entry->prev;
+		inode = INODE(tmp);
+		if (inode->i_state & (I_FREEING|I_CLEAR|I_LOCK))
+			continue;
+		if (!CAN_UNUSE(inode))
+			continue;
+		if (atomic_read(&inode->i_count))
+			continue;
+		if (!IS_JFFS2_INODE(inode))
+			continue;
+#ifdef JFFS2_INODE_DEBUG
+		count++;
+#endif
+		jffs2_shrink_inode(inode);
+		if (goal > 0) {
+			free_pages = pages - _jffs2_slab_active_page();
+			if (free_pages >= goal)
+				break;
+		}
+	}
+	spin_unlock(&inode_lock);
+
+	if (goal <= 0)
+		free_pages = pages - _jffs2_slab_active_page();
+#ifdef JFFS2_INODE_DEBUG
+#if (JFFS2_INODE_DEBUG == 1)
+	if (free_pages)
+#endif
+	printk("shrink_jffs2_icache: %dloops free %d/%dinodes %d/%dpages [active=%d]\n",
+		loop, count, unused_jffs2_inode, free_pages, goal, pages);
+#endif
+
+	return free_pages;
+}
+
+
+int shrink_jffs2_icache_memory(int priority, int gfp_mask)
+{
+	int count;
+	unsigned long n;
+	int nr_pages = SWAP_CLUSTER_MAX;
+
+	/*
+	 * Nasty deadlock avoidance..
+	 *
+	 * We may hold various FS locks, and we don't
+	 * want to recurse into the FS that called us
+	 * in clear_inode() and friends..
+	 */
+	if (!(gfp_mask & __GFP_FS))
+		return 0;
+
+	n = jffs2_get_nr_inodes();
+	count = n - JFFS2_KEEP_INODE_CACHES;
+	if (count > 0) {
+		int pages = _jffs2_slab_active_page();
+		prune_jffs2_icache(count);
+		kmem_cache_shrink(inode_cachep);
+		nr_pages -= pages - _jffs2_slab_active_page();
+#ifdef JFFS2_INODE_DEBUG
+#if (JFFS2_INODE_DEBUG == 1)
+		if (nr_pages != SWAP_CLUSTER_MAX)
+#endif
+		printk("prune_jffs2_icache: remain %dpages\n",nr_pages);
+#endif
+		if (nr_pages <= 0)
+			return 0;
+#if (JFFS2_INODE_DEBUG == 2)
+	} else {
+		printk("shrink_jffs2_icache_memory: p=%d jffs2=%d request=%d\n",
+			priority, n, count);
+#endif
+	}
+
+	/* dispose frags object of JFFS2 inode cache */
+	shrink_jffs2_icache(nr_pages);
+
+	return 0;
+}
+
+#ifdef JFFS2_INODE_DEBUG
+/* for debug */
+static int _jffs2_nr_inode_cache(void)
+{
+	LIST_HEAD(list);
+	struct list_head *entry;
+	struct inode * inode;
+	int count;
+
+	spin_lock(&inode_lock);
+
+	count = 0;
+	entry = inode_unused.prev;
+	while (entry != &inode_unused)
+	{
+		struct list_head *tmp = entry;
+
+		entry = entry->prev;
+		inode = INODE(tmp);
+		if (IS_JFFS2_INODE(inode))
+			count++;
+	}
+	spin_unlock(&inode_lock);
+
+	return count;
+}
+#endif
 #endif

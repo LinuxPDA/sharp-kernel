@@ -1,3 +1,5 @@
+/* $USAGI: rtnetlink.h,v 1.7.12.1 2003/02/05 07:45:49 yoshfuji Exp $ */
+
 #ifndef __LINUX_RTNETLINK_H
 #define __LINUX_RTNETLINK_H
 
@@ -315,6 +317,7 @@ enum
 /* ifa_flags */
 
 #define IFA_F_SECONDARY		0x01
+#define IFA_F_TEMPORARY		IFA_F_SECONDARY
 
 #define IFA_F_DEPRECATED	0x20
 #define IFA_F_TENTATIVE		0x40

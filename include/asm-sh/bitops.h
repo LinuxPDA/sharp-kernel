@@ -6,6 +6,14 @@
 /* For __swab32 */
 #include <asm/byteorder.h>
 
+#if defined(CONFIG_RTHAL)
+#define __bitops_save_and_cli(x)  hard_save_flags_and_cli(x)
+#define __bitops_restore_flags(x) hard_restore_flags(x)
+#else
+#define __bitops_save_and_cli(x)  save_and_cli(x)
+#define __bitops_restore_flags(x) restore_flags(x)
+#endif
+
 static __inline__ void set_bit(int nr, volatile void * addr)
 {
 	int	mask;
@@ -14,9 +22,9 @@ static __inline__ void set_bit(int nr, volatile void * addr)
 
 	a += nr >> 5;
 	mask = 1 << (nr & 0x1f);
-	save_and_cli(flags);
+	__bitops_save_and_cli(flags);
 	*a |= mask;
-	restore_flags(flags);
+	__bitops_restore_flags(flags);
 }
 
 static __inline__ void __set_bit(int nr, volatile void * addr)
@@ -42,9 +50,9 @@ static __inline__ void clear_bit(int nr, volatile void * addr)
 
 	a += nr >> 5;
 	mask = 1 << (nr & 0x1f);
-	save_and_cli(flags);
+	__bitops_save_and_cli(flags);
 	*a &= ~mask;
-	restore_flags(flags);
+	__bitops_restore_flags(flags);
 }
 
 static __inline__ void __clear_bit(int nr, volatile void * addr)
@@ -65,9 +73,9 @@ static __inline__ void change_bit(int nr, volatile void * addr)
 
 	a += nr >> 5;
 	mask = 1 << (nr & 0x1f);
-	save_and_cli(flags);
+	__bitops_save_and_cli(flags);
 	*a ^= mask;
-	restore_flags(flags);
+	__bitops_restore_flags(flags);
 }
 
 static __inline__ void __change_bit(int nr, volatile void * addr)
@@ -88,10 +96,10 @@ static __inline__ int test_and_set_bit(int nr, volatile void * addr)
 
 	a += nr >> 5;
 	mask = 1 << (nr & 0x1f);
-	save_and_cli(flags);
+	__bitops_save_and_cli(flags);
 	retval = (mask & *a) != 0;
 	*a |= mask;
-	restore_flags(flags);
+	__bitops_restore_flags(flags);
 
 	return retval;
 }
@@ -117,10 +125,10 @@ static __inline__ int test_and_clear_bit(int nr, volatile void * addr)
 
 	a += nr >> 5;
 	mask = 1 << (nr & 0x1f);
-	save_and_cli(flags);
+	__bitops_save_and_cli(flags);
 	retval = (mask & *a) != 0;
 	*a &= ~mask;
-	restore_flags(flags);
+	__bitops_restore_flags(flags);
 
 	return retval;
 }
@@ -146,10 +154,10 @@ static __inline__ int test_and_change_bit(int nr, volatile void * addr)
 
 	a += nr >> 5;
 	mask = 1 << (nr & 0x1f);
-	save_and_cli(flags);
+	__bitops_save_and_cli(flags);
 	retval = (mask & *a) != 0;
 	*a ^= mask;
-	restore_flags(flags);
+	__bitops_restore_flags(flags);
 
 	return retval;
 }
@@ -258,10 +266,10 @@ static __inline__ int ext2_set_bit(int nr, volatile void * addr)
 
 	ADDR += nr >> 3;
 	mask = 1 << (nr & 0x07);
-	save_and_cli(flags);
+	__bitops_save_and_cli(flags);
 	retval = (mask & *ADDR) != 0;
 	*ADDR |= mask;
-	restore_flags(flags);
+	__bitops_restore_flags(flags);
 	return retval;
 }
 
@@ -273,10 +281,10 @@ static __inline__ int ext2_clear_bit(int nr, volatile void * addr)
 
 	ADDR += nr >> 3;
 	mask = 1 << (nr & 0x07);
-	save_and_cli(flags);
+	__bitops_save_and_cli(flags);
 	retval = (mask & *ADDR) != 0;
 	*ADDR &= ~mask;
-	restore_flags(flags);
+	__bitops_restore_flags(flags);
 	return retval;
 }
 

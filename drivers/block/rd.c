@@ -40,6 +40,10 @@
  *
  * Make block size and block size shift for RAM disks a global macro
  * and set blk_size for -ENOSPC,     Werner Fink <werner@suse.de>, Apr '99
+ *
+ * Some #ifdef fine tuning to make the decompression of a built-in data
+ * block work on the Net+ARM (option CONFIG_BLK_DEV_RAMDISK_DATA), 
+ *                           Rolf Peukert <rolf.peukert@imms.de>, May 2001
  */
 
 #include <linux/config.h>
@@ -50,6 +54,7 @@
 #include <linux/devfs_fs_kernel.h>
 #include <linux/smp_lock.h>
 #include <asm/uaccess.h>
+#include <asm/byteorder.h>
 
 /*
  * 35 has been officially registered as the RAMDISK major number, but
@@ -336,6 +341,8 @@ static int initrd_release(struct inode *inode,struct file *file)
 {
 	extern void free_initrd_mem(unsigned long, unsigned long);
 
+#ifndef CONFIG_BLK_DEV_RAMDISK_DATA
+	/* don't free ramdisk if data is compiled in */
 	lock_kernel();
 	if (!--initrd_users) {
 		free_initrd_mem(initrd_start, initrd_end);
@@ -343,6 +350,7 @@ static int initrd_release(struct inode *inode,struct file *file)
 	}
 	unlock_kernel();
 	blkdev_put(inode->i_bdev, BDEV_FILE);
+#endif
 	return 0;
 }
 

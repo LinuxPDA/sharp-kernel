@@ -80,9 +80,6 @@ static int stork_pcmcia_socket_state(struct pcmcia_state_array *state_array)
 
         if(state_array->size<2) return -1;
 
-        memset(state_array->state, 0, 
-               (state_array->size)*sizeof(struct pcmcia_state));
-
         levels=GPLR;
 
 	if (debug > 1)

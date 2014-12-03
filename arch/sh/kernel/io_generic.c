@@ -17,10 +17,12 @@
 #include <asm/machvec.h>
 #include <linux/module.h>
 
+#if 0
 #if defined(__sh3__)
 /* I'm not sure SH7709 has this kind of bug */
 #define SH3_PCMCIA_BUG_WORKAROUND 1
 #define DUMMY_READ_AREA6	  0xba000000
+#endif
 #endif
 
 #define PORT2ADDR(x) (sh_mv.mv_isa_port2addr(x))
@@ -29,6 +31,7 @@ unsigned long generic_io_base;
 
 static inline void delay(void)
 {
+	ctrl_inw(0xa0000000);
 	ctrl_inw(0xa0000000);
 }
 

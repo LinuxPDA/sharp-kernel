@@ -346,6 +346,8 @@ EXPORT_SYMBOL(__res);
 EXPORT_SYMBOL(request_8xxirq);
 EXPORT_SYMBOL(cpm_install_handler);
 EXPORT_SYMBOL(cpm_free_handler);
+#else
+EXPORT_SYMBOL(local_flush_tlb_page);
 #endif /* CONFIG_8xx */
 
 EXPORT_SYMBOL(ret_to_user_hook);

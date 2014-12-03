@@ -164,19 +164,21 @@ sgi_usemaclone_open(struct inode *inode, struct file *filp)
 }
 
 struct file_operations sgi_usemaclone_fops = {
-	poll:		sgi_usemaclone_poll,
-	ioctl:		sgi_usemaclone_ioctl,
-	open:		sgi_usemaclone_open,
+	.poll		= sgi_usemaclone_poll,
+	.ioctl		= sgi_usemaclone_ioctl,
+	.open		= sgi_usemaclone_open,
 };
 
 static struct miscdevice dev_usemaclone = {
-	SGI_USEMACLONE, "usemaclone", &sgi_usemaclone_fops
+	.minor	= SGI_USEMACLONE,
+	.name	= "usemaclone",
+	.fops	= &sgi_usemaclone_fops,
 };
 
 void
 usema_init(void)
 {
-	printk("usemaclone misc device registered (minor: %d)\n",
+	printk(KERN_INFO "usemaclone misc device registered (minor: %d)\n",
 	       SGI_USEMACLONE);
 	misc_register(&dev_usemaclone);
 }

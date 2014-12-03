@@ -1,0 +1,358 @@
+#
+# For a description of the syntax of this configuration file,
+# see Documentation/kbuild/config-language.txt.
+#
+mainmenu_name "uClinux/MIPS (w/o MMU) Kernel Configuration"
+#mainmenu_name "Linux Kernel Configuration"
+
+define_bool CONFIG_MIPS y
+define_bool CONFIG_SMP n
+define_bool CONFIG_UCLINUX y
+
+define_bool CONFIG_RWSEM_GENERIC_SPINLOCK y
+
+
+mainmenu_option next_comment
+comment 'Code maturity level options'
+bool 'Prompt for development and/or incomplete code/drivers' CONFIG_EXPERIMENTAL
+endmenu
+
+mainmenu_option next_comment
+comment 'Machine selection'
+if [ "$CONFIG_EXPERIMENTAL" = "y" ]; then
+   bool 'Support for Galileo EV96100 Evaluation board' CONFIG_MIPS_EV96100
+   bool 'Support for Galileo EV64120 Evaluation board' CONFIG_MIPS_EV64120
+   if [ "$CONFIG_MIPS_EV64120" = "y" ]; then
+		  bool 'Enable Second PCI (PCI1)' CONFIG_EVB_PCI1
+      choice 'Galileo Chip Clock' \
+        "75 CONFIG_SYSCLK_75\
+         83.3 CONFIG_SYSCLK_83\
+         100 CONFIG_SYSCLK_100" CONFIG_SYSCLK_83
+   fi
+   bool 'Support for MIPS Atlas board' CONFIG_MIPS_ATLAS
+   bool 'Support for MIPS Malta board' CONFIG_MIPS_MALTA
+   bool 'Support for Brecis MSP5000 - EVM board' CONFIG_BRECIS
+fi
+bool 'Support for Momentum Ocelot board' CONFIG_MOMENCO_OCELOT
+bool 'Support for ITE 8172G board' CONFIG_MIPS_ITE8172
+   if [ "$CONFIG_MIPS_ITE8172" = "y" ]; then
+       bool '    Support for older IT8172 (Rev C)' CONFIG_IT8172_REVC
+       bool '    Enable Qtronix 990P Keyboard Support' CONFIG_QTRONIX_KEYBOARD
+       if [ "$CONFIG_QTRONIX_KEYBOARD" = "y" ]; then
+	   define_bool CONFIG_IT8172_CIR y
+       else
+           bool '    Enable PS2 Keyboard Support ' CONFIG_PC_KEYB
+       fi
+       bool '    Enable Smart Card Reader 0 Support ' CONFIG_IT8172_SCR0
+       bool '    Enable Smart Card Reader 1 Support ' CONFIG_IT8172_SCR1
+   fi
+   bool 'Support for Globespan IVR board' CONFIG_MIPS_IVR
+   if [ "$CONFIG_MIPS_IVR" = "y" ]; then
+       bool '    Enable Qtronix 990P Keyboard Support' CONFIG_QTRONIX_KEYBOARD
+       if [ "$CONFIG_QTRONIX_KEYBOARD" = "y" ]; then
+	   define_bool CONFIG_IT8172_CIR y
+       fi
+       bool '    Enable Smart Card Reader 0 Support ' CONFIG_IT8172_SCR0
+   fi
+
+#
+# Select some configuration options automatically for certain systems.
+#
+unset CONFIG_ARC32
+unset CONFIG_BOARD_SCACHE
+unset CONFIG_HAVE_STD_PC_SERIAL_PORT
+unset CONFIG_I8259
+unset CONFIG_ISA
+unset CONFIG_PCI
+unset CONFIG_MIPS_JAZZ
+unset CONFIG_SWAP_IO_SPACE
+unset CONFIG_VIDEO_G364
+unset CONFIG_PC_KEYB
+unset CONFIG_SERIAL_SPACE4
+
+define_bool CONFIG_MCA n
+define_bool CONFIG_SBUS n
+
+if [ "$CONFIG_MIPS_EV96100" = "y" ]; then
+   define_bool CONFIG_PCI y
+   define_bool CONFIG_MIPS_GT96100 y
+   define_bool CONFIG_SWAP_IO_SPACE y
+fi
+if [ "$CONFIG_MIPS_EV64120" = "y" ]; then
+   define_bool CONFIG_PCI y
+   define_bool CONFIG_ISA n
+   define_bool CONFIG_MIPS_GT64120 y
+fi
+
+if [ "$CONFIG_MIPS_ATLAS" = "y" ]; then
+   define_bool CONFIG_PCI y
+   define_bool CONFIG_SWAP_IO_SPACE y
+fi
+if [ "$CONFIG_MIPS_MALTA" = "y" ]; then
+   define_bool CONFIG_I8259 y
+   define_bool CONFIG_PCI y
+   define_bool CONFIG_HAVE_STD_PC_SERIAL_PORT y
+   define_bool CONFIG_SWAP_IO_SPACE y
+fi
+if [ "$CONFIG_BRECIS" = "y" ]; then
+   define_bool CONFIG_SERIAL_SPACE4 y 
+fi
+if [ "$CONFIG_MOMENCO_OCELOT" = "y" ]; then
+   define_bool CONFIG_PCI y
+   define_bool CONFIG_SYSCLK_100 y
+   define_bool CONFIG_SWAP_IO_SPACE y
+fi
+if [ "$CONFIG_MIPS_ITE8172" = "y" ]; then
+   define_bool CONFIG_PCI y
+   define_bool CONFIG_IT8712 y
+   define_bool CONFIG_PC_KEYB y
+fi
+if [ "$CONFIG_MIPS_IVR" = "y" ]; then
+   define_bool CONFIG_PCI y
+fi
+
+if [ "$CONFIG_ISA" != "y" ]; then
+   define_bool CONFIG_ISA n
+   define_bool CONFIG_EISA n
+else
+   define_bool CONFIG_EISA y
+fi
+
+if [ "$CONFIG_PCI" != "y" ]; then
+   define_bool CONFIG_PCI n
+fi
+
+if [ "$CONFIG_I8259" != "y" ]; then
+   define_bool CONFIG_I8259 n
+fi
+endmenu
+
+mainmenu_option next_comment
+comment 'Loadable module support'
+bool 'Enable loadable module support' CONFIG_MODULES
+if [ "$CONFIG_MODULES" = "y" ]; then
+   bool '  Set version information on all module symbols' CONFIG_MODVERSIONS
+   bool '  Kernel module loader' CONFIG_KMOD
+fi
+endmenu
+
+mainmenu_option next_comment
+comment 'CPU selection'
+
+choice 'CPU type' \
+	"R3000 CONFIG_CPU_R3000	\
+	 R3912 CONFIG_CPU_R3912	\
+	 R6000 CONFIG_CPU_R6000	\
+	 R4300 CONFIG_CPU_R4300	\
+	 R4x00 CONFIG_CPU_R4X00	\
+	 R5000 CONFIG_CPU_R5000	\
+         R5432 CONFIG_CPU_R5432 \
+	 RM7000 CONFIG_CPU_RM7000 \
+	 R52xx CONFIG_CPU_NEVADA \
+	 R8000 CONFIG_CPU_R8000	\
+	 R10000 CONFIG_CPU_R10000 \
+	 MIPS32_4kc_4km_4kp_4kec_4ksc CONFIG_CPU_MIPS32" R4x00
+
+bool 'Override CPU Options' CONFIG_CPU_ADVANCED
+
+#if [ "$CONFIG_CPU_4KM" = "y" ]; then
+#   define_bool CONFIG_CPU_MIPS32 y
+#fi
+
+if [ "$CONFIG_CPU_ADVANCED" = "y" ]; then
+   bool '  ll/sc Instructions available' CONFIG_CPU_HAS_LLSC
+   bool '  Writeback Buffer available' CONFIG_CPU_HAS_WB
+else
+   if [ "$CONFIG_CPU_R3000" = "y" ]; then
+      define_bool CONFIG_CPU_HAS_LLSC n
+      define_bool CONFIG_CPU_HAS_WB n
+   else
+      if [ "$CONFIG_CPU_R3912" = "y" ]; then
+	 define_bool CONFIG_CPU_HAS_LLSC n
+	 define_bool CONFIG_CPU_HAS_WB n
+      else
+	 define_bool CONFIG_CPU_HAS_LLSC y
+	 define_bool CONFIG_CPU_HAS_WB n
+      fi
+   fi
+fi
+endmenu
+
+mainmenu_option next_comment
+comment 'General setup'
+bool 'Generate little endian code' CONFIG_CPU_LITTLE_ENDIAN
+bool 'Kernel floating-point emulation' CONFIG_MIPS_FPU_EMULATOR
+
+if [ "$CONFIG_PROC_FS" = "y" ]; then
+   choice 'Kernel core (/proc/kcore) format' \
+        "ELF            CONFIG_KCORE_ELF        \
+         A.OUT          CONFIG_KCORE_AOUT" ELF
+fi
+define_bool CONFIG_ELF_KERNEL y
+
+if [ "$CONFIG_CPU_LITTLE_ENDIAN" = "n" ]; then
+   bool 'Include IRIX binary compatibility' CONFIG_BINFMT_IRIX 
+   bool 'Include forward keyboard' CONFIG_FORWARD_KEYBOARD 
+fi
+
+if [ "$CONFIG_ARC32" = "y" ]; then
+   bool 'ARC console support' CONFIG_ARC_CONSOLE
+fi
+
+tristate 'Kernel support for a.out binaries' CONFIG_BINFMT_AOUT
+tristate 'Kernel support for ELF binaries' CONFIG_BINFMT_ELF
+tristate 'Kernel support for MISC binaries' CONFIG_BINFMT_MISC
+tristate 'Kernel support for flat binaries' CONFIG_BINFMT_FLAT
+if [ "$CONFIG_BINFMT_FLAT" != "n" ]; then
+   bool '    Enable ZFLAT support' CONFIG_BINFMT_ZFLAT
+fi                                                                                
+bool 'Networking support' CONFIG_NET
+
+if [ "$CONFIG_PCI" = "y" ]; then
+    source drivers/pci/Config.in
+fi
+
+bool 'System V IPC' CONFIG_SYSVIPC
+bool 'BSD Process Accounting' CONFIG_BSD_PROCESS_ACCT
+bool 'Sysctl support' CONFIG_SYSCTL
+
+source drivers/parport/Config.in
+
+endmenu
+
+if [ "$CONFIG_ISA" = "y" ]; then
+   source drivers/pnp/Config.in
+fi
+
+if [ "$CONFIG_HOTPLUG" = "y" ] ; then
+   source drivers/pcmcia/Config.in
+else
+   define_bool CONFIG_PCMCIA n
+fi
+
+source drivers/mtd/Config.in
+
+source drivers/block/Config.in
+
+source drivers/md/Config.in
+
+source crypto/Config.in
+
+if [ "$CONFIG_NET" = "y" ]; then
+   source net/Config.in
+fi
+
+source drivers/telephony/Config.in
+
+mainmenu_option next_comment
+comment 'ATA/IDE/MFM/RLL support'
+    
+tristate 'ATA/IDE/MFM/RLL support' CONFIG_IDE
+    
+if [ "$CONFIG_IDE" != "n" ]; then
+   source drivers/ide/Config.in
+else
+   define_bool CONFIG_BLK_DEV_IDE_MODES n
+   define_bool CONFIG_BLK_DEV_HD n
+fi
+endmenu
+
+
+mainmenu_option next_comment
+comment 'SCSI support'
+
+tristate 'SCSI support' CONFIG_SCSI
+
+if [ "$CONFIG_SCSI" != "n" ]; then
+   source drivers/scsi/Config.in
+fi
+endmenu
+
+source drivers/i2o/Config.in
+
+if [ "$CONFIG_NET" = "y" ]; then
+   mainmenu_option next_comment
+   comment 'Network device support'
+
+   bool 'Network device support' CONFIG_NETDEVICES
+   if [ "$CONFIG_NETDEVICES" = "y" ]; then
+
+      source drivers/net/Config.in
+
+      if [ "$CONFIG_ATM" = "y" ]; then
+         source drivers/atm/Config.in
+      fi
+   fi
+   endmenu
+fi
+
+if [ "$CONFIG_ISA" = "y" -o "$CONFIG_PCI" = "y" ]; then
+   mainmenu_option next_comment
+   comment 'ISDN subsystem'
+
+   if [ "$CONFIG_NET" != "n" ]; then
+      tristate 'ISDN support' CONFIG_ISDN
+      if [ "$CONFIG_ISDN" != "n" ]; then
+	 source drivers/isdn/Config.in
+      fi
+   fi
+   endmenu
+
+   mainmenu_option next_comment
+   comment 'Old CD-ROM drivers (not SCSI, not IDE)'
+
+   bool 'Support non-SCSI/IDE/ATAPI drives' CONFIG_CD_NO_IDESCSI
+   if [ "$CONFIG_CD_NO_IDESCSI" != "n" ]; then
+      source drivers/cdrom/Config.in
+   fi
+   endmenu
+fi
+
+source drivers/char/Config.in
+
+source drivers/media/Config.in
+
+source fs/Config.in
+
+if [ "$CONFIG_VT" = "y" ]; then
+   mainmenu_option next_comment
+
+   comment 'Console drivers'
+      if [ "$CONFIG_DECSTATION" != "y" ]; then
+	 bool 'VGA text console' CONFIG_VGA_CONSOLE
+      fi
+      bool 'Support for frame buffer devices' CONFIG_FB
+      source drivers/video/Config.in
+   endmenu
+fi
+
+mainmenu_option next_comment
+comment 'Sound'
+
+tristate 'Sound card support' CONFIG_SOUND
+if [ "$CONFIG_SOUND" != "n" ]; then
+   source drivers/sound/Config.in
+fi
+endmenu
+
+source drivers/usb/Config.in
+source drivers/input/Config.in
+
+mainmenu_option next_comment
+comment 'Kernel hacking'
+
+bool 'Are you using a crosscompiler' CONFIG_CROSSCOMPILE
+if [ "$CONFIG_MODULES" = "y" ]; then
+   bool ' Build fp execption handler module' CONFIG_MIPS_FPE_MODULE
+fi
+if [ "$CONFIG_SERIAL" = "y" ]; then
+  bool 'Remote GDB kernel debugging' CONFIG_REMOTE_DEBUG
+fi
+if [ "$CONFIG_SERIAL" = "y" ]; then
+  bool 'Low-level debugging' CONFIG_LL_DEBUG
+fi
+bool 'Magic SysRq key' CONFIG_MAGIC_SYSRQ
+if [ "$CONFIG_SMP" != "y" ]; then
+   bool 'Run uncached' CONFIG_MIPS_UNCACHED
+fi
+endmenu

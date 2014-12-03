@@ -32,11 +32,16 @@ typedef __s64	Elf64_Sxword;
 #define PT_LOPROC  0x70000000
 #define PT_HIPROC  0x7fffffff
 #define PT_MIPS_REGINFO		0x70000000
+#define PT_MIPS_OPTIONS		0x70000001
 
 /* Flags in the e_flags field of the header */
 #define EF_MIPS_NOREORDER 0x00000001
 #define EF_MIPS_PIC       0x00000002
 #define EF_MIPS_CPIC      0x00000004
+#define EF_MIPS_ABI2      0x00000020
+#define EF_MIPS_OPTIONS_FIRST 0x00000080
+#define EF_MIPS_32BITMODE 0x00000100
+#define EF_MIPS_ABI       0x0000f000
 #define EF_MIPS_ARCH      0xf0000000
 
 /* These constants define the different elf file types */
@@ -60,7 +65,7 @@ typedef __s64	Elf64_Sxword;
 
 #define EM_MIPS		8	/* MIPS R3000 (officially, big-endian only) */
 
-#define EM_MIPS_RS4_BE 10	/* MIPS R4000 big-endian */
+#define EM_MIPS_RS3_LE 10	/* MIPS R3000 little-endian */
 
 #define EM_PARISC      15	/* HPPA */
 
@@ -73,6 +78,9 @@ typedef __s64	Elf64_Sxword;
 
 #define EM_SPARCV9     43	/* SPARC v9 64-bit */
 
+#define EM_H8_300H     47       /* Hitachi H8/300H */ 
+#define EM_H8_S        48       /* Hitachi H8S */
+
 #define EM_IA_64	50	/* HP/Intel IA-64 */
 
 #define EM_X86_64	62	/* AMD x86-64 */
@@ -80,6 +88,8 @@ typedef __s64	Elf64_Sxword;
 #define EM_S390		22	/* IBM S/390 */
 
 #define EM_CRIS         76      /* Axis Communications 32-bit embedded processor */
+
+#define EM_V850		87	/* NEC v850 */
 
 /*
  * This is an interim value that we will use until the committee comes

@@ -8,6 +8,9 @@
  * published by the Free Software Foundation.
  *
  *  32-bit debugging code
+ *
+ *  Change Log
+ *	31-Jul-2002 Lineo Japan, Inc.
  */
 #include <linux/config.h>
 #include <linux/linkage.h>
@@ -20,9 +23,20 @@
  * printk isn't working).  For DEBUGGING ONLY!!!  Do not leave
  * references to these in a production kernel!
  */
-#if defined(CONFIG_ARCH_RPC)
+#if defined(CONFIG_ARCH_RPC) || defined(CONFIG_ARCH_RISCSTATION)
 		.macro	addruart,rx
-		mov	\rx, #0xe0000000
+
+/* note, errors can occur in the head code BEFORE the memory map has been
+ * setup (and therefore the mapping for the IO) so the #if statement allows
+ * the address of the uart to be changed to the physical address instead of
+ * the logical
+ *
+ * (bjd)
+ */
+		mrc	p15, 0, \rx, c1, c0
+		tst	\rx, #1			@ MMU enabled?
+		movne	\rx, #0xe0000000
+		moveq	\rx, #0x03000000
 		orr	\rx, \rx, #0x00010000
 		orr	\rx, \rx, #0x00000fe0
 		.endm
@@ -66,7 +80,7 @@
 		tst	\rd, #0x10
 		beq	1001b
 		.endm
- 	
+
 #elif defined(CONFIG_ARCH_SHARK)
 		.macro	addruart,rx
 		mov	\rx, #0xe0000000
@@ -210,6 +224,35 @@
 		bne	1001b
 		.endm
 
+#elif defined(CONFIG_ARCH_PXA)
+
+		.macro	addruart,rx
+		mrc	p15, 0, \rx, c1, c0
+		tst	\rx, #1			@ MMU enabled?
+		moveq	\rx, #0x40000000		@ physical
+		movne	\rx, #io_p2v(0x40000000)	@ virtual
+#ifdef CONFIG_SABINAL_DISCOVERY
+		orr	\rx, \rx, #0x00200000		@ BTUART
+#else
+		orr	\rx, \rx, #0x00100000		@ FFUART
+#endif
+		.endm
+
+		.macro	senduart,rd,rx
+		str	\rd, [\rx, #0]
+		.endm
+
+		.macro	busyuart,rd,rx
+1002:		ldr	\rd, [\rx, #0x14]
+		tst	\rd, #(1 << 6)
+		beq	1002b
+		.endm
+
+		.macro	waituart,rd,rx
+1001:		ldr	\rd, [\rx, #0x14]
+		tst	\rd, #(1 << 5)
+		beq	1001b
+		.endm
 #elif defined(CONFIG_ARCH_CLPS7500)
 		.macro	addruart,rx
 		mov	\rx, #0xe0000000
@@ -287,6 +330,52 @@
 		tst	\rd, #1 << 3		@ UARTFLGUBUSY - 1 when busy
 		bne	1001b
 		.endm
+#elif defined(CONFIG_ARCH_AT91RM9200DK)
+
+		.macro	addruart,rx
+		ldr	\rx, =AT91C_BASE_DBGU	@ DBGU base
+		.endm
+
+		.macro	senduart,rd,rx
+		strb	\rd, [\rx, #DBGU_THR]
+		.endm
+
+		.macro	waituart,rd,rx
+1001:		ldr	\rd, [\rx, #DBGU_CSR]   @ UARTFLAG
+		tst	\rd, #AT91C_US_TXRDY	@ UARTFLGUTXFF - 1 when full
+		beq	1001b
+		.endm
+
+		.macro	busyuart,rd,rx
+1001:		ldr	\rd, [\rx, #DBGU_CSR]	@ UARTFLG
+		tst	\rd, #AT91C_US_TXRDY	@ UARTFLGUBUSY - 1 when busy
+		beq	1001b
+		.endm
+
+#elif defined(CONFIG_ARCH_KATANA)
+
+#include <asm/hardware/serial_katana.h>
+
+		.macro	addruart,rx
+		mrc	p15, 0, \rx, c1, c0
+		tst	\rx, #1			@ MMU enabled?
+		moveq	\rx, #0x80000000	@ physical base address
+		movne	\rx, #0xD8000000	@ virtual base
+		orr	\rx, \rx, #0x00004000	@ UART1
+		.endm
+
+		.macro	senduart,rd,rx
+		strb	\rd, [\rx, #KATANA_UARTDR]
+		.endm
+
+		.macro	waituart,rd,rx
+1001:		ldr	\rd, [\rx, #KATANA_UARTSR]
+		tst	\rd, #1 << 7		@ Tramsmitter empty
+		beq	1001b
+		.endm
+
+		.macro	busyuart,rd,rx
+		.endm
 
 #elif defined(CONFIG_ARCH_CLPS711X)
 
@@ -321,6 +410,21 @@
 		tst	\rd, #1 << 8		@ CTS
 		bne	1001b
 1002:
+		.endm
+#elif defined(CONFIG_ARCH_OMAHA)
+
+#include <asm/hardware/serial_omaha.h>
+
+		.macro	addruart,rx
+		.endm
+
+		.macro	senduart,rd,rx
+		.endm
+
+		.macro	waituart,rd,rx
+		.endm
+
+		.macro	busyuart,rd,rx
 		.endm
 
 #elif defined(CONFIG_ARCH_ANAKIN)
@@ -365,7 +469,7 @@
 		tst	\rx, #1			@ MMU enabled?
 		ldr	\rx, =EXC_UART00_BASE	@ physical base address
 		orrne	\rx, \rx, #0xff000000	@ virtual base
-		orrne	\rx, \rx, #0x00f00000	
+		orrne	\rx, \rx, #0x00f00000
 		.endm
 
 		.macro	senduart,rd,rx

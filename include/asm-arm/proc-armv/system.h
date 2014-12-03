@@ -36,24 +36,48 @@
 extern unsigned long cr_no_alignment;	/* defined in entry-armv.S */
 extern unsigned long cr_alignment;	/* defined in entry-armv.S */
 
-#ifdef __ARM_ARCH_4__
+#if __LINUX_ARM_ARCH__ >= 4
 #define vectors_base()	((cr_alignment & CR_V) ? 0xffff0000 : 0)
 #else
 #define vectors_base()	(0)
 #endif
 
-/*
- * A couple of speedups for the ARM
- */
+#ifdef CONFIG_RTHAL
+#include <asm/proc/ptrace.h>
 
+/*
+RTAI
+Definition of rthal.
+Do not change this structure unless you know what you are doing!
+Filled with values in arch/arm/kernel/irq.c
+*/
+
+struct rt_hal {
+	void (*do_IRQ)(int, struct pt_regs*); /* must be first - arch/arm/kernel/entry-armv.S */
+	long long (*do_SRQ)(int, unsigned long); /* must be second - arch/arm/kernel/entry-common.S */
+	int (*do_TRAP)(int, struct pt_regs*); /* must be third - arch/arm/kernel/entry-armv.S */
+	void (*disint)(void);
+	void (*enint)(void);
+	unsigned int (*getflags)(void);
+	void (*setflags)(unsigned int);
+	unsigned int (*getflags_and_cli)(void);
+	void (*fdisint)(void);
+	void (*fenint)(void);
+} __attribute__ ((__aligned__ (32)));
+
+extern struct rt_hal rthal;
+
+#endif
+
+#ifndef CONFIG_RTHAL
 /*
  * Save the current interrupt enable state & disable IRQs
  */
-#define __save_flags_cli(x)					\
+#define local_irq_save(x)					\
 	({							\
 		unsigned long temp;				\
 	__asm__ __volatile__(					\
-	"mrs	%0, cpsr		@ save_flags_cli\n"	\
+	"mrs	%0, cpsr		@ local_irq_save\n"	\
 "	orr	%1, %0, #128\n"					\
 "	msr	cpsr_c, %1"					\
 	: "=r" (x), "=r" (temp)					\
@@ -64,11 +88,11 @@ extern unsigned long cr_alignment;	/* defined in entry-armv.S */
 /*
  * Enable IRQs
  */
-#define __sti()							\
+#define local_irq_enable()					\
 	({							\
 		unsigned long temp;				\
 	__asm__ __volatile__(					\
-	"mrs	%0, cpsr		@ sti\n"		\
+	"mrs	%0, cpsr		@ local_irq_enable\n"	\
 "	bic	%0, %0, #128\n"					\
 "	msr	cpsr_c, %0"					\
 	: "=r" (temp)						\
@@ -79,11 +103,11 @@ extern unsigned long cr_alignment;	/* defined in entry-armv.S */
 /*
  * Disable IRQs
  */
-#define __cli()							\
+#define local_irq_disable()					\
 	({							\
 		unsigned long temp;				\
 	__asm__ __volatile__(					\
-	"mrs	%0, cpsr		@ cli\n"		\
+	"mrs	%0, cpsr		@ local_irq_disable\n"	\
 "	orr	%0, %0, #128\n"					\
 "	msr	cpsr_c, %0"					\
 	: "=r" (temp)						\
@@ -122,24 +146,38 @@ extern unsigned long cr_alignment;	/* defined in entry-armv.S */
 	})
 
 /*
- * save current IRQ & FIQ state
+ * Save the current interrupt enable state.
  */
-#define __save_flags(x)						\
+#define local_save_flags(x)					\
+	({							\
 	__asm__ __volatile__(					\
-	"mrs	%0, cpsr		@ save_flags\n"		\
+	"mrs	%0, cpsr		@ local_save_flags\n"	\
 	  : "=r" (x)						\
 	  :							\
-	  : "memory")
+	  : "memory");						\
+	})
 
 /*
  * restore saved IRQ & FIQ state
  */
-#define __restore_flags(x)					\
+#define local_irq_restore(x)					\
 	__asm__ __volatile__(					\
-	"msr	cpsr_c, %0		@ restore_flags\n"	\
+	"msr	cpsr_c, %0		@ local_irq_restore\n"	\
 	:							\
 	: "r" (x)						\
 	: "memory")
+#else
+
+#define __save_flags_cli(x)    do { x = rthal.getflags_and_cli(); } while (0)
+#define __save_flags(x)        do { x = rthal.getflags(); } while (0)
+#define __restore_flags(x)     do { rthal.setflags(x); } while (0)
+#define __sti()                do { rthal.enint(); } while (0)
+#define __cli()                do { rthal.disint(); } while (0)
+#define __stf()                do { rthal.fenint(); } while (0)
+#define __clf()                do { rthal.fdisint(); } while (0)
+
+#include <asm/proc/hard_system.h>
+#endif	
 
 #if defined(CONFIG_CPU_SA1100) || defined(CONFIG_CPU_SA110)
 /*
@@ -167,32 +205,48 @@ static inline unsigned long __xchg(unsigned long x, volatile void *ptr, int size
 
 	switch (size) {
 #ifdef swp_is_buggy
+#ifndef CONFIG_RTHAL /* original stuff */
 		case 1:
-			__save_flags_cli(flags);
+			local_irq_save(flags);
 			ret = *(volatile unsigned char *)ptr;
 			*(volatile unsigned char *)ptr = x;
-			__restore_flags(flags);
+			local_irq_restore(flags);
 			break;
 
 		case 4:
-			__save_flags_cli(flags);
+			local_irq_save(flags);
 			ret = *(volatile unsigned long *)ptr;
 			*(volatile unsigned long *)ptr = x;
-			__restore_flags(flags);
+			local_irq_restore(flags);
 			break;
+#else /* CONFIG_RTHAL keep it atomic */
+		case 1:
+			hard_save_flags_cli(flags);
+			ret = *(volatile unsigned char *)ptr;
+			*(volatile unsigned char *)ptr = x;
+			hard_restore_flags(flags);
+			break;
+
+		case 4:
+			hard_save_flags_cli(flags);
+			ret = *(volatile unsigned long *)ptr;
+			*(volatile unsigned long *)ptr = x;
+			hard_restore_flags(flags);
+			break;
+#endif /* CONFIG_RTHAL */
 #else
 		case 1:	__asm__ __volatile__ ("swpb %0, %1, [%2]"
-					: "=r" (ret)
+					: "=&r" (ret)
 					: "r" (x), "r" (ptr)
 					: "memory");
 			break;
 		case 4:	__asm__ __volatile__ ("swp %0, %1, [%2]"
-					: "=r" (ret)
+					: "=&r" (ret)
 					: "r" (x), "r" (ptr)
 					: "memory");
 			break;
 #endif
-		default: __bad_xchg(ptr, size);
+		default: __bad_xchg(ptr, size), ret = 0;
 	}
 
 	return ret;

@@ -81,6 +81,16 @@
                     : Make `version[]' __initdata
                     : Uninlined the read/write reg/word functions.
 
+  Craig Peacock     : Apr 2001 - Craig.Peacock@senet.com.au
+  Tom Walsh         : May 2001 - tom@openhardware.net
+  David McCullough  : Jun 2001 - davidm@snapgear.com
+                    : Customized for use on uClinux & MC68EZ328 platforms.
+ 
+  Evan Stawnyczy    : Customized for use on MC68VZ328 platform.
+
+  Daniel Potts      : uClinux sleep support, ucDimm
+  Mark McChrystal   : uClinux sleep support, ucSimm
+
   Oskar Schirmer    : oskar@scara.com
                     : HiCO.SH4 (superh) support added (irq#1, cs89x0_media=)
 
@@ -98,13 +108,26 @@
  * Note that even if DMA is turned off we still support the 'dma' and  'use_dma'
  * module options so we don't break any startup scripts.
  */
+#ifdef CONFIG_UCLINUX
+#define ALLOW_DMA	0
+#define NO_EPROM
+#elif defined(CONFIG_ARCH_DBMX2)
+#define ALLOW_DMA	0
+#define NO_EPROM
+#else
 #define ALLOW_DMA	1
+#endif
 
 /*
  * Set this to zero to remove all the debug statements via
  * dead code elimination
  */
 #define DEBUGGING	1
+
+#ifdef CONFIG_DRAGEN2
+#undef DEBUGGING
+#define DEBUGGING	0
+#endif
 
 /*
   Sources:
@@ -128,7 +151,11 @@
 #include <linux/init.h>
 #include <asm/system.h>
 #include <asm/bitops.h>
+#ifndef CONFIG_UCCS89x0_HW_SWAP
 #include <asm/io.h>
+#else
+#include <asm/io_hw_swap.h>
+#endif
 #if ALLOW_DMA
 #include <asm/dma.h>
 #endif
@@ -138,8 +165,30 @@
 #include <linux/netdevice.h>
 #include <linux/etherdevice.h>
 #include <linux/skbuff.h>
+#include <linux/pm.h>
 
 #include "cs89x0.h"
+
+
+#ifdef CONFIG_M68328
+#include <asm/irq.h>
+#include <asm/MC68328.h>
+#endif
+
+#ifdef CONFIG_M68EZ328
+#include <asm/irq.h>
+#include <asm/MC68EZ328.h>
+#endif
+
+#ifdef CONFIG_M68VZ328
+#include <asm/irq.h>
+#include <asm/MC68VZ328.h>
+#endif
+
+#ifdef CONFIG_ARCH_DBMX2
+#include <asm/arch/mx2.h>
+#include <asm/arch/hardware.h>
+#endif
 
 static char version[] __initdata =
 "cs89x0.c: v2.4.3-pre1 Russell Nelson <nelson@crynwr.com>, Andrew Morton <andrewm@uow.edu.au>\n";
@@ -155,7 +204,15 @@ static char version[] __initdata =
 /* The cs8900 has 4 IRQ pins, software selectable. cs8900_irq_map maps 
    them to system IRQ numbers. This mapping is card specific and is set to
    the configuration of the Cirrus Eval board for this chip. */
-#ifdef CONFIG_ARCH_CLPS7500
+#if defined(CONFIG_ALMA_ANS)
+static unsigned int netcard_portlist[] __initdata = { 0x10200300, 0 };
+#elif defined(CONFIG_UCSIMM) || defined(CONFIG_UCDIMM)
+static unsigned int netcard_portlist[] __initdata = { 0x10000300, 0 };
+#elif defined(CONFIG_EZ328LCD) || defined(CONFIG_VZ328LCD)
+static unsigned int netcard_portlist[] __initdata = { 0x2000300, 0 };
+#elif defined(CONFIG_DRAGONIXVZ)
+static unsigned int netcard_portlist[] __initdata = { 0x4000000, 0 };
+#elif defined(CONFIG_ARCH_CLPS7500)
 static unsigned int netcard_portlist[] __initdata =
    { 0x80090303, 0x300, 0x320, 0x340, 0x360, 0x200, 0x220, 0x240, 0x260, 0x280, 0x2a0, 0x2c0, 0x2e0, 0};
 static unsigned int cs8900_irq_map[] = {12,0,0,0};
@@ -163,6 +220,10 @@ static unsigned int cs8900_irq_map[] = {12,0,0,0};
 static unsigned int netcard_portlist[] __initdata =
    { 0x0300, 0};
 static unsigned int cs8900_irq_map[] = {1,0,0,0};
+#elif defined(CONFIG_ARCH_DBMX2)
+static unsigned int netcard_portlist[] __initdata =
+   { 0xE3000000, 0};	/* 0xE3000000 is the virtual address for 0xCC000000 */
+static unsigned int cs8900_irq_map[] = {INT_GPIO,0,0,0};
 #else
 static unsigned int netcard_portlist[] __initdata =
    { 0x300, 0x320, 0x340, 0x360, 0x200, 0x220, 0x240, 0x260, 0x280, 0x2a0, 0x2c0, 0x2e0, 0};
@@ -227,17 +288,37 @@ static void net_rx(struct net_device *dev);
 static int net_close(struct net_device *dev);
 static struct net_device_stats *net_get_stats(struct net_device *dev);
 static void reset_chip(struct net_device *dev);
+#ifndef NO_EPROM
 static int get_eeprom_data(struct net_device *dev, int off, int len, int *buffer);
 static int get_eeprom_cksum(int off, int len, int *buffer);
+#endif
 static int set_mac_address(struct net_device *dev, void *addr);
 static void count_rx_errors(int status, struct net_local *lp);
 #if ALLOW_DMA
 static void get_dma_channel(struct net_device *dev);
 static void release_dma_buff(struct net_local *lp);
 #endif
+#if defined(CONFIG_UCLINUX) || defined(CONFIG_ARCH_DBMX2)
+static void get_dev_addr(struct net_device *dev);
+#endif
 
 /* Example routines you must write ;->. */
 #define tx_done(dev) 1
+
+#if defined(CONFIG_ARCH_DBMX2)
+void set_GPIO_E_11_interrupt(void)
+{
+	_reg_GPIO_DDIR(GPIOE) &= ~(0x1<<11);
+	_reg_GPIO_GIUS(GPIOE) |= 0x1<<11;
+	_reg_GPIO_ICR1(GPIOE) &= ~0xC00000; // config as rising edge trigger 
+	_reg_GPIO_IMR(GPIOE) |= 0x1<<11;
+}
+
+void    Clear_GPIO_E_11_interrupt(void)
+{
+	_reg_GPIO_ISR(GPIOE) |= 0x1<<11;
+}
+#endif
 
 /*
  * Permit 'cs89x0_dma=N' in the kernel boot environment
@@ -254,6 +335,11 @@ static int __init dma_fn(char *str)
 __setup("cs89x0_dma=", dma_fn);
 #endif	/* !defined(MODULE) && (ALLOW_DMA != 0) */
 
+
+#ifdef CONFIG_PM
+static int cs89x0_in_use = 0;
+#endif
+
 #ifndef MODULE
 static int g_cs89x0_media__force;
 
@@ -268,7 +354,7 @@ static int __init media_fn(char *str)
 __setup("cs89x0_media=", media_fn);
 #endif
 
-
+
 /* Check for a network adaptor of this type, and return '0' iff one exists.
    If dev->base_addr == 0, probe all likely locations.
    If dev->base_addr == 1, always return failure.
@@ -279,11 +365,32 @@ __setup("cs89x0_media=", media_fn);
 
 int __init cs89x0_probe(struct net_device *dev)
 {
-	int i;
+#ifdef CONFIG_UCLINUX
+	static int i = 0; /* don't probe twice */
+#else
+#if defined(CONFIG_ARCH_DBMX2)
+	static int initialised = 0;
+#endif
+	int i = 0;
+#endif
 	int base_addr = dev ? dev->base_addr : 0;
-
+	
 	SET_MODULE_OWNER(dev);
 
+#if defined(CONFIG_ARCH_DBMX2)
+	if (initialised)
+		return -ENODEV;
+	initialised = 1;
+#endif
+
+#if defined(CONFIG_DRAGEN2)
+	if (dev) {
+		extern int dragen2_cs8900_setup(struct net_device *dev);
+		base_addr = dragen2_cs8900_setup(dev);
+	}
+#endif
+
+#ifndef CONFIG_ARCH_DBMX2
 	if (net_debug)
 		printk("cs89x0:cs89x0_probe(0x%x)\n", base_addr);
 
@@ -291,8 +398,9 @@ int __init cs89x0_probe(struct net_device *dev)
 		return cs89x0_probe1(dev, base_addr);
 	else if (base_addr != 0)	/* Don't probe at all. */
 		return -ENXIO;
+#endif
 
-	for (i = 0; netcard_portlist[i]; i++) {
+	for (; netcard_portlist[i]; i++) {
 		if (cs89x0_probe1(dev, netcard_portlist[i]) == 0)
 			return 0;
 	}
@@ -325,6 +433,55 @@ writeword(struct net_device *dev, int portno, int value)
 {
 	outw(value, dev->base_addr + portno);
 }
+
+#if defined(CONFIG_ARCH_DBMX2)
+static void writeblock(struct net_device *dev, char *pData, int Length)
+{
+	int i;
+
+	for (i = 0 ; i < (Length / 2); i++) {
+		writeword(dev, TX_FRAME_PORT, *(u16 *)pData );
+		pData += 2;
+	}
+
+	if (Length % 2) {
+		u16 OddWordValue = *pData;
+		writeword(dev, TX_FRAME_PORT, OddWordValue);
+	}
+}
+
+static void readblock(struct net_device *dev, char *pData, int Length)
+{
+	u16 wOddWord;
+	int i;
+
+	u16 StartOffset = PP_RxFrame | AUTOINCREMENT;
+
+	writeword(dev, ADD_PORT, StartOffset);
+
+	if ((u32) pData % 2) {
+		for (i=0; i < (Length/2); i++) {
+			wOddWord = readword(dev, DATA_PORT);
+
+			*(u8*)pData++ = (u8) wOddWord & 0xFF;
+			*(u8*)pData++ = (u8) (wOddWord >> 8) & 0xFF;
+		}
+	} else {
+		for (i=0; i < (Length/2); i++)
+		{
+			*(u16*) pData = readword(dev, DATA_PORT);
+			pData += 2;
+		}
+	}
+
+	switch (Length % 2) {
+	case 1:
+	*pData = (u8) (readword(dev, DATA_PORT) & 0xff);
+	}
+}
+#endif // CONFIG_ARCH_DBMX2
+
+#ifndef NO_EPROM
 
 static int __init
 wait_eeprom_ready(struct net_device *dev)
@@ -371,6 +528,56 @@ get_eeprom_cksum(int off, int len, int *buffer)
 	return -1;
 }
 
+#endif /* NO_EPROM */
+
+
+#if defined(CONFIG_PM)
+
+static struct pm_dev *cs89x0_pm;
+
+/* cs89x0_pm_callback():
+ *
+ *  We don't actually suspend or resume here - that is left to the
+ *  net_open/close functions.
+ *  On PM_SUSPEND: we check that the connection is closed down. If it is, we
+ *  return success. PM_RESUME does nothing.
+ *  It is required that the user brings the connection down (perhaps via
+ *  a pm helper daemon)
+ */
+static int cs89x0_pm_callback(struct pm_dev *dev, pm_request_t request, void *data)
+{
+	struct net_device *cs_dev = (struct net_device *)dev->data;
+
+	switch (request) {
+	case PM_SUSPEND:
+		if (cs89x0_in_use) {
+			printk("cs89x00 connection still open, not sleeping\n");
+			return -EBUSY;
+		}
+
+#if defined(CONFIG_UCSIMM)
+		/* set sleep pin low */
+		*(volatile unsigned char *)0xfffff429 &= ~(0x01);
+		writereg(cs_dev, PP_SelfCTL, readreg(dev, PP_SelfCTL) & ~(AUTO_WAKEUP));
+#elif defined(CONFIG_UCDIMM)
+		*(volatile unsigned char *)0xfffff431 &= ~(0x08);
+#endif
+		writereg(cs_dev, PP_SelfCTL, readreg(dev, PP_SelfCTL) | SLEEP_ON);
+		break;
+	case PM_RESUME:
+#if defined (CONFIG_UCSIMM)
+		*(volatile unsigned short *)0xfffff429 |= 0x01; /* not sleeping */
+#elif defined(CONFIG_UCDIMM)
+		*(volatile unsigned char *)0xfffff431 |= (0x08);
+#endif
+		break;
+	}
+
+	return 0;
+}
+
+#endif
+
 /* This is the real probe routine.  Linux has a history of friendly device
    probes on the ISA bus.  A good device probes avoids doing writes, and
    verifies that the correct device exists and functions.
@@ -386,6 +593,36 @@ cs89x0_probe1(struct net_device *dev, int ioaddr)
 	unsigned rev_type = 0;
 	int eeprom_buff[CHKSUM_LEN];
 	int retval;
+
+#ifdef CONFIG_DRAGONIXVZ
+	printk("cs89x0: Setting up DragonixVZ CS8900 Chip Select & IRQ ioaddr = 0x%X\n",ioaddr);
+	/* set up the chip select */
+	*(volatile unsigned  char *)0xfffff41b &= ~0x80; /* input irq6 */
+        *(volatile unsigned  char *)0x04000105= 0x01; /* nSleep=1 */
+#endif
+
+#if defined( CONFIG_UCSIMM ) || defined(CONFIG_UCDIMM)
+#ifdef CONFIG_UCSIMM
+	printk("cs89x0: Setting up uCsimm CS8900 Chip Select & IRQ ioaddr = 0x%X\n",ioaddr);
+
+	/* set up the chip select */
+	*(volatile unsigned  char *)0xfffff42b |= 0x01; /* output /sleep */
+	*(volatile unsigned short *)0xfffff428 |= 0x0101; /* not sleeping */
+
+#else   /* UCDIMM */
+	printk("cs89x0: Setting up uCcs8900 Chip Select & IRQ ioaddr = 0x%X\n",ioaddr);
+
+	/* set up the chip select */
+	*(volatile unsigned char *)0xfffff430 |= 0x08;
+	*(volatile unsigned char *)0xfffff433 |= 0x08;
+	*(volatile unsigned char *)0xfffff431 |= (0x08); /* sleep */
+#endif
+	*(volatile unsigned  char *)0xfffff42b &= ~0x02; /* input irq5 */
+	*(volatile unsigned short *)0xfffff428 &= ~0x0202; /* irq5 fcn on */
+
+	*(volatile unsigned short *)0xfffff102 = 0x8000; /* 0x04000000 */
+	*(volatile unsigned short *)0xfffff112 = 0x01e1; /* 128k, 2ws, FLASH, en */
+#endif
 
 	/* Initialize the device structure. */
 	if (dev->priv == NULL) {
@@ -410,6 +647,7 @@ cs89x0_probe1(struct net_device *dev, int ioaddr)
         }
 	lp = (struct net_local *)dev->priv;
 
+#ifndef CONFIG_UCLINUX
 	/* Grab the region so we can find another board if autoIRQ fails. */
 	if (!request_region(ioaddr & ~3, NETCARD_IO_EXTENT, dev->name)) {
 		printk(KERN_ERR "%s: request_region(0x%x, 0x%x) failed\n",
@@ -417,6 +655,9 @@ cs89x0_probe1(struct net_device *dev, int ioaddr)
 		retval = -EBUSY;
 		goto out1;
 	}
+#endif /* CONFIG_UCLINUX */
+
+#if !defined(CONFIG_UCLINUX) || defined(CONFIG_DRAGEN2)
 
 #ifdef CONFIG_SH_HICOSH4
 	/* truely reset the chip */
@@ -441,17 +682,28 @@ cs89x0_probe1(struct net_device *dev, int ioaddr)
 		ioaddr &= ~3;
 		outw(PP_ChipID, ioaddr + ADD_PORT);
 	}
-printk("PP_addr=0x%x\n", inw(ioaddr + ADD_PORT));
+	if (net_debug) printk("PP_addr=0x%x\n", inw(ioaddr + ADD_PORT));
 
+#ifndef CONFIG_ARCH_DBMX2
 	if (inw(ioaddr + DATA_PORT) != CHIP_EISA_ID_SIG) {
 		printk(KERN_ERR "%s: incorrect signature 0x%x\n",
 			dev->name, inw(ioaddr + DATA_PORT));
   		retval = -ENODEV;
   		goto out2;
 	}
+#endif
+#endif /* !CONFIG_UCLINUX || CONFIG_DRAGEN2 */
 
 	/* Fill in the 'dev' fields. */
 	dev->base_addr = ioaddr;
+
+#if defined CONFIG_DRAGONIXVZ
+	dev->irq = IRQ6_IRQ_NUM;
+#endif
+
+#if defined( CONFIG_UCSIMM ) || defined( CONFIG_EZ328LCD ) || defined( CONFIG_UCDIMM )
+	dev->irq = IRQ5_IRQ_NUM;
+#endif
 
 	/* get the chip type */
 	rev_type = readreg(dev, PRODUCT_ID_ADD);
@@ -460,11 +712,16 @@ printk("PP_addr=0x%x\n", inw(ioaddr + ADD_PORT));
 
 	/* Check the chip type and revision in order to set the correct send command
 	CS8920 revision C and CS8900 revision F can use the faster send. */
+#if !defined( CONFIG_UCSIMM ) && !defined(CONFIG_UCDIMM) && !defined(CONFIG_DRAGEN2) && !defined(CONFIG_DRAGONIXVZ)
 	lp->send_cmd = TX_AFTER_381;
 	if (lp->chip_type == CS8900 && lp->chip_revision >= 'F')
 		lp->send_cmd = TX_NOW;
 	if (lp->chip_type != CS8900 && lp->chip_revision >= 'C')
 		lp->send_cmd = TX_NOW;
+#else
+	/* uCsimm has trouble keeping up */
+	lp->send_cmd = TX_AFTER_ALL;
+#endif
 
 	if (net_debug  &&  version_printed++ == 0)
 		printk(version);
@@ -477,7 +734,8 @@ printk("PP_addr=0x%x\n", inw(ioaddr + ADD_PORT));
 	       dev->base_addr);
 
 	reset_chip(dev);
-   
+
+#ifndef NO_EPROM
         /* Here we read the current configuration of the chip. If there
 	   is no Extended EEPROM then the idea is to not disturb the chip
 	   configuration, it should have been correctly setup by automatic
@@ -608,6 +866,13 @@ printk("PP_addr=0x%x\n", inw(ioaddr + ADD_PORT));
 			printk(KERN_DEBUG "%s: new adapter_cnf: 0x%x\n",
 				dev->name, lp->adapter_cnf);
         }
+#else
+	get_dev_addr(dev);
+	printk("\n");
+    /* Fill this in, we don't have an EEPROM */
+    lp->adapter_cnf = A_CNF_10B_T | A_CNF_MEDIA_10B_T;
+    lp->auto_neg_cnf = EE_AUTO_NEG_ENABLE | IMM_BIT;
+#endif /* NO_EPROM */
 
         /* allow them to force multiple transceivers.  If they force multiple, autosense */
         {
@@ -639,6 +904,7 @@ printk("PP_addr=0x%x\n", inw(ioaddr + ADD_PORT));
 
 	lp->irq_map = 0xffff;
 
+#ifndef CONFIG_UCLINUX
 	/* If this is a CS8900 then no pnp soft */
 	if (lp->chip_type != CS8900 &&
 	    /* Check if the ISA IRQ has been set  */
@@ -656,6 +922,7 @@ printk("PP_addr=0x%x\n", inw(ioaddr + ADD_PORT));
 				i = cs8900_irq_map[i];
 			
 			lp->irq_map = CS8900_IRQ_MAP; /* fixed IRQ map for CS8900 */
+#ifndef NO_EPROM
 		} else {
 			int irq_map_buff[IRQ_MAP_LEN/2];
 
@@ -665,10 +932,12 @@ printk("PP_addr=0x%x\n", inw(ioaddr + ADD_PORT));
 				if ((irq_map_buff[0] & 0xff) == PNP_IRQ_FRMT)
 					lp->irq_map = (irq_map_buff[0]>>8) | (irq_map_buff[1] << 8);
 			}
+#endif
 		}
 		if (!dev->irq)
 			dev->irq = i;
 	}
+#endif /* CONFIG_UCLINUX */
 
 	printk(" IRQ %d", dev->irq);
 
@@ -705,6 +974,11 @@ printk("PP_addr=0x%x\n", inw(ioaddr + ADD_PORT));
 	printk("\n");
 	if (net_debug)
 		printk("cs89x0_probe1() successful\n");
+#if defined (CONFIG_PM)
+	cs89x0_pm = pm_register(PM_SYS_DEV, PM_SYS_COM, cs89x0_pm_callback);
+	if (cs89x0_pm)
+		cs89x0_pm->data = dev;
+#endif
 	return 0;
 out2:
 	release_region(ioaddr & ~3, NETCARD_IO_EXTENT);
@@ -715,7 +989,7 @@ out:
 	return retval;
 }
 
-
+
 /*********************************
  * This page contains DMA routines
 **********************************/
@@ -896,18 +1170,17 @@ void  __init reset_chip(struct net_device *dev)
 	}
 	/* Wait until the chip is reset */
 	reset_start_time = jiffies;
-	while( (readreg(dev, PP_SelfST) & INIT_DONE) == 0 && jiffies - reset_start_time < 2)
-		;
+	while( (readreg(dev, PP_SelfST) & INIT_DONE) == 0 && jiffies - reset_start_time < 2);
 }
 
-
+
 static void
 control_dc_dc(struct net_device *dev, int on_not_off)
 {
 	struct net_local *lp = (struct net_local *)dev->priv;
 	unsigned int selfcontrol;
 	int timenow = jiffies;
-	/* control the DC to DC convertor in the SelfControl register.  
+	/* control the DC to DC convertor in the SelfControl register.
 	   Note: This is hooked up to a general purpose pin, might not
 	   always be a DC to DC convertor. */
 
@@ -1018,8 +1291,13 @@ send_test_pkt(struct net_device *dev)
 	memcpy(test_packet,          dev->dev_addr, ETH_ALEN);
 	memcpy(test_packet+ETH_ALEN, dev->dev_addr, ETH_ALEN);
 
+#if defined(CONFIG_ARCH_DBMX2)
+	writereg(dev, PP_TxCMD, TX_AFTER_ALL);
+	writereg(dev, PP_TxLength, ETH_ZLEN);
+#else
         writeword(dev, TX_CMD_PORT, TX_AFTER_ALL);
         writeword(dev, TX_LEN_PORT, ETH_ZLEN);
+#endif
 
 	/* Test to see if the chip has allocated memory for the packet */
 	while (jiffies - timenow < 5)
@@ -1029,7 +1307,11 @@ send_test_pkt(struct net_device *dev)
 		return 0;	/* this shouldn't happen */
 
 	/* Write the contents of the packet */
+#if defined(CONFIG_ARCH_DBMX2)
+	writeblock(dev, test_packet, ETH_ZLEN);
+#else
 	outsw(dev->base_addr + TX_FRAME_PORT,test_packet,(ETH_ZLEN+1) >>1);
+#endif
 
 	if (net_debug > 1) printk("Sending test packet ");
 	/* wait a couple of jiffies for packet to be received */
@@ -1076,10 +1358,11 @@ detect_bnc(struct net_device *dev)
 		return DETECTED_NONE;
 }
 
-
+
 static void
 write_irq(struct net_device *dev, int chip_type, int irq)
 {
+#ifndef CONFIG_UCLINUX
 	int i;
 
 	if (chip_type == CS8900) {
@@ -1094,6 +1377,9 @@ write_irq(struct net_device *dev, int chip_type, int irq)
 	} else {
 		writereg(dev, PP_CS8920_ISAINT, irq);
 	}
+#else
+	writereg(dev, PP_CS8900_ISAINT, 0);
+#endif
 }
 
 /* Open/initialize the board.  This is called (in the current kernel)
@@ -1114,6 +1400,7 @@ net_open(struct net_device *dev)
 	int i;
 	int ret;
 
+#if !defined(CONFIG_UCLINUX)
 #ifndef CONFIG_SH_HICOSH4 /* uses irq#1, so this wont work */
 	if (dev->irq < 2) {
 		/* Allow interrupts to be generated by the chip */
@@ -1145,12 +1432,14 @@ net_open(struct net_device *dev)
 	else
 #endif
 	{
+#ifndef CONFIG_ARCH_DBMX2
 		if (((1 << dev->irq) & lp->irq_map) == 0) {
 			printk(KERN_ERR "%s: IRQ %d is not in our map of allowable IRQs, which is %x\n",
                                dev->name, dev->irq, lp->irq_map);
 			ret = -EAGAIN;
 			goto bad_out;
 		}
+#endif
 /* FIXME: Cirrus' release had this: */
 		writereg(dev, PP_BusCTL, readreg(dev, PP_BusCTL)|ENABLE_IRQ );
 /* And 2.3.47 had this: */
@@ -1158,13 +1447,45 @@ net_open(struct net_device *dev)
 		writereg(dev, PP_BusCTL, ENABLE_IRQ | MEMORY_ON);
 #endif
 		write_irq(dev, lp->chip_type, dev->irq);
+#if defined(CONFIG_ARCH_DBMX2)
+		ret = request_irq(dev->irq, &net_interrupt, SA_SHIRQ, "cs89x0", dev);
+#else
 		ret = request_irq(dev->irq, &net_interrupt, 0, dev->name, dev);
+#endif
 		if (ret) {
 			if (net_debug)
 				printk(KERN_DEBUG "cs89x0: request_irq(%d) failed\n", dev->irq);
 			goto bad_out;
 		}
 	}
+
+#else /* CONFIG_UCLINUX */
+
+	writereg(dev, PP_BusCTL, 0);    /* Disable Interrupts. */
+	write_irq(dev, lp->chip_type, dev->irq);
+#if defined( CONFIG_M68EZ328 ) || defined (CONFIG_M68VZ328)
+  #if  defined (CONFIG_DRAGONIXVZ)
+    *(volatile unsigned short *)0xfffff302 &= ~0x1100; /* -ve pol, level sensitive irq */
+    ret = request_irq(dev->irq, &net_interrupt, IRQ_FLG_STD, dev->name, dev);
+  #else
+
+    #if !defined(CONFIG_DRAGEN2)
+	*(volatile unsigned short *)0xfffff302 |= 0x0080; /* +ve pol irq */
+    #endif
+	ret = request_irq(dev->irq, &net_interrupt, IRQ_FLG_STD, dev->name, dev);
+  #endif
+
+#else
+	ret = request_irq(dev->irq, &net_interrupt, 0, dev->name, dev);
+#endif
+
+	if (ret) {
+		if (net_debug)
+			printk(KERN_DEBUG "cs89x0: request_irq(%d) failed\n", dev->irq);
+		goto bad_out;
+	}
+	writereg(dev, PP_BusCTL, readreg(dev, PP_BusCTL)|ENABLE_IRQ );
+#endif /* CONFIG_UCLINUX */
 
 #if ALLOW_DMA
 	if (lp->use_dma) {
@@ -1325,7 +1646,12 @@ net_open(struct net_device *dev)
 
 	/* now that we've got our act together, enable everything */
 	writereg(dev, PP_BusCTL, ENABLE_IRQ
+#if defined(CONFIG_ARCH_DBMX2)
+		 | readreg(dev, PP_BusCTL)
+		 | IO_CHANNEL_READY_ON
+#else
 		 | (dev->mem_start?MEMORY_ON : 0) /* turn memory on */
+#endif
 #if ALLOW_DMA
 		 | dma_busctl(dev)
 #endif
@@ -1333,6 +1659,13 @@ net_open(struct net_device *dev)
         netif_start_queue(dev);
 	if (net_debug > 1)
 		printk("cs89x0: net_open() succeeded\n");
+#ifdef CONFIG_PM
+	cs89x0_in_use = 1;
+#endif
+
+#if defined(CONFIG_ARCH_DBMX2)
+	set_GPIO_E_11_interrupt();
+#endif
 	return 0;
 bad_out:
 	return ret;
@@ -1362,12 +1695,20 @@ static int net_send_packet(struct sk_buff *skb, struct net_device *dev)
                   ask the chip to start transmitting before the
                   whole packet has been completely uploaded. */
 
+#ifdef CONFIG_RTHAL
+	hard_cli();
+#endif
 	spin_lock_irq(&lp->lock);
 	netif_stop_queue(dev);
 
 	/* initiate a transmit sequence */
+#if defined(CONFIG_ARCH_DBMX2)
+	writereg(dev, PP_TxCMD, lp->send_cmd);
+	writereg(dev, PP_TxLength, skb->len);
+#else
 	writeword(dev, TX_CMD_PORT, lp->send_cmd);
 	writeword(dev, TX_LEN_PORT, skb->len);
+#endif
 
 	/* Test to see if the chip has allocated memory for the packet */
 	if ((readreg(dev, PP_BusST) & READY_FOR_TX_NOW) == 0) {
@@ -1377,12 +1718,22 @@ static int net_send_packet(struct sk_buff *skb, struct net_device *dev)
 		 */
 		
 		spin_unlock_irq(&lp->lock);
+#ifdef CONFIG_RTHAL
+		hard_sti();
+#endif
 		if (net_debug) printk("cs89x0: Tx buffer not free!\n");
 		return 1;
 	}
 	/* Write the contents of the packet */
+#if defined(CONFIG_ARCH_DBMX2)
+	writeblock(dev, skb->data, skb->len);
+#else
 	outsw(dev->base_addr + TX_FRAME_PORT,skb->data,(skb->len+1) >>1);
+#endif
 	spin_unlock_irq(&lp->lock);
+#ifdef CONFIG_RTHAL
+	hard_sti();
+#endif
 	dev->trans_start = jiffies;
 	dev_kfree_skb (skb);
 
@@ -1409,9 +1760,18 @@ static void net_interrupt(int irq, void *dev_id, struct pt_regs * regs)
 	struct net_local *lp;
 	int ioaddr, status;
  
+#if defined(CONFIG_ARCH_DBMX2)
+	if((_reg_GPIO_ISR(GPIOE) & (0x1<<11)) == 0)
+		return 0;	// another shared irq
+#endif
+
 	ioaddr = dev->base_addr;
 	lp = (struct net_local *)dev->priv;
 
+#if defined(CONFIG_ARCH_DBMX2)
+	Clear_GPIO_E_11_interrupt();
+#endif
+	
 	/* we MUST read all the events out of the ISQ, otherwise we'll never
            get interrupted again.  As a consequence, we can't have any limit
            on the number of times we loop in the interrupt handler.  The
@@ -1453,8 +1813,13 @@ static void net_interrupt(int irq, void *dev_id, struct pt_regs * regs)
 			if (status & TX_UNDERRUN) {
 				if (net_debug > 0) printk("%s: transmit underrun\n", dev->name);
                                 lp->send_underrun++;
+#if !defined( CONFIG_UCSIMM ) && !defined(CONFIG_UCDIMM) && !defined(CONFIG_DRAGEN2) && !defined(DRAGONIXVZ)
                                 if (lp->send_underrun == 3) lp->send_cmd = TX_AFTER_381;
                                 else if (lp->send_underrun == 6) lp->send_cmd = TX_AFTER_ALL;
+#else
+								/* uCsimm has trouble keeping up */
+                                lp->send_cmd = TX_AFTER_ALL;
+#endif
 				/* transmit cycle is done, although
 				   frame wasn't transmitted - this
 				   avoids having to wait for the upper
@@ -1510,9 +1875,14 @@ net_rx(struct net_device *dev)
 	struct sk_buff *skb;
 	int status, length;
 
+#if defined(CONFIG_ARCH_DBMX2)
+	status = readreg(dev, PP_RxStatus);
+	length = readreg(dev, PP_RxLength);
+#else
 	int ioaddr = dev->base_addr;
 	status = inw(ioaddr + RX_FRAME_PORT);
 	length = inw(ioaddr + RX_FRAME_PORT);
+#endif
 
 	if ((status & RX_OK) == 0) {
 		count_rx_errors(status, lp);
@@ -1531,9 +1901,14 @@ net_rx(struct net_device *dev)
 	skb_reserve(skb, 2);	/* longword align L3 header */
 	skb->dev = dev;
 
+#if defined(CONFIG_ARCH_DBMX2)
+	skb->len = length;
+	readblock(dev, skb->data, skb->len);
+#else
 	insw(ioaddr + RX_FRAME_PORT, skb_put(skb, length), length >> 1);
 	if (length & 1)
 		skb->data[length-1] = inw(ioaddr + RX_FRAME_PORT);
+#endif
 
 	if (net_debug > 3) {
 		printk(	"%s: received %d byte packet of type %x\n",
@@ -1578,6 +1953,10 @@ net_close(struct net_device *dev)
 		free_dma(dev->dma);
 		release_dma_buff(lp);
 	}
+#endif
+
+#if defined(CONFIG_PM)
+	cs89x0_in_use = 0;
 #endif
 
 	/* Update the statistics here. */
@@ -1647,6 +2026,49 @@ static int set_mac_address(struct net_device *dev, void *addr)
 
 	return 0;
 }
+
+
+
+#if defined(CONFIG_ARCH_DBMX2)
+extern unsigned char cmdline_ifa[];
+#endif
+
+#if defined(CONFIG_UCLINUX) || defined(CONFIG_ARCH_DBMX2)
+static void get_dev_addr(struct net_device *dev)
+{
+#if defined( CONFIG_UCSIMM ) || defined(CONFIG_UCDIMM)
+	extern unsigned char *cs8900a_hwaddr;
+	memcpy(dev->dev_addr, cs8900a_hwaddr, 6);
+#endif
+#ifdef CONFIG_EZ328LCD
+	dev->dev_addr[0] = 0x00;
+	dev->dev_addr[1] = 0x10;
+	dev->dev_addr[2] = 0x8b;
+	dev->dev_addr[3] = 0xf1;
+	dev->dev_addr[4] = 0xda;
+	dev->dev_addr[5] = 0x01;
+#endif
+#ifdef CONFIG_DRAGONIXVZ
+	extern unsigned char cs8900a_hwaddr1[6];
+	memcpy(dev->dev_addr, cs8900a_hwaddr1, 6);
+        /* FIXME add second controller support here */
+#endif
+#if defined(CONFIG_ARCH_DBMX2)
+	int i;
+	for (i = 0;i < ETH_ALEN; i++) {
+		if (cmdline_ifa[i] != 0xff)
+			break;
+	}
+	if (i != ETH_ALEN) {
+		for (i = 0; i < ETH_ALEN; i++)
+			dev->dev_addr[i] = cmdline_ifa[i];
+	}
+	/* FIXME */
+#endif
+}
+#endif
+
+
 
 #ifdef MODULE
 

@@ -12,6 +12,11 @@
  *  to bring the system back to freepages.high: 2.4.97, Rik van Riel.
  *  Zone aware kswapd started 02/00, Kanoj Sarcar (kanoj@sgi.com).
  *  Multiqueue VM started 5.8.00, Rik van Riel.
+ *
+ * ChangLog:
+ *     09-Nov-2002 SHARP  reduce active pages
+ *     19-Nov-2002 Lineo Japan, Inc.  shrink JFFS2 inode cache
+ *     16-Jan-2003 SHARP add VM switch
  */
 
 #include <linux/slab.h>
@@ -23,8 +28,14 @@
 #include <linux/init.h>
 #include <linux/highmem.h>
 #include <linux/file.h>
+#include <linux/freepg_signal.h>
 
 #include <asm/pgalloc.h>
+
+#ifdef CONFIG_ARCH_SHARP_SL
+/* switvch to enable vm for no swap system */
+int vm_without_swap=1;
+#endif
 
 /*
  * The "priority" of VM scanning is how much of the queues we
@@ -90,6 +101,9 @@ set_swap_pte:
 		set_pte(page_table, swp_entry_to_pte(entry));
 drop_pte:
 		mm->rss--;
+#ifdef __arm__
+		memc_clear(vma->vm_mm, page);
+#endif
 		UnlockPage(page);
 		{
 			int freeable = page_count(page) - !!page->buffers <= 2;
@@ -562,13 +576,24 @@ static int shrink_caches(zone_t * classzone, int priority, unsigned int gfp_mask
 	int chunk_size = nr_pages;
 	unsigned long ratio;
 
+#if defined(CONFIG_ARCH_SHARP_SL) && defined(CONFIG_JFFS2_DYNFRAGTREE)
+	shrink_jffs2_icache_memory(priority, gfp_mask);
+#endif
+
 	nr_pages -= kmem_cache_reap(gfp_mask);
 	if (nr_pages <= 0)
 		return 0;
 
 	nr_pages = chunk_size;
 	/* try to keep the active list 2/3 of the size of the cache */
+#if defined(CONFIG_ARCH_SHARP_SL)
+	ratio = (unsigned long) nr_pages * nr_active_pages;
+	if (!vm_without_swap) {
+		ratio /= ((nr_inactive_pages + 1) * 2);
+	}
+#else
 	ratio = (unsigned long) nr_pages * nr_active_pages / ((nr_inactive_pages + 1) * 2);
+#endif
 	refill_inactive(ratio);
 
 	nr_pages = shrink_cache(nr_pages, classzone, gfp_mask, priority);
@@ -592,15 +617,38 @@ int try_to_free_pages_zone(zone_t *classzone, unsigned int gfp_mask)
 	gfp_mask = pf_gfp_mask(gfp_mask);
 	do {
 		nr_pages = shrink_caches(classzone, priority, gfp_mask, nr_pages);
+#ifndef CONFIG_FREEPG_SIGNAL
 		if (nr_pages <= 0)
 			return 1;
+#else
+		if (nr_pages <= 0) {
+#if defined(CONFIG_ARCH_SHARP_SL)
+			if (vm_without_swap) {
+				check_out_of_memory();
+			} else {
+				reset_out_of_memory_condition();
+			}
+#else
+			reset_out_of_memory_condition();
+#endif
+			return 1;
+		}
+#endif
 	} while (--priority);
 
 	/*
 	 * Hmm.. Cache shrink failed - time to kill something?
 	 * Mhwahahhaha! This is the part I really like. Giggle.
 	 */
+#if defined(CONFIG_ARCH_SHARP_SL)
+	if (vm_without_swap) {
+		check_out_of_memory();
+	} else {
+		out_of_memory();
+	}
+#else
 	out_of_memory();
+#endif
 	return 0;
 }
 
@@ -748,8 +796,12 @@ int kswapd(void *unused)
 		add_wait_queue(&kswapd_wait, &wait);
 
 		mb();
-		if (kswapd_can_sleep())
+		if (kswapd_can_sleep()) {
+#ifdef CONFIG_FREEPG_SIGNAL
+			freepg_signal_reset();
+#endif
 			schedule();
+		}
 
 		__set_current_state(TASK_RUNNING);
 		remove_wait_queue(&kswapd_wait, &wait);
@@ -760,6 +812,9 @@ int kswapd(void *unused)
 		 * up on a more timely basis.
 		 */
 		kswapd_balance();
+#ifdef CONFIG_FREEPG_SIGNAL
+		freepg_signal_check();
+#endif
 		run_task_queue(&tq_disk);
 	}
 }

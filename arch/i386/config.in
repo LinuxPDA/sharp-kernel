@@ -206,6 +206,7 @@ fi
 bool 'Math emulation' CONFIG_MATH_EMULATION
 bool 'MTRR (Memory Type Range Register) support' CONFIG_MTRR
 bool 'Symmetric multi-processing support' CONFIG_SMP
+bool 'Preemptible Kernel support' CONFIG_PREEMPT
 if [ "$CONFIG_SMP" != "y" ]; then
    bool 'Local APIC support on uniprocessors' CONFIG_X86_UP_APIC
    dep_bool 'IO-APIC support on uniprocessors' CONFIG_X86_UP_IOAPIC $CONFIG_X86_UP_APIC
@@ -224,9 +225,12 @@ if [ "$CONFIG_X86_TSC_DISABLE" != "y" -a "$CONFIG_X86_HAS_TSC" = "y" ]; then
    define_bool CONFIG_X86_TSC y
 fi
 
-if [ "$CONFIG_SMP" = "y" -a "$CONFIG_X86_CMPXCHG" = "y" ]; then
-   define_bool CONFIG_HAVE_DEC_LOCK y
+if [ "$CONFIG_SMP" = "y" -o "$CONFIG_PREEMPT" = "y" ]; then
+   if [ "$CONFIG_X86_CMPXCHG" = "y" ]; then
+      define_bool CONFIG_HAVE_DEC_LOCK y
+   fi
 fi
+
 endmenu
 
 mainmenu_option next_comment
@@ -327,6 +331,8 @@ source drivers/pnp/Config.in
 source drivers/block/Config.in
 
 source drivers/md/Config.in
+
+source crypto/Config.in
 
 if [ "$CONFIG_NET" = "y" ]; then
    source net/Config.in
@@ -442,15 +448,21 @@ source net/bluetooth/Config.in
 mainmenu_option next_comment
 comment 'Kernel hacking'
 
-bool 'Kernel debugging' CONFIG_DEBUG_KERNEL
-if [ "$CONFIG_DEBUG_KERNEL" != "n" ]; then
-   bool '  Check for stack overflows' CONFIG_DEBUG_STACKOVERFLOW
-   bool '  Debug high memory support' CONFIG_DEBUG_HIGHMEM
-   bool '  Debug memory allocations' CONFIG_DEBUG_SLAB
-   bool '  Memory mapped I/O debugging' CONFIG_DEBUG_IOVIRT
-   bool '  Magic SysRq key' CONFIG_MAGIC_SYSRQ
-   bool '  Spinlock debugging' CONFIG_DEBUG_SPINLOCK
-   bool '  Compile the kernel with frame pointers' CONFIG_FRAME_POINTER
+bool 'KGDB: Remote (serial) kernel debugging with gdb' CONFIG_REMOTE_DEBUG
+if [ "$CONFIG_REMOTE_DEBUG" != "n" ]; then
+   bool 'KGDB: Thread analysis' CONFIG_KGDB_THREAD
+   bool 'KGDB: Console messages through gdb' CONFIG_GDB_CONSOLE
+else
+   bool 'Kernel debugging' CONFIG_DEBUG_KERNEL
+   if [ "$CONFIG_DEBUG_KERNEL" != "n" ]; then
+      bool '  Check for stack overflows' CONFIG_DEBUG_STACKOVERFLOW
+      bool '  Debug high memory support' CONFIG_DEBUG_HIGHMEM
+      bool '  Debug memory allocations' CONFIG_DEBUG_SLAB
+      bool '  Memory mapped I/O debugging' CONFIG_DEBUG_IOVIRT
+      bool '  Magic SysRq key' CONFIG_MAGIC_SYSRQ
+      bool '  Spinlock debugging' CONFIG_DEBUG_SPINLOCK
+      bool '  Compile the kernel with frame pointers' CONFIG_FRAME_POINTER
+   fi
 fi
 
 endmenu

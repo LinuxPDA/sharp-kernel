@@ -10,6 +10,10 @@
  * published by the Free Software Foundation.
  *
  * This file is the header for the ECC algorithm.
+ *
+ * ChangeLog:
+ *     29-Oct-2002 Lineo Japan, Inc.  modify return type of nand_calculate_ecc
+ *
  */
 
 /*
@@ -20,7 +24,7 @@ void nand_trans_result(u_char reg2, u_char reg3, u_char *ecc_code);
 /*
  * Calculate 3 byte ECC code for 256 byte block
  */
-void nand_calculate_ecc (const u_char *dat, u_char *ecc_code);
+int nand_calculate_ecc (const u_char *dat, u_char *ecc_code);
 
 /*
  * Detect and correct a 1 bit error for 256 byte block

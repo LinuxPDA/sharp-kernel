@@ -253,19 +253,45 @@ void irlap_do_event(struct irlap_cb *self, IRLAP_EVENT event,
 	case LAP_XMIT_P: /* FALLTHROUGH */
 	case LAP_XMIT_S:
 		/* 
+		 * We just received the pf bit and are at the beginning
+		 * of a new LAP transmit window.
 		 * Check if there are any queued data frames, and do not
 		 * try to disconnect link if we send any data frames, since
 		 * that will change the state away form XMIT
 		 */
+		IRDA_DEBUG(2, __FUNCTION__ "() : queue len = %d\n",
+			   skb_queue_len(&self->txq));
+
 		if (skb_queue_len(&self->txq)) {
 			/* Prevent race conditions with irlap_data_request() */
 			self->local_busy = TRUE;
 
+			/* Theory of operation.
+			 * We send frames up to when we fill the window or
+			 * reach line capacity. Those frames will queue up
+			 * in the device queue, and the driver will slowly
+			 * send them.
+			 * After each frame that we send, we poll the higher
+			 * layer for more data. It's the right time to do
+			 * that because the link layer need to perform the mtt
+			 * and then send the first frame, so we can afford
+			 * to send a bit of time in kernel space.
+			 * The explicit flow indication allow to minimise
+			 * buffers (== lower latency), to avoid higher layer
+			 * polling via timers (== less context switches) and
+			 * to implement a crude scheduler - Jean II */
+
 			/* Try to send away all queued data frames */
 			while ((skb = skb_dequeue(&self->txq)) != NULL) {
+				/* Send one frame */
 				ret = (*state[self->state])(self, SEND_I_CMD,
 							    skb, NULL);
 				kfree_skb(skb);
+
+				/* Poll the higher layers for one more frame */
+				irlmp_flow_indication(self->notify.instance,
+						      FLOW_START);
+
 				if (ret == -EPROTO)
 					break; /* Try again later! */
 			}
@@ -508,7 +534,7 @@ static int irlap_state_ndm(struct irlap_cb *self, IRLAP_EVENT event,
 #endif /* CONFIG_IRDA_ULTRA */
 	case RECV_TEST_CMD:
 		/* Remove test frame header */
-		skb_pull(skb, sizeof(struct test_frame));
+		skb_pull(skb, 10 /*sizeof(struct test_frame)*/);
 
 		/* 
 		 * Send response. This skb will not be sent out again, and
@@ -717,7 +743,7 @@ static int irlap_state_conn(struct irlap_cb *self, IRLAP_EVENT event,
 
 	switch (event) {
 	case CONNECT_RESPONSE:
-		skb_pull(skb, sizeof(struct snrm_frame));
+		skb_pull(skb, 11 /*sizeof(struct snrm_frame)*/);
 
 		ASSERT(self->netdev != NULL, return -1;);
 
@@ -848,7 +874,7 @@ static int irlap_state_setup(struct irlap_cb *self, IRLAP_EVENT event,
 
 			ASSERT(self->netdev != NULL, return -1;);
 
-			skb_pull(skb, sizeof(struct snrm_frame));
+			skb_pull(skb, 11 /*sizeof(struct snrm_frame)*/);
 
 			irlap_qos_negotiate(self, skb);
 			
@@ -880,7 +906,7 @@ static int irlap_state_setup(struct irlap_cb *self, IRLAP_EVENT event,
 		/* Negotiate connection parameters */
 		ASSERT(skb->len > 10, return -1;);
 
-		skb_pull(skb, sizeof(struct ua_frame));
+		skb_pull(skb, 10 /*sizeof(struct ua_frame)*/);
 
 		ASSERT(self->netdev != NULL, return -1;);
 

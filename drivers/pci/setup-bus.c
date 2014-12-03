@@ -58,7 +58,8 @@ pbus_assign_resources_sorted(struct pci_bus *bus)
 		if (class == PCI_CLASS_DISPLAY_VGA
 				|| class == PCI_CLASS_NOT_DEFINED_VGA)
 			found_vga = 1;
-		else if (class >> 8 != PCI_BASE_CLASS_BRIDGE) {
+		else if (class >> 8 != PCI_BASE_CLASS_BRIDGE &&
+			 class >> 8 != PCI_BASE_CLASS_PROCESSOR) {
 			pci_read_config_word(dev, PCI_COMMAND, &cmd);
 			cmd &= ~(PCI_COMMAND_IO | PCI_COMMAND_MEMORY
 						| PCI_COMMAND_MASTER);

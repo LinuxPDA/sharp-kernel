@@ -1,0 +1,47 @@
+#
+# USB device configuration from the device viewpoint (e.g. Linux running inside a USB device, not as host)
+#
+# Copyright (C) 2001 Lineo, Inc.
+# Copyright (C) 2001 Hewlett-Packard Co.
+mainmenu_option next_comment
+comment 'USB Device Bus Interface Support'
+
+# StrongArm
+if [ "$CONFIG_ARCH_SA1100" = "y" ]; then
+    dep_tristate '  Intel StrongArm SA-1110 (Assabet, Ipaq) support' CONFIG_USBD_SA1100_BUS $CONFIG_USBD
+    dep_mbool '    USB traffic keeps device awake' CONFIG_USBD_TRAFFIC_KEEPAWAKE $CONFIG_SA1110_CALYPSO
+
+    if [ "$CONFIG_USBD_SA1100_BUS" = "y" -o "$CONFIG_USBD_SA1100_BUS" = "m" ]; then
+       int '    USBD Stall watchdog timeout (seconds, 0 for none)' CONFIG_USBD_STALL_TIMEOUT "0"
+       int '    USBD Stall disconnect duration (seconds)' CONFIG_USBD_STALL_DISCONNECT_DURATION "2"
+    fi
+fi
+
+# PXA250 - Xscale
+if [ "$CONFIG_ARCH_PXA" = "y" -o "$CONFIG_CPU_XSCALE" = "y" ]; then
+    if [ "$CONFIG_CPU_PXA27X" = "y" ]; then
+        dep_tristate '  PXA27x (Xscale) support' CONFIG_USBD_PXA27X_BUS $CONFIG_USBD
+    else
+        dep_tristate '  PXA (Xscale) support' CONFIG_USBD_PXA_BUS $CONFIG_USBD
+    fi
+fi
+
+# Linkup
+if [ "$CONFIG_ARCH_L7200" = "y" ]; then
+    dep_tristate '  L7205 (Linkup) support' CONFIG_USBD_L7205_BUS $CONFIG_USBD
+    dep_mbool    '    L7210-AB fix' CONFIG_USBD_L7210AB_FIX $CONFIG_USBD_L7205_BUS
+fi
+
+# Scanlogic
+if [ "$CONFIG_SUPERH" = "y" -o "$CONFIG_X86" = "y" ]; then
+    dep_tristate '  Scanlogic SL11 Device support' CONFIG_USBD_SL11_BUS $CONFIG_USBD
+fi
+
+# Hitachi SH7622 or SH7727
+if [ "$CONFIG_CPU_SUBTYPE_SH7622" = "y" -o "$CONFIG_CPU_SUBTYPE_SH7727" = "y" ]; then
+    dep_tristate '  SuperH Device support' CONFIG_USBD_SUPERH_BUS $CONFIG_USBD
+fi
+
+dep_tristate '  Generic Bus Interfade support' CONFIG_USBD_GENERIC_BUS $CONFIG_USBD
+
+endmenu

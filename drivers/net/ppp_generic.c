@@ -20,6 +20,10 @@
  * subsequently hacked by Paul Mackerras.
  *
  * ==FILEVERSION 20020217==
+ *
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
+ *	30-Jul-2002 Lineo Japan, Inc.  for 2.4.18
  */
 
 #include <linux/config.h>
@@ -268,6 +272,10 @@ static struct channel *ppp_find_channel(int unit);
 static int ppp_connect_channel(struct channel *pch, int unit);
 static int ppp_disconnect_channel(struct channel *pch);
 static void ppp_destroy_channel(struct channel *pch);
+
+#ifdef CONFIG_ARCH_SHARP_SL
+int ppp_connect_count = 0;
+#endif
 
 /* Translates a PPP protocol number to a NP index (NP == network protocol) */
 static inline int proto_to_npindex(int proto)
@@ -1030,7 +1038,10 @@ ppp_send_frame(struct ppp *ppp, struct sk_buff *skb)
 	/* try to do packet compression */
 	if ((ppp->xstate & SC_COMP_RUN) && ppp->xc_state != 0
 	    && proto != PPP_LCP && proto != PPP_CCP) {
-		new_skb = alloc_skb(ppp->dev->mtu + ppp->dev->hard_header_len,
+		int comp_overhead = (ppp->xcomp->compress_proto == CI_MPPE) ?
+			4 : 0;
+		new_skb = alloc_skb(ppp->dev->mtu + ppp->dev->hard_header_len
+				    + comp_overhead,
 				    GFP_ATOMIC);
 		if (new_skb == 0) {
 			printk(KERN_ERR "PPP: no memory (comp pkt)\n");
@@ -1043,7 +1054,8 @@ ppp_send_frame(struct ppp *ppp, struct sk_buff *skb)
 		/* compressor still expects A/C bytes in hdr */
 		len = ppp->xcomp->compress(ppp->xc_state, skb->data - 2,
 					   new_skb->data, skb->len + 2,
-					   ppp->dev->mtu + PPP_HDRLEN);
+					   ppp->dev->mtu + PPP_HDRLEN + 
+					   comp_overhead);
 		if (len > 0 && (ppp->flags & SC_CCP_UP)) {
 			kfree_skb(skb);
 			skb = new_skb;
@@ -2450,6 +2462,9 @@ ppp_connect_channel(struct channel *pch, int unit)
 	atomic_inc(&ppp->file.refcnt);
 	ppp_unlock(ppp);
 	ret = 0;
+#ifdef CONFIG_ARCH_SHARP_SL
+	ppp_connect_count++;
+#endif
 
  err2:
 	write_unlock_bh(&pch->upl);
@@ -2480,6 +2495,9 @@ ppp_disconnect_channel(struct channel *pch)
 		if (atomic_dec_and_test(&ppp->file.refcnt))
 			ppp_destroy_interface(ppp);
 		err = 0;
+#ifdef CONFIG_ARCH_SHARP_SL
+		ppp_connect_count--;
+#endif
 	}
 	return err;
 }

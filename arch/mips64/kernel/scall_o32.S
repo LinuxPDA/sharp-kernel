@@ -33,8 +33,8 @@ NESTED(handle_sys, PT_SIZE, sp)
 	.set	at
 	ld	t1, PT_EPC(sp)		# skip syscall on return
 
-	subu	t0, v0, __NR_Linux32	# check syscall number
-	sltiu	t0, t0, __NR_Linux32_syscalls + 1
+	subu	t0, v0, __NR_O32_Linux	# check syscall number
+	sltiu	t0, t0, __NR_O32_Linux_syscalls + 1
 	daddiu	t1, 4			# skip to next instruction
 	beqz	t0, not_o32_scall
 	sd	t1, PT_EPC(sp)
@@ -47,8 +47,8 @@ NESTED(handle_sys, PT_SIZE, sp)
 
 	/* XXX Put both in one cacheline, should save a bit. */
 	dsll	t0, v0, 3		# offset into table
-	ld	t2, (sys_call_table - (__NR_Linux32 * 8))(t0) # syscall routine
-	lbu	t3, (sys_narg_table - __NR_Linux32)(v0)	# number of arguments
+	ld	t2, (sys_call_table - (__NR_O32_Linux * 8))(t0)
+	lbu	t3, (sys_narg_table - __NR_O32_Linux)(v0)
 
 	subu	t0, t3, 5		# 5 or more arguments?
 	sd	a3, PT_R26(sp)		# save a3 for syscall restarting
@@ -184,9 +184,13 @@ bad_stack:
 	j	ret_from_sys_call
 
 not_o32_scall:
-	/* This is not an 32-bit compatibility syscall, pass it on to
+	/* This is not an o32 compatibility syscall, pass it on to
 	   the 64-bit syscall handlers.  */
+#ifdef CONFIG_MIPS32_N32
+	j	handle_sysn32
+#else
 	j	handle_sys64
+#endif
 
 illegal_syscall:
 	/* This also isn't a 64-bit syscall, throw an error.  */
@@ -197,7 +201,7 @@ illegal_syscall:
 	j	ret_from_sys_call
 	END(handle_sys)
 
-	LEAF(mips_atomic_set)
+LEAF(mips_atomic_set)
 	andi	v0, a1, 3			# must be word aligned
 	bnez	v0, bad_alignment
 
@@ -205,7 +209,7 @@ illegal_syscall:
 	daddiu	a0, a1, 4
 	or	a0, a0, a1
 	and	a0, a0, v1
-	bltz	a0, bad_address
+	bnez	a0, bad_address
 
 	/* Ok, this is the ll/sc case.  World is sane :-)  */
 1:	ll	v0, (a1)
@@ -240,12 +244,12 @@ bad_alignment:
 	jr	ra
 	END(mips_atomic_set)
 
-	LEAF(sys32_sysmips)
+LEAF(sys32_sysmips)
 	beq	a0, MIPS_ATOMIC_SET, mips_atomic_set
 	j	sys_sysmips
 	END(sys32_sysmips)
 
-	LEAF(sys32_syscall)
+LEAF(sys32_syscall)
 	ld	t0, PT_R29(sp)		# user sp
 
 	sltu	v0, a0, __NR_Linux + __NR_Linux_syscalls + 1
@@ -253,8 +257,8 @@ bad_alignment:
 
 	dsll	v0, a0, 3
 	dla	v1, sys32_syscall
-	ld	t2, (sys_call_table - (__NR_Linux32 * 8))(v0)	# function pointer
-	lbu	t3, (sys_narg_table - __NR_Linux32)(a0)	# number of arguments
+	ld	t2, (sys_call_table - (__NR_O32_Linux * 8))(v0)
+	lbu	t3, (sys_narg_table - __NR_O32_Linux)(a0)
 
 	li	v0, -EINVAL
 	beq	t2, v1, out		# do not recurse
@@ -269,7 +273,7 @@ bad_alignment:
 	ld	v1, THREAD_CURDS($28)
 	or	v0, v0, t1
 	and	v1, v1, v0
-	bltz	v1, efault
+	bnez	v1, efault
 
 	move	a0, a1			# shift argument registers
 	move	a1, a2
@@ -330,7 +334,7 @@ out:	jr	ra
 	sys	sys_chmod	2			/* 4015 */
 	sys	sys_lchown	3
 	sys	sys_ni_syscall	0
-	sys	sys_stat	2
+	sys	sys_ni_syscall	0			/* was sys_stat */
 	sys	sys_lseek	3
 	sys	sys_getpid	0			/* 4020 */
 	sys	sys_mount	5
@@ -340,7 +344,7 @@ out:	jr	ra
 	sys	sys_stime	1			/* 4025 */
 	sys	sys32_ptrace	4
 	sys	sys32_alarm	1
-	sys	sys_fstat	2
+	sys	sys_ni_syscall	0			/* was sys_fstat */
 	sys	sys_pause	0
 	sys	sys32_utime	2			/* 4030 */
 	sys	sys_ni_syscall	0
@@ -394,9 +398,9 @@ out:	jr	ra
 	sys	sys32_settimeofday 2
 	sys	sys_getgroups	2			/* 4080 */
 	sys	sys_setgroups	2
-	sys	sys_ni_syscall	0 /* old_select */
+	sys	sys_ni_syscall	0			/* old_select */
 	sys	sys_symlink	2
-	sys	sys_lstat	2
+	sys	sys_ni_syscall	0			/* was sys_lstat */
 	sys	sys_readlink	3			/* 4085 */
 	sys	sys_uselib	1
 	sys	sys_swapon	2
@@ -428,7 +432,7 @@ out:	jr	ra
 	sys	sys_ni_syscall	0	/* sys_vm86 */
 	sys	sys32_wait4	4
 	sys	sys_swapoff	1			/* 4115 */
-	sys	sys_sysinfo	1
+	sys	sys32_sysinfo	1
 	sys	sys32_ipc		6
 	sys	sys_fsync	1
 	sys	sys32_sigreturn	0
@@ -519,12 +523,12 @@ out:	jr	ra
 	sys	sys_capget	2
 	sys	sys_capset	2			/* 4205 */
 	sys	sys32_sigaltstack	0
-	sys	sys_sendfile	4
+	sys	sys32_sendfile	4
 	sys	sys_ni_syscall	0
 	sys	sys_ni_syscall	0
-	sys	sys_mmap2	6			/* 4210 */
-	sys	sys_truncate64	2
-	sys	sys_ftruncate64	2
+	sys	sys32_mmap2	6			/* 4210 */
+	sys	sys32_truncate64	4
+	sys	sys32_ftruncate64	4
 	sys	sys_newstat	2
 	sys	sys_newlstat	2
 	sys	sys_newfstat	2			/* 4215 */

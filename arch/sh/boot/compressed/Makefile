@@ -4,6 +4,12 @@
 # create a compressed vmlinux image from the original vmlinux
 #
 
+ifdef CONFIG_CPU_LITTLE_ENDIAN
+XARCH = elf32-sh-linux
+else
+XARCH = elf32-shbig-linux
+endif
+
 HEAD = head.o
 SYSTEM = $(TOPDIR)/vmlinux
 
@@ -36,7 +42,7 @@ piggy.o:	$(SYSTEM)
 	$(OBJCOPY) -R .empty_zero_page $(SYSTEM) $$tmppiggy; \
 	gzip -f -9 < $$tmppiggy > $$tmppiggy.gz; \
 	echo "SECTIONS { .data : { input_len = .; LONG(input_data_end - input_data) input_data = .; *(.data) input_data_end = .; }}" > $$tmppiggy.lnk; \
-	$(LD) -r -o piggy.o -b binary $$tmppiggy.gz -b elf32-sh-linux -T $$tmppiggy.lnk; \
+	$(LD) -r -o piggy.o -b binary $$tmppiggy.gz -b $(XARCH) -T $$tmppiggy.lnk; \
 	rm -f $$tmppiggy $$tmppiggy.gz $$tmppiggy.lnk
 
 clean:

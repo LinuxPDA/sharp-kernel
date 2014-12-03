@@ -29,6 +29,9 @@ static int h3600_pcmcia_init(struct pcmcia_init *init)
 	set_GPIO_IRQ_edge(GPIO_H3600_PCMCIA_IRQ0 | GPIO_H3600_PCMCIA_IRQ1,
 			  GPIO_FALLING_EDGE);
 
+	set_GPIO_IRQ_edge(GPIO_H3600_PCMCIA_CD0 | GPIO_H3600_PCMCIA_CD1,
+			  GPIO_NO_EDGES);
+
 	/*
 	 * Register interrupts
 	 */

@@ -6,7 +6,7 @@
    expect the blocks to be reordered appropriately.  Define __builtin_expect
    to nothing for earlier compilers.  */
 
-#if __GNUC__ == 2 && __GNUC_MINOR__ < 96
+#if __GNUC__ == 2 && __GNUC_MINOR__ <= 96
 #define __builtin_expect(x, expected_value) (x)
 #endif
 

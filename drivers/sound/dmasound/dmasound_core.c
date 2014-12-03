@@ -216,6 +216,12 @@ static int sq_unit = -1;
 static int mixer_unit = -1;
 static int state_unit = -1;
 static int irq_installed = 0;
+
+#if defined(CONFIG_SH_MS7720RP)
+static int txrx_play_unit	= -1;
+static int txrx_rec_unit	= -1;
+#endif
+
 #endif /* MODULE */
 
 /* control over who can modify resources shared between play/record */
@@ -865,6 +871,105 @@ static int sq_open2(struct sound_queue *sq, struct file *file, mode_t mode,
 #define sq_reset_input()		do {} while (0)
 #endif
 
+
+#if defined(CONFIG_SH_MS7720RP)
+
+static int sq_open_play(struct inode *inode, struct file *file)
+{
+	int rc;
+
+	dmasound.mach.open();
+
+	if ((rc = write_sq_open(file))) { /* checks the f_mode */
+		dmasound.mach.release();
+		return rc;
+	}
+
+	if (dmasound.mach.sq_open)
+	    dmasound.mach.sq_open(file->f_mode);
+
+	/* CHECK whether this is sensible - in the case that dsp0 could be opened
+	  O_RDONLY and dsp1 could be opened O_WRONLY
+	*/
+
+	dmasound.minDev = MINOR(inode->i_rdev) & 0x0f;
+
+	/* OK. - we should make some attempt at consistency. At least the H'ware
+	   options should be set with a valid mode.  We will make it that the LL
+	   driver must supply defaults for hard & soft params.
+	*/
+
+	if (shared_resource_owner == 0) {
+		/* you can make this AFMT_U8/mono/8K if you want to mimic old
+		   OSS behaviour - while we still have soft translations ;-) */
+		dmasound.soft = dmasound.mach.default_soft ;
+		dmasound.dsp = dmasound.mach.default_soft ;
+		dmasound.hard = dmasound.mach.default_hard ;
+	}
+
+#ifndef DMASOUND_STRICT_OSS_COMPLIANCE
+	/* none of the current LL drivers can actually do this "native" at the moment
+	   OSS does not really require us to supply /dev/audio if we can't do it.
+	*/
+	if (dmasound.minDev == SND_DEV_AUDIO) {
+		sound_set_speed(8000);
+		sound_set_stereo(0);
+		sound_set_format(AFMT_MU_LAW);
+	}
+#endif
+
+	return 0;
+}
+
+static int sq_open_rec(struct inode *inode, struct file *file)
+{
+	int rc;
+
+	dmasound.mach.open();
+
+	if ((rc = read_sq_open(file))) { /* checks the f_mode */
+		dmasound.mach.release();
+		return rc;
+	}
+
+	if (dmasound.mach.sq_open)
+	    dmasound.mach.sq_open(file->f_mode);
+
+	/* CHECK whether this is sensible - in the case that dsp0 could be opened
+	  O_RDONLY and dsp1 could be opened O_WRONLY
+	*/
+
+	dmasound.minDev = MINOR(inode->i_rdev) & 0x0f;
+
+	/* OK. - we should make some attempt at consistency. At least the H'ware
+	   options should be set with a valid mode.  We will make it that the LL
+	   driver must supply defaults for hard & soft params.
+	*/
+
+	if (shared_resource_owner == 0) {
+		/* you can make this AFMT_U8/mono/8K if you want to mimic old
+		   OSS behaviour - while we still have soft translations ;-) */
+		dmasound.soft = dmasound.mach.default_soft ;
+		dmasound.dsp = dmasound.mach.default_soft ;
+		dmasound.hard = dmasound.mach.default_hard ;
+	}
+
+#ifndef DMASOUND_STRICT_OSS_COMPLIANCE
+	/* none of the current LL drivers can actually do this "native" at the moment
+	   OSS does not really require us to supply /dev/audio if we can't do it.
+	*/
+	if (dmasound.minDev == SND_DEV_AUDIO) {
+		sound_set_speed(8000);
+		sound_set_stereo(0);
+		sound_set_format(AFMT_MU_LAW);
+	}
+#endif
+
+	return 0;
+}
+
+#endif
+
 static int sq_open(struct inode *inode, struct file *file)
 {
 	int rc;
@@ -1017,6 +1122,66 @@ static int sq_fsync(struct file *filp, struct dentry *dentry)
 	write_sq.syncing = 0 ;
 	return rc;
 }
+
+#if defined(CONFIG_SH_MS7720RP)
+
+static int sq_release_play(struct inode *inode, struct file *file)
+{
+	int rc = 0;
+
+	lock_kernel();
+
+	if (file->f_mode & FMODE_WRITE) {
+		if (write_sq.busy)
+			rc = sq_fsync(file, file->f_dentry);
+
+		sq_reset_output() ; /* make sure dma is stopped and all is quiet */
+		write_sq_release_buffers();
+		write_sq.busy = 0;
+	}
+
+	if (file->f_mode & shared_resource_owner) { /* it's us that has them */
+		shared_resource_owner = 0 ;
+		shared_resources_initialised = 0 ;
+		dmasound.hard = dmasound.mach.default_hard ;
+	}
+
+	dmasound.mach.release();
+
+	unlock_kernel();
+
+	return rc;
+}
+
+static int sq_release_rec(struct inode *inode, struct file *file)
+{
+	int rc = 0;
+
+	lock_kernel();
+
+	/* probably best to do the read side first - so that time taken to do it
+	   overlaps with playing any remaining output samples.
+	*/
+	if (file->f_mode & FMODE_READ) {
+		sq_reset_input() ; /* make sure dma is stopped and all is quiet */
+		read_sq_release_buffers();
+		read_sq.busy = 0;
+	}
+
+	if (file->f_mode & shared_resource_owner) { /* it's us that has them */
+		shared_resource_owner = 0 ;
+		shared_resources_initialised = 0 ;
+		dmasound.hard = dmasound.mach.default_hard ;
+	}
+
+	dmasound.mach.release();
+
+	unlock_kernel();
+
+	return rc;
+}
+
+#endif
 
 static int sq_release(struct inode *inode, struct file *file)
 {
@@ -1323,6 +1488,32 @@ static int sq_ioctl(struct inode *inode, struct file *file, u_int cmd,
 	return -EINVAL;
 }
 
+#if defined(CONFIG_SH_MS7720RP)
+
+static struct file_operations sq_fops_play =
+{
+	owner:		THIS_MODULE,
+	llseek:		no_llseek,
+	write:		sq_write,
+	poll:		sq_poll,
+	ioctl:		sq_ioctl,
+	open:		sq_open_play,
+	release:	sq_release_play,
+};
+
+static struct file_operations sq_fops_rec =
+{
+	owner:		THIS_MODULE,
+	llseek:		no_llseek,
+	poll:		sq_poll,
+	ioctl:		sq_ioctl,
+	open:		sq_open_rec,
+	release:	sq_release_rec,
+	read:		sq_read
+};
+
+#endif
+
 static struct file_operations sq_fops =
 {
 	owner:		THIS_MODULE,
@@ -1341,12 +1532,35 @@ static int __init sq_init(void)
 {
 #ifndef MODULE
 	int sq_unit;
+ 
+#if defined(CONFIG_SH_MS7720RP)
+	int txrx_play_unit;
+	int txrx_rec_unit;
+#endif
+
 #endif
 
 #ifdef HAS_RECORD
 	if (dmasound.mach.record)
 		sq_fops.read = sq_read ;
 #endif
+
+#if defined(CONFIG_SH_MS7720RP)
+
+	txrx_play_unit = register_sound_txrx_play(&sq_fops_play, -1);
+	if (txrx_play_unit < 0) {
+		printk(KERN_ERR "dmasound_core: couldn't register fops\n") ;
+		return txrx_play_unit ;
+	}
+
+	txrx_rec_unit = register_sound_txrx_rec(&sq_fops_rec, -1);
+	if (txrx_rec_unit < 0) {
+		printk(KERN_ERR "dmasound_core: couldn't register fops\n") ;
+		return txrx_rec_unit ;
+	}
+
+#endif
+
 	sq_unit = register_sound_dsp(&sq_fops, -1);
 	if (sq_unit < 0) {
 		printk(KERN_ERR "dmasound_core: couldn't register fops\n") ;
@@ -1640,6 +1854,13 @@ void dmasound_deinit(void)
 		unregister_sound_special(state_unit);
 	if (sq_unit >= 0)
 		unregister_sound_dsp(sq_unit);
+
+#if defined(CONFIG_SH_MS7720RP)
+	if (txrx_play_unit >= 0)
+		unregister_sound_txrx_play(txrx_play_unit);
+	if (txrx_rec_unit >= 0)
+		unregister_sound_txrx_rec(txrx_rec_unit);
+#endif
 }
 
 #else /* !MODULE */

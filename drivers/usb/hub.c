@@ -757,8 +757,16 @@ static void usb_hub_port_connect_change(struct usb_hub *hubstate, int port,
 		if (len == sizeof dev->devpath)
 			warn ("devpath size! usb/%03d/%03d path %s",
 				dev->bus->busnum, dev->devnum, dev->devpath);
+#if defined(CONFIG_SH_RTS7751R2D)
+		info("USB new device connect on bus%d, assigned device number %d", dev->bus->busnum, dev->devnum);
+#else
+#ifdef CONFIG_PCI
 		info("new USB device %s-%s, assigned address %d",
 			dev->bus->bus_name, dev->devpath, dev->devnum);
+#else
+		info("USB new device connect on bus%d, assigned device number %d", dev->bus->busnum, dev->devnum);
+#endif
+#endif
 
 		/* Run it through the hoops (find a driver, etc) */
 		if (!usb_new_device(dev))
@@ -1070,7 +1078,7 @@ int usb_reset_device(struct usb_device *dev)
 		usb_destroy_configuration(dev);
 
 		ret = usb_get_device_descriptor(dev);
-		if (ret < sizeof(dev->descriptor)) {
+		if (ret < 18 /*sizeof(dev->descriptor)*/) {
 			if (ret < 0)
 				err("unable to get device descriptor (error=%d)", ret);
 			else

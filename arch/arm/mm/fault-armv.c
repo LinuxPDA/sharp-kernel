@@ -7,6 +7,13 @@
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
+ *
+ * Change Log
+ *  12-Dec-2002 Sharp Corporation for Poodle and Corgi
+ *  04-Apr-2003 Sharp for ARM FCSE
+ *  26-Feb-2004 Lineo Solutions, Inc.  for Tosa
+ *  27-Aug-2004 Sharp Corporation for Spitz"
+ *
  */
 #include <linux/config.h>
 #include <linux/signal.h>
@@ -28,7 +35,6 @@
 #include <asm/pgalloc.h>
 #include <asm/pgtable.h>
 
-extern void die_if_kernel(const char *str, struct pt_regs *regs, int err);
 extern void show_pte(struct mm_struct *mm, unsigned long addr);
 extern int do_page_fault(unsigned long addr, int error_code,
 			 struct pt_regs *regs);
@@ -112,6 +118,26 @@ do_DataAbort(unsigned long addr, int error_code, struct pt_regs *regs, int fsr)
 {
 	const struct fsr_info *inf = fsr_info + (fsr & 15);
 
+#ifdef CONFIG_ARM_FCSE
+	if (current->mm->context.cpu_pid != 0) {
+		if (CPU_PID_MASK(addr) < CPU_PID_MAX_ADDR) {
+			/* translate MVA to VA */
+			addr = CPU_PID_OFFSET(addr);
+		}
+	}
+#endif
+
+#if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
+#ifdef CONFIG_PM
+	{
+#if !defined(CONFIG_ARCH_PXA_SPITZ)
+	  extern sharpsl_fataloff(void);
+	  sharpsl_fataloff();
+#endif
+	}
+#endif
+#endif
+
 	if (!inf->fn(addr, error_code, regs))
 		return;
 
@@ -125,6 +151,14 @@ do_DataAbort(unsigned long addr, int error_code, struct pt_regs *regs, int fsr)
 asmlinkage void
 do_PrefetchAbort(unsigned long addr, struct pt_regs *regs)
 {
+#ifdef CONFIG_ARM_FCSE
+	if (current->mm->context.cpu_pid != 0) {
+		if (CPU_PID_MASK(addr) < CPU_PID_MAX_ADDR) {
+			/* translate MVA to VA */
+			addr = CPU_PID_OFFSET(addr);
+		}
+	}
+#endif
 	do_translation_fault(addr, 0, regs);
 }
 
@@ -236,9 +270,13 @@ make_coherent(struct vm_area_struct *vma, unsigned long addr, struct page *page)
  */
 void update_mmu_cache(struct vm_area_struct *vma, unsigned long addr, pte_t pte)
 {
-	struct page *page = pte_page(pte);
+	unsigned long pfn = pte_pfn(pte);
+	struct page *page;
 
-	if (VALID_PAGE(page) && page->mapping) {
+	if (!pfn_valid(pfn))
+		return;
+	page = pfn_to_page(pfn);
+	if (page->mapping) {
 		if (test_and_clear_bit(PG_dcache_dirty, &page->flags)) {
 			unsigned long kvirt = (unsigned long)page_address(page);
 			cpu_cache_clean_invalidate_range(kvirt, kvirt + PAGE_SIZE, 0);

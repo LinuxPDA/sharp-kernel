@@ -17,6 +17,7 @@
 #define WINDOW_SIZE CONFIG_MTD_PHYSMAP_LEN
 #define BUSWIDTH CONFIG_MTD_PHYSMAP_BUSWIDTH
 
+static struct mtd_partition *parsed_parts;
 static struct mtd_info *mymtd;
 
 __u8 physmap_read8(struct map_info *map, unsigned long ofs)
@@ -78,6 +79,11 @@ struct map_info physmap_map = {
 
 int __init init_physmap(void)
 {
+        struct mtd_partition *parts;
+        int nb_parts = 0, ret;
+        int parsed_nr_parts = 0;
+        const char *part_type;
+
        	printk(KERN_NOTICE "physmap flash device: %x at %x\n", WINDOW_SIZE, WINDOW_ADDR);
 	physmap_map.map_priv_1 = (unsigned long)ioremap(WINDOW_ADDR, WINDOW_SIZE);
 
@@ -85,16 +91,37 @@ int __init init_physmap(void)
 		printk("Failed to ioremap\n");
 		return -EIO;
 	}
-	mymtd = do_map_probe("cfi_probe", &physmap_map);
-	if (mymtd) {
-		mymtd->module = THIS_MODULE;
-
-		add_mtd_device(mymtd);
-		return 0;
+	mymtd = do_map_probe("jedec_probe", &physmap_map);
+	if (!mymtd) {
+		iounmap((void *)physmap_map.map_priv_1);
+		return -ENXIO;	
 	}
 
-	iounmap((void *)physmap_map.map_priv_1);
-	return -ENXIO;
+	mymtd->module = THIS_MODULE;
+
+#ifdef CONFIG_MTD_CMDLINE_PARTS
+        if (parsed_nr_parts == 0) {
+                int ret = parse_cmdline_partitions(mymtd, &parsed_parts, "physmap");
+                if (ret > 0) {
+                        part_type = "Command Line";
+                        parsed_nr_parts = ret;
+                }
+        }
+#endif
+
+        if (parsed_nr_parts > 0) {
+                parts = parsed_parts;
+                nb_parts = parsed_nr_parts;
+        }
+
+        if (nb_parts == 0) {
+                printk(KERN_NOTICE "physmap: no partition info available, registering whole flash at once\n");
+                add_mtd_device(mymtd);
+        } else {
+                printk(KERN_NOTICE "physmap: Using %s partition definition\n", part_type);
+                add_mtd_partitions(mymtd, parts, nb_parts);
+        }
+        return 0;
 }
 
 static void __exit cleanup_physmap(void)

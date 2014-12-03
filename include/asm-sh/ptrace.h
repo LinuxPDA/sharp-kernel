@@ -64,6 +64,32 @@ struct pt_regs {
 	long syscall_nr;
 };
 
+#if defined(CONFIG_SH_DSP)
+/*
+ * This struct defines the way the DSP registers are stored on the
+ * kernel stack during a system call or other kernel entry.
+ */
+struct pt_dspregs {
+	unsigned long	a1;
+	unsigned long	a0g;
+	unsigned long	a1g;
+	unsigned long	m0;
+	unsigned long	m1;
+	unsigned long	a0;
+	unsigned long	x0;
+	unsigned long	x1;
+	unsigned long	y0;
+	unsigned long	y1;
+	unsigned long	dsr;
+	unsigned long	rs;
+	unsigned long	re;
+	unsigned long	mod;
+};
+
+#define PTRACE_GETDSPREGS	55
+#define PTRACE_SETDSPREGS	56
+#endif
+
 #ifdef __KERNEL__
 #define user_mode(regs) (((regs)->sr & 0x40000000)==0)
 #define instruction_pointer(regs) ((regs)->pc)
@@ -71,7 +97,7 @@ extern void show_regs(struct pt_regs *);
 
 /* User Break Controller */
 
-#if defined(CONFIG_CPU_SUBTYPE_SH7709)
+#if defined(CONFIG_CPU_SUBTYPE_SH7709) || defined(CONFIG_CPU_SUBTYPE_SH7727)
 #define UBC_TYPE_SH7729	(cpu_data->type == CPU_SH7729)
 #else
 #define UBC_TYPE_SH7729	0
@@ -119,8 +145,8 @@ extern void show_regs(struct pt_regs *);
 #define BBR_HALF		0x2
 #define BBR_LONG		0x3
 #define BBR_QUAD		(1 << 6)	/* SH7750 */
-#define BBR_CPU			(1 << 6)	/* SH7709A,SH7729 */
-#define BBR_DMA			(2 << 6)	/* SH7709A,SH7729 */
+#define BBR_CPU			(1 << 6)	/* SH7709A,SH7729,SH7727 */
+#define BBR_DMA			(2 << 6)	/* SH7709A,SH7729,SH7727 */
 
 #define BRCR_CMFA		(1 << 15)
 #define BRCR_CMFB		(1 << 14)

@@ -116,7 +116,7 @@ extern struct task_struct *child_reaper;
 
 #define idle_task(cpu) (init_tasks[cpu_number_map(cpu)])
 #define can_schedule(p,cpu) \
-	((p)->cpus_runnable & (p)->cpus_allowed & (1 << cpu))
+	((p)->cpus_runnable & (p)->cpus_allowed & (1UL << cpu))
 
 #else
 
@@ -489,7 +489,7 @@ static inline void __schedule_tail(struct task_struct *prev)
 	task_lock(prev);
 	task_release_cpu(prev);
 	mb();
-	if (prev->state == TASK_RUNNING)
+	if (task_on_runqueue(prev))
 		goto needs_resched;
 
 out_unlock:
@@ -519,7 +519,7 @@ needs_resched:
 			goto out_unlock;
 
 		spin_lock_irqsave(&runqueue_lock, flags);
-		if ((prev->state == TASK_RUNNING) && !task_has_cpu(prev))
+		if (task_on_runqueue(prev) && !task_has_cpu(prev))
 			reschedule_idle(prev);
 		spin_unlock_irqrestore(&runqueue_lock, flags);
 		goto out_unlock;
@@ -532,6 +532,7 @@ needs_resched:
 asmlinkage void schedule_tail(struct task_struct *prev)
 {
 	__schedule_tail(prev);
+	preempt_enable();
 }
 
 /*
@@ -544,15 +545,16 @@ asmlinkage void schedule_tail(struct task_struct *prev)
  * tasks can run. It can not be killed, and it cannot sleep. The 'state'
  * information in task[0] is never used.
  */
-asmlinkage void schedule(void)
+asmlinkage void do_schedule(void)
 {
 	struct schedule_data * sched_data;
 	struct task_struct *prev, *next, *p;
 	struct list_head *tmp;
 	int this_cpu, c;
 
-
 	spin_lock_prefetch(&runqueue_lock);
+
+	preempt_disable();
 
 	BUG_ON(!current->active_mm);
 need_resched_back:
@@ -581,6 +583,14 @@ need_resched_back:
 			move_last_runqueue(prev);
 		}
 
+#ifdef CONFIG_PREEMPT
+	/*
+	 * entering from preempt_schedule, off a kernel preemption,
+	 * go straight to picking the next task.
+	 */
+	if (unlikely(preempt_get_count() & PREEMPT_ACTIVE))
+		goto treat_like_run;
+#endif
 	switch (prev->state) {
 		case TASK_INTERRUPTIBLE:
 			if (signal_pending(prev)) {
@@ -591,6 +601,9 @@ need_resched_back:
 			del_from_runqueue(prev);
 		case TASK_RUNNING:;
 	}
+#ifdef CONFIG_PREEMPT
+	treat_like_run:
+#endif
 	prev->need_resched = 0;
 
 	/*
@@ -677,7 +690,8 @@ repeat_schedule:
 			next->active_mm = oldmm;
 			atomic_inc(&oldmm->mm_count);
 			enter_lazy_tlb(oldmm, next, this_cpu);
-		} else {
+		}
+		else {
 			BUG_ON(next->active_mm != mm);
 			switch_mm(oldmm, mm, next, this_cpu);
 		}
@@ -699,7 +713,58 @@ same_process:
 	reacquire_kernel_lock(current);
 	if (current->need_resched)
 		goto need_resched_back;
+	preempt_enable_no_resched();
 	return;
+}
+
+#ifdef CONFIG_PREEMPT
+/*
+ * this is is the entry point to schedule() from in-kernel preemption
+ */
+asmlinkage void preempt_schedule(void)
+{
+#if 1
+	if (unlikely(irqs_disabled()) || in_interrupt())
+#else
+	if (unlikely(irqs_disabled()))
+#endif
+			return;
+
+need_resched:
+	current->preempt_count += PREEMPT_ACTIVE;
+	schedule();
+	current->preempt_count -= PREEMPT_ACTIVE;
+
+	/* we could miss a preemption opportunity between schedule and now */
+	barrier();
+	if (unlikely(current->need_resched))
+		goto need_resched;
+}
+#endif /* CONFIG_PREEMPT */
+
+asmlinkage void user_schedule(void)
+{
+#ifdef CONFIG_KGDB_THREAD
+	current->thread.kgdbregs = NULL;
+#endif
+	do_schedule();
+}
+
+#ifdef CONFIG_KGDB_THREAD
+asmlinkage void kern_do_schedule(struct pt_regs regs)
+{
+	current->thread.kgdbregs = &regs;
+	do_schedule();
+}
+#endif
+
+asmlinkage void schedule(void)
+{
+#ifdef CONFIG_KGDB_THREAD
+	kern_schedule();
+#else
+	do_schedule();
+#endif
 }
 
 /*
@@ -1327,6 +1392,13 @@ void __init init_idle(void)
 	sched_data->curr = current;
 	sched_data->last_schedule = get_cycles();
 	clear_bit(current->processor, &wait_init_idle);
+#ifdef CONFIG_PREEMPT
+	/*
+	 * fix up the preempt_count for non-CPU0 idle threads
+	 */
+	if (current->processor)
+		current->preempt_count = 0;
+#endif
 }
 
 extern void init_timervecs (void);

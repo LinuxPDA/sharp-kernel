@@ -18,9 +18,12 @@
 
 #include <asm/io_7751se.h>
 
-void heartbeat_7751se(void);
+void heartbeat_se(void);
 void setup_7751se(void);
 void init_7751se_IRQ(void);
+int se51_irq_demux(int);
+void *sh7751se_ioremap(unsigned long, unsigned long);
+void sh7751se_iounmap(void *);
 
 /*
  * The Machine Vector
@@ -59,15 +62,16 @@ struct sh_machine_vector mv_7751se __initmv = {
 	mv_writew:		sh7751se_writew,
 	mv_writel:		sh7751se_writel,
 
-	mv_ioremap:		generic_ioremap,
-	mv_iounmap:		generic_iounmap,
+	mv_ioremap:		sh7751se_ioremap,
+	mv_iounmap:		sh7751se_iounmap,
 
 	mv_isa_port2addr:	sh7751se_isa_port2addr,
 
 	mv_init_arch:		setup_7751se,
 	mv_init_irq:		init_7751se_IRQ,
+	mv_irq_demux:		se51_irq_demux,
 #ifdef CONFIG_HEARTBEAT
-	mv_heartbeat:		heartbeat_7751se,
+	mv_heartbeat:		heartbeat_se,
 #endif
 
 	mv_rtc_gettimeofday:	sh_rtc_gettimeofday,

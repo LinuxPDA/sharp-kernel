@@ -46,12 +46,49 @@ static __inline__ void kbd_leds(unsigned char leds)
 extern void hp600_kbd_init_hw(void);
 extern void dreamcast_kbd_init_hw(void);
 
+#if defined(CONFIG_SH_SOLUTION_ENGINE)
+#if defined(CONFIG_PC_KEYB)
+#define kbd_init_hw()	pckbd_init_hw()
+#else
+#define kbd_init_hw()
+#endif
+#else
 static __inline__ void kbd_init_hw(void)
 {
 	if (MACH_HP600) {
 		hp600_kbd_init_hw();
 	}
 }
+#endif
+
+#define kbd_enable_irq()  do {} while(0)
+#define kbd_disable_irq() do {} while(0)
+
+#if defined(CONFIG_SH_SOLUTION_ENGINE)
+
+#define KEYBOARD_IRQ	1
+
+#define kbd_request_region()
+#define kbd_request_irq(handler)	\
+		request_irq(KEYBOARD_IRQ, handler, 0, "keyboard",NULL)
+
+#define kbd_read_status()	inb(KBD_STATUS_REG)
+#define kbd_read_input()	inb(KBD_DATA_REG);
+#define kbd_write_output(val)	outb(val,KBD_DATA_REG)
+#define kbd_write_command(val)	outb(val, KBD_CNTL_REG)
+
+#if defined(CONFIG_CPU_SUBTYPE_SH7751)
+#define AUX_IRQ		9
+#else
+#define AUX_IRQ		12
+#endif
+
+#define aux_request_irq(hand, dev_id)	\
+		request_irq(AUX_IRQ, hand, SA_SHIRQ, "PS/2 Mouse", dev_id)
+
+#define aux_free_irq(dev_id)	free_irq(AUX_IRQ, dev_id)
+
+#endif	/* CONFIG_SH_SOLUTION_ENGINE */
 
 #endif
 #endif

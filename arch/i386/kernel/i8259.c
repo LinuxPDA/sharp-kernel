@@ -290,12 +290,16 @@ void mask_and_ack_8259A(unsigned int irq)
 
 handle_real_irq:
 	if (irq & 8) {
+#if !defined(CONFIG_RTHAL)
 		inb(0xA1);		/* DUMMY - (do we need this?) */
+#endif
 		outb(cached_A1,0xA1);
 		outb(0x60+(irq&7),0xA0);/* 'Specific EOI' to slave */
 		outb(0x62,0x20);	/* 'Specific EOI' to master-IRQ2 */
 	} else {
+#if !defined(CONFIG_RTHAL)
 		inb(0x21);		/* DUMMY - (do we need this?) */
+#endif
 		outb(cached_21,0x21);
 		outb(0x60+irq,0x20);	/* 'Specific EOI' to master */
 	}
@@ -332,6 +336,21 @@ spurious_8259A_irq:
 		goto handle_real_irq;
 	}
 }
+
+#if defined(CONFIG_RTHAL)
+void ack_8259_irq(unsigned int irq)
+{
+	spin_lock(&i8259A_lock);
+	if (irq & 8) {
+		outb(0x62,0x20);
+		outb(0x20,0xA0);
+	} else {
+		outb(0x20,0x20);
+	}
+	spin_unlock(&i8259A_lock);
+	return;
+}
+#endif
 
 void __init init_8259A(int auto_eoi)
 {

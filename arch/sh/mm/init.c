@@ -78,7 +78,11 @@ void show_mem(void)
 
 /* References to section boundaries */
 
+#if defined(CONFIG_XIP_KERNEL)
+extern char _text, _etext, _data, _edata, __bss_start, _end;
+#else
 extern char _text, _etext, _edata, __bss_start, _end;
+#endif
 extern char __init_begin, __init_end;
 
 pgd_t swapper_pg_dir[PTRS_PER_PGD];
@@ -162,7 +166,11 @@ void __init mem_init(void)
 		if (PageReserved(mem_map+tmp))
 			reservedpages++;
 	codesize =  (unsigned long) &_etext - (unsigned long) &_text;
+#if defined(CONFIG_XIP_KERNEL)
+	datasize =  (unsigned long) &_edata - (unsigned long) &_data;
+#else
 	datasize =  (unsigned long) &_edata - (unsigned long) &_etext;
+#endif
 	initsize =  (unsigned long) &__init_end - (unsigned long) &__init_begin;
 
 	printk("Memory: %luk/%luk available (%dk kernel code, %dk reserved, %dk data, %dk init)\n",
@@ -178,6 +186,7 @@ void __init mem_init(void)
 
 void free_initmem(void)
 {
+#if !defined(CONFIG_XIP_KERNEL)
 	unsigned long addr;
 	
 	addr = (unsigned long)(&__init_begin);
@@ -188,12 +197,30 @@ void free_initmem(void)
 		totalram_pages++;
 	}
 	printk (KERN_INFO "Freeing unused kernel memory: %dk freed\n", (&__init_end - &__init_begin) >> 10);
+#endif
 }
 
 #ifdef CONFIG_BLK_DEV_INITRD
+
+static int keep_initrd = 0;
+
+static int __init keepinitrd_setup(char *__unused)
+{
+	keep_initrd = 1;
+	return 1;
+}
+
+__setup("keepinitrd", keepinitrd_setup);
+
 void free_initrd_mem(unsigned long start, unsigned long end)
 {
 	unsigned long p;
+
+	if (keep_initrd) {
+		printk ("Keep initrd memory: %ldk\n", (end - start) >> 10);
+		return;
+	}
+
 	for (p = start; p < end; p += PAGE_SIZE) {
 		ClearPageReserved(virt_to_page(p));
 		set_page_count(virt_to_page(p), 1);
@@ -202,6 +229,7 @@ void free_initrd_mem(unsigned long start, unsigned long end)
 	}
 	printk (KERN_INFO "Freeing initrd memory: %ldk freed\n", (end - start) >> 10);
 }
+
 #endif
 
 void si_meminfo(struct sysinfo *val)

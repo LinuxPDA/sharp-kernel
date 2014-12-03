@@ -1712,8 +1712,16 @@ void usb_disconnect(struct usb_device **pdev)
 
 	*pdev = NULL;
 
+#if defined(CONFIG_SH_RTS7751R2D)
+	info("USB disconnect on device %d", dev->devnum);
+#else
+#ifdef CONFIG_PCI
 	info("USB disconnect on device %s-%s address %d",
 			dev->bus->bus_name, dev->devpath, dev->devnum);
+#else
+	info("USB disconnect on device %d", dev->devnum);
+#endif
+#endif
 
 	if (dev->actconfig) {
 		for (i = 0; i < dev->actconfig->bNumInterfaces; i++) {
@@ -1808,7 +1816,7 @@ int usb_get_descriptor(struct usb_device *dev, unsigned char type, unsigned char
 	while (i--) {
 		if ((result = usb_control_msg(dev, usb_rcvctrlpipe(dev, 0),
 			USB_REQ_GET_DESCRIPTOR, USB_DIR_IN,
-			(type << 8) + index, 0, buf, size, HZ * GET_TIMEOUT)) > 0 ||
+			(type << 8) + index, 0, buf, size, HZ * GET_TIMEOUT)) == size ||
 		     result == -EPIPE)
 			break;	/* retry if the returned length was 0; flaky device */
 	}

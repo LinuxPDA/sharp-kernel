@@ -75,9 +75,10 @@ struct sh_machine_vector mv_se __initmv = {
 #ifdef CONFIG_HEARTBEAT
 	mv_heartbeat:		heartbeat_se,
 #endif
-
-	mv_rtc_gettimeofday:	sh_rtc_gettimeofday,
-	mv_rtc_settimeofday:	sh_rtc_settimeofday,
+#if !defined(CONFIG_CPU_SUBTYPE_SH7760)
+        mv_rtc_gettimeofday:    sh_rtc_gettimeofday,
+        mv_rtc_settimeofday:    sh_rtc_settimeofday,
+#endif
 
 	mv_hw_se:		1,
 };

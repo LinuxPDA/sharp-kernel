@@ -278,6 +278,41 @@ ret_from_intercept:
 	 */
 	cmpi	0,r3,0
 	beq	restore
+#ifdef CONFIG_PREEMPT
+	lwz	r3,PREEMPT_COUNT(r2)
+	cmpi	0,r3,1
+	bge	ret_from_except
+	lwz	r5,_MSR(r1)
+	andi.	r5,r5,MSR_PR
+	bne	do_signal_ret
+	lwz	r5,NEED_RESCHED(r2)
+	cmpi	0,r5,0
+	beq	ret_from_except
+	lis	r3,irq_stat@h
+	ori	r3,r3,irq_stat@l
+	lwz	r5,4(r3)
+	lwz	r3,8(r3)
+	add	r3,r3,r5
+	cmpi	0,r3,0
+	bne	ret_from_except
+	lwz	r3,PREEMPT_COUNT(r2)
+	addi	r3,r3,1
+	stw	r3,PREEMPT_COUNT(r2)
+	mfmsr	r0
+	ori	r0,r0,MSR_EE
+	mtmsr	r0
+	sync
+	bl	preempt_schedule
+	mfmsr	r0
+	rlwinm	r0,r0,0,17,15
+	mtmsr	r0
+	sync
+	lwz	r3,PREEMPT_COUNT(r2)
+	subi	r3,r3,1
+	stw	r3,PREEMPT_COUNT(r2)
+	li	r3,1
+	b	ret_from_intercept
+#endif /* CONFIG_PREEMPT */
 	.globl	ret_from_except
 ret_from_except:
 	lwz	r3,_MSR(r1)	/* Returning to user mode? */

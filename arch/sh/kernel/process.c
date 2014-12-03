@@ -19,6 +19,14 @@
 #include <asm/mmu_context.h>
 #include <asm/elf.h>
 
+#if defined(CONFIG_SH_RTS7751R2D)
+#include <asm/renesas_rts7751r2d.h>
+#endif
+
+#if defined(CONFIG_SH_7760_SOLUTION_ENGINE)
+#include <asm/ms7760cp.h>
+#endif
+
 static int hlt_counter=0;
 
 #define HARD_IDLE_TIMEOUT (HZ / 3)
@@ -36,7 +44,7 @@ void enable_hlt(void)
 /*
  * The idle loop on a uniprocessor i386..
  */ 
-void cpu_idle(void *unused)
+void cpu_idle(void)
 {
 	/* endless idle loop with no priority at all */
 	init_idle();
@@ -51,10 +59,19 @@ void cpu_idle(void *unused)
 			__cli();
 			while (!current->need_resched) {
 				__sti();
+#if defined(CONFIG_RTHAL)
+				hard_sti();
+#endif	
+//#if defined(CONFIG_APM)
+//#else
 				asm volatile("sleep" : : : "memory");
+//#endif
 				__cli();
 			}
 			__sti();
+#if defined(CONFIG_RTHAL)
+			hard_sti();
+#endif
 		}
 		schedule();
 		check_pgt_cache();
@@ -70,12 +87,35 @@ void machine_restart(char * __unused)
 
 void machine_halt(void)
 {
+#if defined(CONFIG_SH_RTS7751R2D)
+	ctrl_outw(0x0001, PA_POWOFF);
+#endif
+#if defined(CONFIG_SH_7760_SOLUTION_ENGINE)
+        unsigned char ch;
+        ch = 0; /* catch power control */
+        h8_out(&ch, 1, SH7760SE_PWC_SPOWCR2);
+        ch = 0;
+        h8_out(&ch, 1, SH7760SE_PWC_SPOWCR1);
+#endif
 	while (1)
 		asm volatile("sleep" : : : "memory");
 }
 
 void machine_power_off(void)
 {
+#if defined(CONFIG_SH_RTS7751R2D)
+	ctrl_outw(0x0001, PA_POWOFF);
+#endif
+#if defined(CONFIG_SH_7760_SOLUTION_ENGINE)
+        unsigned char ch;
+        ch = 0; /* catch power control */
+        h8_out(&ch, 1, SH7760SE_PWC_SPOWCR2);
+        ch = 0;
+        h8_out(&ch, 1, SH7760SE_PWC_SPOWCR1);
+        /* NOT REACHED */
+        while (1)
+                asm volatile("sleep" : : : "memory");
+#endif
 }
 
 void show_regs(struct pt_regs * regs)
@@ -118,7 +158,7 @@ void free_task_struct(struct task_struct *p)
  * This is the mechanism for creating a new kernel thread.
  *
  */
-int kernel_thread(int (*fn)(void *), void * arg, unsigned long flags)
+int arch_kernel_thread(int (*fn)(void *), void * arg, unsigned long flags)
 {	/* Don't use this in BL=1(cli).  Or else, CPU resets! */
 	register unsigned long __sc0 __asm__ ("r0");
 	register unsigned long __sc3 __asm__ ("r3") = __NR_clone;
@@ -181,9 +221,17 @@ int dump_fpu(struct pt_regs *regs, elf_fpregset_t *fpu)
 	if (fpvalid) {
 		unsigned long flags;
 
+#if defined(CONFIG_RTHAL)
+		hard_save_flags_and_cli(flags);
+#else
 		save_and_cli(flags);
+#endif
 		unlazy_fpu(tsk);
+#if defined(CONFIG_RTHAL)
+		hard_restore_flags(flags);
+#else
 		restore_flags(flags);
+#endif
 		memcpy(fpu, &tsk->thread.fpu.hard, sizeof(*fpu));
 	}
 
@@ -206,9 +254,17 @@ int copy_thread(int nr, unsigned long clone_flags, unsigned long usp,
 	if (tsk != &init_task) {
 		unsigned long flags;
 
+#if defined(CONFIG_RTHAL)
+		hard_save_flags_and_cli(flags);
+#else
 		save_and_cli(flags);
+#endif
 		unlazy_fpu(tsk);
+#if defined(CONFIG_RTHAL)
+		hard_restore_flags(flags);
+#else
 		restore_flags(flags);
+#endif
 		p->thread.fpu = current->thread.fpu;
 		p->used_math = tsk->used_math;
 	}
@@ -260,9 +316,17 @@ void __switch_to(struct task_struct *prev, struct task_struct *next)
 	if (prev != &init_task) {
 		unsigned long flags;
 
+#if defined(CONFIG_RTHAL)
+		hard_save_flags_and_cli(flags);
+#else
 		save_and_cli(flags);
+#endif
 		unlazy_fpu(prev);
+#if defined(CONFIG_RTHAL)
+		hard_restore_flags(flags);
+#else
 		restore_flags(flags);
+#endif
 	}
 #endif
 	/*
@@ -361,11 +425,19 @@ asmlinkage void print_syscall(int x)
 {
 	unsigned long flags, sr;
 	asm("stc	sr, %0": "=r" (sr));
+#if defined(CONFIG_RTHAL)
+	hard_save_flags_and_cli(flags);
+#else
 	save_and_cli(flags);
+#endif
 	printk("%c: %c %c, %c: SYSCALL\n", (x&63)+32,
 	       (current->flags&PF_USEDFPU)?'C':' ',
 	       (init_task.flags&PF_USEDFPU)?'K':' ', (sr&SR_FD)?' ':'F');
+#if defined(CONFIG_RTHAL)
+	hard_restore_flags(flags);
+#else
 	restore_flags(flags);
+#endif
 }
 
 asmlinkage void break_point_trap(unsigned long r4, unsigned long r5,

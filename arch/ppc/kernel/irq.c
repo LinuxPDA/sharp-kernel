@@ -556,6 +556,34 @@ int do_IRQ(struct pt_regs *regs)
 	return 1; /* lets ret_from_int know we can do checks */
 }
 
+#ifdef CONFIG_PREEMPT
+int
+preempt_intercept(struct pt_regs *regs)
+{
+	int ret;
+
+	preempt_disable();
+
+	switch(regs->trap) {
+	case 0x500:
+		ret = do_IRQ(regs);
+		break;
+#ifndef CONFIG_4xx
+	case 0x900:
+#else
+	case 0x1000:
+#endif
+		ret = timer_interrupt(regs);
+		break;
+	default:
+		BUG();
+	}
+
+	preempt_enable();
+	return ret;
+}
+#endif /* CONFIG_PREEMPT */
+
 unsigned long probe_irq_on (void)
 {
 	return 0;

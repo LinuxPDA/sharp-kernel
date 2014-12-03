@@ -15,7 +15,11 @@ obj-		:=
 export-objs	:= airo.o orinoco.o hermes.o
 
 obj-$(CONFIG_HERMES)		+= orinoco.o hermes.o
+ifeq ($(CONFIG_ARCH_SHARP_SL),y)
+obj-$(CONFIG_PCMCIA_HERMES)	+= orinoco_cs.o spectrum_cs.o
+else
 obj-$(CONFIG_PCMCIA_HERMES)	+= orinoco_cs.o
+endif
 obj-$(CONFIG_APPLE_AIRPORT)	+= airport.o
 obj-$(CONFIG_PLX_HERMES)	+= orinoco_plx.o
 obj-$(CONFIG_PCI_HERMES)	+= orinoco_pci.o

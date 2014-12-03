@@ -50,6 +50,13 @@
  * Al Viro & Jeff Garzik :  moved most of the thing into base.c and
  *			 :  proc_misc.c. The rest may eventually go into
  *			 :  base.c too.
+ *
+ * David McCullough  :  added NO_MM support <davidm@lineo.com>
+ *
+ * ChangeLog:
+ *     23-Nov-2002 SHARP  add pmem
+ *     04-Apr-2003 Sharp for ARM FCSE
+ *
  */
 
 #include <linux/config.h>
@@ -156,11 +163,21 @@ static inline char * task_state(struct task_struct *p, char *buffer)
 		"PPid:\t%d\n"
 		"TracerPid:\t%d\n"
 		"Uid:\t%d\t%d\t%d\t%d\n"
+#ifdef CONFIG_ARM_FCSE
+		"Gid:\t%d\t%d\t%d\t%d\n"
+		"CPU_Pid:\t%d\n"
+		"Pgd:\t%08x\n",
+#else
 		"Gid:\t%d\t%d\t%d\t%d\n",
+#endif
 		get_task_state(p), p->tgid,
 		p->pid, p->pid ? p->p_opptr->pid : 0, 0,
 		p->uid, p->euid, p->suid, p->fsuid,
+#ifdef CONFIG_ARM_FCSE
+		p->gid, p->egid, p->sgid, p->fsgid, p->mm->context.cpu_pid, p->mm->pgd);
+#else
 		p->gid, p->egid, p->sgid, p->fsgid);
+#endif
 	read_unlock(&tasklist_lock);	
 	task_lock(p);
 	buffer += sprintf(buffer,
@@ -178,6 +195,7 @@ static inline char * task_state(struct task_struct *p, char *buffer)
 
 static inline char * task_mem(struct mm_struct *mm, char *buffer)
 {
+#ifndef NO_MM
 	struct vm_area_struct * vma;
 	unsigned long data = 0, stack = 0;
 	unsigned long exec = 0, lib = 0;
@@ -214,6 +232,54 @@ static inline char * task_mem(struct mm_struct *mm, char *buffer)
 		data - stack, stack,
 		exec - lib, lib);
 	up_read(&mm->mmap_sem);
+#else
+	unsigned long bytes = 0, sbytes = 0, slack = 0;
+	struct mm_tblock_struct * tblock;
+        
+	/* Logic: we've got two memory sums for each process, "shared", and
+	 * "non-shared". Shared memory may get counted more then once, for
+	 * each process that owns it. Non-shared memory is counted
+	 * accurately.
+	 *
+	 *	-- Kenneth Albanowski
+	 */
+
+	down_read(&mm->mmap_sem);
+	for (tblock = &mm->tblock; tblock; tblock = tblock->next) {
+		if (tblock->rblock) {
+			bytes += ksize(tblock);
+			if (atomic_read(&mm->mm_count) > 1 ||
+					tblock->rblock->refcount > 1) {
+				sbytes += ksize(tblock->rblock->kblock);
+				sbytes += ksize(tblock->rblock) ;
+			} else {
+				bytes += ksize(tblock->rblock->kblock);
+				bytes += ksize(tblock->rblock) ;
+				slack += ksize(tblock->rblock->kblock) - tblock->rblock->size;
+			}
+		}
+	}
+	
+	((atomic_read(&mm->mm_count) > 1) ? sbytes : bytes)
+			+= ksize(mm);
+	(current->fs && atomic_read(&current->fs->count) > 1 ? sbytes : bytes)
+			+= ksize(current->fs);
+	(current->files && atomic_read(&current->files->count) > 1 ? sbytes : bytes)
+			+= ksize(current->files);
+	(current->sig && atomic_read(&current->sig->count) > 1 ? sbytes : bytes)
+			+= ksize(current->sig);
+	bytes += ksize(current); /* includes kernel stack */
+
+	buffer += sprintf(buffer,
+		"Mem:\t%8lu bytes\n"
+		"Slack:\t%8lu bytes\n"
+		"Shared:\t%8lu bytes\n",
+		bytes,
+		slack,
+		sbytes);
+
+	up_read(&mm->mmap_sem);
+#endif
 	return buffer;
 }
 
@@ -320,13 +386,28 @@ int proc_pid_stat(struct task_struct *task, char * buffer)
 	}
 	task_unlock(task);
 	if (mm) {
+#ifndef NO_MM
 		struct vm_area_struct *vma;
+#endif
 		down_read(&mm->mmap_sem);
+#ifndef NO_MM
 		vma = mm->mmap;
 		while (vma) {
 			vsize += vma->vm_end - vma->vm_start;
 			vma = vma->vm_next;
 		}
+#else /* !NO_MM */
+		vsize = 0;
+		{
+			struct mm_tblock_struct *tbp = &mm->tblock;
+
+			while (tbp) {
+				if (tbp->rblock)
+					vsize += ksize(tbp->rblock->kblock);
+				tbp = tbp->next;
+			}
+		}
+#endif /* !NO_MM */
 		eip = KSTK_EIP(task);
 		esp = KSTK_ESP(task);
 		up_read(&mm->mmap_sem);
@@ -361,15 +442,15 @@ int proc_pid_stat(struct task_struct *task, char * buffer)
 		task->cmin_flt,
 		task->maj_flt,
 		task->cmaj_flt,
-		task->times.tms_utime,
-		task->times.tms_stime,
-		task->times.tms_cutime,
-		task->times.tms_cstime,
+		hz_to_std(task->times.tms_utime),
+		hz_to_std(task->times.tms_stime),
+		hz_to_std(task->times.tms_cutime),
+		hz_to_std(task->times.tms_cstime),
 		priority,
 		nice,
 		0UL /* removed */,
 		task->it_real_value,
-		task->start_time,
+		hz_to_std(task->start_time),
 		vsize,
 		mm ? mm->rss : 0, /* you might want to shift this left 3 */
 		task->rlim[RLIMIT_RSS].rlim_cur,
@@ -396,6 +477,8 @@ int proc_pid_stat(struct task_struct *task, char * buffer)
 	return res;
 }
 		
+#ifndef NO_MM
+
 static inline void statm_pte_range(pmd_t * pmd, unsigned long address, unsigned long size,
 	int * pages, int * shared, int * dirty, int * total)
 {
@@ -471,6 +554,8 @@ static void statm_pgd_range(pgd_t * pgd, unsigned long address, unsigned long en
 	}
 }
 
+#endif /* !NO_MM */
+
 int proc_pid_statm(struct task_struct *task, char * buffer)
 {
 	struct mm_struct *mm;
@@ -482,8 +567,11 @@ int proc_pid_statm(struct task_struct *task, char * buffer)
 		atomic_inc(&mm->mm_users);
 	task_unlock(task);
 	if (mm) {
+#ifndef NO_MM
 		struct vm_area_struct * vma;
+#endif
 		down_read(&mm->mmap_sem);
+#ifndef NO_MM
 		vma = mm->mmap;
 		while (vma) {
 			pgd_t *pgd = pgd_offset(mm, vma->vm_start);
@@ -504,6 +592,39 @@ int proc_pid_statm(struct task_struct *task, char * buffer)
 				drs += pages;
 			vma = vma->vm_next;
 		}
+#else /* !NO_MM */
+		/* DAVIDM - may be able to clean this up a bit */
+		{
+			struct mm_tblock_struct *tbp = &mm->tblock;
+
+			size += ksize(mm);
+			while (tbp) {
+				if (tbp->next)
+					size += ksize(tbp->next);
+				if (tbp->rblock) {
+					size += ksize(tbp->rblock);
+					size += ksize(tbp->rblock->kblock);
+					if (atomic_read(&mm->mm_count) > 1 ||
+							(tbp->rblock->refcount > 1))
+						share += tbp->rblock->size;
+				}
+				tbp = tbp->next;
+			}
+
+			size += (trs = mm->end_code - mm->start_code);
+			size += (drs = mm->start_stack - mm->start_data);
+			dt  = 0;
+			lrs = 0;
+			resident = size;
+
+			/* User programs expect the units to be pages. */
+			size = (size + PAGE_SIZE - 1) >> PAGE_SHIFT;
+			resident = (resident + PAGE_SIZE - 1) >> PAGE_SHIFT;
+			share = (share + PAGE_SIZE - 1) >> PAGE_SHIFT;
+			trs = (trs + PAGE_SIZE - 1) >> PAGE_SHIFT;
+			drs = (drs + PAGE_SIZE - 1) >> PAGE_SHIFT;
+		}
+#endif /* !NO_MM */
 		up_read(&mm->mmap_sem);
 		mmput(mm);
 	}
@@ -511,6 +632,7 @@ int proc_pid_statm(struct task_struct *task, char * buffer)
 		       size, resident, share, trs, lrs, drs, dt);
 }
 
+#ifndef NO_MM
 /*
  * The way we support synthetic files > 4K
  * - without storing their contents in some buffer and
@@ -589,10 +711,12 @@ static int proc_pid_maps_get_line (char *buf, struct vm_area_struct *map)
 		line[len++] = '\n';
 	return len;
 }
+#endif /* NO_MM */
 
 ssize_t proc_pid_read_maps (struct task_struct *task, struct file * file, char * buf,
 			  size_t count, loff_t *ppos)
 {
+#ifndef NO_MM
 	struct mm_struct *mm;
 	struct vm_area_struct * map;
 	char *tmp, *kbuf;
@@ -676,6 +800,10 @@ out_free1:
 	free_page((unsigned long)kbuf);
 out:
 	return retval;
+#else /* !NO_MM */
+	/* DAVIDM - no idea if this one is possible :-) */
+	return(0);
+#endif /* !NO_MM */
 }
 
 #ifdef CONFIG_SMP
@@ -685,15 +813,136 @@ int proc_pid_cpu(struct task_struct *task, char * buffer)
 
 	len = sprintf(buffer,
 		"cpu  %lu %lu\n",
-		task->times.tms_utime,
-		task->times.tms_stime);
+		hz_to_std(task->times.tms_utime),
+		hz_to_std(task->times.tms_stime));
 		
 	for (i = 0 ; i < smp_num_cpus; i++)
 		len += sprintf(buffer + len, "cpu%d %lu %lu\n",
 			i,
-			task->per_cpu_utime[cpu_logical_map(i)],
-			task->per_cpu_stime[cpu_logical_map(i)]);
+			hz_to_std(task->per_cpu_utime[cpu_logical_map(i)]),
+			hz_to_std(task->per_cpu_stime[cpu_logical_map(i)]));
 
 	return len;
 }
 #endif
+
+#include <asm/tlb.h>
+
+static inline int pmem_pte_range(mmu_gather_t *tlb, pmd_t * pmd, unsigned long address, unsigned long size, struct vm_area_struct *mpnt, unsigned long *mmap, unsigned long *brk, unsigned long *stack, unsigned long *file, unsigned long *shared)
+{
+	unsigned long offset;
+	pte_t * ptep;
+	int freed = 0;
+
+	if (pmd_none(*pmd))
+		return 0;
+	if (pmd_bad(*pmd)) {
+		pmd_ERROR(*pmd);
+		pmd_clear(pmd);
+		return 0;
+	}
+	ptep = pte_offset(pmd, address);
+	offset = address & ~PMD_MASK;
+	if (offset + size > PMD_SIZE)
+		size = PMD_SIZE - offset;
+	size &= PAGE_MASK;
+	for (offset=0; offset < size; ptep++, offset += PAGE_SIZE) {
+		pte_t pte = *ptep;
+		if (pte_none(pte))
+			continue;
+		if (pte_present(pte)) {
+			struct page *page = pte_page(pte);
+			if (VALID_PAGE(page) && !PageReserved(page) && !page->mapping) {
+				freed ++;
+				if (page_count(page) > 1) {
+					(*shared)++;
+				}
+				else if (mpnt->vm_file) {
+					(*file)++;
+				}
+				else if (address < 0x40000000) {
+					(*brk)++;
+				}
+				else if (mpnt->vm_flags & VM_GROWSDOWN) {
+					(*stack)++;
+				}
+				else {
+					(*mmap)++;
+				}
+			}
+		}
+	}
+
+	return freed;
+}
+
+static inline int pmem_pmd_range(mmu_gather_t *tlb, pgd_t * dir, unsigned long address, unsigned long size, struct vm_area_struct *mpnt, unsigned long *mmap, unsigned long *brk, unsigned *stack, unsigned long *file, unsigned long *shared)
+{
+	pmd_t * pmd;
+	unsigned long end;
+	int freed;
+
+	if (pgd_none(*dir))
+		return 0;
+	if (pgd_bad(*dir)) {
+		pgd_ERROR(*dir);
+		pgd_clear(dir);
+		return 0;
+	}
+	pmd = pmd_offset(dir, address);
+	end = address + size;
+	if (end > ((address + PGDIR_SIZE) & PGDIR_MASK))
+		end = ((address + PGDIR_SIZE) & PGDIR_MASK);
+	freed = 0;
+	do {
+		freed += pmem_pte_range(tlb, pmd, address, end - address, mpnt, mmap, brk, stack, file, shared);
+		address = (address + PMD_SIZE) & PMD_MASK; 
+		pmd++;
+	} while (address < end);
+	return freed;
+}
+
+
+int proc_pid_pmem(struct task_struct *task, char * buffer)
+{
+	int len = 0;
+	struct mm_struct *mm = task->mm;
+	struct vm_area_struct *mpnt;
+	pgd_t * dir;
+	int heaps = 0;
+	mmu_gather_t *tlb;
+	unsigned long mmap = 0, brk = 0, stack = 0, file = 0, shared = 0;
+
+	if (mm) {
+		spin_lock(&mm->page_table_lock);
+		tlb = tlb_gather_mmu(mm);
+		mpnt = mm->mmap;
+		while (mpnt) {
+			unsigned long start = mpnt->vm_start;
+			unsigned long end = mpnt->vm_end;
+			dir = pgd_offset(mm, start);
+			do {
+				heaps += pmem_pmd_range(tlb, dir, start, end - start, mpnt, &mmap, &brk, &stack, &file, &shared);
+				start = (start + PGDIR_SIZE) & PGDIR_MASK;
+				dir++;
+			} while (start && (start < end));
+			mpnt = mpnt->vm_next;
+		}
+		spin_unlock(&mm->page_table_lock);
+	}
+
+	len = sprintf(buffer,
+		      "  sbrk %dkB\n"
+		      "  mmap %dkB\n"
+		      " stack %dkB\n"
+		      "  file %dkB\n"
+		      "shared %dkB\n"
+		      " total %dkB\n",
+		      brk << 2,
+		      mmap << 2,
+		      stack << 2,
+		      file << 2,
+		      shared << 2,
+		      heaps << 2);
+	return len;
+}

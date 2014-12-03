@@ -24,5 +24,9 @@
 extern void disable_irq(unsigned int);
 extern void enable_irq(unsigned int);
 
+#ifdef CONFIG_RTHAL
+extern struct rt_hal rthal;
+#endif
+
 #endif
 

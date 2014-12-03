@@ -1,0 +1,18 @@
+# cryptoapi/kernel/crypto/Config.in
+
+mainmenu_option next_comment
+comment 'Cryptography support (CryptoAPI)'
+
+tristate 'CryptoAPI support' CONFIG_CRYPTO
+
+dep_tristate 'Crypto Ciphers' CONFIG_CIPHERS $CONFIG_CRYPTO
+source crypto/ciphers/Config.in
+
+dep_tristate 'Digest Algorithms' CONFIG_DIGESTS $CONFIG_CRYPTO
+source crypto/digests/Config.in
+
+dep_tristate 'Crypto Devices' CONFIG_CRYPTODEV $CONFIG_CRYPTO $CONFIG_BLK_DEV_LOOP
+source crypto/cryptoloop/Config.in
+
+endmenu
+

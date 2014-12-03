@@ -583,7 +583,7 @@ int __init deflate_init(void)
         return answer;
 }
      
-void __exit deflate_cleanup(void)
+static void __exit deflate_cleanup(void)
 {
 	ppp_unregister_compressor(&ppp_deflate);
 	ppp_unregister_compressor(&ppp_deflate_draft);

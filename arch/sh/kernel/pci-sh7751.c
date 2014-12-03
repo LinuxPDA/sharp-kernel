@@ -37,9 +37,7 @@ struct pci_ops *pci_root_ops;
 /*
  * Direct access to PCI hardware...
  */
-
-#ifdef CONFIG_PCI_DIRECT
-
+#if defined(CONFIG_PCI_DIRECT) || defined(CONFIG_SH_7751_SOLUTION_ENGINE)
 
 #define CONFIG_CMD(dev, where) (0x80000000 | (dev->bus->number << 16) | (dev->devfn << 8) | (where & ~3))
 
@@ -56,7 +54,11 @@ static int pci_conf1_read_config_byte(struct pci_dev *dev, int where, u8 *value)
     /* PCIPDR may only be accessed as 32 bit words, 
      * so we must do byte alignment by hand 
      */
+#if defined(CONFIG_RTHAL)
+	hard_save_flags_and_cli(flags);
+#else
 	save_and_cli(flags);
+#endif
 	outl(CONFIG_CMD(dev,where), PCI_REG(SH7751_PCIPAR));
 	word = inl(PCI_REG(SH7751_PCIPDR));
 	restore_flags(flags);
@@ -87,7 +89,11 @@ static int pci_conf1_read_config_word(struct pci_dev *dev, int where, u16 *value
     /* PCIPDR may only be accessed as 32 bit words, 
      * so we must do word alignment by hand 
      */
+#if defined(CONFIG_RTHAL)
+	hard_save_flags_and_cli(flags);
+#else
 	save_and_cli(flags);
+#endif
 	outl(CONFIG_CMD(dev,where), PCI_REG(SH7751_PCIPAR));
 	word = inl(PCI_REG(SH7751_PCIPDR));
 	restore_flags(flags);
@@ -115,7 +121,11 @@ static int pci_conf1_read_config_dword(struct pci_dev *dev, int where, u32 *valu
 {
 	unsigned long flags;
 	
+#if defined(CONFIG_RTHAL)
+	hard_save_flags_and_cli(flags);
+#else
 	save_and_cli(flags);
+#endif
 	outl(CONFIG_CMD(dev,where), PCI_REG(SH7751_PCIPAR));
 	*value = inl(PCI_REG(SH7751_PCIPDR));
 	restore_flags(flags);
@@ -134,7 +144,11 @@ static int pci_conf1_write_config_byte(struct pci_dev *dev, int where, u8 value)
     /* Since SH7751 only does 32bit access we'll have to do a
      * read,mask,write operation
      */ 
+#if defined(CONFIG_RTHAL)
+	hard_save_flags_and_cli(flags);
+#else
 	save_and_cli(flags);
+#endif
 	outl(CONFIG_CMD(dev,where), PCI_REG(SH7751_PCIPAR));
 	word = inl(PCI_REG(SH7751_PCIPDR)) ;
 	word &= ~mask;
@@ -160,7 +174,11 @@ static int pci_conf1_write_config_word(struct pci_dev *dev, int where, u16 value
      */ 
 	if (shift == 24)
 	    return PCIBIOS_BAD_REGISTER_NUMBER;
+#if defined(CONFIG_RTHAL)
+	hard_save_flags_and_cli(flags);
+#else
 	save_and_cli(flags);
+#endif
 	outl(CONFIG_CMD(dev,where), PCI_REG(SH7751_PCIPAR));
 	word = inl(PCI_REG(SH7751_PCIPDR)) ;
 	word &= ~mask;
@@ -177,7 +195,11 @@ static int pci_conf1_write_config_dword(struct pci_dev *dev, int where, u32 valu
 {
 	unsigned long flags;
 
+#if defined(CONFIG_RTHAL)
+	hard_save_flags_and_cli(flags);
+#else
 	save_and_cli(flags);
+#endif
 	outl(CONFIG_CMD(dev,where), PCI_REG(SH7751_PCIPAR));
 	outl(value, PCI_REG(SH7751_PCIPDR));
 	restore_flags(flags);
@@ -201,12 +223,29 @@ struct pci_ops * __init pci_check_direct(void)
 {
 	unsigned int tmp, id;
 
+#if defined(CONFIG_SH_RTS7751R2D)
+	unsigned int id_51, id_51r;
+	/* check for SH7751(SH7751R) hardware */
+	id_51	= (SH7751_DEVICE_ID  << 16) | SH7751_VENDOR_ID;
+	id_51r	= (SH7751R_DEVICE_ID << 16) | SH7751_VENDOR_ID;
+	if ((inl(SH7751_PCIREG_BASE+SH7751_PCICONF0) != id_51) &&
+	    (inl(SH7751_PCIREG_BASE+SH7751_PCICONF0) != id_51r)) {
+		PCIDBG(2,"PCI: This is not an SH7751(SH7751R)\n");
+		return NULL;
+	}
+#else
 	/* check for SH7751 hardware */
+#if defined(CONFIG_CPU_SUBTYPE_SH7751R)
+	id = (SH7751R_DEVICE_ID << 16) | SH7751R_VENDOR_ID;
+#else
 	id = (SH7751_DEVICE_ID << 16) | SH7751_VENDOR_ID;
+#endif
 	if(inl(SH7751_PCIREG_BASE+SH7751_PCICONF0) != id) {
 		PCIDBG(2,"PCI: This is not an SH7751\n");
 		return NULL;
 	}
+#endif
+
 	/*
 	 * Check if configuration works.
 	 */
@@ -228,6 +267,7 @@ struct pci_ops * __init pci_check_direct(void)
 
 #endif
 
+#ifndef CONFIG_SH_7751_SOLUTION_ENGINE
 /*
  * BIOS32 and PCI BIOS handling.
  * 
@@ -240,6 +280,7 @@ struct pci_ops * __init pci_check_direct(void)
 #error PCI BIOS is not yet supported on SH7751
 
 #endif /* CONFIG_PCI_BIOS */
+#endif
 
 /***************************************************************************************/
 
@@ -342,13 +383,16 @@ void __init pcibios_init(void)
 	struct pci_ops *dir = NULL;
 
 	PCIDBG(1,"PCI: Starting intialization.\n");
+#ifndef CONFIG_SH_7751_SOLUTION_ENGINE
 #ifdef CONFIG_PCI_BIOS
 	if ((pci_probe & PCI_PROBE_BIOS) && ((bios = pci_find_bios()))) {
 		pci_probe |= PCI_BIOS_SORT;
 		pci_bios_present = 1;
 	}
 #endif
-#ifdef CONFIG_PCI_DIRECT
+#endif
+
+#if defined(CONFIG_PCI_DIRECT) || defined(CONFIG_SH_7751_SOLUTION_ENGINE)
 	if (pci_probe & PCI_PROBE_CONF1 )
 		dir = pci_check_direct();
 #endif
@@ -373,7 +417,7 @@ void __init pcibios_init(void)
 	pcibios_fixup_peer_bridges();
 	pcibios_resource_survey();
 
-#ifdef CONFIG_PCI_BIOS
+#if defined(CONFIG_PCI_BIOS) && !defined(CONFIG_SH_7751_SOLUTION_ENGINE)
 	if ((pci_probe & PCI_BIOS_SORT) && !(pci_probe & PCI_NO_SORT))
 		pcibios_sort();
 #endif
@@ -384,7 +428,8 @@ char * __init pcibios_setup(char *str)
 	if (!strcmp(str, "off")) {
 		pci_probe = 0;
 		return NULL;
-	}
+
+#ifndef CONFIG_SH_7751_SOLUTION_ENGINE
 #ifdef CONFIG_PCI_BIOS
 	else if (!strcmp(str, "bios")) {
 		pci_probe = PCI_PROBE_BIOS;
@@ -400,13 +445,11 @@ char * __init pcibios_setup(char *str)
 		return NULL;
 	}
 #endif
-#ifdef CONFIG_PCI_DIRECT
-	else if (!strcmp(str, "conf1")) {
+#endif
+	} else if (!strcmp(str, "conf1")) {
 		pci_probe = PCI_PROBE_CONF1 | PCI_NO_CHECKS;
 		return NULL;
-	}
-#endif
-	else if (!strcmp(str, "rom")) {
+	} else if (!strcmp(str, "rom")) {
 		pci_probe |= PCI_ASSIGN_ROMS;
 		return NULL;
 	} else if (!strncmp(str, "lastbus=", 8)) {

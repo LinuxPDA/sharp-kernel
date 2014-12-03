@@ -43,7 +43,15 @@ ENTRY(find_next_zero_bit)
 /*
  * One or more bits in the LSB of r3 are assumed to be set.
  */
-.found:		tst	r3, #0x0f
+.found:
+#if __LINUX_ARM_ARCH__ >= 5
+		rsb	r1, r3, #0
+		and	r3, r3, r1
+		clz	r3, r3
+		rsb	r3, r3, #31
+		add	r0, r2, r3
+#else
+		tst	r3, #0x0f
 		addeq	r2, r2, #4
 		movne	r3, r3, lsl #4
 		tst	r3, #0x30
@@ -52,5 +60,6 @@ ENTRY(find_next_zero_bit)
 		tst	r3, #0x40
 		addeq	r2, r2, #1
 		mov	r0, r2
+#endif
 		RETINSTR(mov,pc,lr)
 

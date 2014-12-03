@@ -1,3 +1,5 @@
+/* $USAGI: pcnet32.c,v 1.17.12.1 2003/02/05 07:45:11 yoshfuji Exp $ */
+
 /* pcnet32.c: An AMD PCnet32 ethernet driver for linux. */
 /*
  *	Copyright 1996-1999 Thomas Bogendoerfer
@@ -85,6 +87,16 @@ static struct net_device *pcnet32_dev;
 static int max_interrupt_work = 80;
 static int rx_copybreak = 200;
 
+#ifdef CONFIG_SH_7751_SOLUTION_ENGINE
+/* FIXME! YOU MUST SET YOUR OWN ETHER ADDRESS.  */
+#define ETHER_ADDR_LEN	6
+static unsigned char stnic_eadr[ETHER_ADDR_LEN] =
+{0x00, 0xc0, 0x6e, 0x00, 0x00, 0x07};
+
+extern unsigned char cmdline_ifa[];
+#endif
+
+
 #define PCNET32_PORT_AUI      0x00
 #define PCNET32_PORT_10BT     0x01
 #define PCNET32_PORT_GPSI     0x02
@@ -97,8 +109,9 @@ static int rx_copybreak = 200;
 
 #define PCNET32_DMA_MASK 0xffffffff
 
+#ifndef CONFIG_SH_7751_SOLUTION_ENGINE
 #define PCNET32_WATCHDOG_TIMEOUT (jiffies + (2 * HZ))
-
+#endif
 /*
  * table to translate option values from tulip
  * to internal options
@@ -323,7 +336,9 @@ struct pcnet32_private {
 	mii:1;				/* mii port available */
     struct net_device	*next;
     struct mii_if_info mii_if;
+#ifndef CONFIG_SH_7751_SOLUTION_ENGINE
     struct timer_list	watchdog_timer;
+#endif
 };
 
 static void pcnet32_probe_vlbus(void);
@@ -339,7 +354,9 @@ static int  pcnet32_close(struct net_device *);
 static struct net_device_stats *pcnet32_get_stats(struct net_device *);
 static void pcnet32_set_multicast_list(struct net_device *);
 static int  pcnet32_ioctl(struct net_device *, struct ifreq *, int);
+#ifndef CONFIG_SH_7751_SOLUTION_ENGINE
 static void pcnet32_watchdog(struct net_device *);
+#endif
 static int mdio_read(struct net_device *dev, int phy_id, int reg_num);
 static void mdio_write(struct net_device *dev, int phy_id, int reg_num, int val);
 
@@ -667,6 +684,22 @@ pcnet32_probe1(unsigned long ioaddr, unsigned int irq_line, int shared,
     if( !is_valid_ether_addr(dev->dev_addr) )
 	memset(dev->dev_addr, 0, sizeof(dev->dev_addr));
 
+#ifdef CONFIG_SH_7751_SOLUTION_ENGINE
+    {
+	    for (i = 0;i < ETHER_ADDR_LEN;i++){
+		    if (cmdline_ifa[i] != 0xff)
+			    break;
+	    }
+	    if (i != ETHER_ADDR_LEN){
+		for (i = 0; i < ETHER_ADDR_LEN; i++)
+			dev->dev_addr[i] = cmdline_ifa[i];
+	    }else{
+		for (i = 0; i < ETHER_ADDR_LEN; i++)
+			dev->dev_addr[i] = stnic_eadr[i];
+	    }
+    }
+#endif
+
     for (i = 0; i < 6; i++)
 	printk(" %2.2x", dev->dev_addr[i] );
 
@@ -758,8 +791,12 @@ pcnet32_probe1(unsigned long ioaddr, unsigned int irq_line, int shared,
     if (irq_line) {
 	dev->irq = irq_line;
     }
-    
+
+#ifdef CONFIG_LASAT
+    if (dev->irq >= 0)
+#else
     if (dev->irq >= 2)
+#endif
 	printk(" assigned IRQ %d.\n", dev->irq);
     else {
 	unsigned long irq_mask = probe_irq_on();
@@ -785,12 +822,14 @@ pcnet32_probe1(unsigned long ioaddr, unsigned int irq_line, int shared,
     }
 
     /* Set the mii phy_id so that we can query the link state */
+#ifndef CONFIG_SH_7751_SOLUTION_ENGINE
     if (lp->mii)
 	lp->mii_if.phy_id = ((lp->a.read_bcr (ioaddr, 33)) >> 5) & 0x1f;
 
     init_timer (&lp->watchdog_timer);
     lp->watchdog_timer.data = (unsigned long) dev;
     lp->watchdog_timer.function = (void *) &pcnet32_watchdog;
+#endif
     
     /* The PCNET32-specific entries in the device structure. */
     dev->open = &pcnet32_open;
@@ -821,7 +860,10 @@ pcnet32_open(struct net_device *dev)
     u16 val;
     int i;
 
-    if (dev->irq == 0 ||
+    if (
+#ifndef CONFIG_LASAT
+	dev->irq == 0 ||
+#endif
 	request_irq(dev->irq, &pcnet32_interrupt,
 		    lp->shared_irq ? SA_SHIRQ : 0, lp->name, (void *)dev)) {
 	return -EAGAIN;
@@ -915,12 +957,13 @@ pcnet32_open(struct net_device *dev)
 
     netif_start_queue(dev);
 
+#ifndef CONFIG_SH_7751_SOLUTION_ENGINE
     /* If we have mii, print the link status and start the watchdog */
     if (lp->mii) {
 	mii_check_media (&lp->mii_if, 1, 1);
 	mod_timer (&(lp->watchdog_timer), PCNET32_WATCHDOG_TIMEOUT);
     }
-    
+#endif
     i = 0;
     while (i++ < 100)
 	if (lp->a.read_csr (ioaddr, 0) & 0x0100)
@@ -1191,6 +1234,7 @@ pcnet32_interrupt(int irq, void *dev_id, struct pt_regs * regs)
 		    /* There was an major error, log it. */
 		    int err_status = le32_to_cpu(lp->tx_ring[entry].misc);
 		    lp->stats.tx_errors++;
+
 		    if (err_status & 0x04000000) lp->stats.tx_aborted_errors++;
 		    if (err_status & 0x08000000) lp->stats.tx_carrier_errors++;
 		    if (err_status & 0x10000000) lp->stats.tx_window_errors++;
@@ -1321,6 +1365,9 @@ pcnet32_rx(struct net_device *dev)
 		lp->stats.rx_errors++;
 	    } else {
 		int rx_in_place = 0;
+#ifdef CONFIG_PCNET32_VMWARE
+		int rx_revbytes = 0;
+#endif
 
 		if (pkt_len > rx_copybreak) {
 		    struct sk_buff *newskb;
@@ -1361,15 +1408,32 @@ pcnet32_rx(struct net_device *dev)
 		if (!rx_in_place) {
 		    skb_reserve(skb,2); /* 16 byte align */
 		    skb_put(skb,pkt_len);	/* Make room */
+                    pci_dma_sync_single(lp->pci_dev, 
+				    lp->rx_dma_addr[entry],
+				    pkt_len,
+				    PCI_DMA_FROMDEVICE);
 		    eth_copy_and_sum(skb,
 				     (unsigned char *)(lp->rx_skbuff[entry]->tail),
 				     pkt_len,0);
 		}
 		lp->stats.rx_bytes += skb->len;
+#ifdef CONFIG_PCNET32_VMWARE
+		rx_revbytes = skb->len;
+#endif
 		skb->protocol=eth_type_trans(skb,dev);
+#ifdef CONFIG_PCNET32_VMWARE
+		if (skb->protocol == 0) {
+			dev_kfree_skb(skb);
+			lp->stats.rx_bytes -= rx_revbytes;
+		} else {
+			netif_rx(skb);
+			lp->stats.rx_packets++;
+		}
+#else
 		netif_rx(skb);
 		dev->last_rx = jiffies;
 		lp->stats.rx_packets++;
+#endif
 	    }
 	}
 	/*
@@ -1391,8 +1455,9 @@ pcnet32_close(struct net_device *dev)
     struct pcnet32_private *lp = dev->priv;
     int i;
 
+#ifndef CONFIG_SH_7751_SOLUTION_ENGINE
     del_timer_sync(&lp->watchdog_timer);
-
+#endif
     netif_stop_queue(dev);
 
     lp->stats.rx_missed_errors = lp->a.read_csr (ioaddr, 112);
@@ -1486,7 +1551,11 @@ static void pcnet32_load_multicast (struct net_device *dev)
 	
 	crc = ether_crc_le(6, addrs);
 	crc = crc >> 26;
+#ifdef CONFIG_SH_7751_SOLUTION_ENGINE
+	mcast_table [crc >> 4] |= cpu_to_le16(1 << (crc & 0xf));
+#else
 	mcast_table [crc >> 4] |= 1 << (crc & 0xf);
+#endif
     }
     return;
 }
@@ -1673,6 +1742,7 @@ static int pcnet32_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
     return -EOPNOTSUPP;
 }
 
+#ifndef CONFIG_SH_7751_SOLUTION_ENGINE
 static void pcnet32_watchdog(struct net_device *dev)
 {
     struct pcnet32_private *lp = dev->priv;
@@ -1683,6 +1753,7 @@ static void pcnet32_watchdog(struct net_device *dev)
 
     mod_timer (&(lp->watchdog_timer), PCNET32_WATCHDOG_TIMEOUT);
 }
+#endif
 
 static struct pci_driver pcnet32_driver = {
     name:	DRV_NAME,

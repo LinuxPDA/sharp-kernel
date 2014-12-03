@@ -1722,6 +1722,7 @@ jffs_write_super(struct super_block *sb)
 	struct jffs_control *c = (struct jffs_control *)sb->u.generic_sbp;
 
 	jffs_garbage_collect_trigger(c);
+	sb->s_dirt = 0;
 }
 
 static struct super_operations jffs_ops =

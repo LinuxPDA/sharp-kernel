@@ -33,6 +33,9 @@ static dma_t dma_chan[MAX_DMA_CHANNELS];
  */
 int get_dma_list(char *buf)
 {
+#if defined(CONFIG_ARCH_DBMX2)
+	return dbmx2_get_dma_list(buf);
+#else
 	dma_t *dma;
 	char *p = buf;
 	int i;
@@ -43,6 +46,7 @@ int get_dma_list(char *buf)
 				     dma->d_ops->type, dma->device_id);
 
 	return p - buf;
+#endif
 }
 
 /*
@@ -52,6 +56,12 @@ int get_dma_list(char *buf)
  */
 int request_dma(dmach_t channel, const char *device_id)
 {
+#if defined(CONFIG_ARCH_DBMX2)
+	int chan = (int)channel;
+	if(channel >= MX2_DMA_CHANNELS)
+		return -EINVAL;
+	return dbmx2_request_dma(&chan, device_id);
+#else
 	dma_t *dma = dma_chan + channel;
 	int ret;
 
@@ -80,6 +90,7 @@ bad_dma:
 
 busy:
 	return -EBUSY;
+#endif
 }
 
 /*
@@ -89,6 +100,9 @@ busy:
  */
 void free_dma(dmach_t channel)
 {
+#if defined(CONFIG_ARCH_DBMX2)
+	dbmx2_free_dma((int)channel);
+#else
 	dma_t *dma = dma_chan + channel;
 
 	if (channel >= MAX_DMA_CHANNELS || !dma->d_ops)
@@ -111,6 +125,7 @@ void free_dma(dmach_t channel)
 
 bad_dma:
 	printk(KERN_ERR "dma: trying to free DMA%d\n", channel);
+#endif
 }
 
 /* Set DMA Scatter-Gather list
@@ -118,6 +133,10 @@ bad_dma:
 void set_dma_sg (dmach_t channel, struct scatterlist *sg, int nr_sg)
 {
 	dma_t *dma = dma_chan + channel;
+
+	if (dma->active)
+		printk(KERN_ERR "dma%d: altering DMA SG while "
+		       "DMA active\n", channel);
 
 	dma->sg = sg;
 	dma->sgcount = nr_sg;
@@ -131,6 +150,9 @@ void set_dma_sg (dmach_t channel, struct scatterlist *sg, int nr_sg)
  */
 void set_dma_addr (dmach_t channel, unsigned long physaddr)
 {
+#if defined(CONFIG_ARCH_DBMX2)
+	dbmx2_set_dma_addr(channel, physaddr);
+#else
 	dma_t *dma = dma_chan + channel;
 
 	if (dma->active)
@@ -142,6 +164,7 @@ void set_dma_addr (dmach_t channel, unsigned long physaddr)
 	dma->buf.address = bus_to_virt(physaddr);
 	dma->using_sg = 0;
 	dma->invalid = 1;
+#endif
 }
 
 /* Set DMA byte count
@@ -150,6 +173,9 @@ void set_dma_addr (dmach_t channel, unsigned long physaddr)
  */
 void set_dma_count (dmach_t channel, unsigned long count)
 {
+#if defined(CONFIG_ARCH_DBMX2)
+	dbmx2_set_dma_count(channel, count);
+#else
 	dma_t *dma = dma_chan + channel;
 
 	if (dma->active)
@@ -161,12 +187,16 @@ void set_dma_count (dmach_t channel, unsigned long count)
 	dma->buf.length = count;
 	dma->using_sg = 0;
 	dma->invalid = 1;
+#endif
 }
 
 /* Set DMA direction mode
  */
 void set_dma_mode (dmach_t channel, dmamode_t mode)
 {
+#if defined(CONFIG_ARCH_DBMX2)
+	dbmx2_set_dma_mode(channel, mode);
+#else
 	dma_t *dma = dma_chan + channel;
 
 	if (dma->active)
@@ -175,12 +205,16 @@ void set_dma_mode (dmach_t channel, dmamode_t mode)
 
 	dma->dma_mode = mode;
 	dma->invalid = 1;
+#endif
 }
 
 /* Enable DMA channel
  */
 void enable_dma (dmach_t channel)
 {
+#if defined(CONFIG_ARCH_DBMX2)
+	dbmx2_enable_dma(channel);
+#else
 	dma_t *dma = dma_chan + channel;
 
 	if (!dma->lock)
@@ -195,12 +229,17 @@ void enable_dma (dmach_t channel)
 free_dma:
 	printk(KERN_ERR "dma%d: trying to enable free DMA\n", channel);
 	BUG();
+#endif
 }
 
 /* Disable DMA channel
  */
 void disable_dma (dmach_t channel)
 {
+#if defined(CONFIG_ARCH_DBMX2)
+	dbmx2_disable_dma(channel);
+	return;
+#else
 	dma_t *dma = dma_chan + channel;
 
 	if (!dma->lock)
@@ -215,6 +254,15 @@ void disable_dma (dmach_t channel)
 free_dma:
 	printk(KERN_ERR "dma%d: trying to disable free DMA\n", channel);
 	BUG();
+#endif
+}
+
+/*
+ * Is the specified DMA channel active?
+ */
+int dma_channel_active(dmach_t channel)
+{
+	return dma_chan[channel].active;
 }
 
 void set_dma_page(dmach_t channel, char pagenr)
@@ -234,6 +282,9 @@ void set_dma_speed(dmach_t channel, int cycle_ns)
 
 int get_dma_residue(dmach_t channel)
 {
+#if defined(CONFIG_ARCH_DBMX2)
+	return dbmx2_get_dma_residue(channel);	
+#else
 	dma_t *dma = dma_chan + channel;
 	int ret = 0;
 
@@ -241,6 +292,7 @@ int get_dma_residue(dmach_t channel)
 		ret = dma->d_ops->residue(channel, dma);
 
 	return ret;
+#endif
 }
 
 void __init init_dma(void)
@@ -272,11 +324,10 @@ GLOBAL_ALIAS(set_dma_addr, get_dma_residue);
 GLOBAL_ALIAS(set_dma_sg, get_dma_residue);
 GLOBAL_ALIAS(set_dma_speed, get_dma_residue);
 GLOBAL_ALIAS(init_dma, get_dma_residue);
+GLOBAL_ALIAS(dma_channel_active, get_dma_residue);
 
 #endif
 
-EXPORT_SYMBOL(request_dma);
-EXPORT_SYMBOL(free_dma);
 EXPORT_SYMBOL(enable_dma);
 EXPORT_SYMBOL(disable_dma);
 EXPORT_SYMBOL(set_dma_addr);
@@ -286,3 +337,4 @@ EXPORT_SYMBOL(set_dma_page);
 EXPORT_SYMBOL(get_dma_residue);
 EXPORT_SYMBOL(set_dma_sg);
 EXPORT_SYMBOL(set_dma_speed);
+EXPORT_SYMBOL(dma_channel_active);

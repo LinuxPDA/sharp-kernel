@@ -1,3 +1,5 @@
+/* $USAGI: tcp_minisocks.c,v 1.9.12.1 2003/02/05 07:45:55 yoshfuji Exp $ */
+
 /*
  * INET		An implementation of the TCP/IP protocol suite for the LINUX
  *		operating system.  INET is implemented using the  BSD Socket
@@ -369,6 +371,9 @@ void tcp_time_wait(struct sock *sk, int state, int timeo)
 		tw->dport	= sk->dport;
 		tw->family	= sk->family;
 		tw->reuse	= sk->reuse;
+#ifdef SO_REUSEPORT
+		tw->reuseport	= sk->reuseport;
+#endif
 		tw->rcv_wscale	= tp->rcv_wscale;
 		atomic_set(&tw->refcnt, 1);
 
@@ -379,6 +384,8 @@ void tcp_time_wait(struct sock *sk, int state, int timeo)
 		tw->ts_recent	= tp->ts_recent;
 		tw->ts_recent_stamp= tp->ts_recent_stamp;
 		tw->pprev_death = NULL;
+
+		tw->uid		= sock_i_uid_t(sk);
 
 #if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
 		if(tw->family == PF_INET6) {

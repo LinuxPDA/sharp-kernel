@@ -105,11 +105,26 @@ UNUSUAL_DEV(  0x04cb, 0x0100, 0x0000, 0x2210,
 /* Reported by Peter Wächtler <pwaechtler@loewe-komp.de>
  * The device needs the flags only.
  */
+/* Reported by Peter Wahtler */
 UNUSUAL_DEV(  0x04ce, 0x0002, 0x0074, 0x0074,
 		"ScanLogic",
-		"SL11R-IDE",
+		"SL11R-IDE 0049SQFP-1.2 A002",
 		US_SC_SCSI, US_PR_BULK, NULL,
 		US_FL_FIX_INQUIRY),
+
+/* Reported by Leif Sawyer */
+UNUSUAL_DEV( 0x04ce, 0x0002, 0x0240, 0x0240,
+		"H45 ScanLogic",
+		"SL11R-IDE 9951SQFP-1.2 K004",
+		US_SC_SCSI, US_PR_BULK, NULL,
+		US_FL_FIX_INQUIRY | US_FL_SL_IDE_BUG ),
+
+/* Reported by Rene Engelhard and Dylan Egan, Hajime Taira */
+UNUSUAL_DEV( 0x04ce, 0x0002, 0x0260, 0x0260,
+		"Cypress",
+		"SL11R-IDE-B M8T33-001-1.22 0141",
+		US_SC_SCSI, US_PR_BULK, NULL,
+		US_FL_SL_IDE_BUG ),
 
 /* Reported by Kriston Fincher <kriston@airmail.net>
  * Patch submitted by Sean Millichamp <sean@bruenor.org>

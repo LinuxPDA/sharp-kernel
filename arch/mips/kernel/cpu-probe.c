@@ -3,6 +3,7 @@
 #include <linux/stddef.h>
 #include <asm/bugs.h>
 #include <asm/cpu.h>
+#include <asm/fpu.h>
 #include <asm/mipsregs.h>
 
 /*
@@ -16,14 +17,14 @@ void (*cpu_wait)(void) = NULL;
 
 static void r3081_wait(void)
 {
-	unsigned long cfg = read_32bit_cp0_register(CP0_CONF);
-	write_32bit_cp0_register(CP0_CONF, cfg|CONF_HALT);
+	unsigned long cfg = read_c0_conf();
+	write_c0_conf(cfg | CONF_HALT);
 }
 
 static void r39xx_wait(void)
 {
-	unsigned long cfg = read_32bit_cp0_register(CP0_CONF);
-	write_32bit_cp0_register(CP0_CONF, cfg|TX39_CONF_HALT);
+	unsigned long cfg = read_c0_conf();
+	write_c0_conf(cfg | TX39_CONF_HALT);
 }
 
 static void r4k_wait(void)
@@ -104,12 +105,12 @@ static inline int cpu_has_confreg(void)
 #ifdef CONFIG_CPU_R3000
 	extern unsigned long r3k_cache_size(unsigned long);
 	unsigned long size1, size2;
-	unsigned long cfg = read_32bit_cp0_register(CP0_CONF);
+	unsigned long cfg = read_c0_conf();
 
 	size1 = r3k_cache_size(ST0_ISC);
-	write_32bit_cp0_register(CP0_CONF, cfg^CONF_AC);
+	write_c0_conf(cfg ^ CONF_AC);
 	size2 = r3k_cache_size(ST0_ISC);
-	write_32bit_cp0_register(CP0_CONF, cfg);
+	write_c0_conf(cfg);
 	return size1 != size2;
 #else
 	return 0;
@@ -123,10 +124,10 @@ static inline unsigned long cpu_get_fpu_id(void)
 {
 	unsigned long tmp, fpu_id;
 
-	tmp = read_32bit_cp0_register(CP0_STATUS);
+	tmp = read_c0_status();
 	__enable_fpu();
 	fpu_id = read_32bit_cp1_register(CP1_REVISION);
-	write_32bit_cp0_register(CP0_STATUS, tmp);
+	write_c0_status(tmp);
 	return fpu_id;
 }
 
@@ -140,9 +141,9 @@ static inline int cpu_has_fpu(void)
 
 /* declaration of the global struct */
 struct mips_cpu mips_cpu = {
-    processor_id:	PRID_IMP_UNKNOWN,
-    fpu_id:		FPIR_IMP_NONE,
-    cputype:		CPU_UNKNOWN
+    .processor_id	= PRID_IMP_UNKNOWN,
+    .fpu_id		= FPIR_IMP_NONE,
+    .cputype		= CPU_UNKNOWN
 };
 
 /* Shortcut for assembler access to mips_cpu.options */
@@ -154,14 +155,14 @@ int *cpuoptions = &mips_cpu.options;
 __init void cpu_probe(void)
 {
 #if defined(CONFIG_CPU_MIPS32) || defined(CONFIG_CPU_MIPS64)
-	unsigned long config0 = read_32bit_cp0_register(CP0_CONFIG);
+	unsigned long config0 = read_c0_config();
 	unsigned long config1;
 
         if (config0 & (1 << 31)) {
 		/* MIPS32 or MIPS64 compliant CPU. Read Config 1 register. */
 		mips_cpu.options = MIPS_CPU_TLB | MIPS_CPU_4KEX |
 			MIPS_CPU_4KTLB | MIPS_CPU_COUNTER | MIPS_CPU_DIVEC;
-		config1 = read_mips32_cp0_config1();
+		config1 = read_c0_config1();
 		if (config1 & (1 << 3))
 			mips_cpu.options |= MIPS_CPU_WATCH;
 		if (config1 & (1 << 2))
@@ -177,7 +178,7 @@ __init void cpu_probe(void)
 		mips_cpu.scache.flags = MIPS_CACHE_NOT_PRESENT;
 	}
 #endif
-	mips_cpu.processor_id = read_32bit_cp0_register(CP0_PRID);
+	mips_cpu.processor_id = read_c0_prid();
 	switch (mips_cpu.processor_id & 0xff0000) {
 	case PRID_COMP_LEGACY:
 		switch (mips_cpu.processor_id & 0xff00) {
@@ -204,7 +205,7 @@ __init void cpu_probe(void)
 			mips_cpu.tlbsize = 64;
 			break;
 		case PRID_IMP_R4000:
-			if ((mips_cpu.processor_id & 0xff) == PRID_REV_R4400)
+			if ((mips_cpu.processor_id & 0xff) >= PRID_REV_R4400)
 				mips_cpu.cputype = CPU_R4400SC;
 			else
 				mips_cpu.cputype = CPU_R4000SC;
@@ -372,7 +373,7 @@ __init void cpu_probe(void)
 			 * 29      1 =>    64 entry JTLB
 			 *         0 =>    48 entry JTLB
 			 */
-			mips_cpu.tlbsize = (get_info() & (1 << 29)) ? 64 : 48;
+			mips_cpu.tlbsize = (read_c0_info() & (1 << 29)) ? 64 : 48;
 			break;
 		case PRID_IMP_R8000:
 			mips_cpu.cputype = CPU_R8000;
@@ -463,7 +464,7 @@ __init void cpu_probe(void)
 			mips_cpu.isa_level = MIPS_CPU_ISA_M64;
 			mips_cpu.options = MIPS_CPU_TLB | MIPS_CPU_4KEX |
 			                   MIPS_CPU_COUNTER | MIPS_CPU_DIVEC |
-			                   MIPS_CPU_MCHECK;
+			                   MIPS_CPU_MCHECK | MIPS_CPU_EJTAG;
 #ifndef CONFIG_SB1_PASS_1_WORKAROUNDS
 			/* FPU in pass1 is known to have issues. */
 			mips_cpu.options |= MIPS_CPU_FPU;

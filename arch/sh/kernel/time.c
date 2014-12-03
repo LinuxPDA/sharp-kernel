@@ -29,6 +29,9 @@
 #include <asm/delay.h>
 #include <asm/machvec.h>
 #include <asm/rtc.h>
+#ifdef CONFIG_SH_KGDB
+#include <asm/kgdb.h>
+#endif
 
 #include <linux/timex.h>
 #include <linux/irq.h>
@@ -40,6 +43,16 @@
 #define TMU0_TCR_CALIB	0x0000
 
 #if defined(__sh3__)
+#if defined(CONFIG_CPU_SUBTYPE_SH7290) || defined(CONFIG_CPU_SUBTYPE_SH7710) || defined(CONFIG_CPU_SUBTYPE_SH7720)
+ #if !(defined(CONFIG_CPU_SUBTYPE_SH7710)) && !(defined(CONFIG_CPU_SUBTYPE_SH7720))
+#define TMU_TOCR	0xa412fe90
+ #endif
+#define TMU_TSTR	0xa412fe92
+#define TMU0_TCOR	0xa412fe94
+#define TMU0_TCNT	0xa412fe98
+#define TMU0_TCR	0xa412fe9c
+#define FRQCR		0xa415ff80
+#else
 #define TMU_TOCR	0xfffffe90	/* Byte access */
 #define TMU_TSTR	0xfffffe92	/* Byte access */
 
@@ -48,6 +61,7 @@
 #define TMU0_TCR	0xfffffe9c	/* Word access */
 
 #define FRQCR		0xffffff80
+#endif
 #elif defined(__SH4__)
 #define TMU_TOCR	0xffd80000	/* Byte access */
 #define TMU_TSTR	0xffd80004	/* Byte access */
@@ -100,7 +114,7 @@ static unsigned long do_gettimeoffset(void)
 	if( jiffies_t == jiffies_p ) {
 		if( count > count_p ) {
 			/* the nutcase */
-
+#if 0
 			if(ctrl_inw(TMU0_TCR) & 0x100) { /* Check UNF bit */
 				/*
 				 * We cannot detect lost timer interrupts ... 
@@ -111,6 +125,9 @@ static unsigned long do_gettimeoffset(void)
 			} else {
 				printk("do_slow_gettimeoffset(): hardware timer problem?\n");
 			}
+#endif
+			count -= LATCH;
+
 		}
 	} else
 		jiffies_p = jiffies_t;
@@ -234,6 +251,10 @@ static void timer_interrupt(int irq, void *dev_id, struct pt_regs *regs)
 	write_unlock(&xtime_lock);
 }
 
+static void tmu1_interrupt(int irq, void *dev_id, struct pt_regs *regs)
+{
+}
+
 static unsigned int __init get_timer_frequency(void)
 {
 	u32 freq;
@@ -245,7 +266,9 @@ static unsigned int __init get_timer_frequency(void)
 	 * have it count down at its natural rate.
 	 */
 	ctrl_outb(0, TMU_TSTR);
+#if !(defined(CONFIG_CPU_SUBTYPE_SH7710)) && !(defined(CONFIG_CPU_SUBTYPE_SH7720))
 	ctrl_outb(TMU_TOCR_INIT, TMU_TOCR);
+#endif
 	ctrl_outw(TMU0_TCR_CALIB, TMU0_TCR);
 	ctrl_outl(0xffffffff, TMU0_TCOR);
 	ctrl_outl(0xffffffff, TMU0_TCNT);
@@ -284,6 +307,7 @@ static unsigned int __init get_timer_frequency(void)
 }
 
 static struct irqaction irq0  = { timer_interrupt, SA_INTERRUPT, 0, "timer", NULL, NULL};
+static struct irqaction irq1  = { tmu1_interrupt, SA_INTERRUPT, 0, "tmu1", NULL, NULL};
 
 void __init time_init(void)
 {
@@ -295,9 +319,15 @@ void __init time_init(void)
 	unsigned short frqcr, ifc, pfc, bfc;
 	unsigned long interval;
 #if defined(__sh3__)
+#if defined(CONFIG_CPU_SUBTYPE_SH7710) || defined(CONFIG_CPU_SUBTYPE_SH7720)
+       static int stc_table[] = { 1, 2, 3, 1, 1, 1, 1, 1 };
+       static int ifc_table[] = { 1, 2, 3, 1, 1, 1, 1, 1 };
+       static int pfc_table[] = { 1, 2, 3, 4, 6, 1, 1, 1 };
+#else
 	static int ifc_table[] = { 1, 2, 4, 1, 3, 1, 1, 1 };
 	static int pfc_table[] = { 1, 2, 4, 1, 3, 6, 1, 1 };
 	static int stc_table[] = { 1, 2, 4, 8, 3, 6, 1, 1 };
+#endif
 #elif defined(__SH4__)
 	static int ifc_table[] = { 1, 2, 3, 4, 6, 8, 1, 1 };
 #define bfc_table ifc_table	/* Same */
@@ -362,13 +392,50 @@ void __init time_init(void)
 	rtc_gettimeofday(&xtime);
 
 	setup_irq(TIMER_IRQ, &irq0);
+	setup_irq(TMU1_IRQ,  &irq1);
 
+#if defined(CONFIG_SH_MS7290CP)
+	timer_freq = 19800000/4; /* (19.8/4)MHz */
+#elif defined(CONFIG_CPU_SUBTYPE_SH7760)
+	timer_freq = 33333333/4;
+#elif defined(CONFIG_CPU_SUBTYPE_SH7720)
+	timer_freq = 16666666;
+#else
 	timer_freq = get_timer_frequency();
+#if 0
+	timer_freq = 33333333/4;
+#endif
+#endif
 
 	module_clock = timer_freq * 4;
 
 #if defined(__sh3__)
 	{
+#if defined(CONFIG_CPU_SUBTYPE_SH7290)
+		frqcr = ctrl_inw(FRQCR);
+		ifc = 1;
+		bfc = 6;
+		pfc = 6;
+#elif defined(CONFIG_CPU_SUBTYPE_SH7720)
+		frqcr = ctrl_inw(FRQCR);
+		ifc = 1;
+		bfc = 2;
+		pfc = 2;
+#elif defined(CONFIG_CPU_SUBTYPE_SH7710)
+		unsigned short tmp;
+/*
+		ifc = 1;
+		bfc = 3;
+		pfc = 6;
+*/
+		frqcr = ctrl_inw(FRQCR);
+                tmp = (frqcr & 0x0030) >>  4;
+                ifc  = ifc_table[tmp];
+                tmp  = (frqcr & 0x0300) >> 8;
+                bfc = stc_table[tmp];
+                tmp  = (frqcr & 0x0007);
+                pfc = pfc_table[tmp];
+#else
 		unsigned short tmp;
 
 		frqcr = ctrl_inw(FRQCR);
@@ -381,6 +448,7 @@ void __init time_init(void)
 		tmp  = (frqcr & 0x2000) >> 11;
 		tmp |= frqcr & 0x0003;
 		pfc = pfc_table[tmp];
+#endif
 	}
 #elif defined(__SH4__)
 	{
@@ -465,9 +533,19 @@ void __init time_init(void)
 
 	/* Start TMU0 */
 	ctrl_outb(0, TMU_TSTR);
+#if !(defined(CONFIG_CPU_SUBTYPE_SH7710)) && !(defined(CONFIG_CPU_SUBTYPE_SH7720))
 	ctrl_outb(TMU_TOCR_INIT, TMU_TOCR);
+#endif
 	ctrl_outw(TMU0_TCR_INIT, TMU0_TCR);
 	ctrl_outl(interval, TMU0_TCOR);
 	ctrl_outl(interval, TMU0_TCNT);
 	ctrl_outb(TMU_TSTR_INIT, TMU_TSTR);
+
+#if defined(CONFIG_SH_KGDB)
+	/*
+	 * Set up kgdb as requested. We do it here because the serial
+	 * init uses the timer vars we just set up for figuring baud.
+	 */
+	kgdb_init();
+#endif
 }

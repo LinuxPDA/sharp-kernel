@@ -14,6 +14,8 @@
 # Rewritten by Cort Dougan and Paul Mackerras
 #
 
+CROSS_COMPILE	= ppc-linux-
+
 # Be sure to change PAGE_OFFSET in include/asm-ppc/page.h to match
 KERNELLOAD	=0xc0000000
 
@@ -26,7 +28,7 @@ CPPFLAGS	:= $(CPPFLAGS) -I$(TOPDIR)/arch/$(ARCH)
 AFLAGS		:= $(AFLAGS) -I$(TOPDIR)/arch/$(ARCH)
 CFLAGS		:= $(CFLAGS) -I$(TOPDIR)/arch/$(ARCH) -fsigned-char \
 		-msoft-float -pipe -ffixed-r2 -Wno-uninitialized \
-		-mmultiple -mstring
+		-mmultiple -mstring -D__ppc__
 HOSTCFLAGS	+= -I$(TOPDIR)/arch/$(ARCH)
 CPP		= $(CC) -E $(CFLAGS)
 

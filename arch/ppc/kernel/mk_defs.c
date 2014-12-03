@@ -42,6 +42,9 @@ main(void)
 	DEFINE(SIGPENDING, offsetof(struct task_struct, sigpending));
 	DEFINE(THREAD, offsetof(struct task_struct, thread));
 	DEFINE(MM, offsetof(struct task_struct, mm));
+#ifdef CONFIG_PREEMPT
+	DEFINE(PREEMPT_COUNT, offsetof(struct task_struct, preempt_count));
+#endif
 	DEFINE(ACTIVE_MM, offsetof(struct task_struct, active_mm));
 	DEFINE(TASK_STRUCT_SIZE, sizeof(struct task_struct));
 	DEFINE(KSP, offsetof(struct thread_struct, ksp));

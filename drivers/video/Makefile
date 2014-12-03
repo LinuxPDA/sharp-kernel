@@ -14,14 +14,16 @@ export-objs    := fbmem.o fbcmap.o fbcon.o fbmon.o modedb.o \
 		  fbcon-vga.o fbcon-iplan2p2.o fbcon-iplan2p4.o \
 		  fbcon-iplan2p8.o fbcon-vga-planes.o fbcon-cfb16.o \
 		  fbcon-cfb2.o fbcon-cfb24.o fbcon-cfb32.o fbcon-cfb4.o \
-		  fbcon-cfb8.o fbcon-mac.o fbcon-mfb.o \
-		  cyber2000fb.o sa1100fb.o fbcon-hga.o fbgen.o
+		  fbcon-cfb8.o fbcon-mac.o fbcon-mfb.o pxafb.o \
+		  cyber2000fb.o sa1100fb.o fbcon-hga.o fbgen.o \
+		  cotulla_fb.o discovery_frontlight.o
 
 # Each configuration option enables a list of files.
 
 obj-$(CONFIG_DUMMY_CONSOLE)       += dummycon.o
 obj-$(CONFIG_SGI_NEWPORT_CONSOLE) += newport_con.o
 obj-$(CONFIG_PROM_CONSOLE)        += promcon.o promcon_tbl.o
+obj-$(CONFIG_STI_CONSOLE)         += sticon.o sticon-bmode.o sticore.o
 obj-$(CONFIG_VGA_CONSOLE)         += vgacon.o
 obj-$(CONFIG_MDA_CONSOLE)         += mdacon.o
 
@@ -55,6 +57,7 @@ obj-$(CONFIG_FB_CONTROL)          += controlfb.o
 obj-$(CONFIG_FB_PLATINUM)         += platinumfb.o
 obj-$(CONFIG_FB_VALKYRIE)         += valkyriefb.o
 obj-$(CONFIG_FB_CT65550)          += chipsfb.o
+obj-$(CONFIG_FB_CLPS711X)         += clps711xfb.o
 obj-$(CONFIG_FB_CYBER)            += cyberfb.o
 obj-$(CONFIG_FB_CYBER2000)        += cyber2000fb.o
 obj-$(CONFIG_FB_SGIVW)            += sgivwfb.o
@@ -81,11 +84,22 @@ obj-$(CONFIG_FB_TCX)              += tcxfb.o sbusfb.o
 obj-$(CONFIG_FB_CGFOURTEEN)       += cgfourteenfb.o sbusfb.o
 obj-$(CONFIG_FB_P9100)            += p9100fb.o sbusfb.o
 obj-$(CONFIG_FB_LEO)              += leofb.o sbusfb.o
+obj-$(CONFIG_FB_STI)	          += stifb.o sticore.o fbgen.o
 obj-$(CONFIG_FB_PMAG_BA)          += pmag-ba-fb.o
 obj-$(CONFIG_FB_PMAGB_B)          += pmagb-b-fb.o
 obj-$(CONFIG_FB_MAXINE)           += maxinefb.o
 obj-$(CONFIG_FB_TX3912)           += tx3912fb.o
 obj-$(CONFIG_FB_AU1100)		  += au1100fb.o fbgen.o
+obj-$(CONFIG_FB_MS7290CP)         += ms7290cpfb.o
+obj-$(CONFIG_FB_HD64413)          += hd64413fb.o hd64413fb-cfb.o fbgen.o
+obj-$(CONFIG_FB_SH7727)           += sh7727fb.o
+obj-$(CONFIG_FB_SH7720)           += sh7720fb.o
+obj-$(CONFIG_FB_SH7760)           += sh7760fb.o
+
+obj-$(CONFIG_FB_VOYAGER_GX)	  += voyager_gxfb.o voyager_videofb.o \
+				     voyager_valphafb.o voyager_alphafb.o \
+				     voyager_panelcsrfb.o voyager_crtfb.o \
+				     voyager_crtcsrfb.o
 
 subdir-$(CONFIG_STI_CONSOLE)      += sti
 ifeq ($(CONFIG_STI_CONSOLE),y)
@@ -121,11 +135,27 @@ obj-$(CONFIG_FB_SUN3)             += sun3fb.o
 obj-$(CONFIG_FB_BWTWO)            += bwtwofb.o
 obj-$(CONFIG_FB_HGA)              += hgafb.o  
 obj-$(CONFIG_FB_SA1100)           += sa1100fb.o
+obj-$(CONFIG_FB_PXA)              += pxafb.o
+obj-$(CONFIG_FB_KATANA)           += katanafb.o
+obj-$(CONFIG_FB_DRAGON)           += dragonfb.o
+obj-$(CONFIG_FB_PXA)		  += pxafb.o
+ifeq ($(CONFIG_PXA_CERF_PDA),y)
+obj-$(CONFIG_FB_PXA)              += lcdctrl.o lcdctrl_cerf.o
+endif
 obj-$(CONFIG_FB_VIRTUAL)          += vfb.o  
 obj-$(CONFIG_FB_HIT)              += hitfb.o fbgen.o
 obj-$(CONFIG_FB_E1355)            += epson1355fb.o fbgen.o
+obj-$(CONFIG_FB_E1356)            += epson1356fb.o
 obj-$(CONFIG_FB_PVR2)             += pvr2fb.o
 obj-$(CONFIG_FB_VOODOO1)          += sstfb.o
+obj-$(CONFIG_FB_ANAKIN)           += anakinfb.o
+obj-$(CONFIG_FB_DBMX1)            += dbmx1fb.o
+obj-$(CONFIG_FB_DBMX21)           += dbmx21fb.o
+obj-$(CONFIG_FB_COTULLA)          += cotulla_fb.o discovery_frontlight.o
+obj-$(CONFIG_FB_POODLE)           += cotulla_fb.o poodle_frontlight.o
+obj-$(CONFIG_FB_CORGI)            += w100fb.o fbgen.o corgi_backlight.o
+obj-$(CONFIG_FB_TOSA)             += tc6393fb.o fbgen.o tosa_backlight.o
+obj-$(CONFIG_FB_SHARPSL_PXA)      += sharpsl_pxafb.o fbgen.o corgi_backlight.o
 
 # Generic Low Level Drivers
 

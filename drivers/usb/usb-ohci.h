@@ -5,7 +5,14 @@
  * (C) Copyright 2000-2001 David Brownell <dbrownell@users.sourceforge.net>
  * 
  * usb-ohci.h
+ *
+ * ChangeLog:
+ *   26-Feb-2004 Lineo Solutions, Inc.  for Tosa (SHARP)
  */
+
+#if defined(CONFIG_USB_USE_INTERNAL_MEMORY)
+#include "mem-onchip.h"
+#endif
 
  
 static int cc_to_error[16] = { 
@@ -30,6 +37,28 @@ static int cc_to_error[16] = {
 };
 
 #include <linux/config.h>
+
+#ifdef CONFIG_TOADKK_TCS8000 /*@@@@@*/
+static inline void ohci_rwsync()
+{
+	__asm__ __volatile__ ( "\n\t"
+			       ".set noreorder\n\t"
+			       "nop\n\t"
+			       "nop\n\t"
+			       "nop\n\t"
+			       "nop\n\t"
+			       "nop\n\t"
+			       "nop\n\t"
+			       "nop\n\t"
+			       "nop\n\t"
+			       ".set reorder\n\n" );
+}
+#define ohci_readl(a)		(ohci_rwsync(),readl(a))
+#define ohci_writel(d,a)	(writel((d),(a)),ohci_rwsync())
+#else
+#define ohci_readl(a)		readl(a)
+#define ohci_writel(d,a)	writel((d),(a))
+#endif
 
 /* ED States */
 
@@ -60,6 +89,31 @@ struct ed {
 	__u32 unused[3];
 } __attribute((aligned(16)));
 typedef struct ed ed_t;
+
+#include <linux/autoconf.h>
+#if defined(CONFIG_USB_USE_INTERNAL_MEMORY)
+#include "mem-onchip.h"
+
+#if defined(CONFIG_CPU_SUBTYPE_SH7760)
+/* not use pci-pool */
+#define REDUCE_INTERNAL_MEMORY_CONSUMPTION
+#endif
+
+#ifdef REDUCE_INTERNAL_MEMORY_CONSUMPTION
+		// pci_pool_alloc(pool, flags, handle)
+static inline void*
+PCI_POOL_ALLOC(size_t size, int flags, dma_addr_t *handle)
+{
+	void *p = KMALLOC(size, flags);
+	*handle = (dma_addr_t)OC_MEM_VAR_TO_OFFSET(p);
+	return p;
+}
+
+#define pci_pool_free(pool, vaddr, addr) \
+	KFREE(vaddr)
+#endif
+
+#endif
 
  
 /* TD info field */
@@ -447,12 +501,6 @@ static int rh_init_int_timer(struct urb * urb);
 #else
 #	define OHCI_MEM_FLAGS	0
 #endif
- 
-#ifndef CONFIG_PCI
-#	error "usb-ohci currently requires PCI-based controllers"
-	/* to support non-PCI OHCIs, you need custom bus/mem/... glue */
-#endif
-
 
 /* Recover a TD/ED using its collision chain */
 static inline void *
@@ -559,6 +607,21 @@ hash_free_td (struct ohci * hc, struct td * td)
 
 static int ohci_mem_init (struct ohci *ohci)
 {
+#ifndef REDUCE_INTERNAL_MEMORY_CONSUMPTION
+#if defined(CONFIG_SH_RTS7751R2D) && defined(CONFIG_VOYAGERGX)
+	ohci->td_cache = usb_pci_pool_create ("ohci_td", ohci->ohci_dev,
+		sizeof (struct td),
+		32 /* byte alignment */,
+		0 /* no page-crossing issues */,
+		GFP_KERNEL | OHCI_MEM_FLAGS);
+	if (!ohci->td_cache)
+		return -ENOMEM;
+	ohci->dev_cache = usb_pci_pool_create ("ohci_dev", ohci->ohci_dev,
+		sizeof (struct ohci_device),
+		16 /* byte alignment */,
+		0 /* no page-crossing issues */,
+		GFP_KERNEL | OHCI_MEM_FLAGS);
+#else
 	ohci->td_cache = pci_pool_create ("ohci_td", ohci->ohci_dev,
 		sizeof (struct td),
 		32 /* byte alignment */,
@@ -571,13 +634,26 @@ static int ohci_mem_init (struct ohci *ohci)
 		16 /* byte alignment */,
 		0 /* no page-crossing issues */,
 		GFP_KERNEL | OHCI_MEM_FLAGS);
+#endif
 	if (!ohci->dev_cache)
 		return -ENOMEM;
+#endif
 	return 0;
 }
 
 static void ohci_mem_cleanup (struct ohci *ohci)
 {
+#ifndef REDUCE_INTERNAL_MEMORY_CONSUMPTION
+#if defined(CONFIG_SH_RTS7751R2D) && defined(CONFIG_VOYAGERGX)
+	if (ohci->td_cache) {
+		usb_pci_pool_destroy (ohci->td_cache);
+		ohci->td_cache = 0;
+	}
+	if (ohci->dev_cache) {
+		usb_pci_pool_destroy (ohci->dev_cache);
+		ohci->dev_cache = 0;
+	}
+#else
 	if (ohci->td_cache) {
 		pci_pool_destroy (ohci->td_cache);
 		ohci->td_cache = 0;
@@ -586,6 +662,8 @@ static void ohci_mem_cleanup (struct ohci *ohci)
 		pci_pool_destroy (ohci->dev_cache);
 		ohci->dev_cache = 0;
 	}
+#endif
+#endif
 }
 
 /* TDs ... */
@@ -595,7 +673,15 @@ td_alloc (struct ohci *hc, int mem_flags)
 	dma_addr_t	dma;
 	struct td	*td;
 
+#ifdef REDUCE_INTERNAL_MEMORY_CONSUMPTION
+	td = PCI_POOL_ALLOC (sizeof(struct td), mem_flags, &dma);
+#else
+#if defined(CONFIG_SH_RTS7751R2D) && defined(CONFIG_VOYAGERGX)
+	td = usb_pci_pool_alloc (hc->td_cache, mem_flags, &dma);
+#else
 	td = pci_pool_alloc (hc->td_cache, mem_flags, &dma);
+#endif
+#endif
 	if (td) {
 		td->td_dma = dma;
 
@@ -612,7 +698,11 @@ static inline void
 td_free (struct ohci *hc, struct td *td)
 {
 	hash_free_td (hc, td);
-	pci_pool_free (hc->td_cache, td, td->td_dma);
+#if defined(CONFIG_SH_RTS7751R2D) && defined(CONFIG_VOYAGERGX)
+	usb_pci_pool_free (hc->td_cache, td, td->td_dma);
+#else
+ 	pci_pool_free (hc->td_cache, td, td->td_dma);
+#endif
 }
 
 
@@ -624,9 +714,21 @@ dev_alloc (struct ohci *hc, int mem_flags)
 	struct ohci_device	*dev;
 	int			i, offset;
 
+#ifdef REDUCE_INTERNAL_MEMORY_CONSUMPTION
+	dev = PCI_POOL_ALLOC (sizeof(struct ohci_device), mem_flags, &dma);
+#else
+#if defined(CONFIG_SH_RTS7751R2D) && defined(CONFIG_VOYAGERGX)
+	dev = usb_pci_pool_alloc (hc->dev_cache, mem_flags, &dma);
+#else
 	dev = pci_pool_alloc (hc->dev_cache, mem_flags, &dma);
+#endif
+#endif
 	if (dev) {
 		memset (dev, 0, sizeof (*dev));
+
+#if defined(CONFIG_CPU_SUBTYPE_SH7760)
+		dma = (unsigned long )dev - OC_MEM_TOP; /* SH7760 */
+#endif
 		dev->dma = dma;
 		offset = ((char *)&dev->ed) - ((char *)dev);
 		for (i = 0; i < NUM_EDS; i++, offset += sizeof dev->ed [0])
@@ -639,6 +741,10 @@ dev_alloc (struct ohci *hc, int mem_flags)
 static inline void
 dev_free (struct ohci *hc, struct ohci_device *dev)
 {
+#if defined(CONFIG_SH_RTS7751R2D) && defined(CONFIG_VOYAGERGX)
+        usb_pci_pool_free (hc->dev_cache, dev, dev->dma);
+#else
 	pci_pool_free (hc->dev_cache, dev, dev->dma);
+#endif
 }
 

@@ -29,6 +29,9 @@
     the provisions above, a recipient may use your version of this
     file under either the MPL or the GPL.
     
+    Change Log
+       11-Jul-2002 Lineo Japan, Inc.
+
 ======================================================================*/
 
 #include <linux/config.h>
@@ -55,6 +58,7 @@
 #include <pcmcia/bulkmem.h>
 #include <pcmcia/cistpl.h>
 #include <pcmcia/ds.h>
+#include <linux/devfs_fs_kernel.h>
 
 /*====================================================================*/
 
@@ -835,6 +839,14 @@ static int ds_ioctl(struct inode * inode, struct file * file,
 	if (!suser()) return -EPERM;
 	err = bind_mtd(i, &buf.mtd_info);
 	break;
+#ifdef CONFIG_ARCH_SHARP_SL
+    case DS_SERIAL_CARD_POWER_ON:
+	ret = pcmcia_resume_card(s->handle, NULL);
+	break;
+    case DS_SERIAL_CARD_POWER_OFF:
+	ret = pcmcia_serial_power_off(s->handle);
+	break;
+#endif
     default:
 	err = -EINVAL;
     }
@@ -879,6 +891,8 @@ static struct file_operations ds_fops = {
 
 EXPORT_SYMBOL(register_pccard_driver);
 EXPORT_SYMBOL(unregister_pccard_driver);
+
+static devfs_handle_t devfs_handle;
 
 /*====================================================================*/
 
@@ -957,8 +971,13 @@ int __init init_pcmcia_ds(void)
     if (i == -EBUSY)
 	printk(KERN_NOTICE "unable to find a free device # for "
 	       "Driver Services\n");
-    else
+    else {
 	major_dev = i;
+	devfs_handle = devfs_register(NULL, "pcmcia", DEVFS_FL_DEFAULT,
+				      major_dev, 0,
+				      S_IFCHR | S_IRUSR | S_IWUSR,
+				      &ds_fops, NULL);
+    }
 
 #ifdef CONFIG_PROC_FS
     if (proc_pccard)
@@ -983,7 +1002,9 @@ void __exit cleanup_module(void)
 	remove_proc_entry("drivers", proc_pccard);
 #endif
     if (major_dev != -1)
-	unregister_chrdev(major_dev, "pcmcia");
+	devfs_unregister_chrdev(major_dev, "pcmcia");
+	devfs_unregister(devfs_handle);
+
     for (i = 0; i < sockets; i++)
 	pcmcia_deregister_client(socket_table[i].handle);
     sockets = 0;

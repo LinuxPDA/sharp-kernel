@@ -558,6 +558,7 @@ static void rh_status_dequeue (struct usb_hcd *hcd, struct urb *urb)
 
 /*-------------------------------------------------------------------------*/
 
+#if !defined(CONFIG_SH_RTS7751R2D)
 #ifdef CONFIG_PCI
 
 /* PCI-based HCs are normal, but custom bus glue should be ok */
@@ -886,6 +887,7 @@ EXPORT_SYMBOL (usb_hcd_pci_resume);
 #endif	/* CONFIG_PM */
 
 #endif
+#endif //CONFIG_SH_RTS7751R2D
 
 /*-------------------------------------------------------------------------*/
 

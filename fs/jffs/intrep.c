@@ -456,6 +456,7 @@ jffs_create_control(kdev_t dev)
 	}
 	c->next_ino = JFFS_MIN_INO + 1;
 	c->delete_list = (struct jffs_delete_list *) 0;
+	c->gc_background = 0;
 	return c;
 
 fail_fminit:
@@ -3326,7 +3327,7 @@ void jffs_garbage_collect_trigger(struct jffs_control *c)
 	 * Otherwise, the gc_task could go away between the check
 	 * and the wake_up_process()
 	 */
-	if (c->gc_task && thread_should_wake(c))
+	if (!c->gc_background && c->gc_task && thread_should_wake(c))
 		send_sig(SIGHUP, c->gc_task, 1);
 }
   
@@ -3396,6 +3397,13 @@ jffs_garbage_collect_thread(void *ptr)
 				D1(printk("jffs_garbage_collect_thread(): SIGKILL received.\n"));
 				c->gc_task = NULL;
 				complete_and_exit(&c->gc_thread_comp, 0);
+
+			case SIGHUP:
+				/* Only GC if idle 2 seconds without a trigger */
+				D1(printk("jffs_garbage_collect_thread(): SIGHUP received.\n"));
+				set_current_state(TASK_INTERRUPTIBLE);
+				schedule_timeout(2*HZ);
+				break;
 			}
 		}
 
@@ -3404,6 +3412,7 @@ jffs_garbage_collect_thread(void *ptr)
 
 		D3(printk (KERN_NOTICE "g_c_thread(): down biglock\n"));
 		down(&fmc->biglock);
+		c->gc_background = 1;
 		
 		D1(printk("***jffs_garbage_collect_thread(): round #%u, "
 			  "fmc->dirty_size = %u\n", i++, fmc->dirty_size));
@@ -3433,6 +3442,7 @@ jffs_garbage_collect_thread(void *ptr)
 		}
 		
 	gc_end:
+		c->gc_background = 0;
 		D3(printk (KERN_NOTICE "g_c_thread(): up biglock\n"));
 		up(&fmc->biglock);
 	} /* for (;;) */

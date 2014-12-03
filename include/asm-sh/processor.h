@@ -21,9 +21,9 @@
  *  CPU type and hardware bug flags. Kept separately for each CPU.
  */
 enum cpu_type {
-	CPU_SH7708,		/* Represents 7707, 7708, 7708S, 7708R, 7709 */
-	CPU_SH7729,		/* Represents 7709A, 7729 */
-	CPU_SH7750,     /* Represents 7750, 7751 */
+	CPU_SH7708,	/* Represents 7707, 7708, 7708S, 7708R, 7709 */
+	CPU_SH7729,	/* Represents 7709A, 7729, 7727, 7290 */
+	CPU_SH7750,     /* Represents 7750, 7751, 7750R, 7751R, 7760 */
 	CPU_ST40STB1,
 	CPU_SH_NONE
 };
@@ -137,7 +137,7 @@ extern void release_thread(struct task_struct *);
 /*
  * create a kernel thread without removing it from tasklists
  */
-extern int kernel_thread(int (*fn)(void *), void * arg, unsigned long flags);
+extern int arch_kernel_thread(int (*fn)(void *), void * arg, unsigned long flags);
 
 /*
  * Bus types

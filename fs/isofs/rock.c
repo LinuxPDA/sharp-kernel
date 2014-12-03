@@ -4,6 +4,9 @@
  *  (C) 1992, 1993  Eric Youngdale
  *
  *  Rock Ridge Extensions to iso9660
+ *
+ *  Modifed by Russell King 11/02/96
+ *     Allows ISO rock ridge extensions to work on ARM.
  */
 
 #include <linux/stat.h>
@@ -47,7 +50,7 @@
       cont_size = isonum_733(rr->u.CE.size);}
 
 #define SETUP_ROCK_RIDGE(DE,CHR,LEN)	      		      	\
-  {LEN= sizeof(struct iso_directory_record) + DE->name_len[0];	\
+  {LEN= (int)(&((struct iso_directory_record *)0)->name) + DE->name_len[0];	\
   if(LEN & 1) LEN++;						\
   CHR = ((unsigned char *) DE) + LEN;				\
   LEN = *((unsigned char *) DE) - LEN;                          \
@@ -304,24 +307,27 @@ int parse_rock_ridge_inode_internal(struct iso_directory_record * de,
 	}
 	break;
       case SIG('T','F'):
+      {
+	struct stamp *times = (struct stamp *) &(rr->u.TF.times);
 	/* Some RRIP writers incorrectly place ctime in the TF_CREATE field.
 	   Try to handle this correctly for either case. */
 	cnt = 0; /* Rock ridge never appears on a High Sierra disk */
 	if(rr->u.TF.flags & TF_CREATE) 
-	  inode->i_ctime = iso_date(rr->u.TF.times[cnt++].time, 0);
+	  inode->i_ctime = iso_date(times[cnt++].time, 0);
 	if(rr->u.TF.flags & TF_MODIFY) 
-	  inode->i_mtime = iso_date(rr->u.TF.times[cnt++].time, 0);
+	  inode->i_mtime = iso_date(times[cnt++].time, 0);
 	if(rr->u.TF.flags & TF_ACCESS) 
-	  inode->i_atime = iso_date(rr->u.TF.times[cnt++].time, 0);
+	  inode->i_atime = iso_date(times[cnt++].time, 0);
 	if(rr->u.TF.flags & TF_ATTRIBUTES) 
-	  inode->i_ctime = iso_date(rr->u.TF.times[cnt++].time, 0);
+	  inode->i_ctime = iso_date(times[cnt++].time, 0);
 	break;
+      }
       case SIG('S','L'):
 	{int slen;
 	 struct SL_component * slp;
 	 struct SL_component * oldslp;
 	 slen = rr->len - 5;
-	 slp = &rr->u.SL.link;
+	 slp = (struct SL_component *)&rr->u.SL.link;
 	 inode->i_size = symlink_len;
 	 while (slen > 1){
 	   rootflag = 0;
@@ -426,7 +432,7 @@ static char *get_symlink_chunk(char *rpnt, struct rock_ridge *rr)
 	struct SL_component *oldslp;
 	struct SL_component *slp;
 	slen = rr->len - 5;
-	slp = &rr->u.SL.link;
+	slp = (struct SL_component *)&rr->u.SL.link;
 	while (slen > 1) {
 		rootflag = 0;
 		switch (slp->flags & ~1) {

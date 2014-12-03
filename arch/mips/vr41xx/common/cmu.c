@@ -75,6 +75,11 @@ void __init vr41xx_cmu_init(u16 mask)
         case CPU_VR4131:
                 vr41xx_cmu_base = VR4122_CMUCLKMSK;
                 break;
+#if 1 /*@@@@@*/
+	case CPU_VR4181A:
+		/* FIXME! */
+		break;
+#endif
 	default:
 		panic("Unexpected CPU of NEC VR4100 series");
 		break;

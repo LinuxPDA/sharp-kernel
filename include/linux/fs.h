@@ -684,7 +684,6 @@ struct quota_mount_options
 #include <linux/ext2_fs_sb.h>
 #include <linux/ext3_fs_sb.h>
 #include <linux/hpfs_fs_sb.h>
-#include <linux/ntfs_fs_sb.h>
 #include <linux/msdos_fs_sb.h>
 #include <linux/iso_fs_sb.h>
 #include <linux/nfs_fs_sb.h>
@@ -741,7 +740,6 @@ struct super_block {
 		struct ext2_sb_info	ext2_sb;
 		struct ext3_sb_info	ext3_sb;
 		struct hpfs_sb_info	hpfs_sb;
-		struct ntfs_sb_info	ntfs_sb;
 		struct msdos_sb_info	msdos_sb;
 		struct isofs_sb_info	isofs_sb;
 		struct nfs_sb_info	nfs_sb;
@@ -820,6 +818,9 @@ struct block_device_operations {
 	int (*check_media_change) (kdev_t);
 	int (*revalidate) (kdev_t);
 	struct module *owner;
+#ifdef MAGIC_ROM_PTR
+	int (*romptr) (kdev_t, struct vm_area_struct *);
+#endif /* MAGIC_ROM_PTR */
 };
 
 /*
@@ -846,6 +847,9 @@ struct file_operations {
 	ssize_t (*writev) (struct file *, const struct iovec *, unsigned long, loff_t *);
 	ssize_t (*sendpage) (struct file *, struct page *, int, size_t, loff_t *, int);
 	unsigned long (*get_unmapped_area)(struct file *, unsigned long, unsigned long, unsigned long, unsigned long);
+#ifdef MAGIC_ROM_PTR
+	int (*romptr) (struct file *, struct vm_area_struct *);
+#endif /* MAGIC_ROM_PTR */
 };
 
 struct inode_operations {

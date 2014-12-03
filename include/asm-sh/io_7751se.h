@@ -39,6 +39,8 @@ extern void sh7751se_writeb(unsigned char b, unsigned long addr);
 extern void sh7751se_writew(unsigned short b, unsigned long addr);
 extern void sh7751se_writel(unsigned int b, unsigned long addr);
 
+extern void * sh7751se_ioremap(unsigned long offset, unsigned long size);
+extern void sh7751se_iounmap(void *addr);
 extern unsigned long sh7751se_isa_port2addr(unsigned long offset);
 
 #ifdef __WANT_IO_DEF
@@ -72,8 +74,8 @@ extern unsigned long sh7751se_isa_port2addr(unsigned long offset);
 # define __writel		sh7751se_writel
 
 # define __isa_port2addr	sh7751se_isa_port2addr
-# define __ioremap		generic_ioremap
-# define __iounmap		generic_iounmap
+# define __ioremap		sh7751se_ioremap
+# define __iounmap		sh7751se_iounmap
 
 #endif
 

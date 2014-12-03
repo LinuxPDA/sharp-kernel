@@ -1,3 +1,5 @@
+/* $USAGI: neighbour.h,v 1.6 2002/07/30 12:42:27 takamiya Exp $ */
+
 #ifndef _NET_NEIGHBOUR_H
 #define _NET_NEIGHBOUR_H
 
@@ -46,7 +48,12 @@
 #include <asm/atomic.h>
 #include <linux/skbuff.h>
 
-#define NUD_IN_TIMER	(NUD_INCOMPLETE|NUD_DELAY|NUD_PROBE)
+#define NUD_IN_TIMER	(NUD_INCOMPLETE|NUD_REACHABLE|NUD_DELAY|NUD_PROBE)
+
+#if defined(CONFIG_IPV6_MOBILITY) || defined(CONFIG_IPV6_MOBILITY_MODULE)
+#define USE_IPV6_MOBILITY
+#endif
+
 #define NUD_VALID	(NUD_PERMANENT|NUD_NOARP|NUD_REACHABLE|NUD_PROBE|NUD_STALE|NUD_DELAY)
 #define NUD_CONNECTED	(NUD_PERMANENT|NUD_NOARP|NUD_REACHABLE)
 
@@ -124,8 +131,11 @@ struct neigh_ops
 struct pneigh_entry
 {
 	struct pneigh_entry	*next;
-	struct net_device		*dev;
+	struct net_device      	*dev;
 	u8			key[0];
+#ifdef USE_IPV6_MOBILITY
+	atomic_t       		refcnt;
+#endif
 };
 
 #define NEIGH_HASHMASK		0x1F
@@ -169,6 +179,16 @@ struct neigh_table
 	struct pneigh_entry	*phash_buckets[PNEIGH_HASHMASK+1];
 };
 
+#define NEIGH_UPDATE_TYPE_ADMIN		0
+#define NEIGH_UPDATE_TYPE_ARP		1
+#define NEIGH_UPDATE_TYPE_IP6NS 	2
+#define NEIGH_UPDATE_TYPE_IP6NA		3
+#define NEIGH_UPDATE_TYPE_IP6RS 	4
+#define NEIGH_UPDATE_TYPE_IP6RA 	5
+#define NEIGH_UPDATE_TYPE_IP6REDIRECT	6
+#define NEIGH_UPDATE_F_OVERRIDE		0x1
+#define NEIGH_UPDATE_F_ISROUTER		0x2
+
 extern void			neigh_table_init(struct neigh_table *tbl);
 extern int			neigh_table_clear(struct neigh_table *tbl);
 extern struct neighbour *	neigh_lookup(struct neigh_table *tbl,
@@ -179,6 +199,8 @@ extern struct neighbour *	neigh_create(struct neigh_table *tbl,
 					     struct net_device *dev);
 extern void			neigh_destroy(struct neighbour *neigh);
 extern int			__neigh_event_send(struct neighbour *neigh, struct sk_buff *skb);
+extern void			neigh_app_notify(struct neighbour *n);
+extern int			__neigh_update(struct neighbour *neigh, const u8 *lladdr, u8 new, int flags, int arp);
 extern int			neigh_update(struct neighbour *neigh, const u8 *lladdr, u8 new, int override, int arp);
 extern int			neigh_ifdown(struct neigh_table *tbl, struct net_device *dev);
 extern int			neigh_resolve_output(struct sk_buff *skb);
@@ -245,10 +267,18 @@ static inline int neigh_is_valid(struct neighbour *neigh)
 
 static inline int neigh_event_send(struct neighbour *neigh, struct sk_buff *skb)
 {
+	int ret = 0;
+	write_lock_bh(&neigh->lock);
 	neigh->used = jiffies;
-	if (!(neigh->nud_state&(NUD_CONNECTED|NUD_DELAY|NUD_PROBE)))
-		return __neigh_event_send(neigh, skb);
-	return 0;
+	if (!(neigh->nud_state&(NUD_CONNECTED|NUD_DELAY|NUD_PROBE))) 
+		ret = __neigh_event_send(neigh, skb);
+	write_unlock_bh(&neigh->lock);
+	if (ret < 0) {
+		if (skb)
+			kfree_skb(skb);
+		ret = 1;
+	}
+	return ret;
 }
 
 static inline struct neighbour *
@@ -275,6 +305,34 @@ __neigh_lookup_errno(struct neigh_table *tbl, const void *pkey,
 	return neigh_create(tbl, pkey, dev);
 }
 
+static inline const char *
+neigh_state(int state) 
+{
+	switch(state) {
+	case NUD_NONE:		return "NONE";
+	case NUD_INCOMPLETE:	return "INCOMPLETE";
+	case NUD_REACHABLE:	return "REACHABLE";
+	case NUD_STALE:		return "STALE";
+	case NUD_DELAY:		return "DELAY";
+	case NUD_PROBE:		return "PROBE";
+	case NUD_FAILED:	return "FAILED";
+	case NUD_NOARP:		return "NOARP";
+	case NUD_PERMANENT:	return "PERMANENT";
+	}
+	return "unknown";
+}
+#endif
+#ifdef USE_IPV6_MOBILITY
+/*
+ *	Proxy Neighbour references
+ */
+
+static inline struct pneigh_entry *pneigh_clone(struct pneigh_entry *pneigh)
+{
+	if (pneigh)
+		atomic_inc(&pneigh->refcnt);
+	return pneigh;
+}
 #endif
 #endif
 

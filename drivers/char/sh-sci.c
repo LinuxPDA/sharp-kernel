@@ -32,7 +32,7 @@
 #include <linux/slab.h>
 #include <linux/init.h>
 #include <linux/delay.h>
-#ifdef CONFIG_SERIAL_CONSOLE
+#if defined(CONFIG_SERIAL_CONSOLE) || defined(CONFIG_SH_KGDB_CONSOLE)
 #include <linux/console.h>
 #endif
 
@@ -50,6 +50,22 @@
 
 #include "sh-sci.h"
 
+#ifdef CONFIG_SH_KGDB
+#include <asm/kgdb.h>
+
+int kgdb_sci_setup(void);
+static int kgdb_get_char(struct sci_port *port);
+static void kgdb_put_char(struct sci_port *port, char c);
+static void kgdb_handle_error(struct sci_port *port);
+static struct sci_port *kgdb_sci_port;
+
+#ifdef CONFIG_SH_KGDB_CONSOLE
+static struct console kgdbcons;
+void __init kgdb_console_init(void);
+#endif /* CONFIG_SH_KGDB_CONSOLE */
+
+#endif /* CONFIG_SH_KGDB */
+
 #ifdef CONFIG_SERIAL_CONSOLE
 static struct console sercons;
 static struct sci_port* sercons_port=0;
@@ -57,11 +73,18 @@ static int sercons_baud;
 #endif
 
 /* Function prototypes */
+#if !defined(CONFIG_CPU_SUBTYPE_SH7290) && !defined(CONFIG_CPU_SUBTYPE_SH7720)
 static void sci_init_pins_sci(struct sci_port* port, unsigned int cflag);
+#endif
 #ifndef SCI_ONLY
+#if defined(SCIF_AND_SCIF)
+static void sci_init_pins_scif0(struct sci_port* port, unsigned int cflag);
+static void sci_init_pins_scif1(struct sci_port* port, unsigned int cflag);
+#else
 static void sci_init_pins_scif(struct sci_port* port, unsigned int cflag);
 #if defined(__sh3__)
 static void sci_init_pins_irda(struct sci_port* port, unsigned int cflag);
+#endif
 #endif
 #endif
 static void sci_disable_tx_interrupts(void *ptr);
@@ -114,7 +137,7 @@ static void put_char(struct sci_port *port, char c)
 }
 #endif
 
-#ifdef CONFIG_SH_STANDARD_BIOS
+#if defined(CONFIG_SH_STANDARD_BIOS) || defined(CONFIG_SH_KGDB)
 
 static void handle_error(struct sci_port *port)
 {				/* Clear error flags */
@@ -156,7 +179,7 @@ static __inline__ char lowhex(int  x)
 	return hexchars[x & 0xf];
 }
 
-#endif
+#endif /* CONFIG_SH_STANDARD_BIOS || CONFIG_SH_KGDB */
 
 /*
  * Send the packet in buffer.  The host gets one chance to read it.
@@ -168,13 +191,21 @@ static void put_string(struct sci_port *port, const char *buffer, int count)
 {
 	int i;
 	const unsigned char *p = buffer;
-#ifdef CONFIG_SH_STANDARD_BIOS
+#if defined(CONFIG_SH_STANDARD_BIOS) || defined(CONFIG_SH_KGDB)
 	int checksum;
+	int usegdb=0;
 
+#ifdef CONFIG_SH_STANDARD_BIOS
     	/* This call only does a trap the first time it is
 	 * called, and so is safe to do here unconditionally
 	 */
-	if (sh_bios_in_gdb_mode()) {
+	usegdb |= sh_bios_in_gdb_mode();
+#endif
+#ifdef CONFIG_SH_KGDB
+	usegdb |= (kgdb_in_gdb_mode && (port == kgdb_sci_port));
+#endif
+
+	if (usegdb) {
 	    /*  $<packet info>#<checksum>. */
 	    do {
 		unsigned char c;
@@ -197,16 +228,101 @@ static void put_string(struct sci_port *port, const char *buffer, int count)
 		put_char(port, lowhex(checksum));
 	    } while  (get_char(port) != '+');
 	} else
-#endif
+#endif /* CONFIG_SH_STANDARD_BIOS || CONFIG_SH_KGDB */
 	for (i=0; i<count; i++) {
 		if (*p == 10)
 			put_char(port, '\r');
 		put_char(port, *p++);
 	}
 }
-#endif
+#endif /* CONFIG_SERIAL_CONSOLE */
 
+#ifdef CONFIG_SH_KGDB
 
+/* Is the SCI ready, ie is there a char waiting? */
+static int kgdb_is_char_ready(struct sci_port *port)
+{
+        unsigned short status = sci_in(port, SCxSR);
+
+        if (status & (SCxSR_ERRORS(port) | SCxSR_BRK(port)))
+                kgdb_handle_error(port);
+
+        return (status & SCxSR_RDxF(port));
+}
+
+/* Write a char */
+static void kgdb_put_char(struct sci_port *port, char c)
+{
+        unsigned short status;
+
+        do
+                status = sci_in(port, SCxSR);
+        while (!(status & SCxSR_TDxE(port)));
+
+        sci_out(port, SCxTDR, c);
+        sci_in(port, SCxSR);    /* Dummy read */
+        sci_out(port, SCxSR, SCxSR_TDxE_CLEAR(port));
+}
+
+/* Get a char if there is one, else ret -1 */
+static int kgdb_get_char(struct sci_port *port)
+{
+        int c;
+
+        if (kgdb_is_char_ready(port) == 0)
+                c = -1;
+        else {
+                c = sci_in(port, SCxRDR);
+                sci_in(port, SCxSR);    /* Dummy read */
+                sci_out(port, SCxSR, SCxSR_RDxF_CLEAR(port));
+        }
+
+        return c;
+}
+
+/* Called from kgdbstub.c to get a character, i.e. is blocking */
+static int kgdb_sci_getchar(void)
+{
+        volatile int c;
+
+        /* Keep trying to read a character, this could be neater */
+        while ((c = kgdb_get_char(kgdb_sci_port)) < 0);
+
+        return c;
+}
+
+/* Called from kgdbstub.c to put a character, just a wrapper */
+static void kgdb_sci_putchar(int c)
+{
+
+        kgdb_put_char(kgdb_sci_port, c);
+}
+
+/* Clear any errors on the SCI */
+static void kgdb_handle_error(struct sci_port *port)
+{
+        sci_out(port, SCxSR, SCxSR_ERROR_CLEAR(port));  /* Clear error flags */
+}
+
+/* Breakpoint if there's a break sent on the serial port */
+static void kgdb_break_interrupt(int irq, void *ptr, struct pt_regs *regs)
+{
+        struct sci_port *port = ptr;
+        unsigned short status = sci_in(port, SCxSR);
+
+        if (status & SCxSR_BRK(port)) {
+
+                /* Break into the debugger if a break is detected */
+                BREAKPOINT();
+
+                /* Clear */
+                sci_out(port, SCxSR, SCxSR_BREAK_CLEAR(port));
+                return;
+        }
+}
+
+#endif /* CONFIG_SH_KGDB */
+ 
 static struct real_driver sci_real_driver = {
 	sci_disable_tx_interrupts,
 	sci_enable_tx_interrupts,
@@ -227,13 +343,37 @@ static void sci_init_pins_sci(struct sci_port* port, unsigned int cflag)
 }
 #endif
 
+#if defined(SCIF_AND_SCIF)
+#if defined(CONFIG_CPU_SUBTYPE_SH7290) || defined(CONFIG_CPU_SUBTYPE_SH7710) || defined(CONFIG_CPU_SUBTYPE_SH7720)
+static void sci_init_pins_scif0(struct sci_port* port, unsigned int cflag)
+{
+	unsigned int fcr_val = 0;
+
+	if (cflag & CRTSCTS)
+		fcr_val |= SCFCR_MCE;
+
+	sci_out(port, SCFCR, fcr_val);
+}
+static void sci_init_pins_scif1(struct sci_port* port, unsigned int cflag)
+{
+	unsigned int fcr_val = 0;
+
+	if (cflag & CRTSCTS)
+		fcr_val |= SCFCR_MCE;
+
+	sci_out(port, SCFCR, fcr_val);
+}
+#endif
+#endif
+
 #if defined(SCIF_ONLY) || defined(SCI_AND_SCIF)
 #if defined(__sh3__)
-/* For SH7707, SH7709, SH7709A, SH7729 */
+/* For SH7707, SH7709, SH7709A, SH7729, SH7727 */
 static void sci_init_pins_scif(struct sci_port* port, unsigned int cflag)
 {
 	unsigned int fcr_val = 0;
 
+#if defined(CONFIG_SH_SOLUTION_ENGINE)
 	{
 		unsigned short data;
 
@@ -242,9 +382,11 @@ static void sci_init_pins_scif(struct sci_port* port, unsigned int cflag)
 		/* Clear out SCP7MD1,0, SCP6MD1,0, SCP4MD1,0*/
 		ctrl_outw(data&0x0fcf, SCPCR);
 	}
+#endif
 	if (cflag & CRTSCTS)
 		fcr_val |= SCFCR_MCE;
 	else {
+#if defined(CONFIG_SH_SOLUTION_ENGINE)
 		unsigned short data;
 
 		/* We need to set SCPCR to enable RTS/CTS */
@@ -256,6 +398,7 @@ static void sci_init_pins_scif(struct sci_port* port, unsigned int cflag)
 		data = ctrl_inb(SCPDR);
 		/* Set /RTS2 (bit6) = 0 */
 		ctrl_outb(data&0xbf, SCPDR);
+#endif
 	}
 	sci_out(port, SCFCR, fcr_val);
 }
@@ -372,7 +515,11 @@ static void sci_set_termios_cflag(struct sci_port *port, int cflag, int baud)
 	sci_out(port, SCSCR, 0x00);	/* TE=0, RE=0, CKE1=0 */
 
 	if (port->type == PORT_SCIF) {
+#if defined(CONFIG_CPU_SUBTYPE_SH7290)
+		sci_out(port, SCFCR, SCFCR_RFRST | SCFCR_TFRST | 0x4000);
+#else
 		sci_out(port, SCFCR, SCFCR_RFRST | SCFCR_TFRST);
+#endif
 	}
 
 	smr_val = sci_in(port, SCSMR) & 3;
@@ -381,7 +528,7 @@ static void sci_set_termios_cflag(struct sci_port *port, int cflag, int baud)
 	if (cflag & PARENB)
 		smr_val |= 0x20;
 	if (cflag & PARODD)
-		smr_val |= 0x10;
+		smr_val |= 0x30;
 	if (cflag & CSTOPB)
 		smr_val |= 0x08;
 	sci_out(port, SCSMR, smr_val);
@@ -446,7 +593,7 @@ static void sci_transmit_chars(struct sci_port *port)
 
 	status = sci_in(port, SCxSR);
 	if (!(status & SCxSR_TDxE(port))) {
-		save_and_cli(flags);
+	save_and_cli(flags);
 		ctrl = sci_in(port, SCSCR);
 		if (port->gs.xmit_cnt == 0) {
 			ctrl &= ~SCI_CTRL_FLAGS_TIE;
@@ -454,21 +601,25 @@ static void sci_transmit_chars(struct sci_port *port)
 		} else
 			ctrl |= SCI_CTRL_FLAGS_TIE;
 		sci_out(port, SCSCR, ctrl);
-		restore_flags(flags);
+	restore_flags(flags);
 		return;
 	}
 
 	while (1) {
 		count = port->gs.xmit_cnt;
 		if (port->type == PORT_SCIF) {
+#if defined(CONFIG_CPU_SUBTYPE_SH7760)
+			txroom = 128 - (sci_in(port, SCTFDR) & 0x8f);
+#else
 			txroom = 16 - (sci_in(port, SCFDR)>>8);
+#endif
 		} else {
 			txroom = (sci_in(port, SCxSR) & SCI_TDRE)?1:0;
 		}
 		if (count > txroom)
 			count = txroom;
 
-		/* Don't copy pas the end of the source buffer */
+		/* Don't copy past the end of the source buffer */
 		if (count > SERIAL_XMIT_SIZE - port->gs.xmit_tail)
                 	count = SERIAL_XMIT_SIZE - port->gs.xmit_tail;
 
@@ -525,7 +676,11 @@ static inline void sci_receive_chars(struct sci_port *port)
 	tty = port->gs.tty;
 	while (1) {
 		if (port->type == PORT_SCIF) {
+#if defined(CONFIG_CPU_SUBTYPE_SH7760)
+			count = sci_in(port, SCRFDR)&0x8f;
+#else
 			count = sci_in(port, SCFDR)&0x001f;
+#endif
 		} else {
 			count = (sci_in(port, SCxSR)&SCxSR_RDxF(port))?1:0;
 		}
@@ -630,7 +785,7 @@ static inline int sci_handle_breaks(struct sci_port *port)
 		dprintk("sci: BREAK detected\n");
 	}
 
-#if defined(CONFIG_CPU_SUBTYPE_SH7750) || defined(CONFIG_CPU_SUBTYPE_ST40STB1)
+#if defined(CONFIG_CPU_SUBTYPE_SH7750) ||defined(CONFIG_CPU_SUBTYPE_SH7750R) || defined(CONFIG_CPU_SUBTYPE_ST40STB1) || defined(CONFIG_CPU_SUBTYPE_SH7760)
 	/* XXX: Handle SCIF overrun error */
 	if (port->type == PORT_SCIF && (sci_in(port, SCLSR) & SCIF_ORER) != 0) {
 		sci_out(port, SCLSR, 0);
@@ -702,6 +857,29 @@ static void sci_br_interrupt(int irq, void *ptr, struct pt_regs *regs)
 	sci_handle_breaks(port);
 	sci_out(port, SCxSR, SCxSR_BREAK_CLEAR(port));
 }
+
+#if defined(CONFIG_CPU_SUBTYPE_SH7290)
+static void sci_xx_interrupt(int irq, void *ptr, struct pt_regs *regs)
+{ 
+	struct sci_port *port = ptr;
+	unsigned short status = sci_in(port, SCxSR);
+
+        if (status & (SCIF_PER|SCIF_FER|SCIF_ER|SCIF_ORER)) {
+		sci_er_interrupt(irq, ptr, regs);
+	}
+	if (status & SCIF_BRK) {
+		sci_br_interrupt(irq, ptr, regs);
+	}
+	sci_rx_interrupt(irq, ptr, regs);
+	sci_tx_interrupt(irq, ptr, regs);
+}
+#elif defined(CONFIG_CPU_SUBTYPE_SH7720)
+static void sci_xx_interrupt(int irq, void *ptr, struct pt_regs *regs)
+{ 
+	sci_rx_interrupt(irq, ptr, regs);
+	sci_tx_interrupt(irq, ptr, regs);
+}
+#endif
 
 static void do_softint(void *private_)
 {
@@ -787,7 +965,11 @@ static int sci_chars_in_buffer(void * ptr)
 	struct sci_port *port = ptr;
 
 	if (port->type == PORT_SCIF) {
+#if defined(CONFIG_CPU_SUBTYPE_SH7760)
+		return (sci_in(port, SCTFDR) & 0x8f) + ((sci_in(port, SCxSR) & SCxSR_TEND(port))? 0: 1);
+#else
 		return (sci_in(port, SCFDR) >> 8) + ((sci_in(port, SCxSR) & SCxSR_TEND(port))? 0: 1);
+#endif
 	} else {
 		return (sci_in(port, SCxSR) & SCxSR_TEND(port))? 0: 1;
 	}
@@ -841,11 +1023,12 @@ static int sci_open(struct tty_struct * tty, struct file * filp)
 
 	if (port->gs.count == 1) {
 		MOD_INC_USE_COUNT;
-
+#if !defined(CONFIG_CPU_SUBTYPE_SH7290) && !defined(CONFIG_CPU_SUBTYPE_SH7720)
 		retval = sci_request_irq(port);
 		if (retval) {
 			goto failed_2;
 		}
+#endif
 	}
 
 	retval = gs_block_til_ready(port, filp);
@@ -871,6 +1054,15 @@ static int sci_open(struct tty_struct * tty, struct file * filp)
 	}
 #endif
 
+#ifdef CONFIG_SH_KGDB_CONSOLE
+        if (kgdbcons.cflag && kgdbcons.index == line) {
+                tty->termios->c_cflag = kgdbcons.cflag;
+                port->gs.baud = kgdb_baud;
+                sercons.cflag = 0;
+                sci_set_real_termios(port);
+        }
+#endif
+
 	sci_enable_rx_interrupts(port);
 
 	port->gs.session = current->session;
@@ -880,7 +1072,9 @@ static int sci_open(struct tty_struct * tty, struct file * filp)
 
 failed_3:
 	sci_free_irq(port);
+#if !defined(CONFIG_CPU_SUBTYPE_SH7290) && !defined(CONFIG_CPU_SUBTYPE_SH7720)
 failed_2:
+#endif
 	MOD_DEC_USE_COUNT;
 failed_1:
 	port->gs.count--;
@@ -975,6 +1169,7 @@ static void sci_unthrottle(struct tty_struct * tty)
 	 * was throttled
 	 */
 	port->gs.flags &= ~SCI_RX_THROTTLE;
+	sci_enable_rx_interrupts(port);
 	return;
 }
 
@@ -1104,7 +1299,15 @@ static int sci_init_drivers(void)
 
 static int sci_request_irq(struct sci_port *port)
 {
+#if defined(CONFIG_CPU_SUBTYPE_SH7290) || defined(CONFIG_CPU_SUBTYPE_SH7720)
+	if (request_irq(port->irqs[0], sci_xx_interrupt, SA_INTERRUPT,
+			"sci", port)) {
+		printk(KERN_ERR "sci: Cannot allocate irq.\n");
+		return -ENODEV;
+	}
+#else
 	int i;
+
 	void (*handlers[4])(int irq, void *ptr, struct pt_regs *regs) = {
 		sci_er_interrupt, sci_rx_interrupt, sci_tx_interrupt,
 		sci_br_interrupt,
@@ -1118,17 +1321,20 @@ static int sci_request_irq(struct sci_port *port)
 			return -ENODEV;
 		}
 	}
+#endif
 	return 0;
 }
 
 static void sci_free_irq(struct sci_port *port)
 {
+#if !defined(CONFIG_CPU_SUBTYPE_SH7290) && !defined(CONFIG_CPU_SUBTYPE_SH7720)
 	int i;
 
 	for (i=0; i<4; i++) {
 		if (!port->irqs[i]) continue;
 		free_irq(port->irqs[i], port);
 	}
+#endif
 }
 
 static char banner[] __initdata =
@@ -1143,8 +1349,11 @@ int __init sci_init(void)
 
 	for (j=0; j<SCI_NPORTS; j++) {
 		port = &sci_ports[j];
-		printk(KERN_INFO "ttySC%d at 0x%08x is a %s\n", j, port->base,
+		printk(KERN_INFO "ttySC%d at 0x%08x is a %s \n", j, port->base,
 		       (port->type == PORT_SCI) ? "SCI" : "SCIF");
+#if defined(CONFIG_CPU_SUBTYPE_SH7290) || defined(CONFIG_CPU_SUBTYPE_SH7720)
+		sci_request_irq(port);
+#endif
 	}
 
 	sci_init_drivers();
@@ -1288,3 +1497,108 @@ void __init sci_console_init(void)
 #endif
 }
 #endif /* CONFIG_SERIAL_CONSOLE */
+
+#ifdef CONFIG_SH_KGDB
+
+/* Initialise the KGDB serial port */
+int kgdb_sci_setup(void)
+{
+	int cflag = CREAD | HUPCL | CLOCAL;
+
+	if ((kgdb_portnum < 0) || (kgdb_portnum >= SCI_NPORTS))
+		return -1;
+
+        kgdb_sci_port = &sci_ports[kgdb_portnum];
+
+	switch (kgdb_baud) {
+        case 115200:
+                cflag |= B115200;
+                break;
+	case 57600:
+                cflag |= B57600;
+                break;
+        case 38400:
+                cflag |= B38400;
+                break;
+        case 19200:
+                cflag |= B19200;
+                break;
+        case 9600:
+        default:
+                cflag |= B9600;
+                kgdb_baud = 9600;
+                break;
+        }
+
+	switch (kgdb_bits) {
+        case '7':
+                cflag |= CS7;
+                break;
+        default:
+        case '8':
+                cflag |= CS8;
+                break;
+        }
+
+        switch (kgdb_parity) {
+        case 'O':
+                cflag |= PARODD;
+                break;
+        case 'E':
+                cflag |= PARENB;
+                break;
+        }
+
+        kgdb_cflag = cflag;
+        sci_set_termios_cflag(kgdb_sci_port, kgdb_cflag, kgdb_baud);
+
+        /* Set up the interrupt for BREAK from GDB */
+	/* Commented out for now since it may not be possible yet...
+	   request_irq(kgdb_sci_port->irqs[0], kgdb_break_interrupt,
+	               SA_INTERRUPT, "sci", kgdb_sci_port);
+	   sci_enable_rx_interrupts(kgdb_sci_port);
+	*/
+
+	/* Setup complete: initialize function pointers */
+	kgdb_getchar = kgdb_sci_getchar;
+	kgdb_putchar = kgdb_sci_putchar;
+
+        return 0;
+}
+
+#ifdef CONFIG_SH_KGDB_CONSOLE
+
+/* Create a console device */
+static kdev_t kgdb_console_device(struct console *c)
+{
+        return MKDEV(SCI_MAJOR, SCI_MINOR_START + c->index);
+}
+
+/* Set up the KGDB console */
+static int __init kgdb_console_setup(struct console *co, char *options)
+{
+        /* NB we ignore 'options' because we've already done the setup */
+        co->cflag = kgdb_cflag;
+
+        return 0;
+}
+
+/* Register the KGDB console so we get messages (d'oh!) */
+void __init kgdb_console_init(void)
+{
+        register_console(&kgdbcons);
+}
+
+/* The console structure for KGDB */
+static struct console kgdbcons = {
+        name:"ttySC",
+        write:kgdb_console_write,
+        device:kgdb_console_device,
+        setup:kgdb_console_setup,
+        flags:CON_PRINTBUFFER | CON_ENABLED,
+        index:-1,
+};
+
+#endif /* CONFIG_SH_KGDB_CONSOLE */
+
+#endif /* CONFIG_SH_KGDB */

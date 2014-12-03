@@ -154,6 +154,8 @@ source drivers/block/Config.in
 
 source drivers/md/Config.in
 
+source crypto/Config.in
+
 if [ "$CONFIG_NET" = "y" ]; then
   source net/Config.in
 fi

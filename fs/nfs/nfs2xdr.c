@@ -454,6 +454,8 @@ err_unmap:
 u32 *
 nfs_decode_dirent(u32 *p, struct nfs_entry *entry, int plus)
 {
+	volatile u64 tmp; /* bug in m68k-elf requires this tmp : DAVIDM */
+
 	if (!*p++) {
 		if (!*p)
 			return ERR_PTR(-EAGAIN);
@@ -466,7 +468,8 @@ nfs_decode_dirent(u32 *p, struct nfs_entry *entry, int plus)
 	entry->name	  = (const char *) p;
 	p		 += XDR_QUADLEN(entry->len);
 	entry->prev_cookie	  = entry->cookie;
-	entry->cookie	  = ntohl(*p++);
+	tmp		  = ntohl(*p++); /* m68k-elf bug avoidance : DAVIDM */
+	entry->cookie	  = tmp;
 	entry->eof	  = !p[0] && p[1];
 
 	return p;

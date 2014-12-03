@@ -54,6 +54,11 @@
  * utilities for your favorite PCI chipsets.  I'll be working on
  * one for the Promise 20246 someday soon.  -ml
  *
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
+ *	30-Jul-2002 Lineo Japan, Inc.  for 2.4.18
+ * 	26-Feb-2004 Lineo Solutions, Inc.  2 slot support
+ *
  */
 
 #include <linux/config.h>
@@ -415,6 +420,7 @@ static int proc_ide_read_imodel
 		case ide_cy82c693:	name = "cy82c693";	break;
 		case ide_4drives:	name = "4drives";	break;
 		case ide_pmac:		name = "mac-io";	break;
+		case ide_acorn:		name = "acorn";		break;
 		default:		name = "(unknown)";	break;
 	}
 	len = sprintf(page, "%s\n", name);
@@ -459,6 +465,11 @@ static int proc_ide_get_identify(ide_drive_t *drive, byte *buf)
 	return ide_wait_taskfile(drive, &taskfile, &hobfile, buf);
 }
 
+#ifdef CONFIG_ARCH_SHARP_SL
+static ide_drive_t *drive_save[2] = { NULL, NULL };
+static u8 ide_info_buf[2][SECTOR_WORDS * 4 + 4];
+#endif
+
 static int proc_ide_read_identify
 	(char *page, char **start, off_t off, int count, int *eof, void *data)
 {
@@ -468,6 +479,12 @@ static int proc_ide_read_identify
 	if (drive && !proc_ide_get_identify(drive, page)) {
 		unsigned short *val = (unsigned short *) page;
 		char *out = ((char *)val) + (SECTOR_WORDS * 4);
+#ifdef CONFIG_ARCH_SHARP_SL
+#ifdef CONFIG_PCMCIA
+		drive_save[sharpsl_pcmcia_irq_to_sock(HWIF(drive)->hw.irq)] = drive;
+		memcpy(ide_info_buf[sharpsl_pcmcia_irq_to_sock(HWIF(drive)->hw.irq)], page, SECTOR_WORDS * 4);
+#endif
+#endif
 		page = out;
 		do {
 			out += sprintf(out, "%04x%c", le16_to_cpu(*val), (++i & 7) ? ' ' : '\n');
@@ -479,6 +496,21 @@ static int proc_ide_read_identify
 		len = sprintf(page, "\n");
 	PROC_IDE_READ_RETURN(page,start,off,count,eof,len);
 }
+
+#ifdef CONFIG_ARCH_SHARP_SL
+
+int proc_ide_verify_identify(int sock)
+{
+    u8 buf[SECTOR_WORDS * 4 + 4];
+    int ret;
+
+    if (drive_save[sock] == NULL || proc_ide_get_identify(drive_save[sock], buf))
+	return 0;
+    ret = memcmp(ide_info_buf[sock], buf, 94);
+    return ret;
+}
+
+#endif
 
 static int proc_ide_read_settings
 	(char *page, char **start, off_t off, int count, int *eof, void *data)
@@ -794,6 +826,10 @@ void destroy_proc_ide_drives(ide_hwif_t *hwif)
 		if (drive->proc)
 			destroy_proc_ide_device(hwif, drive);
 	}
+#ifdef CONFIG_ARCH_SHARP_SL
+	for (d = 0; d < 2; d++)
+		drive_save[d] = NULL;
+#endif
 }
 
 static ide_proc_entry_t hwif_entries[] = {

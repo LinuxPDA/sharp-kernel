@@ -25,7 +25,6 @@
 #include <asm/sgi/sgimc.h>
 
 static unsigned long indydog_alive;
-static struct sgimc_misc_ctrl *mcmisc_regs; 
 static int expect_close = 0;
 
 #ifdef CONFIG_WATCHDOG_NOWAYOUT
@@ -37,11 +36,10 @@ static int nowayout = 0;
 MODULE_PARM(nowayout,"i");
 MODULE_PARM_DESC(nowayout, "Watchdog cannot be stopped once started (default=CONFIG_WATCHDOG_NOWAYOUT)");
 
-static void indydog_ping()
+static inline void indydog_ping(void)
 {
 	mcmisc_regs->watchdogt = 0;
 }
-
 
 /*
  *	Allow only one person to hold it open
@@ -51,21 +49,23 @@ static int indydog_open(struct inode *inode, struct file *file)
 {
 	u32 mc_ctrl0;
 	
-	if( test_and_set_bit(0,&indydog_alive) )
+	if (test_and_set_bit(0,&indydog_alive))
 		return -EBUSY;
+
 	if (nowayout) {
 		MOD_INC_USE_COUNT;
 	}
+
 	/*
 	 *	Activate timer
 	 */
-	mcmisc_regs = (struct sgimc_misc_ctrl *)(KSEG1+0x1fa00000);
-
 	mc_ctrl0 = mcmisc_regs->cpuctrl0 | SGIMC_CCTRL0_WDOG;
 	mcmisc_regs->cpuctrl0 = mc_ctrl0;
 	indydog_ping();
 			
+	indydog_alive = 1;
 	printk("Started watchdog timer.\n");
+	
 	return 0;
 }
 
@@ -73,11 +73,12 @@ static int indydog_release(struct inode *inode, struct file *file)
 {
 	/*
 	 *	Shut off the timer.
-	 * 	Lock it in if it's a module and we set nowayout.
+	 *	Lock it in if it's a module and we set nowayout.
 	 */
+	lock_kernel();
 	if (expect_close)
 	{
-		u32 mc_ctrl0 = mcmisc_regs->cpuctrl0; 
+		u32 mc_ctrl0 = mcmisc_regs->cpuctrl0;
 		mc_ctrl0 &= ~SGIMC_CCTRL0_WDOG;
 		mcmisc_regs->cpuctrl0 = mc_ctrl0;
 		printk("Stopped watchdog timer.\n");
@@ -86,7 +87,9 @@ static int indydog_release(struct inode *inode, struct file *file)
 	{
 		printk(KERN_CRIT "WDT device closed unexpectedly.  WDT will not stop!\n");
 	}
-	clear_bit(0,&indydog_alive);
+	clear_bit(0, &indydog_alive);
+	unlock_kernel();
+
 	return 0;
 }
 
@@ -99,13 +102,13 @@ static ssize_t indydog_write(struct file *file, const char *data, size_t len, lo
 	/*
 	 *	Refresh the timer.
 	 */
-	if(len) {
+	if (len) {
 		if (!nowayout) {
 			size_t i;
 
 			/* In case it was set long ago */
 			expect_close = 0;
-
+ 
 			for (i = 0; i != len; i++) {
 				char c;
 				if (get_user(c, data + i))
@@ -161,9 +164,7 @@ static const char banner[] __initdata = KERN_INFO "Hardware Watchdog Timer for S
 
 static int __init watchdog_init(void)
 {
-	int ret;
-
-	ret = misc_register(&indydog_miscdev);
+	int ret = misc_register(&indydog_miscdev);
 
 	if (ret)
 		return ret;

@@ -18,4 +18,6 @@ obj-y	 := memory.o mmap.o filemap.o mprotect.o mlock.o mremap.o \
 
 obj-$(CONFIG_HIGHMEM) += highmem.o
 
+obj-$(CONFIG_FREEPG_SIGNAL) += freepg_signal.o
+
 include $(TOPDIR)/Rules.make

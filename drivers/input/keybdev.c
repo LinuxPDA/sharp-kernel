@@ -26,6 +26,9 @@
  * Should you need to contact me, the author, you can do so either by
  * e-mail - mail your message to <vojtech@suse.cz>, or by paper mail:
  * Vojtech Pavlik, Ucitelska 1576, Prague 8, 182 00 Czech Republic
+ *
+ * ChangeLog:
+ * 	29-Aug-2003 SHARP Supported USB keybord for Tosa
  */
 
 #include <linux/config.h>
@@ -106,6 +109,15 @@ static int emulate_raw(unsigned int keycode, int down)
 		return 0;
 	}
 #endif	/* CONFIG_MAC_ADBKEYCODES || CONFIG_ADB_KEYBOARD */
+
+#ifdef CONFIG_ARCH_SHARP_SL
+	if (keycode > 255 || !keycode)
+		return -1;
+
+	handle_scancode(keycode & 0x7f, down);
+	
+	return 0;
+#endif
 
 	if (keycode > 255 || !x86_keycodes[keycode])
 		return -1; 

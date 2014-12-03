@@ -1,3 +1,5 @@
+/* $USAGI: tcp_ipv6.c,v 1.73.2.1.2.1 2003/02/05 07:45:56 yoshfuji Exp $ */
+
 /*
  *	TCP over IPv6
  *	Linux INET6 implementation 
@@ -14,6 +16,16 @@
  *
  *	Fixes:
  *	Hideaki YOSHIFUJI	:	sin6_scope_id support
+ *	yoshfuji@USAGI		:	Reworked bind(2) behavior, including:
+ *					- Allow ipv6 and ipv4 bind(2) to the
+ *					  same port.
+ *					- Don't allow narrow binding unless
+ *					  later uid is the same as before:
+ *					  CONFIG_NET_RESTRICTED_REUSE
+ *					- Don't allow binding to the same
+ *					  address unless it is one of multi-
+ *					  cast address even if SO_REUSEADDR 
+ *					  is set.
  *
  *	This program is free software; you can redistribute it and/or
  *      modify it under the terms of the GNU General Public License
@@ -49,6 +61,13 @@
 #include <net/inet_ecn.h>
 
 #include <asm/uaccess.h>
+
+#ifdef CONFIG_IPV6_IPSEC
+#include <linux/ipsec.h>
+#include <linux/ipsec6.h>
+#include <net/ipsec6_utils.h>
+#endif /* CONFIG_IPV6_IPSEC */
+
 
 static void	tcp_v6_send_reset(struct sk_buff *skb);
 static void	tcp_v6_or_send_ack(struct sk_buff *skb, struct open_request *req);
@@ -91,6 +110,9 @@ static int tcp_v6_get_port(struct sock *sk, unsigned short snum)
 {
 	struct tcp_bind_hashbucket *head;
 	struct tcp_bind_bucket *tb;
+#if defined(CONFIG_NET_RESTRICTED_REUSE) || defined(CONFIG_IPV6_RESTRICTED_DOUBLE_BIND)
+	uid_t sk_uid = sk->state != TCP_TIME_WAIT ? sock_i_uid_t(sk) : ((struct tcp_tw_bucket *)sk)->uid;
+#endif
 	int ret;
 
 	local_bh_disable();
@@ -133,32 +155,136 @@ static int tcp_v6_get_port(struct sock *sk, unsigned short snum)
 				break;
 	}
 	if (tb != NULL && tb->owners != NULL) {
-		if (tb->fastreuse > 0 && sk->reuse != 0 && sk->state != TCP_LISTEN) {
+		if (tb->fastreuse > 0 && 
+		    (sk->reuse != 0
+#ifdef SO_REUSEPORT
+		     || sk->reuseport != 0
+#endif
+		    ) &&
+#if defined(CONFIG_NET_RESTRICTED_REUSE)
+		    sk_uid == tb->uid &&
+#endif
+		    sk->state != TCP_LISTEN) {
 			goto success;
 		} else {
 			struct sock *sk2 = tb->owners;
-			int sk_reuse = sk->reuse;
-			int addr_type = ipv6_addr_type(&sk->net_pinfo.af_inet6.rcv_saddr);
+			int sk_reuse, sk2_reuse;
+			struct in6_addr *sk_rcv_saddr6 = sk->state != TCP_TIME_WAIT ? 
+								&sk->net_pinfo.af_inet6.rcv_saddr:
+								&((struct tcp_tw_bucket*)sk)->v6_rcv_saddr;
+			int addr_type = ipv6_addr_type(sk_rcv_saddr6),
+			    addr_type2;
+#if defined(CONFIG_NET_RESTRICTED_REUSE) || defined(CONFIG_IPV6_RESTRICTED_DOUBLE_BIND)
+			uid_t sk2_uid;
+#endif
+
+			sk_reuse = 0;
+			if (sk->reuse)
+				sk_reuse |= 1;
+#ifdef SO_REUSEPORT
+			if (sk->reuseport)
+				sk_reuse |= 2;
+#endif
+#if 0
+			if (sk_reuse &&
+			    (addr_type != IPV6_ADDR_MAPPED ? (addr_type & IPV6_ADDR_MULTICAST) : MULTICAST(sk->rcv_saddr)))
+				sk_reuse |= 4;
+#endif
 
 			/* We must walk the whole port owner list in this case. -DaveM */
 			for( ; sk2 != NULL; sk2 = sk2->bind_next) {
-				if (sk != sk2 &&
-				    sk->bound_dev_if == sk2->bound_dev_if) {
-					if (!sk_reuse	||
-					    !sk2->reuse	||
-					    sk2->state == TCP_LISTEN) {
-						/* NOTE: IPv6 tw bucket have different format */
-						if (!sk2->rcv_saddr	||
-						    addr_type == IPV6_ADDR_ANY ||
-						    !ipv6_addr_cmp(&sk->net_pinfo.af_inet6.rcv_saddr,
-								   sk2->state != TCP_TIME_WAIT ?
-								   &sk2->net_pinfo.af_inet6.rcv_saddr :
-								   &((struct tcp_tw_bucket*)sk)->v6_rcv_saddr) ||
-						    (addr_type==IPV6_ADDR_MAPPED && sk2->family==AF_INET &&
-						     sk->rcv_saddr==sk2->rcv_saddr))
-							break;
+#if defined(CONFIG_NET_RESTRICTED_REUSE) || defined(CONFIG_IPV6_RESTRICTED_DOUBLE_BIND)
+				int uid_ok;
+#endif
+				int both_specified = 0;
+				struct in6_addr *sk2_rcv_saddr6;
+				if (sk2 == sk ||
+				    (sk2->bound_dev_if && sk->bound_dev_if &&
+				     sk2->bound_dev_if != sk->bound_dev_if))
+					continue;
+#if 0
+				if (sk2->family != AF_INET6 && sk2->family != AF_INET)
+					continue;
+#endif
+				sk2_rcv_saddr6 = sk2->state != TCP_TIME_WAIT ?
+							&sk2->net_pinfo.af_inet6.rcv_saddr :
+							&((struct tcp_tw_bucket*)sk2)->v6_rcv_saddr;
+				addr_type2 = sk2->family == AF_INET6 ? ipv6_addr_type(sk2_rcv_saddr6) : IPV6_ADDR_MAPPED;
+#if defined(CONFIG_NET_RESTRICTED_REUSE) || defined(CONFIG_IPV6_RESTRICTED_DOUBLE_BIND)
+				sk2_uid = sk2->state != TCP_TIME_WAIT ? sock_i_uid_t(sk2) : ((struct tcp_tw_bucket *)sk2)->uid;
+#endif
+
+				if ((addr_type2 != IPV6_ADDR_MAPPED ? addr_type2 != IPV6_ADDR_ANY : sk2->rcv_saddr) &&
+				    (addr_type != IPV6_ADDR_MAPPED ? addr_type != IPV6_ADDR_ANY : sk->rcv_saddr)) {
+					if (addr_type2 == IPV6_ADDR_MAPPED || addr_type == IPV6_ADDR_MAPPED) {
+						if (addr_type2 != addr_type ||
+						    sk2->rcv_saddr != sk->rcv_saddr)
+							continue;
+					} else {
+						if (ipv6_addr_cmp(sk2_rcv_saddr6, sk_rcv_saddr6))
+							continue;
+					}
+					both_specified = 1;
+				}
+
+#if defined(CONFIG_NET_RESTRICTED_REUSE) || defined(CONFIG_IPV6_RESTRICTED_DOUBLE_BIND)
+				uid_ok = sk2_uid == (uid_t) -1 || sk_uid == sk2_uid;
+#endif
+
+				if ((addr_type2 == IPV6_ADDR_MAPPED && 
+				     addr_type != IPV6_ADDR_MAPPED && sk->net_pinfo.af_inet6.ipv6only) ||
+				    (addr_type == IPV6_ADDR_MAPPED &&
+				     addr_type2 != IPV6_ADDR_MAPPED && sk2->net_pinfo.af_inet6.ipv6only)) {
+#ifdef CONFIG_IPV6_RESTRICTED_DOUBLE_BIND
+					if (ipv6_devconf.bindv6only_restriction == 0 || uid_ok)
+						continue;
+#else
+					continue;
+#endif
+				}
+
+				sk2_reuse = 0;
+				if (sk2->reuse)
+					sk2_reuse |= 1;
+#ifdef SO_REUSEPORT
+				if (sk2->reuseport)
+					sk2_reuse |= 2;
+#endif
+#if 0
+				if (sk2_reuse &&
+				    (addr_type2 != IPV6_ADDR_MAPPED ? (addr_type2 & IPV6_ADDR_MULTICAST) : MULTICAST(sk2->rcv_saddr)))
+					sk2_reuse |= 4;
+#endif
+
+				if (sk2_reuse & sk_reuse & 3) {	/* NOT && */
+					ret = 1;
+#if 0
+					if (sk2_reuse & sk_reuse & 4)
+						continue;
+#endif
+#ifdef CONFIG_NET_RESTRICTED_REUSE
+					if (!uid_ok)
+						goto fail_unlock;
+#endif
+#ifdef SO_REUSEPORT
+					if (sk2_reuse & sk_reuse & 2)
+						continue;
+#endif
+					if (both_specified) {
+						struct in6_addr *sk2_daddr6 = sk2->state != TCP_TIME_WAIT ?
+										&sk2->net_pinfo.af_inet6.daddr :
+										&((struct tcp_tw_bucket*)sk2)->v6_daddr;
+						int addr_type2d = sk2->family == AF_INET6 ? ipv6_addr_type(sk2_daddr6) : IPV6_ADDR_MAPPED;
+						if (addr_type2d != IPV6_ADDR_MAPPED ? addr_type2d != IPV6_ADDR_ANY : sk2->daddr)
+							continue;
+					} else {
+						if ((addr_type2 != IPV6_ADDR_MAPPED ? addr_type2 != IPV6_ADDR_ANY : sk2->rcv_saddr) || 
+						    (addr_type != IPV6_ADDR_MAPPED ? addr_type != IPV6_ADDR_ANY : sk->rcv_saddr))
+							continue;
 					}
 				}
+				ret = 1;
+				goto fail_unlock;
 			}
 			/* If we found a conflict, fail. */
 			ret = 1;
@@ -171,12 +297,27 @@ static int tcp_v6_get_port(struct sock *sk, unsigned short snum)
 	    (tb = tcp_bucket_create(head, snum)) == NULL)
 			goto fail_unlock;
 	if (tb->owners == NULL) {
-		if (sk->reuse && sk->state != TCP_LISTEN)
+		if ((sk->reuse 
+#ifdef SO_REUSEPORT
+		     || sk->reuseport
+#endif
+		    ) && sk->state != TCP_LISTEN) {
 			tb->fastreuse = 1;
-		else
+#if defined(CONFIG_NET_RESTRICTED_REUSE)
+			tb->uid = sk_uid;
+#endif
+		} else
 			tb->fastreuse = 0;
 	} else if (tb->fastreuse &&
-		   ((sk->reuse == 0) || (sk->state == TCP_LISTEN)))
+		   ((sk->reuse == 0
+#ifdef SO_REUSEPORT
+		     && sk_reuseport == 0
+#endif
+		     ) ||
+#if defined(CONFIG_NET_RESTRICTED_REUSE)
+		    (sk_uid != tb->uid) ||
+#endif
+		    (sk->state == TCP_LISTEN)))
 		tb->fastreuse = 0;
 
 success:
@@ -578,9 +719,11 @@ static int tcp_v6_connect(struct sock *sk, struct sockaddr *uaddr,
 			sk->bound_dev_if = usin->sin6_scope_id;
 		}
 
+#ifndef CONFIG_IPV6_LOOSE_SCOPE_ID
 		/* Connect to link-local address requires an interface */
 		if (sk->bound_dev_if == 0)
 			return -EINVAL;
+#endif
 	}
 
 	if (tp->ts_recent_stamp && ipv6_addr_cmp(&np->daddr, &usin->sin6_addr)) {
@@ -601,6 +744,9 @@ static int tcp_v6_connect(struct sock *sk, struct sockaddr *uaddr,
 		struct sockaddr_in sin;
 
 		SOCK_DEBUG(sk, "connect: ipv4 mapped\n");
+
+		if (sk->net_pinfo.af_inet6.ipv6only)
+			return -ENETUNREACH;
 
 		sin.sin_family = AF_INET;
 		sin.sin_port = usin->sin6_port;
@@ -652,7 +798,7 @@ static int tcp_v6_connect(struct sock *sk, struct sockaddr *uaddr,
 	sk->route_caps = dst->dev->features&~NETIF_F_IP_CSUM;
 
 	if (saddr == NULL) {
-		err = ipv6_get_saddr(dst, &np->daddr, &saddr_buf);
+		err = ipv6_get_saddr(dst, &np->daddr, &saddr_buf, np->use_tempaddr);
 		if (err)
 			goto failure;
 
@@ -665,8 +811,25 @@ static int tcp_v6_connect(struct sock *sk, struct sockaddr *uaddr,
 	sk->rcv_saddr= LOOPBACK4_IPV6;
 
 	tp->ext_header_len = 0;
-	if (np->opt)
-		tp->ext_header_len = np->opt->opt_flen+np->opt->opt_nflen;
+	{
+#ifdef CONFIG_IPV6_IPSEC
+		struct ipsec_sp *policy_ptr = NULL;
+		int action = ipsec6_output_check(sk, &fl, NULL, &policy_ptr);
+#endif /* CONFIG_IPV6_IPSEC */
+		if (np->opt)
+			tp->ext_header_len += np->opt->opt_flen +
+				np->opt->opt_nflen;
+#ifdef CONFIG_IPV6_IPSEC
+		if (action != IPSEC_ACTION_DROP) {
+			if (np->opt && np->opt->auth) { 
+				action &= ~IPSEC_ACTION_AUTH;
+			} else {
+				tp->ext_header_len += ipsec6_out_get_hdrsize(policy_ptr);
+			}
+		}
+		ipsec6_out_finish(NULL, policy_ptr);
+#endif /* CONFIG_IPV6_IPSEC */
+	}
 	tp->mss_clamp = IPV6_MIN_MTU - sizeof(struct tcphdr) - sizeof(struct ipv6hdr);
 
 	sk->dport = usin->sin6_port;
@@ -709,7 +872,10 @@ void tcp_v6_err(struct sk_buff *skb, struct inet6_skb_parm *opt,
 	sk = tcp_v6_lookup(&hdr->daddr, th->dest, &hdr->saddr, th->source, skb->dev->ifindex);
 
 	if (sk == NULL) {
-		ICMP6_INC_STATS_BH(Icmp6InErrors);
+		struct inet6_dev *idev = in6_dev_get(skb->dev);
+		ICMP6_INC_STATS_BH(idev,Icmp6InErrors);
+		if (idev)
+			in6_dev_put(idev);
 		return;
 	}
 
@@ -1355,9 +1521,25 @@ static struct sock * tcp_v6_syn_recv_sock(struct sock *sk, struct sk_buff *skb,
 	}
 
 	newtp->ext_header_len = 0;
-	if (np->opt)
-		newtp->ext_header_len = np->opt->opt_nflen + np->opt->opt_flen;
-
+	{
+#ifdef CONFIG_IPV6_IPSEC
+		struct ipsec_sp *policy_ptr = NULL;
+		int action = ipsec6_output_check(sk, &fl, NULL, &policy_ptr);
+#endif /* CONFIG_IPV6_IPSEC */
+		if (np->opt)
+			newtp->ext_header_len += np->opt->opt_nflen +
+				np->opt->opt_flen;
+#ifdef CONFIG_IPV6_IPSEC
+		if (action != IPSEC_ACTION_DROP) {
+			if (np->opt && np->opt->auth) {
+				action &= ~IPSEC_ACTION_AUTH;
+			} else {
+				newtp->ext_header_len += ipsec6_out_get_hdrsize(policy_ptr);
+			}
+		}
+		ipsec6_out_finish(NULL, policy_ptr);
+#endif /* CONFIG_IPV6_IPSEC */
+	}
 	tcp_sync_mss(newsk, dst->pmtu);
 	newtp->advmss = dst->advmss;
 	tcp_initialize_rcv_mss(newsk);
@@ -1416,6 +1598,8 @@ static int tcp_v6_do_rcv(struct sock *sk, struct sk_buff *skb)
 	struct sk_filter *filter;
 #endif
 	struct sk_buff *opt_skb = NULL;
+	struct net_device *dev;
+	struct inet6_dev *idev;
 
 	/* Imagine: socket is IPv6. IPv4 packet arrives,
 	   goes to IPv4 receive handler and backlogged.
@@ -1439,7 +1623,14 @@ static int tcp_v6_do_rcv(struct sock *sk, struct sk_buff *skb)
 	 *	is currently called with bh processing disabled.
 	 */
 
-  	IP6_INC_STATS_BH(Ip6InDelivers);
+	dev = dev_get_by_index(tcp_v6_iif(skb));
+	idev = dev ? in6_dev_get(dev) : NULL;
+  	IP6_INC_STATS_BH(idev,Ip6InDelivers);
+	if (dev) {
+		if (idev)
+			in6_dev_put(idev);
+		dev_put(dev);
+	}
 
 	/* Do Stevens' IPV6_PKTOPTIONS.
 
@@ -1743,7 +1934,7 @@ static void v6_addr2sockaddr(struct sock *sk, struct sockaddr * uaddr)
 	struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *) uaddr;
 
 	sin6->sin6_family = AF_INET6;
-	memcpy(&sin6->sin6_addr, &np->daddr, sizeof(struct in6_addr));
+	ipv6_addr_copy(&sin6->sin6_addr, &np->daddr);
 	sin6->sin6_port	= sk->dport;
 	/* We do not store received flowlabel for TCP */
 	sin6->sin6_flowinfo = 0;

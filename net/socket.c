@@ -51,6 +51,9 @@
  *		as published by the Free Software Foundation; either version
  *		2 of the License, or (at your option) any later version.
  *
+ * Change Log
+ *     12-Nov-2001 Lineo Japan, Inc.
+ *
  *
  *	This module is effectively the top level interface to the BSD socket
  *	paradigm. 
@@ -105,6 +108,10 @@ static ssize_t sock_writev(struct file *file, const struct iovec *vector,
 static ssize_t sock_sendpage(struct file *file, struct page *page,
 			     int offset, size_t size, loff_t *ppos, int more);
 
+#if defined(CONFIG_ARCH_SHARP_SL) && defined(CONFIG_APM)
+  extern int autoPowerCancel;
+#endif
+
 
 /*
  *	Socket files have a set of 'special' operations as well as the generic file ones. These don't appear
@@ -132,7 +139,7 @@ static struct file_operations socket_file_ops = {
 
 static struct net_proto_family *net_families[NPROTO];
 
-#ifdef CONFIG_SMP
+#if defined(CONFIG_SMP) || defined(CONFIG_PREEMPT)
 static atomic_t net_family_lockct = ATOMIC_INIT(0);
 static spinlock_t net_family_lock = SPIN_LOCK_UNLOCKED;
 
@@ -507,6 +514,10 @@ int sock_sendmsg(struct socket *sock, struct msghdr *msg, int size)
 		err = sock->ops->sendmsg(sock, msg, size, &scm);
 		scm_destroy(&scm);
 	}
+#if defined(CONFIG_ARCH_SHARP_SL) && defined(CONFIG_APM)
+	if (sock->sk->daddr != 0 && sock->sk->daddr != 0x0100007f)
+		autoPowerCancel = 0;
+#endif
 	return err;
 }
 
@@ -520,6 +531,10 @@ int sock_recvmsg(struct socket *sock, struct msghdr *msg, int size, int flags)
 	if (size >= 0)
 		scm_recv(sock, msg, &scm, flags);
 
+#if defined(CONFIG_ARCH_SHARP_SL) && defined(CONFIG_APM)
+	if (sock->sk->daddr != 0 && sock->sk->daddr != 0x0100007f)
+		autoPowerCancel = 0;
+#endif
 	return size;
 }
 
@@ -1663,6 +1678,10 @@ extern void wanrouter_init(void);
 extern void bluez_init(void);
 #endif
 
+#ifdef CONFIG_IPSEC
+extern void pfkey_init(void);
+#endif
+
 void __init sock_init(void)
 {
 	int i;
@@ -1725,6 +1744,10 @@ void __init sock_init(void)
 
 #ifdef CONFIG_BLUEZ
 	bluez_init();
+#endif
+
+#ifdef CONFIG_IPSEC
+	pfkey_init();
 #endif
 }
 

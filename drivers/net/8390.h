@@ -130,6 +130,8 @@ struct ei_device {
 #define inb_p(port)   in_8(port)
 #define outb_p(val,port)  out_8(port,val)
 
+#elif defined(CONFIG_S1C38000_TTE301)
+#define EI_SHIFT(x)	((x)<<1)
 #else
 #define EI_SHIFT(x)	(x)
 #endif

@@ -43,6 +43,14 @@
 #ifdef CONFIG_SH_EARLY_PRINTK
 #include <asm/sh_bios.h>
 #endif
+#ifdef CONFIG_SH_KGDB
+#include <asm/kgdb.h>
+static int kgdb_parse_options(char *options);
+#endif
+
+#if defined(CONFIG_SH_MS7710SE)
+#include <linux/module.h>
+#endif
 
 /*
  * Machine setup..
@@ -76,7 +84,11 @@ struct screen_info screen_info = {
 
 extern void fpu_init(void);
 extern int root_mountflags;
+#if defined(CONFIG_XIP_KERNEL)
+extern int _text, _etext, _data, _edata, _end, __bss_start;
+#else
 extern int _text, _etext, _edata, _end;
+#endif
 
 #define MV_NAME_SIZE 32
 
@@ -191,6 +203,69 @@ void sh_console_unregister(void)
 
 #endif
 
+#if defined(CONFIG_SH_SOLUTION_ENGINE) || defined(CONFIG_SH_7751_SOLUTION_ENGINE) || defined(CONFIG_SH_MS7710SE)
+unsigned char cmdline_ifa[6];
+
+#if !defined(CONFIG_SH_SOLUTION_ENGINE)
+EXPORT_SYMBOL(cmdline_ifa);
+#endif
+
+static inline void parse_ifa_cmdline(void)
+{
+	char	c	= ' ';
+	char	*from	= COMMAND_LINE;
+	int	len	= 0;
+	int	lp;
+
+	for (lp = 0;lp < 6;lp++){
+		cmdline_ifa[lp] = 0xff;
+	}
+
+	for (;;){
+		if (c == ' ' && !memcmp(from,"ifa=",4)){
+			char		*cp = from + 4;
+			unsigned int	v,n;
+
+			for (n = 0;n < 6;n++){
+				v = 0;
+
+				c = *cp++;
+				if ((c >= '0')&&(c <= '9')){
+					v = v * 16 + (c - '0');
+				}
+				if ((c >= 'A')&&(c <= 'F')){
+					v = v * 16 + (c - 'A' + 10);
+				}
+				if ((c >= 'a')&&(c <= 'f')){
+					v = v * 16 + (c - 'a' + 10);
+				}
+
+				c = *cp++;
+				if ((c >= '0')&&(c <= '9')){
+					v = v * 16 + (c - '0');
+				}
+				if ((c >= 'A')&&(c <= 'F')){
+					v = v * 16 + (c - 'A' + 10);
+				}
+				if ((c >= 'a')&&(c <= 'f')){
+					v = v * 16 + (c - 'a' + 10);
+				}
+
+				cp++;
+				cmdline_ifa[n] = (unsigned char)v;
+			}
+		}
+
+		c = *(from++);
+		if (!c)
+			break;
+
+		if (COMMAND_LINE_SIZE <= ++len)
+			break;
+	}
+}
+#endif
+
 static inline void parse_cmdline (char ** cmdline_p, char mv_name[MV_NAME_SIZE],
 				  struct sh_machine_vector** mvp,
 				  unsigned long *mv_io_base,
@@ -258,6 +333,10 @@ static inline void parse_cmdline (char ** cmdline_p, char mv_name[MV_NAME_SIZE],
 	}
 	*to = '\0';
 	*cmdline_p = command_line;
+
+#if defined(CONFIG_SH_SOLUTION_ENGINE) || defined(CONFIG_SH_7751_SOLUTION_ENGINE) || defined(CONFIG_SH_MS7710SE)
+	parse_ifa_cmdline();
+#endif
 }
 
 void __init setup_arch(char **cmdline_p)
@@ -271,6 +350,63 @@ void __init setup_arch(char **cmdline_p)
 	int mv_mmio_enable = 0;
 	unsigned long bootmap_size;
 	unsigned long start_pfn, max_pfn, max_low_pfn;
+
+#ifdef CONFIG_CMDLINE
+	strcpy(COMMAND_LINE, CONFIG_CMDLINE);
+#endif
+
+#ifdef CONFIG_BLK_DEV_INITRD
+#ifndef CONFIG_INITRD_START
+#define CONFIG_INITRD_START 0x00400000
+#endif
+#ifndef CONFIG_INITRD_SIZE
+#define CONFIG_INITRD_SIZE  0x00400000
+#endif
+	MOUNT_ROOT_RDONLY = 1;
+	RAMDISK_FLAGS     = 0x4000;
+	ORIG_ROOT_DEV     = 0x0100;
+	LOADER_TYPE       = 1;
+	INITRD_START      = CONFIG_INITRD_START;
+	INITRD_SIZE       = CONFIG_INITRD_SIZE;
+#endif
+
+#ifdef CONFIG_CMDLINE
+	strcpy(COMMAND_LINE, CONFIG_CMDLINE);
+#endif
+
+#ifdef CONFIG_BLK_DEV_INITRD
+#ifndef CONFIG_INITRD_START
+#define CONFIG_INITRD_START 0x00400000
+#endif
+#ifndef CONFIG_INITRD_SIZE
+#define CONFIG_INITRD_SIZE  CONFIG_BLK_DEV_RAM_SIZE
+#endif
+	MOUNT_ROOT_RDONLY = 1;
+	RAMDISK_FLAGS     = 0x4000;
+	ORIG_ROOT_DEV     = 0x0100;
+	LOADER_TYPE       = 1;
+	INITRD_START      = CONFIG_INITRD_START;
+	INITRD_SIZE       = CONFIG_INITRD_SIZE;
+#endif
+
+#ifdef CONFIG_CMDLINE
+	strcpy(COMMAND_LINE, CONFIG_CMDLINE);
+#endif
+
+#ifdef CONFIG_BLK_DEV_INITRD
+#ifndef CONFIG_INITRD_START
+#define CONFIG_INITRD_START 0x00400000
+#endif
+#ifndef CONFIG_INITRD_SIZE
+#define CONFIG_INITRD_SIZE  0x00400000
+#endif
+	MOUNT_ROOT_RDONLY = 1;
+	RAMDISK_FLAGS     = 0x4000;
+	ORIG_ROOT_DEV     = 0x0100;
+	LOADER_TYPE       = 1;
+	INITRD_START      = CONFIG_INITRD_START;
+	INITRD_SIZE       = CONFIG_INITRD_SIZE;
+#endif
 
 #ifdef CONFIG_SH_EARLY_PRINTK
 	sh_console_init();
@@ -286,6 +422,18 @@ void __init setup_arch(char **cmdline_p)
 
 	if (!MOUNT_ROOT_RDONLY)
 		root_mountflags &= ~MS_RDONLY;
+#if defined(CONFIG_XIP_KERNEL)
+	init_mm.start_code = (unsigned long)&_text;
+	init_mm.end_code = (unsigned long) &_etext;
+	/* init_mm.start_data = (unsigned long) &_data; */
+	init_mm.end_data = (unsigned long) &_edata;
+	init_mm.brk = (unsigned long) &_end;
+
+	code_resource.start = virt_to_bus(&_text);
+	code_resource.end = virt_to_bus(&_etext)-1;
+	data_resource.start = virt_to_bus(&_data);
+	data_resource.end = virt_to_bus(&_edata)-1;
+#else
 	init_mm.start_code = (unsigned long)&_text;
 	init_mm.end_code = (unsigned long) &_etext;
 	init_mm.end_data = (unsigned long) &_edata;
@@ -295,7 +443,7 @@ void __init setup_arch(char **cmdline_p)
 	code_resource.end = virt_to_bus(&_etext)-1;
 	data_resource.start = virt_to_bus(&_etext);
 	data_resource.end = virt_to_bus(&_edata)-1;
-
+#endif
 	parse_cmdline(cmdline_p, mv_name, &mv, &mv_io_base, &mv_mmio_enable);
 
 #ifdef CONFIG_SH_GENERIC
@@ -512,10 +660,18 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 {
 #if defined(__sh3__)
 	seq_printf(m, "cpu family\t: SH-3\n"
+#if defined(CONFIG_CPU_SUBTYPE_SH7710) || defined(CONFIG_CPU_SUBTYPE_SH7720)
+		      "cache size\t: 16K-byte/32K-byte\n");
+#else
 		      "cache size\t: 8K-byte\n");
+#endif
 #elif defined(__SH4__)
 	seq_printf(m, "cpu family\t: SH-4\n"
 		      "cache size\t: 8K-byte/16K-byte\n");
+#endif
+#if defined(CONFIG_SH_DSP)
+	seq_printf(m, "dsp unit\t: %s\n",
+		(sh3_dsp() ? "present" : "not present"));
 #endif
 	seq_printf(m, "bogomips\t: %lu.%02lu\n\n",
 		     loops_per_jiffy/(500000/HZ),
@@ -554,3 +710,153 @@ struct seq_operations cpuinfo_op = {
 	show:	show_cpuinfo,
 };
 #endif
+
+#ifdef CONFIG_ARCH_CALIBRATE_DELAY
+extern unsigned long loops_per_jiffy;
+#define LPS_PREC 8
+void __init calibrate_delay(void)
+{
+#if 1
+	printk("Calibrating delay loop... ");
+#if defined(CONFIG_SH_SOLUTION_ENGINE) || defined(CONFIG_SH_7751_SOLUTION_ENGINE) || defined(CONFIG_SH_RTS7751R2D)
+	loops_per_jiffy = 1191936;
+#elif defined(CONFIG_SH_7760_SOLUTION_ENGINE)
+        loops_per_jiffy = 997376; /* 200MHz, 199.47BogoMIPS */
+#elif defined(CONFIG_SH_MS7710SE) || defined(CONFIG_SH_MS7720RP)
+	loops_per_jiffy = 659456;
+#else
+#error unkown platform
+#endif
+#else
+	unsigned long ticks, loopbit;
+	int lps_precision = LPS_PREC;
+
+	loops_per_jiffy = (1<<12);
+
+	printk("Calibrating delay loop... ");
+	while (loops_per_jiffy <<= 1) {
+		/* wait for "start of" clock tick */
+		ticks = jiffies;
+		while (ticks == jiffies)
+			/* nothing */;
+		/* Go .. */
+		ticks = jiffies;
+		__delay(loops_per_jiffy);
+		ticks = jiffies - ticks;
+		if (ticks)
+			break;
+	}
+
+/* Do a binary approximation to get loops_per_jiffy set to equal one clock
+   (up to lps_precision bits) */
+	loops_per_jiffy >>= 1;
+	loopbit = loops_per_jiffy;
+	while ( lps_precision-- && (loopbit >>= 1) ) {
+		loops_per_jiffy |= loopbit;
+		ticks = jiffies;
+		while (ticks == jiffies);
+		ticks = jiffies;
+		__delay(loops_per_jiffy);
+		if (jiffies != ticks)	/* longer than 1 tick */
+			loops_per_jiffy &= ~loopbit;
+	}
+
+/* Round the value and print it */	
+	printk("loops_per_jiffy=%lu\n", loops_per_jiffy);
+#endif
+	printk("%lu.%02lu BogoMIPS\n",
+		loops_per_jiffy/(500000/HZ),
+		(loops_per_jiffy/(5000/HZ)) % 100);
+}
+#endif /* CONFIG_ARCH_CALIBRATE_DELAY */
+
+#ifdef CONFIG_SH_KGDB
+/*
+ * Parse command-line kgdb options.  By default KGDB is enabled,
+ * entered on error (or other action) using default serial info.
+ * The command-line option can include a serial port specification
+ * and an action to override default or configured behavior.
+ */
+struct kgdb_sermap kgdb_sci_sermap =
+{ "ttySC", 5, kgdb_sci_setup, NULL };
+
+struct kgdb_sermap *kgdb_serlist = &kgdb_sci_sermap;
+struct kgdb_sermap *kgdb_porttype = &kgdb_sci_sermap;
+
+void kgdb_register_sermap(struct kgdb_sermap *map)
+{
+	struct kgdb_sermap *last;
+
+	for (last = kgdb_serlist; last->next; last = last->next)
+		;
+	last->next = map;
+	if (!map->namelen) {
+		map->namelen = strlen(map->name);
+	}
+}
+
+static int __init kgdb_parse_options(char *options)
+{
+	char c;
+	int baud;
+
+	/* Check for port spec (or use default) */
+
+	/* Determine port type and instance */
+	if (!memcmp(options, "tty", 3)) {
+		struct kgdb_sermap *map = kgdb_serlist;
+
+		while (map && memcmp(options, map->name, map->namelen))
+			map = map->next;
+
+		if (!map) {
+			KGDB_PRINTK("unknown port spec in %s\n", options);
+			return -1;
+		}
+
+		kgdb_porttype = map;
+		kgdb_serial_setup = map->setup_fn;
+		kgdb_portnum = options[map->namelen] - '0';
+		options += map->namelen + 1;
+
+		options = (*options == ',') ? options+1 : options;
+		
+		/* Read optional parameters (baud/parity/bits) */
+		baud = simple_strtoul(options, &options, 10);
+		if (baud != 0) {
+			kgdb_baud = baud;
+
+			c = toupper(*options);
+			if (c == 'E' || c == 'O' || c == 'N') {
+				kgdb_parity = c;
+				options++;
+			}
+
+			c = *options;
+			if (c == '7' || c == '8') {
+				kgdb_bits = c;
+				options++;
+			}
+			options = (*options == ',') ? options+1 : options;
+		}
+	}
+
+	/* Check for action specification */
+	if (!memcmp(options, "halt", 4)) {
+		kgdb_halt = 1;
+		options += 4;
+	} else if (!memcmp(options, "disabled", 8)) {
+		kgdb_enabled = 0;
+		options += 8;
+	}
+
+	if (*options) {
+                KGDB_PRINTK("ignored unknown options: %s\n", options);
+		return 0;
+	}
+	return 1;
+}
+
+__setup("kgdb=", kgdb_parse_options);
+
+#endif /* CONFIG_SH_KGDB */

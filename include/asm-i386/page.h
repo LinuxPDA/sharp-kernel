@@ -95,6 +95,10 @@ typedef struct { unsigned long pgprot; } pgprot_t;
  * undefined" opcode for parsing in the trap handler.
  */
 
+#ifdef CONFIG_REMOTE_DEBUG
+#include <linux/gdb.h>
+#define BUG() KGDB_ASSERT("BUG", 0)
+#else
 #if 1	/* Set to zero for a slightly smaller kernel */
 #define BUG()				\
  __asm__ __volatile__(	"ud2\n"		\
@@ -103,6 +107,7 @@ typedef struct { unsigned long pgprot; } pgprot_t;
 			 : : "i" (__LINE__), "i" (__FILE__))
 #else
 #define BUG() __asm__ __volatile__("ud2\n")
+#endif
 #endif
 
 #define PAGE_BUG(page) do { \

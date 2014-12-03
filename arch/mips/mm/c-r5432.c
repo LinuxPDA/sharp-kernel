@@ -384,7 +384,7 @@ r5432_dma_cache_wback_inv_pc(unsigned long addr, unsigned long size)
 		flush_cache_all();
 	} else {
 		a = addr & ~(dc_lsize - 1);
-		end = (addr + size) & ~(dc_lsize - 1);
+		end = (addr + size - 1) & ~(dc_lsize - 1);
 		while (1) {
 			flush_dcache_line(a); /* Hit_Writeback_Inv_D */
 			if (a == end) break;
@@ -403,7 +403,7 @@ r5432_dma_cache_inv_pc(unsigned long addr, unsigned long size)
 		flush_cache_all();
 	} else {
 		a = addr & ~(dc_lsize - 1);
-		end = (addr + size) & ~(dc_lsize - 1);
+		end = (addr + size - 1) & ~(dc_lsize - 1);
 		while (1) {
 			flush_dcache_line(a); /* Hit_Writeback_Inv_D */
 			if (a == end) break;
@@ -453,9 +453,9 @@ static void __init probe_dcache(unsigned long config)
 
 void __init ld_mmu_r5432(void)
 {
-	unsigned long config = read_32bit_cp0_register(CP0_CONFIG);
+	unsigned long config = read_c0_config();
 
-	change_cp0_config(CONF_CM_CMASK, CONF_CM_DEFAULT);
+	change_c0_config(CONF_CM_CMASK, CONF_CM_DEFAULT);
 
 	probe_icache(config);
 	probe_dcache(config);

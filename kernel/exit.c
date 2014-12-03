@@ -26,7 +26,7 @@ extern struct task_struct *child_reaper;
 
 int getrusage(struct task_struct *, int, struct rusage *);
 
-static void release_task(struct task_struct * p)
+void release_task(struct task_struct * p)
 {
 	if (p != current) {
 #ifdef CONFIG_SMP
@@ -313,8 +313,8 @@ static inline void __exit_mm(struct task_struct * tsk)
 		/* more a memory barrier than a real lock */
 		task_lock(tsk);
 		tsk->mm = NULL;
-		task_unlock(tsk);
 		enter_lazy_tlb(mm, current, smp_processor_id());
+		task_unlock(tsk);
 		mmput(mm);
 	}
 }
@@ -422,18 +422,48 @@ static void exit_notify(void)
 	write_unlock_irq(&tasklist_lock);
 }
 
+#ifdef CONFIG_KMC_PARTNER_VIRTUAL_ICE
+struct task_struct *__kmc_tss_list[17];
+
+void
+__kmc_do_exit(void)
+{
+	asm("nop");
+}
+#endif
+
 NORET_TYPE void do_exit(long code)
 {
 	struct task_struct *tsk = current;
 
+#ifdef CONFIG_KMC_PARTNER_VIRTUAL_ICE
+	{
+		int	i;
+
+		if (__kmc_tss_list[0] != 0) {
+			for (i = 1; i < 17; ++i) {
+				if (__kmc_tss_list[i] == tsk) {
+					(int)__kmc_tss_list[0] = i;
+					__kmc_do_exit();
+				}
+			}
+		}
+	}
+#endif
+
 	if (in_interrupt())
-		panic("Aiee, killing interrupt handler!");
+		panic("Aiee, killing interrupt handler\n");
 	if (!tsk->pid)
 		panic("Attempted to kill the idle task!");
 	if (tsk->pid == 1)
 		panic("Attempted to kill init!");
 	tsk->flags |= PF_EXITING;
 	del_timer_sync(&tsk->real_timer);
+
+	if (unlikely(preempt_get_count()))
+		printk(KERN_INFO "note: %s[%d] exited with preempt_count %d\n",
+				current->comm, current->pid,
+				preempt_get_count());
 
 fake_volatile:
 #ifdef CONFIG_BSD_PROCESS_ACCT
@@ -587,7 +617,7 @@ end_wait4:
 	return retval;
 }
 
-#if !defined(__alpha__) && !defined(__ia64__)
+#if !defined(__alpha__) && !defined(__ia64__) && !defined(__arm__)
 
 /*
  * sys_waitpid() remains for compatibility. waitpid() should be

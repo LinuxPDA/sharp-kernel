@@ -43,6 +43,8 @@ obj-$(CONFIG_I2C_PARPORT) += i2c-parport.o i2c-old.o
 obj-$(CONFIG_VIDEO_SAA5249) += saa5249.o i2c-old.o
 obj-$(CONFIG_VIDEO_CQCAM) += c-qcam.o
 obj-$(CONFIG_VIDEO_BWQCAM) += bw-qcam.o
+obj-$(CONFIG_VIDEO_ZORAN) += buz.o i2c-old.o saa7110.o saa7111.o saa7185.o 
+obj-$(CONFIG_VIDEO_CYBERPRO) += cyberpro.o i2c-old.o saa7111.o
 obj-$(CONFIG_VIDEO_W9966) += w9966.o
 obj-$(CONFIG_VIDEO_ZORAN) += zr36067.o i2c-old.o
 obj-$(CONFIG_VIDEO_ZORAN_BUZ) += saa7111.o saa7185.o
@@ -58,6 +60,7 @@ obj-$(CONFIG_VIDEO_CPIA_PP) += cpia_pp.o
 obj-$(CONFIG_VIDEO_CPIA_USB) += cpia_usb.o
 obj-$(CONFIG_VIDEO_MEYE) += meye.o
 obj-$(CONFIG_TUNER_3036) += tuner-3036.o
+obj-$(CONFIG_VIDEO_MX2ADS) += imx21video.o
 
 # Extract lists of the multi-part drivers.
 # The 'int-*' lists are the intermediate files used to build the multi's.

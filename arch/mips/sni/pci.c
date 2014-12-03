@@ -40,7 +40,7 @@ static void pcimt_pcibios_fixup (void)
 		 */
 		if (dev->devfn == PCI_DEVFN(1, 0)) {
 			/* Evil hack ...  */
-			set_cp0_config(CONF_CM_CMASK, CONF_CM_CACHABLE_NO_WA);
+			set_c0_config(CONF_CM_CMASK, CONF_CM_CACHABLE_NO_WA);
 			dev->irq = PCIMT_IRQ_SCSI;
 			continue;
 		}
@@ -175,7 +175,7 @@ pcibios_update_resource(struct pci_dev *dev, struct resource *root,
 		/* Somebody might have asked allocation of a non-standard resource */
 		return;
 	}
-	
+
 	pci_write_config_dword(dev, reg, new);
 	pci_read_config_dword(dev, reg, &check);
 	if ((new ^ check) & ((new & PCI_BASE_ADDRESS_SPACE_IO) ? PCI_BASE_ADDRESS_IO_MASK : PCI_BASE_ADDRESS_MEM_MASK)) {
@@ -192,7 +192,7 @@ void __init pcibios_init(void)
 	pci_scan_bus(0, ops, NULL);
 }
 
-int __init pcibios_enable_device(struct pci_dev *dev)
+int __init pcibios_enable_device(struct pci_dev *dev, int mask)
 {
 	/* Not needed, since we enable all devices at startup.  */
 	return 0;

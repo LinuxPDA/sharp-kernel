@@ -66,8 +66,8 @@ fi
 if [ "$CONFIG_DDB5477" = "y" ]; then
     dep_tristate '  NEC Vrc5477 AC97 sound' CONFIG_SOUND_VRC5477 $CONFIG_SOUND
 fi
-if [ "$CONFIG_MIPS_AU1000" = "y" ]; then
-    dep_tristate '  Au1000 Sound' CONFIG_SOUND_AU1000 $CONFIG_SOUND
+if [ "$CONFIG_CPU_AU1X00" = "y" ]; then
+    dep_tristate '  Au1x00 Sound' CONFIG_SOUND_AU1X00 $CONFIG_SOUND
 fi
 
 dep_tristate '  Trident 4DWave DX/NX, SiS 7018 or ALi 5451 PCI Audio Core' CONFIG_SOUND_TRIDENT $CONFIG_SOUND $CONFIG_PCI
@@ -124,6 +124,20 @@ fi
 
 dep_tristate '  VIA 82C686 Audio Codec' CONFIG_SOUND_VIA82CXXX $CONFIG_PCI
 dep_mbool    '  VIA 82C686 MIDI' CONFIG_MIDI_VIA82CXXX $CONFIG_SOUND_VIA82CXXX
+
+if [ "$CONFIG_ARCH_SA1100" = "y" ]; then
+   dep_tristate '  StrongARM-11x0 Sound Drivers' CONFIG_SOUND_SA1100 $CONFIG_ARCH_SA1100 $CONFIG_SOUND
+   dep_tristate '    UDA1341 Stereo Codec' CONFIG_SOUND_UDA1341 $CONFIG_L3 $CONFIG_SOUND_SA1100 $CONFIG_SOUND
+   dep_tristate '      Assabet audio support' CONFIG_SOUND_ASSABET_UDA1341 $CONFIG_SA1100_ASSABET $CONFIG_SOUND_UDA1341
+   dep_tristate '      Compaq iPAQ audio support' CONFIG_SOUND_H3600_UDA1341 $CONFIG_SA1100_H3600 $CONFIG_SOUND_UDA1341
+   dep_tristate '      Pangolin audio support' CONFIG_SOUND_PANGOLIN_UDA1341 $CONFIG_SA1100_PANGOLIN $CONFIG_SOUND_UDA1341
+   dep_tristate '      SA1111 audio support' CONFIG_SOUND_SA1111_UDA1341 $CONFIG_SA1111 $CONFIG_SOUND_UDA1341
+   dep_tristate '    SA1111 AC97 Sound' CONFIG_SOUND_SA1111_AC97 $CONFIG_SA1111 $CONFIG_SOUND_SA1100
+   dep_tristate '    Generic DAC on the SA11x0 SSP port' CONFIG_SOUND_SA1100SSP $CONFIG_SOUND_SA1100
+fi
+if [ "$CONFIG_SABINAL_DISCOVERY" = "y" ]; then
+   dep_bool '  Discovery Sound Drivers' CONFIG_SOUND_DISCOVERY $CONFIG_COTULLA_DMA $CONFIG_SOUND
+fi
 
 dep_tristate '  OSS sound modules' CONFIG_SOUND_OSS $CONFIG_SOUND
 
@@ -212,14 +226,26 @@ if [ "$CONFIG_SOUND_OSS" = "y" -o "$CONFIG_SOUND_OSS" = "m" ]; then
          bool '      Audio Excel DSP 16 (MPU401 emulation)' CONFIG_AEDSP16_MPU401
       fi
    fi
-
-   if [ "$CONFIG_ARM" = "y" ]; then
-      if [ "$CONFIG_ARCH_ACORN" = "y" -o "$CONFIG_ARCH_CLPS7500" = "y" ]; then
-         dep_tristate '    VIDC 16-bit sound' CONFIG_SOUND_VIDC $CONFIG_SOUND_OSS
-      fi
-      dep_tristate '    Netwinder WaveArtist' CONFIG_SOUND_WAVEARTIST $CONFIG_SOUND_OSS $CONFIG_ARCH_NETWINDER
+   if [ "$CONFIG_ARCH_DBMX2" = "y" ]; then
+      dep_tristate '    Wolfsen MW8731 CODEC' CONFIG_SOUND_DBMX_MW8731 $CONFIG_SOUND_OSS
    fi
+fi
 
+if [ "$CONFIG_ARM" = "y" ]; then
+   if [ "$CONFIG_ARCH_ACORN" = "y" -o "$CONFIG_ARCH_CLPS7500" = "y" -o "$CONFIG_ARCH_RISCSTATION" ]; then
+      dep_tristate '    VIDC 16-bit sound' CONFIG_SOUND_VIDC $CONFIG_SOUND_OSS
+   fi
+   dep_tristate '    Netwinder WaveArtist' CONFIG_SOUND_WAVEARTIST $CONFIG_SOUND_OSS $CONFIG_ARCH_NETWINDER
+   dep_tristate '  Intel PXA250/210 AC97 audio' CONFIG_SOUND_PXA_AC97 $CONFIG_ARCH_PXA $CONFIG_SOUND
+   dep_tristate '  Poodle audio support' CONFIG_SOUND_POODLE $CONFIG_ARCH_PXA $CONFIG_SOUND
+   dep_tristate '  Corgi audio support' CONFIG_SOUND_CORGI $CONFIG_ARCH_PXA $CONFIG_SOUND
+   dep_tristate '  Tosa audio support' CONFIG_SOUND_TOSA $CONFIG_AC97_TOSA $CONFIG_SOUND
+   dep_tristate '    Tosa buzzer support' CONFIG_BUZZER_TOSA $CONFIG_SOUND_TOSA
+   dep_tristate '  Spitz audio support' CONFIG_SOUND_SPITZ $CONFIG_ARCH_PXA $CONFIG_SOUND
+fi
+
+if [ "$CONFIG_SUPERH" = "y" ]; then
+   dep_tristate '    MS7760CP01 UDA1342 Stereo Codec' CONFIG_SOUND_MS7760CP_UDA1342 $CONFIG_SH_7760_SOLUTION_ENGINE $CONFIG_SOUND_OSS
 fi
 
 dep_tristate '  TV card (bt848) mixer support' CONFIG_SOUND_TVMIXER $CONFIG_SOUND $CONFIG_I2C

@@ -34,7 +34,11 @@
  * Use always 64k buffer size. There is no reason to use shorter.
  */
 #undef DSP_BUFFSIZE
+#ifdef CONFIG_ARCH_DBMX2
+#define DSP_BUFFSIZE		(128*1024)
+#else
 #define DSP_BUFFSIZE		(64*1024)
+#endif
 
 #ifndef DSP_BUFFCOUNT
 #define DSP_BUFFCOUNT		1	/* 1 is recommended. */

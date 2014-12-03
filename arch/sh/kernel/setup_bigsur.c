@@ -64,18 +64,25 @@ static void disable_bigsur_l1irq(unsigned int irq)
 	unsigned long flags;
 	unsigned char mask;
 	unsigned int mask_port = ((irq - BIGSUR_IRQ_LOW)/8) ? BIGSUR_IRLMR1 : BIGSUR_IRLMR0;
-	unsigned char bit =  (1 << ((irq - MGATE_IRQ_LOW)%8) );
+	unsigned char bit =  (1 << ((irq - BIGSUR_IRQ_LOW)%8) );
 
 	if(irq >= BIGSUR_IRQ_LOW && irq < BIGSUR_IRQ_HIGH) {	
    		DPRINTK("Disable L1 IRQ %d\n", irq);
    		DIPRINTK(2,"disable_bigsur_l1irq: IMR=0x%08x mask=0x%x\n", 
    			mask_port, bit);
+#if defined(CONFIG_RTHAL)
+		hard_save_flags_and_cli(flags);
+#else
 		save_and_cli(flags);
-
+#endif
 		/* Disable IRQ - set mask bit */
 		mask = inb(mask_port) | bit;
 		outb(mask, mask_port);
+#if defined(CONFIG_RTHAL)
+		hard_restore_flags(flags);
+#else
 		restore_flags(flags);
+#endif
 		return;
 	}
    	DPRINTK("disable_bigsur_l1irq: Invalid IRQ %d\n", irq);	
@@ -86,13 +93,17 @@ static void enable_bigsur_l1irq(unsigned int irq)
 	unsigned long flags;
 	unsigned char mask;
 	unsigned int mask_port = ((irq - BIGSUR_IRQ_LOW)/8) ? BIGSUR_IRLMR1 : BIGSUR_IRLMR0;
-	unsigned char bit =  (1 << ((irq - MGATE_IRQ_LOW)%8) );
+	unsigned char bit =  (1 << ((irq - BIGSUR_IRQ_LOW)%8) );
 
 	if(irq >= BIGSUR_IRQ_LOW && irq < BIGSUR_IRQ_HIGH) {	
 	   	DPRINTK("Enable L1 IRQ %d\n", irq);
    		DIPRINTK(2,"enable_bigsur_l1irq: IMR=0x%08x mask=0x%x\n", 
    			mask_port, bit);
+#if defined(CONFIG_RTHAL)
+		hard_save_flags_and_cli(flags);
+#else
 		save_and_cli(flags);
+#endif
 		/* Enable L1 IRQ - clear mask bit */
 		mask = inb(mask_port) & ~bit;
 		outb(mask, mask_port);
@@ -136,12 +147,19 @@ static void disable_bigsur_l2irq(unsigned int irq)
    		DPRINTK("Disable L2 IRQ %d\n", irq);
    		DIPRINTK(2,"disable_bigsur_l2irq: IMR=0x%08x mask=0x%x\n", 
    			mask_port, bit);
+#if defined(CONFIG_RTHAL)
+		hard_save_flags_and_cli(flags);
+#else
 		save_and_cli(flags);
-
+#endif
 		/* Disable L2 IRQ - set mask bit */
 		mask = inb(mask_port) | bit;
 		outb(mask, mask_port);
+#if defined(CONFIG_RTHAL)
+		hard_restore_flags(flags);
+#else
 		restore_flags(flags);
+#endif
 		return;
 	}
  	DPRINTK("disable_bigsur_l2irq: Invalid IRQ %d\n", irq);	
@@ -158,12 +176,19 @@ static void enable_bigsur_l2irq(unsigned int irq)
    		DPRINTK("Enable L2 IRQ %d\n", irq);
    		DIPRINTK(2,"enable_bigsur_l2irq: IMR=0x%08x mask=0x%x\n", 
    			mask_port, bit);
+#if defined(CONFIG_RTHAL)
+		hard_save_flags_and_cli(flags);
+#else
 		save_and_cli(flags);
-
+#endif
 		/* Enable L2 IRQ - clear mask bit */
 		mask = inb(mask_port) & ~bit;
 		outb(mask, mask_port);
+#if defined(CONFIG_RTHAL)
+		hard_restore_flags(flags);
+#else
 		restore_flags(flags);
+#endif
 		return;
 	}
    	DPRINTK("enable_bigsur_l2irq: Invalid IRQ %d\n", irq);

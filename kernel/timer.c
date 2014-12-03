@@ -13,6 +13,7 @@
  *              serialize accesses to xtime/lost_ticks).
  *                              Copyright (C) 1998  Andrea Arcangeli
  *  1999-03-10  Improved NTP compatibility by Ulrich Windl
+ *  2002-12-12  Sharp Corporation for Poodle and Corgi
  */
 
 #include <linux/config.h>
@@ -827,9 +828,21 @@ asmlinkage long sys_getegid(void)
 
 #endif
 
+#ifdef CONFIG_KMC_PARTNER_VIRTUAL_ICE
+int __kmc_sys_getpid_flag;
+
+void __kmc_sys_getpid(void)
+{
+	asm("nop");
+}
+#endif
+
 /* Thread ID - the internal kernel "pid" */
 asmlinkage long sys_gettid(void)
 {
+#ifdef CONFIG_KMC_PARTNER_VIRTUAL_ICE
+	if (__kmc_sys_getpid_flag) __kmc_sys_getpid();
+#endif
 	return current->pid;
 }
 
@@ -874,3 +887,20 @@ asmlinkage long sys_nanosleep(struct timespec *rqtp, struct timespec *rmtp)
 	return 0;
 }
 
+#ifdef CONFIG_ARCH_SHARP_SL
+unsigned long get_next_time_tick(void)
+{
+	int i, j;
+	struct list_head *tmp;
+	if (TQ_ACTIVE(tq_timer)) {
+		return 0;
+	}
+	for (i = tv1.index, j = 0; (j < TVR_SIZE) && (i != 0); i = (i + 1) & TVR_MASK, j++) {
+		tmp = tv1.vec + i;
+		if (tmp->next != tmp) {
+			break;
+		}
+	}
+	return j;
+}
+#endif

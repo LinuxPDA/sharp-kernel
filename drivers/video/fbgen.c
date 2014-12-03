@@ -9,6 +9,9 @@
  * This file is subject to the terms and conditions of the GNU General Public
  * License.  See the file COPYING in the main directory of this archive
  * for more details.
+ *
+ * Change Log
+ *	05-Sep-2002 SHARP for rotation display
  */
 
 #include <linux/module.h>
@@ -247,10 +250,17 @@ int fbgen_pan_display(struct fb_var_screeninfo *var, int con,
     }
     fb_display[con].var.xoffset = var->xoffset;
     fb_display[con].var.yoffset = var->yoffset;
+#if defined(CONFIG_FBCON_ROTATE_R) || defined(CONFIG_FBCON_ROTATE_L)
+    if (var->vmode & FB_VMODE_XWRAP)
+	fb_display[con].var.vmode |= FB_VMODE_XWRAP;
+    else
+	fb_display[con].var.vmode &= ~FB_VMODE_XWRAP;
+#else
     if (var->vmode & FB_VMODE_YWRAP)
 	fb_display[con].var.vmode |= FB_VMODE_YWRAP;
     else
 	fb_display[con].var.vmode &= ~FB_VMODE_YWRAP;
+#endif
 
     return 0;
 }
@@ -321,8 +331,13 @@ void fbgen_set_disp(int con, struct fb_info_gen *info)
     display->visual = fix.visual;
     display->type = fix.type;
     display->type_aux = fix.type_aux;
+#if defined(CONFIG_FBCON_ROTATE_R) || defined(CONFIG_FBCON_ROTATE_L)
+    display->xpanstep = fix.xpanstep;
+    display->xwrapstep = fix.xwrapstep;
+#else
     display->ypanstep = fix.ypanstep;
     display->ywrapstep = fix.ywrapstep;
+#endif
     display->line_length = fix.line_length;
     if (info->fbhw->blank || fix.visual == FB_VISUAL_PSEUDOCOLOR ||
 	fix.visual == FB_VISUAL_DIRECTCOLOR)

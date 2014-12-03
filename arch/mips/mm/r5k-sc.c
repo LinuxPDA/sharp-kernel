@@ -68,25 +68,41 @@ static void r5k_sc_enable(void)
 {
         unsigned long flags;
 
-	__save_and_cli(flags);
-	change_cp0_config(CONF_SE, CONF_SE);
+#if defined(CONFIG_RTHAL)
+	hard_save_flags_and_cli(flags);
+#else /* CONFIG_RTHAL */
+	local_irq_save(flags);
+#endif /* CONFIG_RTHAL */
+	change_c0_config(CONF_SE, CONF_SE);
 	blast_r5000_scache();
-	__restore_flags(flags);
+#if defined(CONFIG_RTHAL)
+	hard_restore_flags(flags);
+#else /* CONFIG_RTHAL */
+	local_irq_restore(flags);
+#endif /* CONFIG_RTHAL */
 }
 
 static void r5k_sc_disable(void)
 {
         unsigned long flags;
 
-	__save_and_cli(flags);
+#if defined(CONFIG_RTHAL)
+	hard_save_flags_and_cli(flags);
+#else /* CONFIG_RTHAL */
+	local_irq_save(flags);
+#endif /* CONFIG_RTHAL */
 	blast_r5000_scache();
-	change_cp0_config(CONF_SE, 0);
-	__restore_flags(flags);
+	change_c0_config(CONF_SE, 0);
+#if defined(CONFIG_RTHAL)
+	hard_restore_flags(flags);
+#else /* CONFIG_RTHAL */
+	local_irq_restore(flags);
+#endif /* CONFIG_RTHAL */
 }
 
 static inline int __init r5k_sc_probe(void)
 {
-	unsigned long config = read_32bit_cp0_register(CP0_CONFIG);
+	unsigned long config = read_c0_config();
 
 	if(config & CONF_SC)
 		return(0);

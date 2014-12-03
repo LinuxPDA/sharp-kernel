@@ -195,9 +195,10 @@ static struct super_block * cramfs_read_super(struct super_block *sb, void *data
 	unsigned long root_offset;
 	struct super_block * retval = NULL;
 
-	set_blocksize(sb->s_dev, PAGE_CACHE_SIZE);
 	sb->s_blocksize = PAGE_CACHE_SIZE;
 	sb->s_blocksize_bits = PAGE_CACHE_SHIFT;
+	if (get_hardsect_size(sb->s_dev) >= sb->s_blocksize)
+		set_blocksize(sb->s_dev, sb->s_blocksize);
 
 	/* Invalidate the read buffers on mount: think disk change.. */
 	for (i = 0; i < READ_BUFFERS; i++)

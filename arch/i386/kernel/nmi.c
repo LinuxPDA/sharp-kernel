@@ -25,6 +25,20 @@
 #include <asm/mtrr.h>
 #include <asm/mpspec.h>
 
+#ifdef CONFIG_REMOTE_DEBUG
+extern gdb_debug_hook * linux_debug_hook;
+#define	CHK_REMOTE_DEBUG(trapnr,signr,error_code,regs,after)		\
+   {									\
+	if (linux_debug_hook != (gdb_debug_hook *) NULL && !user_mode(regs)) \
+	{								\
+		(*linux_debug_hook)(trapnr, signr, error_code, regs) ;	\
+		after;							\
+	}								\
+    }
+#else
+#define	CHK_REMOTE_DEBUG(trapnr,signr,error_code,regs,after)	
+#endif
+
 unsigned int nmi_watchdog = NMI_NONE;
 static unsigned int nmi_hz = HZ;
 unsigned int nmi_perfctr_msr;	/* the MSR to reset in NMI handler */
@@ -344,6 +358,20 @@ void nmi_watchdog_tick (struct pt_regs * regs)
 	int sum, cpu = smp_processor_id();
 
 	sum = apic_timer_irqs[cpu];
+#ifdef CONFIG_REMOTE_DEBUG
+	if (kgdb_lock) {
+
+		/*
+		 * The machine is in kgdb, hold this cpu if already
+		 * not held.
+		 */
+
+		if (!procindebug[cpu] && kgdb_lock != (cpu + 1)) {
+			gdb_wait(regs);
+		}
+		alert_counter[cpu] = 0;
+	} else
+#endif
 
 	if (last_irq_sums[cpu] == sum) {
 		/*
@@ -352,6 +380,9 @@ void nmi_watchdog_tick (struct pt_regs * regs)
 		 */
 		alert_counter[cpu]++;
 		if (alert_counter[cpu] == 5*nmi_hz) {
+
+			CHK_REMOTE_DEBUG(2,SIGSEGV,0,regs,)
+
 			spin_lock(&nmi_print_lock);
 			/*
 			 * We are in trouble anyway, lets at least try

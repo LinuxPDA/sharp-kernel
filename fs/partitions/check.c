@@ -43,6 +43,9 @@ static int (*check_part[])(struct gendisk *hd, struct block_device *bdev, unsign
 #ifdef CONFIG_ACORN_PARTITION
 	acorn_partition,
 #endif
+#ifdef CONFIG_SGI_PARTITION
+	sgi_partition,
+#endif
 #ifdef CONFIG_EFI_PARTITION
 	efi_partition,		/* this must come before msdos */
 #endif
@@ -66,9 +69,6 @@ static int (*check_part[])(struct gendisk *hd, struct block_device *bdev, unsign
 #endif
 #ifdef CONFIG_MAC_PARTITION
 	mac_partition,
-#endif
-#ifdef CONFIG_SGI_PARTITION
-	sgi_partition,
 #endif
 #ifdef CONFIG_ULTRIX_PARTITION
 	ultrix_partition,
@@ -124,6 +124,8 @@ char *disk_name (struct gendisk *hd, int minor, char *buf)
 	 * IDE devices use multiple major numbers, but the drives
 	 * are named as:  {hda,hdb}, {hdc,hdd}, {hde,hdf}, {hdg,hdh}..
 	 * This requires special handling here.
+	 *
+	 * MD devices are named md0, md1, ... md15, fix it up here.
 	 */
 	switch (hd->major) {
 		case IDE9_MAJOR:
@@ -207,7 +209,7 @@ char *disk_name (struct gendisk *hd, int minor, char *buf)
 void add_gd_partition(struct gendisk *hd, int minor, int start, int size)
 {
 #ifndef CONFIG_DEVFS_FS
-	char buf[40];
+	char buf[MAX_DISKNAME_LEN];
 #endif
 
 	hd->part[minor].start_sect = start;
@@ -229,7 +231,7 @@ static void check_partition(struct gendisk *hd, kdev_t dev, int first_part_minor
 	static int first_time = 1;
 	unsigned long first_sector;
 	struct block_device *bdev;
-	char buf[64];
+	char buf[MAX_DISKNAME_LEN];
 	int i;
 
 	if (first_time)

@@ -68,8 +68,9 @@ NORET_TYPE void panic(const char * fmt, ...)
 
 	notifier_call_chain(&panic_notifier_list, 0, NULL);
 
-	if (panic_timeout > 0)
-	{
+	if (panic_timeout < 0) {
+		machine_halt();
+	} else if (panic_timeout > 0) {
 		/*
 	 	 * Delay timeout seconds before rebooting the machine. 
 		 * We can't use the "normal" timers since we just panicked..

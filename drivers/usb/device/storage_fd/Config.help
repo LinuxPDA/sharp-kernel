@@ -1,0 +1,55 @@
+CONFIG_USBD_STORAGE
+  Enable the generic mass storage function driver. This function is
+  used emulating a Linux block driver.
+
+CONFIG_USBD_STORAGE_VENDORID
+  Optionally specify the mass storage USB Device Vendor ID. The top
+  level Vendor ID will be used if this is not specified.
+
+CONFIG_USBD_STORAGE_PRODUCTID
+  Optionally specify the mass storage USB Device Product ID. The top
+  level Vendor ID will be used if this is not specified.
+
+CONFIG_USBD_STORAGE_OUT_ENDPOINT
+  Specify the preferred OUT (received data) endpoint number. This is a
+  number from 0-15 and must be allowed by the bus interface device.
+
+  Some devices such as the SA-1110 or L7205/L7210 may override this
+  value with a fixed value.
+
+CONFIG_USBD_STORAGE_IN_ENDPOINT
+  Specify the preferred IN (transmit data) endpoint number. This is a
+  number from 0-15 and must be allowed by the bus interface device.
+
+  Some devices such as the SA-1110 or L7205/L7210 may override this
+  value with a fixed value.
+
+CONFIG_USBD_STORAGE_INT_ENDPOINT
+  Specify the preferred INT (interrupt) endpoint number. This is a
+  number from 0-15 and must be allowed by the bus interface device.
+
+  Some devices such as the L7205/L7210 may override this value with a
+  fixed value. Others such as the SA-1110 do not allow an interrupt
+  value.
+
+CONFIG_USBD_STORAGE_OUT_PKTSIZE
+  Specify the maximum packet size for the OUT endpoint. This allowable
+  values are normally 16, 32 and 64. 
+
+  Some devices such as the Linkup L7205/L7210 may override this value
+  with a lower maximum value (such as 32).
+
+CONFIG_USBD_STORAGE_IN_PKTSIZE
+  Specify the maximum packet size for the IN endpoint. This allowable
+  values are normally 16, 32 and 64. 
+
+  Some devices such as the Linkup L7205/L7210 may override this value
+  with a lower maximum value (such as 32).
+
+CONFIG_USBD_STORAGE_INT_PKTSIZE
+  Specify the maximum packet size for the INT endpoint. This allowable
+  values are normally 8 and 16. Some bus interface devices may not
+  support all values.
+
+CONFIG_USBD_STORAGE_DEF_DEVICE_NAME
+  Specify the default block device name to used on mass storage.

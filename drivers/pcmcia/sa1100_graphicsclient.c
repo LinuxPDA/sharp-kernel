@@ -3,6 +3,8 @@
  *
  * PCMCIA implementation routines for Graphics Client Plus
  *
+ * Nov/14/01 Woojung
+ *    Set MECR at initializing time
  * 9/12/01   Woojung
  *    Turn power OFF at startup
  * 1/31/2001 Woojung Huh
@@ -18,11 +20,6 @@
 #include <asm/hardware.h>
 #include <asm/irq.h>
 #include "sa1100_generic.h"
-
-#error This is broken!
-
-#define	S0_CD_IRQ		60				// Socket 0 Card Detect IRQ
-#define	S0_STS_IRQ		55				// Socket 0 PCMCIA IRQ
 
 static volatile unsigned long *PCMCIA_Status = 
 		((volatile unsigned long *) ADS_p2v(_ADS_CS_STATUS));
@@ -46,12 +43,15 @@ static int gcplus_pcmcia_init(struct pcmcia_init *init)
   *PCMCIA_Power &= ~0x03;
 
   /* Register interrupts */
-  irq = S0_CD_IRQ;
+  irq = IRQ_GRAPHICSCLIENT_S0_CD;
   res = request_irq(irq, init->handler, SA_INTERRUPT, "PCMCIA 0 CD", NULL);
   if (res < 0) {
-	  printk(KERN_ERR "%s: Request for IRQ %lu failed\n", __FUNCTION__, irq);
+	  printk(KERN_ERR "%s: Request for IRQ %u failed\n", __FUNCTION__, irq);
 	  return	-1;
   }
+
+  // Nov/14/01 WH
+  MECR = 0x00000943;
 
   return 1;			// 1 PCMCIA Slot
 }
@@ -59,7 +59,7 @@ static int gcplus_pcmcia_init(struct pcmcia_init *init)
 static int gcplus_pcmcia_shutdown(void)
 {
   /* disable IRQs */
-  free_irq( S0_CD_IRQ, NULL);
+  free_irq( IRQ_GRAPHICSCLIENT_S0_CD, NULL);
   
   /* Shutdown PCMCIA power */
   mdelay(2);						// 2msec
@@ -73,9 +73,6 @@ static int gcplus_pcmcia_socket_state(struct pcmcia_state_array
   unsigned long levels;
 
   if(state_array->size<1) return -1;
-
-  memset(state_array->state, 0, 
-	 (state_array->size)*sizeof(struct pcmcia_state));
 
   levels=*PCMCIA_Status;
 
@@ -96,7 +93,7 @@ static int gcplus_pcmcia_get_irq_info(struct pcmcia_irq_info *info)
 		return -1;
 
 	if (info->sock == 0)
-		info->irq = S0_STS_IRQ;
+		info->irq = IRQ_GRAPHICSCLIENT_S0_STS;
 
   	return 0;
 }
@@ -142,6 +139,11 @@ static int gcplus_pcmcia_configure_socket(const struct pcmcia_configure
   mdelay(30);
 
   restore_flags(flags);
+
+  if (configure->irq)
+	  enable_irq(IRQ_GRAPHICSCLIENT_S0_STS);
+  else
+	  disable_irq(IRQ_GRAPHICSCLIENT_S0_STS);
 
   return 0;
 }

@@ -53,9 +53,6 @@ static int pangolin_pcmcia_socket_state(struct pcmcia_state_array
 
   if(state_array->size<2) return -1;
 
-  memset(state_array->state, 0, 
-	 (state_array->size)*sizeof(struct pcmcia_state));
-
   levels=GPLR;
 #ifndef CONFIG_SA1100_PANGOLIN_PCMCIA_IDE
   state_array->state[1].detect=((levels & GPIO_PCMCIA_CD)==0)?1:0;

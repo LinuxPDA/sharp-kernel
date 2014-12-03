@@ -1,0 +1,551 @@
+/*
+ * linux/include/asm-sh/sh7720.h
+ *
+ * Copyright (c) 2004 Lineo Solutions, Inc.
+ * Copyright (c) 2002 Lineo Japan, Inc.
+ *
+ * This file is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ *
+ * Hitachi SH7720 support.
+ */
+#ifndef __ASM_SH_SH7720_H
+#define __ASM_SH_SH7720_H 1
+
+#define MMUCR		0xFFFFFFE0
+#define PTEH		0xFFFFFFF0
+#define PTEL		0xFFFFFFF4
+#define TTB		0xFFFFFFF8
+#define TEA		0xFFFFFFFC
+
+#define CCR1		0xFFFFFFEC
+#define CCR2		0xA40000B0
+#define CCR3		0xA40000B4
+
+#define INTEVT2		0xA4000000
+#define TRA		0xFFFFFFD0
+#define EXPEVT		0xFFFFFFD4
+
+#define IPRA		0xA414FEE2
+#define IPRB		0xA414FEE4
+#define IPRC		0xA4140016
+#define IPRD		0xA4140018
+#define IPRE		0xA414001A
+#define IPRF		0xA4080000
+#define IPRG		0xA4080002
+#define IPRH		0xA4080004
+#define IPRI		0xA4080006
+
+#define ICR0		0xA414FEE0
+#define ICR1		0xA4140010
+#define ICR2		0xA4140012
+
+#define IRR0		0xA4140004
+
+#define CMNCR		0xA4FD0000
+#define CS0BCR		0xA4FD0004
+#define CS2BCR		0xA4FD0008
+#define CS3BCR		0xA4FD000C
+#define CS4BCR		0xA4FD0010
+#define CS5ABCR		0xA4FD0014
+#define CS5BBCR		0xA4FD0018
+#define CS6ABCR		0xA4FD001C
+#define CS6BBCR		0xA4FD0020
+#define CS0WCR		0xA4FD0024
+#define CS2WCR		0xA4FD0028
+#define CS3WCR		0xA4FD002C
+#define CS4WCR		0xA4FD0030
+#define CS5AWCR		0xA4FD0034
+#define CS5BWCR		0xA4FD0038
+#define CS6AWCR		0xA4FD003C
+#define CS6BWCR		0xA4FD0040
+
+#define SDCR		0xA4FD0044
+
+#define RTCSR		0xA4ED0048
+#define RTCNT		0xA4ED004C
+#define RTCOR		0xA4ED0050
+
+#define SAR0		0xA4010020
+#define DAR0		0xA4010024
+#define DMATCR0		0xA4010028
+#define CHCR0		0xA401002C
+#define SAR1		0xA4010030
+#define DAR1		0xA4010034
+#define DMATCR1		0xA4010038
+#define CHCR1		0xA401003C
+#define SAR2		0xA4010040
+#define DAR2		0xA4010044
+#define DMATCR2		0xA4010048
+#define CHCR2		0xA401004C
+#define SAR3		0xA4010050
+#define DAR3		0xA4010054
+#define DMATCR3		0xA4010058
+#define CHCR3		0xA401005C
+#define SAR4		0xA4010070
+#define DAR4		0xA4010074
+#define DMATCR4		0xA4010078
+#define CHCR4		0xA401007C
+#define SAR5		0xA4010080
+#define DAR5		0xA4010084
+#define DMATCR5		0xA4010088
+#define CHCR5		0xA401008C
+
+#define DMAOR		0xA4010060
+#define DMARS0		0xA4090000
+#define DMARS1		0xA4090004
+#define DMARS2		0xA4090008
+
+#define UCLKCR		0xA40A0008
+
+#define FRQCR		0xA415FF80
+
+#define BARA		0xA4FFFFB0
+#define BAMRA		0xA4FFFFB4
+#define BBRA		0xA4FFFFB8
+
+#define BARB		0xA4FFFFA0
+#define BAMRB		0xA4FFFFA4
+#define BBRB		0xA4FFFFA8
+#define BDRB		0xA4FFFF90
+#define BDMRB		0xA4FFFF94
+#define BRCR		0xA4FFFF98
+
+#define BETR		0xA4FFFF9C
+#define BRSR		0xA4FFFFAC
+#define BRDR		0xA4FFFFBC
+#define BASRA		0xFFFFFFE4
+#define BASRB		0xFFFFFFE8
+
+#define WTCNT		0xA415FF84
+#define WTCSR		0xA415FF86
+
+#define STBCR		0xA415FF82
+#define STBCR2		0xA415FF88
+#define STBCR3		0xA40A0000
+#define STBCR4		0xA40A0004
+#define STBCR5		0xA40A0010
+
+#define SRSTR		0xA40A0024
+#define SRSTR2		0xA40A0028
+
+#define TMU_TSTR	0xA412FE92
+#define TMU_TCOR0	0xA412FE94
+#define TMU_TCNT0	0xA412FE98
+#define TMU_TCR0	0xA412FE9C
+#define TMU_TCOR1	0xA412FEA0
+#define TMU_TCNT1	0xA412FEA4
+#define TMU_TCR1	0xA412FEA8
+#define TMU_TCOR2	0xA412FEAC
+#define TMU_TCNT2	0xA412FEB0
+#define TMU_TCR2	0xA412FEB4
+
+#define TPU_TSTR	0xA4480000
+#define TPU_TCR0	0xA4480010
+#define TPU_TMDR0	0xA4480014
+#define TPU_TIOR0	0xA4480018
+#define TPU_TIER0	0xA448001C
+#define TPU_TSR0	0xA4480020
+#define TPU_TCNT0	0xA4480024
+#define TPU_TGRA0	0xA4480028
+#define TPU_TGRB0	0xA448002C
+#define TPU_TGRC0	0xA4480030
+#define TPU_TGRD0	0xA4480034
+#define TPU_TCR1	0xA4480050
+#define TPU_TMDR1	0xA4480054
+#define TPU_TIOR1	0xA4480058
+#define TPU_TIER1	0xA448005C
+#define TPU_TSR1	0xA4480060
+#define TPU_TCNT1	0xA4480064
+#define TPU_TGRA1	0xA4480068
+#define TPU_TGRB1	0xA448006C
+#define TPU_TGRC1	0xA4480070
+#define TPU_TGRD1	0xA4480074
+#define TPU_TCR2	0xA4480090
+#define TPU_TMDR2	0xA4480094
+#define TPU_TIOR2	0xA4480098
+#define TPU_TIER2	0xA448009C
+#define TPU_TSR2	0xA44800A0
+#define TPU_TCNT2	0xA44800A4
+#define TPU_TGRA2	0xA44800A8
+#define TPU_TGRB2	0xA44800AC
+#define TPU_TGRC2	0xA44800B0
+#define TPU_TGRD2	0xA44800B4
+#define TPU_TCR3	0xA44800D0
+#define TPU_TMDR3	0xA44800D4
+#define TPU_TIOR3	0xA44800D8
+#define TPU_TIER3	0xA44800DC
+#define TPU_TSR3	0xA44800E0
+#define TPU_TCNT3	0xA44800E4
+#define TPU_TGRA3	0xA44800E8
+#define TPU_TGRB3	0xA44800EC
+#define TPU_TGRC3	0xA44800F0
+#define TPU_TGRD3	0xA44800F4
+
+#define CMSTR		0xA44A0000
+#define CMCSR0		0xA44A0010
+#define CMCNT0		0xA44A0014
+#define CMCOR0		0xA44A0018
+#define CMCSR1		0xA44A0020
+#define CMCNT1		0xA44A0024
+#define CMCOR1		0xA44A0028
+#define CMCSR2		0xA44A0030
+#define CMCNT2		0xA44A0034
+#define CMCOR2		0xA44A0038
+#define CMCSR3		0xA44A0040
+#define CMCNT3		0xA44A0044
+#define CMCOR3		0xA44A0048
+#define CMCSR4		0xA44A0050
+#define CMCNT4		0xA44A0054
+#define CMCOR4		0xA44A0058
+
+#define SCSMR0		0xA4430000
+#define SCBRR0		0xA4430004
+#define SCSCR0		0xA4430008
+#define SCTDSR0		0xA443000C
+#define SCFER0		0xA4430010
+#define SCSSR0		0xA4430014
+#define SCFCR0		0xA4430018
+#define SCFDR0		0xA443001C
+#define SCFTDR0		0xA4430020
+#define SCFRDR0		0xA4430024
+
+#define SCSMR1		0xA4438000
+#define SCBRR1		0xA4438004
+#define SCSCR1		0xA4438008
+#define SCTDSR1		0xA443800C
+#define SCFER1		0xA4438010
+#define SCSSR1		0xA4438014
+#define SCFCR1		0xA4438018
+#define SCFDR1		0xA443801C
+#define SCFTDR1		0xA4438020
+#define SCFRDR1		0xA4438024
+
+#define SCIMR		0xA4440000
+
+#define ICCR1		0xA4470000
+#define ICCR2		0xA4470004
+#define ICMR		0xA4470008
+#define ICIER		0xA447000C
+#define ICSR		0xA4470010
+#define IIC_SAR		0xA4470014
+#define ICDRT		0xA4470018
+#define ICDRR		0xA447001C
+#define ICCKS		0xA4470020
+
+#define SIOF_SIMDR0	0xA4410000
+#define SIOF_SISCR0	0xA4410002
+#define SIOF_SITDAR0	0xA4410004
+#define SIOF_SIRDAR0	0xA4410006
+#define SIOF_SICDAR0	0xA4410008
+#define SIOF_SICTR0	0xA441000C
+#define SIOF_SIFCTR0	0xA4410010
+#define SIOF_SISTR0	0xA4410014
+#define SIOF_SIIER0	0xA4410016
+#define SIOF_SITDR0	0xA4410020
+#define SIOF_SIRDR0	0xA4410024
+#define SIOF_SITCR0	0xA4410028
+#define SIOF_SIRCR0	0xA441002C
+#define SIOF_SPICR0	0xA4410030
+
+#define SIOF_SIMDR1	0xA4418000
+#define SIOF_SISCR1	0xA4418002
+#define SIOF_SITDAR1	0xA4418004
+#define SIOF_SIRDAR1	0xA4418006
+#define SIOF_SICDAR1	0xA4418008
+#define SIOF_SICTR1	0xA441800C
+#define SIOF_SIFCTR1	0xA4418010
+#define SIOF_SISTR1	0xA4418014
+#define SIOF_SIIER1	0xA4418016
+#define SIOF_SITDR1	0xA4418020
+#define SIOF_SIRDR1	0xA4418024
+#define SIOF_SITCR1	0xA4418028
+#define SIOF_SIRCR1	0xA441802C
+#define SIOF_SPICR1	0xA4418030
+
+#define ACTR1		0xA44E0180
+#define ACTR2		0xA44E0182
+#define ASTR1		0xA44E0184
+#define ASTR2		0xA44E0186
+#define MRCR		0xA44E0188
+#define MPCR		0xA44E018A
+#define DPNQ		0xA44E018C
+#define RCNT		0xA44E018E
+#define ACDR		0xA44E0190
+#define ASTR		0xA44E0192
+#define TDFP		0xA44E0194
+#define RDFP		0xA44E0198
+
+#define UTRCTL		0xA405012C
+
+#define USBHR		0xA4428000
+#define USBHC		0xA4428004
+#define USBHCS		0xA4428008
+#define USBHIS		0xA442800C
+#define USBHIE		0xA4428010
+#define USBHID		0xA4428014
+#define USBHHCCA	0xA4428018
+#define USBHPCED	0xA442801C
+#define USBHCHED	0xA4428020
+#define USBHCCED	0xA4428024
+#define USBHBHED	0xA4428028
+#define USBHBCED	0xA442802C
+#define USBHDHED	0xA4428030
+#define USBHFI		0xA4428034
+#define USBHFR		0xA4428038
+#define USBHFN		0xA442803C
+#define USBHPS		0xA4428040
+#define USBHLST		0xA4428044
+#define USBHRDA		0xA4428048
+#define USBHRDB		0xA442804C
+#define USBHRS		0xA4428050
+#define USBHRPS1	0xA4428054
+#define USBHRPS2	0xA4428058
+
+#define USBH		0xA4428000
+#define USBH		0xA4428000
+#define USBH		0xA4428000
+#define USBH		0xA4428000
+
+#define USBIFR0		0xA4420000
+#define USBIFR1		0xA4420001
+#define USBIFR2		0xA4420002
+#define USBIFR3		0xA4420003
+#define USBIER0		0xA4420004
+#define USBIER1		0xA4420005
+#define USBIER2		0xA4420006
+#define USBIER3		0xA4420007
+#define USBISR0		0xA4420008
+#define USBISR1		0xA4420009
+#define USBISR2		0xA442000A
+#define USBISR3		0xA442000B
+#define USBEPDR_I	0xA442000C
+#define USBEPDR_O	0xA442000D
+#define USBEPDR_S	0xA442000E
+#define USBEPDR1	0xA4420010
+#define USBEPDR2	0xA4420014
+#define USBEPDR3	0xA4420018
+#define USBEPDR4	0xA442001C
+#define USBEPDR5	0xA4420020
+#define USBEPSZ0_O	0xA4420024
+#define USBEPSZ1	0xA4420025
+#define USBEPSZ4	0xA4420026
+#define USBDASTS	0xA4420027
+#define USBFCLR0	0xA4420028
+#define USBFCLR1	0xA4420029
+#define USBEPSTL0	0xA442002A
+#define USBEPSTL1	0xA442002B
+#define USBTRG		0xA442002C
+#define USBDMA		0xA442002D
+#define USBCVR		0xA442002E
+#define USBCTLR0	0xA442002F
+#define USBTSRH		0xA4420031
+#define USBTSRL		0xA4420032
+#define USBEPIR		0xA4420033
+#define USBIFR4		0xA4420034
+#define USBIER4		0xA4420035
+#define USBISR4		0xA4420036
+#define USBCTLR1	0xA4420037
+#define USBTMRH		0xA4420038
+#define USBTMRL		0xA4420039
+#define USBSTOH		0xA442003A
+#define USBSTOL		0xA442003B
+
+#define LDPR_START	0xA4400000
+#define LDPR_END	0xA44003FC
+#define LDICKR		0xA4400400
+#define LDMTR		0xA4400402
+#define LDDFR		0xA4400404
+#define LDSMR		0xA4400406
+#define LDSARU		0xA4400408
+#define LDSARL		0xA440040C
+#define LDLAOR		0xA4400410
+#define LDPALCR		0xA4400412
+#define LDHCNR		0xA4400414
+#define LDHSYNR		0xA4400416
+#define LDVDLNR		0xA4400418
+#define LDVTLNR		0xA440041A
+#define LDVSYNR		0xA440041C
+#define LDACLNR		0xA440041E
+#define LDINTR		0xA4400420
+#define LDPMMR		0xA4400424
+#define   LDPMMR_LPS1		(1 << 1)
+#define   LDPMMR_LPS0		(1 << 0)
+#define LDPSPR		0xA4400426
+#define LDCNTR		0xA4400428
+#define   LDCNTR_DON		(1 << 0)
+#define   LDCNTR_DON2		(1 << 4)
+#define LDUINTR		0xA4400434
+#define LDUINTNR	0xA4400436
+#define LDLIRNR		0xA4400440
+
+#ifndef PACR
+#define PACR		0xA4050100
+#define PBCR		0xA4050102
+#define PCCR		0xA4050104
+#define PDCR		0xA4050106
+#define PECR		0xA4050108
+#define PFCR		0xA405010A
+#define PGCR		0xA405010C
+#define PHCR		0xA405010E
+#define PJCR		0xA4050110
+#define PKCR		0xA4050112
+#define PLCR		0xA4050114
+#define PMCR		0xA4050116
+#define PPCR		0xA4050118
+#define PRCR		0xA405011A
+#define PSCR		0xA405011C
+#define PTCR		0xA405011E
+#define PUCR		0xA4050120
+#define PVCR		0xA4050122
+#define PSELA		0xA4050124
+#define PSELB		0xA4050125
+#define PSELC		0xA4050128
+#define PSELD		0xA405012A
+#endif
+
+#define PADR		0xA4050140
+#define PBDR		0xA4050142
+#define PCDR		0xA4050144
+#define PDDR		0xA4050146
+#define PEDR		0xA4050148
+#define PFDR		0xA405014A
+#define PGDR		0xA405014C
+#define PHDR		0xA405014E
+#define PJDR		0xA4050150
+#define PKDR		0xA4050152
+#define PLDR		0xA4050154
+#define PMDR		0xA4050156
+#define PPDR		0xA4050158
+#define PRDR		0xA405015A
+#define PSDR		0xA405015C
+#define PTDR		0xA405015E
+#define PUDR		0xA4050160
+#define PVDR		0xA4050162
+
+#define SDIR		0xA400200
+#define SDIDH		0xA400200
+#define SDIDL		0xA400200
+
+#define ADDRA		0xA44C0000
+#define ADDRB		0xA44C0002
+#define ADDRC		0xA44C0004
+#define ADDRD		0xA44C0006
+#define ADCSR		0xA44C0008
+
+#define DADR0		0xA44D0000
+#define DADR1		0xA44D0002
+#define DACR		0xA44D0004
+
+#define PCC0ISR		0xA44B0000
+#define PCC0GCR		0xA44B0002
+#define PCC0CSCR	0xA44B0004
+#define PCC0CSCIER	0xA44B0006
+
+#define SIM_SCSMR	0xA4490000
+#define SIM_SCBRR	0xA4490002
+#define SIM_SCSCR	0xA4490004
+#define SIM_SCTDR	0xA4490006
+#define SIM_SCSSR	0xA4490008
+#define SIM_SCRDR	0xA449000A
+#define SIM_SCSCMR	0xA449000C
+#define SIM_SCSC2R	0xA449000E
+#define SIM_SCWAIT	0xA4490010
+#define SIM_SCGRD	0xA4490012
+#define SIM_SCSMPL	0xA4490014
+
+#define MMC_CMDR0	0xA4480000
+#define MMC_CMDR1	0xA4480001
+#define MMC_CMDR2	0xA4480002
+#define MMC_CMDR3	0xA4480003
+#define MMC_CMDR4	0xA4480004
+#define MMC_CMDR5	0xA4480005
+#define MMC_CMDSTRT	0xA4480006
+#define MMC_OPCR	0xA448000A
+#define MMC_CSTR	0xA448000B
+#define MMC_INTCR0	0xA448000C
+#define MMC_INTCR1	0xA448000D
+#define MMC_INTSTR0	0xA448000E
+#define MMC_INTSTR1	0xA448000F
+#define MMC_CLKON	0xA4480010
+#define MMC_CTOCR	0xA4480011
+#define MMC_IOMCR	0xA4480013
+#define MMC_TBCR	0xA4480014
+#define MMC_MODER	0xA4480016
+#define MMC_CMDTYR	0xA4480018
+#define MMC_RSPTYR	0xA4480019
+#define MMC_TBNCR	0xA448001A
+#define MMC_RSPR0	0xA4480020
+#define MMC_RSPR1	0xA4480021
+#define MMC_RSPR2	0xA4480022
+#define MMC_RSPR3	0xA4480023
+#define MMC_RSPR4	0xA4480024
+#define MMC_RSPR5	0xA4480025
+#define MMC_RSPR6	0xA4480026
+#define MMC_RSPR7	0xA4480027
+#define MMC_RSPR8	0xA4480028
+#define MMC_RSPR9	0xA4480029
+#define MMC_RSPR10	0xA448002A
+#define MMC_RSPR11	0xA448002B
+#define MMC_RSPR12	0xA448002C
+#define MMC_RSPR13	0xA448002D
+#define MMC_RSPR14	0xA448002E
+#define MMC_RSPR15	0xA448002F
+#define MMC_RSPR16	0xA4480030
+#define MMC_DTOUTR	0xA4480032
+#define MMC_DR		0xA4480040
+#define MMC_FIFOCLR	0xA4480042
+#define MMC_DMACR	0xA4480044
+#define MMC_INTCR2	0xA4480046
+#define MMC_INTSTR2	0xA4480048
+
+typedef struct {
+        unsigned long sar;
+        unsigned long dar;
+        unsigned long dmatcr;
+        unsigned long chcr;
+        unsigned long way;	/* 0:area to port , 1:port to area */
+        unsigned long module;
+} dma_device_t;
+
+typedef int dmach_t;
+typedef void (*dma_callback_t)(void* buf_id, int size);
+
+extern int sh7720_request_dma(dmach_t* channel, const char*device_id);
+extern int sh7720_dma_set_callback(dmach_t channel, dma_callback_t cb);
+extern int sh7720_dma_set_device(dmach_t channel, dma_device_t device);
+extern int sh7720_dma_set_spin(dmach_t channel, dma_addr_t addr, int size);
+extern int sh7720_dma_queue_buffer(dmach_t channel, void* buf_id, dma_addr_t data, int size);
+extern int sh7720_dma_get_current(dmach_t channel, void **buf_id, dma_addr_t* addr);
+extern int sh7720_dma_stop(dmach_t channel);
+extern int sh7720_dma_resume(dmach_t channel);
+extern int sh7720_dma_flush_all( dmach_t channel );
+extern void sh7720_free_dma(dmach_t channel);
+
+enum dma_module_type {
+	DMA_MODULE_SCIF0_TRANSMIT,
+	DMA_MODULE_SCIF0_RECEIVE,
+	DMA_MODULE_SCIF1_TRANSMIT,
+	DMA_MODULE_SCIF1_RECEIVE,
+	DMA_MODULE_CMT0,
+	DMA_MODULE_CMT1,
+	DMA_MODULE_CMT2,
+	DMA_MODULE_CMT3,
+	DMA_MODULE_CMT4,
+	DMA_MODULE_USBF_TRANSMIT,
+	DMA_MODULE_USBF_RECEIVE,
+	DMA_MODULE_SIM_TRANSMIT,
+	DMA_MODULE_SIM_RECEIVE,
+	DMA_MODULE_MMC,
+	DMA_MODULE_SIOF0_TRANSMIT,
+	DMA_MODULE_SIOF0_RECEIVE,
+	DMA_MODULE_SIOF1_TRANSMIT,
+	DMA_MODULE_SIOF1_RECEIVE
+};
+
+#define CHCR_DE		(1 << 0)
+#define CHCR_TE		(1 << 1)
+#define CHCR_IE		(1 << 2)
+
+#endif /* __ASM_SH_SH7720_H */

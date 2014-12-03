@@ -28,7 +28,12 @@
     and other provisions required by the GPL.  If you do not delete
     the provisions above, a recipient may use your version of this
     file under either the MPL or the GPL.
-    
+
+    Change Log
+	12-Nov-2001 Lineo Japan, Inc.
+	30-Jul-2002 Lineo Japan, Inc.  for 2.4.18
+	12-Dec-2002 Sharp Corporation for Poodle and Corgi
+	01-Jun-2004 Lineo Solutions, Inc.  for PXA27x
 ======================================================================*/
 
 #define __NO_VERSION__
@@ -85,6 +90,48 @@ static const u_int exponent[] = {
 
 INT_MODULE_PARM(cis_width,	0);		/* 16-bit CIS? */
 
+#if defined(CONFIG_ARCH_SHARP_SL) && defined(CONFIG_ARCH_PXA)
+extern u8 force_8bit_access_check_done;
+#define FORCE_8BIT_ACCESS_CHECK_LEN 32
+
+static int force_8bit_access_check_and_set(
+	struct bus_operations *bus, u_char *sys, u_int inc)
+{
+	char sample1[FORCE_8BIT_ACCESS_CHECK_LEN];
+	char sample2[FORCE_8BIT_ACCESS_CHECK_LEN];
+	char *p = sample1;
+#if defined(CONFIG_CPU_PXA27X)
+	GPSR(GPIO54_nPCE_2) = GPSR(GPIO54_nPCE_2);
+	set_GPIO_mode(GPIO54_nPCE_2|GPIO_OUT);
+#else
+	GPSR(GPIO53_nPCE_2) = GPSR(GPIO53_nPCE_2);
+	set_GPIO_mode(GPIO53_nPCE_2|GPIO_OUT);
+#endif
+	for(;;){
+		int i, j;
+		for(i=j=0; i<FORCE_8BIT_ACCESS_CHECK_LEN; i++, j+= inc)
+			p[i] = bus_readb(bus, sys+j);
+		if( p == sample2 )
+			break;
+		p = sample2;
+#if defined(CONFIG_CPU_PXA27X)
+		set_GPIO_mode(GPIO54_nPCE_2_MD);
+#else
+		set_GPIO_mode(GPIO53_nPCE_2_MD);
+#endif
+	};
+	if( !memcmp(sample1, sample2, FORCE_8BIT_ACCESS_CHECK_LEN) )
+		return  1;
+	/* force 8bit access */
+#if defined(CONFIG_CPU_PXA27X)
+	set_GPIO_mode(GPIO54_nPCE_2|GPIO_OUT);
+#else
+	set_GPIO_mode(GPIO53_nPCE_2|GPIO_OUT);
+#endif
+	return 2;
+}
+#endif
+
 /*======================================================================
 
     Low-level functions to read and write CIS memory.  I think the
@@ -105,7 +152,7 @@ static void set_cis_map(socket_info_t *s, pccard_mem_map *mem)
 	if (s->cis_virt)
 	    bus_iounmap(s->cap.bus, s->cis_virt);
 	s->cis_virt = bus_ioremap(s->cap.bus, mem->sys_start,
-				  s->cap.map_size);
+				  s->cap.map_size << PCMCIA_ADDRESS_SHIFT);
     }
 }
 
@@ -114,6 +161,9 @@ void read_cis_mem(socket_info_t *s, int attr, u_int addr,
 {
     pccard_mem_map *mem = &s->cis_mem;
     u_char *sys, *buf = ptr;
+#if defined(CONFIG_SABINAL_DISCOVERY)
+    int busy_wait_max_time = 1000*100; /* [10us] */
+#endif
     
     DEBUG(3, "cs: read_cis_mem(%d, %#x, %u)\n", attr, addr, len);
     if (setup_cis_mem(s) != 0) {
@@ -135,18 +185,46 @@ void read_cis_mem(socket_info_t *s, int attr, u_int addr,
 	bus_writeb(s->cap.bus, (addr>>8) & 0xff, sys+CISREG_IADDR1);
 	bus_writeb(s->cap.bus, (addr>>16) & 0xff, sys+CISREG_IADDR2);
 	bus_writeb(s->cap.bus, (addr>>24) & 0xff, sys+CISREG_IADDR3);
-	for ( ; len > 0; len--, buf++)
+	for ( ; len > 0; len--, buf++) {
+#if defined(CONFIG_SABINAL_DISCOVERY)
+	    for(; busy_wait_max_time > 0; busy_wait_max_time--){
+		int val;
+		s->ss_entry->get_status(s->sock, &val);
+		if( !(val & SS_DETECT) ) break;
+		if( val & SS_READY ) break;
+		udelay(10);
+	    }
+#endif
 	    *buf = bus_readb(s->cap.bus, sys+CISREG_IDATA0);
+	}
     } else {
 	u_int inc = 1;
 	if (attr) { mem->flags |= MAP_ATTRIB; inc++; addr *= 2; }
+	inc <<= PCMCIA_ADDRESS_SHIFT;
 	sys += (addr & (s->cap.map_size-1));
 	mem->card_start = addr & ~(s->cap.map_size-1);
 	while (len) {
 	    set_cis_map(s, mem);
-	    sys = s->cis_virt + (addr & (s->cap.map_size-1));
+#if defined(CONFIG_ARCH_SHARP_SL) && defined(CONFIG_ARCH_PXA)
+	    if( !force_8bit_access_check_done )
+		force_8bit_access_check_done = 
+		    force_8bit_access_check_and_set(
+			s->cap.bus, s->cis_virt, inc);
+#endif
+	    sys = s->cis_virt +
+		((addr & (s->cap.map_size-1)) << PCMCIA_ADDRESS_SHIFT);
 	    for ( ; len > 0; len--, buf++, sys += inc) {
-		if (sys == s->cis_virt+s->cap.map_size) break;
+		if (sys == s->cis_virt+(s->cap.map_size<<PCMCIA_ADDRESS_SHIFT))
+		    break;
+#if defined(CONFIG_SABINAL_DISCOVERY)
+		for(; busy_wait_max_time > 0; busy_wait_max_time--){
+		    int val;
+		    s->ss_entry->get_status(s->sock, &val);
+		    if( !(val & SS_DETECT) ) break;
+		    if( val & SS_READY ) break;
+		    udelay(10);
+		}
+#endif
 		*buf = bus_readb(s->cap.bus, sys);
 	    }
 	    mem->card_start += s->cap.map_size;
@@ -186,12 +264,15 @@ void write_cis_mem(socket_info_t *s, int attr, u_int addr,
     } else {
 	int inc = 1;
 	if (attr & IS_ATTR) { mem->flags |= MAP_ATTRIB; inc++; addr *= 2; }
+	inc <<= PCMCIA_ADDRESS_SHIFT;
 	mem->card_start = addr & ~(s->cap.map_size-1);
 	while (len) {
 	    set_cis_map(s, mem);
-	    sys = s->cis_virt + (addr & (s->cap.map_size-1));
+	    sys = s->cis_virt +
+		((addr & (s->cap.map_size-1)) << PCMCIA_ADDRESS_SHIFT);
 	    for ( ; len > 0; len--, buf++, sys += inc) {
-		if (sys == s->cis_virt+s->cap.map_size) break;
+		if (sys == s->cis_virt+(s->cap.map_size<<PCMCIA_ADDRESS_SHIFT))
+		    break;
 		bus_writeb(s->cap.bus, *buf, sys);
 	    }
 	    mem->card_start += s->cap.map_size;
@@ -267,11 +348,13 @@ static int setup_cis_mem(socket_info_t *s)
 	validate_mem(cis_readable, checksum_match, low, s);
 	s->cis_mem.sys_start = 0;
 	vs = NULL;
+#ifndef CONFIG_TOADKK_TCS8000
 	if (find_mem_region(&s->cis_mem.sys_start, s->cap.map_size,
 			    s->cap.map_size, low, "card services", s)) {
 	    printk(KERN_NOTICE "cs: unable to map card memory!\n");
 	    return CS_OUT_OF_RESOURCE;
 	}
+#endif
 	s->cis_mem.sys_stop = s->cis_mem.sys_start+s->cap.map_size-1;
 	s->cis_virt = bus_ioremap(s->cap.bus, s->cis_mem.sys_start,
 				  s->cap.map_size);
@@ -285,7 +368,7 @@ void release_cis_mem(socket_info_t *s)
 	s->cis_mem.flags &= ~MAP_ACTIVE;
 	s->ss_entry->set_mem_map(s->sock, &s->cis_mem);
 	if (!(s->cap.features & SS_CAP_STATIC_MAP))
-	    release_mem_region(s->cis_mem.sys_start, s->cap.map_size);
+	    release_mem_resource(s->cis_mem.sys_start, s->cap.map_size);
 	bus_iounmap(s->cap.bus, s->cis_virt);
 	s->cis_mem.sys_start = 0;
 	s->cis_virt = NULL;
@@ -353,6 +436,9 @@ int verify_cis_cache(socket_info_t *s)
     char buf[256], *caddr;
     int i;
     
+    if (s->cis_used == 0)
+	return 1;
+
     caddr = s->cis_cache;
     for (i = 0; i < s->cis_used; i++) {
 #ifdef CONFIG_CARDBUS
@@ -363,6 +449,11 @@ int verify_cis_cache(socket_info_t *s)
 #endif
 	    read_cis_mem(s, s->cis_table[i].attr, s->cis_table[i].addr,
 			 s->cis_table[i].len, buf);
+#ifdef CONFIG_ARCH_SHARP_SL
+	/* for P-in Compact */
+	if (*buf == CISTPL_END && *caddr == CISTPL_END)
+	    return 0;
+#endif
 	if (memcmp(buf, caddr, s->cis_table[i].len) != 0)
 	    break;
 	caddr += s->cis_table[i].len;
@@ -1078,6 +1169,12 @@ static int parse_cftable_entry(tuple_t *tuple,
     if (features & 0x08) {
 	p = parse_io(p, q, &entry->io);
 	if (p == NULL) return CS_BAD_TUPLE;
+#ifdef CONFIG_DBMX1_TPM102
+	if (entry->io.flags & CISTPL_IO_16BIT)
+	    tpm102_cs5_16bit();
+	else
+	    tpm102_cs5_8bit();
+#endif
     } else
 	entry->io.nwin = 0;
     

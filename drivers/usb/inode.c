@@ -24,6 +24,9 @@
  *
  *  History:
  *   0.1  04.01.2000  Created
+ *
+ * Change Log
+ *     27-Dec-2003 SHARP fixed non-reentrant codes
  */
 
 /*****************************************************************************/
@@ -682,9 +685,15 @@ void usbdevfs_add_bus(struct usb_bus *bus)
 	struct list_head *slist;
 
 	lock_kernel();
+#ifdef CONFIG_ARCH_SHARP_SL
+	down (&usb_bus_list_lock);
+#endif
 	for (slist = superlist.next; slist != &superlist; slist = slist->next)
 		new_bus_inode(bus, list_entry(slist, struct super_block, u.usbdevfs_sb.slist));
 	update_special_inodes();
+#ifdef CONFIG_ARCH_SHARP_SL
+	up (&usb_bus_list_lock);
+#endif
 	unlock_kernel();
 	usbdevfs_conn_disc_event();
 }
@@ -692,9 +701,15 @@ void usbdevfs_add_bus(struct usb_bus *bus)
 void usbdevfs_remove_bus(struct usb_bus *bus)
 {
 	lock_kernel();
+#ifdef CONFIG_ARCH_SHARP_SL
+	down (&usb_bus_list_lock);
+#endif
 	while (!list_empty(&bus->inodes))
 		free_inode(list_entry(bus->inodes.next, struct inode, u.usbdev_i.dlist));
 	update_special_inodes();
+#ifdef CONFIG_ARCH_SHARP_SL
+	up (&usb_bus_list_lock);
+#endif
 	unlock_kernel();
 	usbdevfs_conn_disc_event();
 }
@@ -704,9 +719,15 @@ void usbdevfs_add_device(struct usb_device *dev)
 	struct list_head *slist;
 
 	lock_kernel();
+#ifdef CONFIG_ARCH_SHARP_SL
+	down (&usb_bus_list_lock);
+#endif
 	for (slist = superlist.next; slist != &superlist; slist = slist->next)
 		new_dev_inode(dev, list_entry(slist, struct super_block, u.usbdevfs_sb.slist));
 	update_special_inodes();
+#ifdef CONFIG_ARCH_SHARP_SL
+	up (&usb_bus_list_lock);
+#endif
 	unlock_kernel();
 	usbdevfs_conn_disc_event();
 }
@@ -717,6 +738,9 @@ void usbdevfs_remove_device(struct usb_device *dev)
 	struct siginfo sinfo;
 
 	lock_kernel();
+#ifdef CONFIG_ARCH_SHARP_SL
+	down (&usb_bus_list_lock);
+#endif
 	while (!list_empty(&dev->inodes))
 		free_inode(list_entry(dev->inodes.next, struct inode, u.usbdev_i.dlist));
 	while (!list_empty(&dev->filelist)) {
@@ -736,6 +760,9 @@ void usbdevfs_remove_device(struct usb_device *dev)
 	}
 
 	update_special_inodes();
+#ifdef CONFIG_ARCH_SHARP_SL
+	up (&usb_bus_list_lock);
+#endif
 	unlock_kernel();
 	usbdevfs_conn_disc_event();
 }

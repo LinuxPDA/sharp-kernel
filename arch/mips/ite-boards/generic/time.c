@@ -22,8 +22,6 @@
  * Setting up the clock on the MIPS boards.
  *
  */
-
-#include <linux/config.h>
 #include <linux/init.h>
 #include <linux/kernel_stat.h>
 #include <linux/sched.h>
@@ -41,9 +39,9 @@ static unsigned long r4k_cur;    /* What counter should be at next timer irq */
 extern unsigned int mips_counter_frequency;
 extern asmlinkage unsigned int do_IRQ(int irq, struct pt_regs *regs);
 
-/* 
+/*
  * Figure out the r4k offset, the amount to increment the compare
- * register for each time tick. 
+ * register for each time tick.
  * Use the RTC to calculate offset.
  */
 static unsigned long __init cal_r4koff(void)
@@ -57,17 +55,17 @@ static unsigned long __init cal_r4koff(void)
 	while (!(CMOS_READ(RTC_REG_A) & RTC_UIP));
 
 	/* Start r4k counter. */
-	write_32bit_cp0_register(CP0_COUNT, 0);
+	write_c0_count(0);
 
 	/* Read counter exactly on falling edge of update flag */
 	while (CMOS_READ(RTC_REG_A) & RTC_UIP);
 	while (!(CMOS_READ(RTC_REG_A) & RTC_UIP));
 
-	mips_counter_frequency = read_32bit_cp0_register(CP0_COUNT);
+	mips_counter_frequency = read_c0_count();
 
 	/* restore interrupts */
 	__restore_flags(flags);
-		
+
 	return (mips_counter_frequency / HZ);
 }
 
@@ -91,7 +89,7 @@ unsigned long it8172_rtc_get_time(void)
 		if ((hour & 0xf) == 0xc)
 		        hour &= 0x80;
 	        if (hour & 0x80)
-		        hour = (hour & 0xf) + 12;     
+		        hour = (hour & 0xf) + 12;
 	}
 	day = CMOS_READ(RTC_DAY_OF_MONTH);
 	mon = CMOS_READ(RTC_MONTH);
@@ -111,17 +109,17 @@ void __init it8172_time_init(void)
         unsigned int est_freq, flags;
 
 	__save_and_cli(flags);
-        /* Set Data mode - binary. */ 
+        /* Set Data mode - binary. */
         CMOS_WRITE(CMOS_READ(RTC_CONTROL) | RTC_DM_BINARY, RTC_CONTROL);
 
 	printk("calculating r4koff... ");
 	r4k_offset = cal_r4koff();
 	printk("%08lx(%d)\n", r4k_offset, (int) r4k_offset);
 
-	est_freq = 2*r4k_offset*HZ;	
+	est_freq = 2*r4k_offset*HZ;
 	est_freq += 5000;    /* round */
 	est_freq -= est_freq%10000;
-	printk("CPU frequency %d.%02d MHz\n", est_freq/1000000, 
+	printk("CPU frequency %d.%02d MHz\n", est_freq/1000000,
 	       (est_freq%1000000)*100/1000000);
 	__restore_flags(flags);
 }
@@ -136,12 +134,7 @@ void __init it8172_timer_setup(struct irqaction *irq)
 	setup_irq(MIPS_CPU_TIMER_IRQ, irq);
 
         /* to generate the first timer interrupt */
-	r4k_cur = (read_32bit_cp0_register(CP0_COUNT) + r4k_offset);
-	write_32bit_cp0_register(CP0_COMPARE, r4k_cur);
-	set_cp0_status(ALLINTS);
-}
-
-void local_timer_interrupt(struct pt_regs *regs)
-{
-	do_IRQ(MIPS_CPU_TIMER_IRQ, regs);
+	r4k_cur = (read_c0_count() + r4k_offset);
+	write_c0_compare(r4k_cur);
+	set_c0_status(ALLINTS);
 }

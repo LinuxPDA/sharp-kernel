@@ -1,3 +1,5 @@
+/* $USAGI: ipv6.h,v 1.9 2002/07/04 13:18:19 miyazawa Exp $ */
+
 #ifndef _IPV6_H
 #define _IPV6_H
 
@@ -67,30 +69,44 @@ struct ipv6_opt_hdr {
 
 struct rt0_hdr {
 	struct ipv6_rt_hdr	rt_hdr;
-	__u32			bitmap;		/* strict/loose bit map */
+	__u32			reserved;	/* 'bitmap' is deprecated */
 	struct in6_addr		addr[0];
 
 #define rt0_type		rt_hdr.type;
 };
 
+/* IPsec6 header */
+struct ipv6_auth_hdr {
+	__u8  nexthdr;
+	__u8  hdrlen;		/* This one is measured in 32 bit units! */
+	__u16 reserved;
+	__u32 spi;
+	__u32 seq_no;		/* Sequence number */
+	__u8  auth_data[4];	/* Length variable but >=4. Mind the 64 bit alignment! */
+};
+
+struct ipv6_esp_hdr {
+	__u32 spi;
+	__u32 seq_no;		/* Sequence number */
+	__u8  enc_data[8];	/* Length variable but >=8. Mind the 64 bit alignment! */
+};
+
 /*
  *	IPv6 fixed header
- *
- *	BEWARE, it is incorrect. The first 4 bits of flow_lbl
- *	are glued to priority now, forming "class".
  */
 
+/* XXX: RFC2292bis */
 struct ipv6hdr {
 #if defined(__LITTLE_ENDIAN_BITFIELD)
-	__u8			priority:4,
+	__u8			tclass1:4,
 				version:4;
 #elif defined(__BIG_ENDIAN_BITFIELD)
 	__u8			version:4,
-				priority:4;
+				tclass1:4;
 #else
 #error	"Please fix <asm/byteorder.h>"
 #endif
-	__u8			flow_lbl[3];
+	__u8			tclass2_flow[3];
 
 	__u16			payload_len;
 	__u8			nexthdr;
@@ -115,7 +131,11 @@ struct inet6_skb_parm
 	__u16			auth;
 	__u16			dst0;
 	__u16			srcrt;
+#if defined(CONFIG_IPV6_MOBILITY) || (CONFIG_IPV6_MOBILITY_MODULE)
+	__u16			hao;
+#endif
 	__u16			dst1;
+	__u32			espspi; /* not offset */
 };
 
 #endif

@@ -26,6 +26,10 @@
     CCAE support.  Drivers merged back together, and shared-memory
     Socket EA support added, by Ken Raeburn, September 1995.
 
+    Change Log:
+      12-Mar-2002 Lineo Japan, Inc.
+      30-Jul-2002 Lineo Japan, Inc.  for 2.4.18
+
 ======================================================================*/
 
 #include <linux/kernel.h>
@@ -54,10 +58,10 @@
 #include <pcmcia/ds.h>
 #include <pcmcia/cisreg.h>
 
-#define PCNET_CMD	0x00
-#define PCNET_DATAPORT	0x10	/* NatSemi-defined port window offset. */
-#define PCNET_RESET	0x1f	/* Issue a read to reset, a write to clear. */
-#define PCNET_MISC	0x18	/* For IBM CCAE and Socket EA cards */
+#define PCNET_CMD	(0x00<<PCMCIA_ADDRESS_SHIFT)
+#define PCNET_DATAPORT	(0x10<<PCMCIA_ADDRESS_SHIFT)	/* NatSemi-defined port window offset. */
+#define PCNET_RESET	(0x1f<<PCMCIA_ADDRESS_SHIFT)	/* Issue a read to reset, a write to clear. */
+#define PCNET_MISC	(0x18<<PCMCIA_ADDRESS_SHIFT)	/* For IBM CCAE and Socket EA cards */
 
 #define PCNET_START_PG	0x40	/* First page of TX buffer */
 #define PCNET_STOP_PG	0x80	/* Last page +1 of RX ring */
@@ -366,6 +370,9 @@ static void pcnet_detach(dev_link_t *link)
 
     del_timer(&link->release);
     if (link->state & DEV_CONFIG) {
+#ifdef CONFIG_ARCH_SHARP_SL
+	link->state &= ~DEV_STALE_CONFIG;
+#endif
 	pcnet_release((u_long)link);
 	if (link->state & DEV_STALE_CONFIG) {
 	    link->state |= DEV_STALE_LINK;
@@ -410,15 +417,16 @@ static hw_info_t *get_hwinfo(dev_link_t *link)
 	return NULL;
     }
 
-    virt = ioremap(req.Base, req.Size);
+    virt = ioremap(req.Base, req.Size << PCMCIA_ADDRESS_SHIFT);
     mem.Page = 0;
     for (i = 0; i < NR_INFO; i++) {
 	mem.CardOffset = hw_info[i].offset & ~(req.Size-1);
 	CardServices(MapMemPage, link->win, &mem);
-	base = &virt[hw_info[i].offset & (req.Size-1)];
-	if ((readb(base+0) == hw_info[i].a0) &&
-	    (readb(base+2) == hw_info[i].a1) &&
-	    (readb(base+4) == hw_info[i].a2))
+	base = &virt[(hw_info[i].offset << PCMCIA_ADDRESS_SHIFT) &
+		     ((req.Size << PCMCIA_ADDRESS_SHIFT)-1)];
+	if ((readb(base+(0<<PCMCIA_ADDRESS_SHIFT)) == hw_info[i].a0) &&
+	    (readb(base+(2<<PCMCIA_ADDRESS_SHIFT)) == hw_info[i].a1) &&
+	    (readb(base+(4<<PCMCIA_ADDRESS_SHIFT)) == hw_info[i].a2))
 	    break;
     }
     if (i < NR_INFO) {
@@ -716,6 +724,9 @@ static void pcnet_config(dev_link_t *link)
 	goto failed;
     }
 
+#ifdef CONFIG_DBMX1_TPM102
+    tpm102_cs5_8bit();
+#endif
     hw_info = get_hwinfo(link);
     if (hw_info == NULL)
 	hw_info = get_prom(link);
@@ -898,8 +909,8 @@ static int pcnet_event(event_t event, int priority,
 
 ======================================================================*/
 
-#define DLINK_GPIO		0x1c
-#define DLINK_DIAG		0x1d
+#define DLINK_GPIO		(0x1c<<PCMCIA_ADDRESS_SHIFT)
+#define DLINK_DIAG		(0x1d<<PCMCIA_ADDRESS_SHIFT)
 #define MDIO_SHIFT_CLK		0x80
 #define MDIO_DATA_OUT		0x40
 #define MDIO_DIR_WRITE		0x30
@@ -1294,8 +1305,14 @@ static void dma_get_8390_hdr(struct net_device *dev,
     outb_p(ring_page, nic_base + EN0_RSARHI);
     outb_p(E8390_RREAD+E8390_START, nic_base + PCNET_CMD);
 
+#ifdef CONFIG_DBMX1_TPM102
+    tpm102_cs5_16bit();
+#endif
     insw(nic_base + PCNET_DATAPORT, hdr,
 	    sizeof(struct e8390_pkt_hdr)>>1);
+#ifdef CONFIG_DBMX1_TPM102
+    tpm102_cs5_8bit();
+#endif
     /* Fix for big endian systems */
     hdr->count = le16_to_cpu(hdr->count);
 
@@ -1330,7 +1347,13 @@ static void dma_block_input(struct net_device *dev, int count,
     outb_p(ring_offset >> 8, nic_base + EN0_RSARHI);
     outb_p(E8390_RREAD+E8390_START, nic_base + PCNET_CMD);
 
+#ifdef CONFIG_DBMX1_TPM102
+    tpm102_cs5_16bit();
+#endif
     insw(nic_base + PCNET_DATAPORT,buf,count>>1);
+#ifdef CONFIG_DBMX1_TPM102
+    tpm102_cs5_8bit();
+#endif
     if (count & 0x01)
 	buf[count-1] = inb(nic_base + PCNET_DATAPORT), xfer_count++;
 
@@ -1403,7 +1426,13 @@ static void dma_block_output(struct net_device *dev, int count,
     outb_p(start_page, nic_base + EN0_RSARHI);
 
     outb_p(E8390_RWRITE+E8390_START, nic_base + PCNET_CMD);
+#ifdef CONFIG_DBMX1_TPM102
+    tpm102_cs5_16bit();
+#endif
     outsw(nic_base + PCNET_DATAPORT, buf, count>>1);
+#ifdef CONFIG_DBMX1_TPM102
+    tpm102_cs5_8bit();
+#endif
 
     dma_start = jiffies;
 

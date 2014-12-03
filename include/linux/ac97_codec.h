@@ -1,3 +1,8 @@
+/*
+ * ChangeLog:
+ *      1-Nov-2003 Sharp Corporation   for Tosa
+ *
+ */
 #ifndef _AC97_CODEC_H_
 #define _AC97_CODEC_H_
 
@@ -15,7 +20,14 @@
 #define  AC97_MIC_VOL             0x000e      // MIC Input (mono)
 #define  AC97_LINEIN_VOL          0x0010      // Line Input (stereo)
 #define  AC97_CD_VOL              0x0012      // CD Input (stereo)
+#ifdef CONFIG_ARCH_PXA_TOSA
+#define  AC97_SIDETONE            0x0014
+#endif	/* CONFIG_ARCH_PXA_TOSA */
 #define  AC97_VIDEO_VOL           0x0014      // none
+#ifdef CONFIG_ARCH_PXA_TOSA
+#define AC97_OUT3_VOL             0x0016
+#define  AC97_DAC_VOL             0x0018 
+#endif	/* CONFIG_ARCH_PXA_TOSA */
 #define  AC97_AUX_VOL             0x0016      // Aux Input (stereo)
 #define  AC97_PCMOUT_VOL          0x0018      // Wave Output (stereo)
 #define  AC97_RECORD_SELECT       0x001a      //
@@ -24,6 +36,9 @@
 #define  AC97_GENERAL_PURPOSE     0x0020
 #define  AC97_3D_CONTROL          0x0022
 #define  AC97_MODEM_RATE          0x0024
+#ifdef CONFIG_ARCH_PXA_TOSA
+#define AC97_POWERDOWN            0x0024
+#endif	/* CONFIG_ARCH_PXA_TOSA */
 #define  AC97_POWER_CONTROL       0x0026
 
 /* AC'97 2.0 */
@@ -57,6 +72,18 @@
 #define AC97_GPIO_STATUS          0x0054
 #define AC97_MISC_MODEM_STAT      0x0056
 #define AC97_RESERVED_58          0x0058
+
+#ifdef CONFIG_ARCH_PXA_TOSA
+#define AC97_GPIO_FUNC            0x0056
+#define AC97_ADITFUNC1            0x0058
+#define AC97_ADITFUNC2            0x005c
+#define AC97_ALC_CTL              0x0060
+#define AC97_NOISE_CTL            0x0062
+#define AC97_AUXDAC_CTL           0x0064
+#define AC97_TS_REG1              0x0076
+#define AC97_TS_REG2              0x0078
+#define AC97_TS_READBACK          0x007a
+#endif /* CONFIG_ARCH_PXA_TOSA */
 
 /* registers 0x005a - 0x007a are vendor reserved */
 
@@ -222,11 +249,20 @@ struct ac97_codec {
 	int dev_mixer; 
 	int type;
 
+#ifdef CONFIG_ARCH_PXA_TOSA
+	int modem:1;
+#endif	/* CONFIG_ARCH_PXA_TOSA */
+
 	struct ac97_ops *codec_ops;
 
 	/* controller specific lower leverl ac97 accessing routines */
 	u16  (*codec_read)  (struct ac97_codec *codec, u8 reg);
 	void (*codec_write) (struct ac97_codec *codec, u8 reg, u16 val);
+#ifdef CONFIG_ARCH_PXA_TOSA
+	void (*codec_bit_clear) (struct ac97_codec *codec, u8 reg, u16 val);
+	void (*codec_bit_set)   (struct ac97_codec *codec, u8 reg, u16 val);
+	int mixer_busy;
+#endif	/* CONFIG_ARCH_PXA_TOSA */
 
 	/* Wait for codec-ready.  Ok to sleep here.  */
 	void  (*codec_wait)  (struct ac97_codec *codec);
@@ -236,6 +272,11 @@ struct ac97_codec {
 	int supported_mixers;
 	int stereo_mixers;
 	int record_sources;
+
+#ifdef CONFIG_ARCH_PXA_TOSA
+	/* Property flags */
+	int flags;
+#endif	/* CONFIG_ARCH_PXA_TOSA */
 
 	int bit_resolution;
 
@@ -251,6 +292,8 @@ struct ac97_codec {
 
 	/* Software Modem interface */
 	int  (*modem_ioctl)(struct ac97_codec *codec, unsigned int cmd, unsigned long arg);
+#define AC97_DELUDED_MODEM	1	/* Audio codec reports its a modem */
+#define AC97_NO_PCM_VOLUME	2	/* Volume control is missing 	   */
 };
 
 /*
@@ -274,5 +317,9 @@ extern unsigned int ac97_set_adc_rate(struct ac97_codec *codec, unsigned int rat
 extern unsigned int ac97_set_dac_rate(struct ac97_codec *codec, unsigned int rate);
 extern int ac97_save_state(struct ac97_codec *codec);
 extern int ac97_restore_state(struct ac97_codec *codec);
+
+#ifdef CONFIG_ARCH_PXA_TOSA
+#include <asm/arch/tosa_ac97_codec.h>
+#endif	/* CONFIG_ARCH_PXA_TOSA */
 
 #endif /* _AC97_CODEC_H_ */

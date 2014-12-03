@@ -1,3 +1,8 @@
+/*
+ * ChangLog:
+ *	12-Dec-2002 Lineo Japan, Inc.
+ */
+
 #ifndef _LINUX_SCHED_H
 #define _LINUX_SCHED_H
 
@@ -26,6 +31,9 @@ extern unsigned long event;
 #include <linux/signal.h>
 #include <linux/securebits.h>
 #include <linux/fs_struct.h>
+#ifdef NO_MM
+#include <linux/wait.h>
+#endif
 
 struct exec_domain;
 
@@ -91,6 +99,7 @@ extern int last_pid;
 #define TASK_UNINTERRUPTIBLE	2
 #define TASK_ZOMBIE		4
 #define TASK_STOPPED		8
+#define PREEMPT_ACTIVE		0x4000000
 
 #define __set_task_state(tsk, state_value)		\
 	do { (tsk)->state = (state_value); } while (0)
@@ -156,12 +165,19 @@ extern void update_one_process(struct task_struct *p, unsigned long user,
 
 #define	MAX_SCHEDULE_TIMEOUT	LONG_MAX
 extern signed long FASTCALL(schedule_timeout(signed long timeout));
+asmlinkage void do_schedule(void);
+asmlinkage void kern_schedule(void);
+asmlinkage void kern_do_schedule(struct pt_regs);
 asmlinkage void schedule(void);
+#ifdef CONFIG_PREEMPT
+asmlinkage void preempt_schedule(void);
+#endif
 
 extern int schedule_task(struct tq_struct *task);
 extern void flush_scheduled_tasks(void);
 extern int start_context_thread(void);
 extern int current_is_keventd(void);
+extern long kernel_thread(int (*fn)(void *), void * arg, unsigned long flags);
 
 /*
  * The default fd array needs to be at least BITS_PER_LONG,
@@ -203,6 +219,9 @@ struct files_struct {
 }
 
 /* Maximum number of active map areas.. This is a random (large) number */
+
+#ifndef NO_MM
+
 #define DEFAULT_MAX_MAP_COUNT	(65536)
 
 extern int max_map_count;
@@ -250,6 +269,52 @@ extern int mmlist_nr;
 	mmlist:		LIST_HEAD_INIT(name.mmlist),	\
 }
 
+#else /* NO_MM */
+
+struct mm_rblock_struct {
+	int size;
+	int refcount;
+	void * kblock;
+};
+
+struct mm_tblock_struct {
+	struct mm_rblock_struct * rblock;
+	struct mm_tblock_struct * next;
+};
+
+struct mm_struct {
+	/* How many users with user space? */
+	atomic_t mm_users;
+	/* How many references to "struct mm_struct" (users count as 1) */
+	atomic_t mm_count;
+
+	unsigned dumpable:1;
+
+	struct list_head mmlist;		/* List of all active mm's */
+
+	struct rw_semaphore mmap_sem;
+	spinlock_t page_table_lock;
+	unsigned long start_code, end_code, start_data, end_data;
+	unsigned long start_brk, brk, end_brk, start_stack;
+	unsigned long arg_start, arg_end, env_start, env_end;
+	unsigned long rss, total_vm, locked_vm;
+	unsigned long def_flags;
+	unsigned long cpu_vm_mask;
+	struct mm_tblock_struct tblock;
+};
+
+extern int mmlist_nr;
+
+#define INIT_MM(name) {											\
+		mm_users:		ATOMIC_INIT(2),							\
+		mm_count:		ATOMIC_INIT(1),							\
+		mmlist:			LIST_HEAD_INIT(name.mmlist),			\
+		mmap_sem:		__RWSEM_INITIALIZER(name.mmap_sem), 	\
+		page_table_lock:SPIN_LOCK_UNLOCKED,						\
+		tblock:			{NULL, NULL} }
+
+#endif /* NO_MM */
+
 struct signal_struct {
 	atomic_t		count;
 	struct k_sigaction	action[_NSIG];
@@ -289,7 +354,7 @@ struct task_struct {
 	 * offsets of these are hardcoded elsewhere - touch with care
 	 */
 	volatile long state;	/* -1 unrunnable, 0 runnable, >0 stopped */
-	unsigned long flags;	/* per process flags, defined below */
+	int preempt_count;	/* 0 => preemptable, <0 => BUG */
 	int sigpending;
 	mm_segment_t addr_limit;	/* thread address space:
 					 	0-0xBFFFFFFF for user-thead
@@ -331,6 +396,7 @@ struct task_struct {
 	struct mm_struct *active_mm;
 	struct list_head local_pages;
 	unsigned int allocation_order, nr_local_pages;
+	unsigned long flags;
 
 /* task state */
 	struct linux_binfmt *binfmt;
@@ -339,6 +405,7 @@ struct task_struct {
 	/* ??? */
 	unsigned long personality;
 	int did_exec:1;
+	unsigned task_dumpable:1;
 	pid_t pid;
 	pid_t pgrp;
 	pid_t tty_old_pgrp;
@@ -418,7 +485,67 @@ struct task_struct {
 
 /* journalling filesystem info */
 	void *journal_info;
+
+#ifdef CONFIG_OOM_KILL_SURVIVAL
+	int oom_kill_survival_level;
+#endif
 };
+
+#ifdef CONFIG_OOM_KILL_SURVIVAL
+static inline int
+is_oom_kill_survival_process(const struct task_struct* p)
+{
+	return p->oom_kill_survival_level != 0;
+}
+	    
+static inline short
+oom_kill_survival_get(const struct task_struct* p)
+{
+	return p->oom_kill_survival_level;
+}
+
+static inline int
+is_oom_kill_survival_inherit(const struct task_struct* p)
+{
+	return (p->oom_kill_survival_level & ~0xFFFF) != 0;
+}
+
+static inline int
+oom_kill_survival_set(struct task_struct* p, int m, int l)
+{
+	int level = l & 0xFFFF;
+	int mode = (level != 0 && m != 0);
+	p->oom_kill_survival_level = (mode << 16 | level);
+
+	return 0;
+}
+
+#else
+static inline int
+is_oom_kill_survival_process(const struct task_struct* p)
+{
+	return 0;
+}
+
+static inline short
+oom_kill_survival_get(const struct task_struct* p)
+{
+	return 0;
+}
+
+static inline int
+is_oom_kill_survival_inherit(const struct task_struct* p)
+{
+	return 0;
+}
+
+static inline int
+oom_kill_survival_set(struct task_struct* p, int m, int l)
+{
+    return EINVAL;
+}
+
+#endif
 
 /*
  * Per process flags
@@ -447,6 +574,8 @@ struct task_struct {
 #define PT_DTRACE	0x00000004	/* delayed trace (used on m68k, i386) */
 #define PT_TRACESYSGOOD	0x00000008
 #define PT_PTRACE_CAP	0x00000010	/* ptracer can follow suid-exec */
+
+#define is_dumpable(tsk)	((tsk)->task_dumpable && (tsk)->mm->dumpable)
 
 /*
  * Limit the stack by to some sane default: root can always
@@ -615,6 +744,10 @@ asmlinkage long sys_wait4(pid_t pid,unsigned int * stat_addr, int options, struc
 
 extern int in_group_p(gid_t);
 extern int in_egroup_p(gid_t);
+
+extern ATTRIB_NORET void cpu_idle(void);
+
+extern void release_task(struct task_struct * p);
 
 extern void proc_caches_init(void);
 extern void flush_signals(struct task_struct *);
@@ -954,6 +1087,11 @@ static inline void cond_resched(void)
 	if (need_resched())
 		__cond_resched();
 }
+
+#define _TASK_STRUCT_DEFINED
+#include <linux/dcache.h>
+#include <linux/tqueue.h>
+#include <linux/fs_struct.h>
 
 #endif /* __KERNEL__ */
 #endif

@@ -53,9 +53,6 @@ static int shannon_pcmcia_socket_state(struct pcmcia_state_array *state_array)
 {
 	unsigned long levels;
 
-	memset(state_array->state, 0,
-	       state_array->size * sizeof(struct pcmcia_state));
-
 	levels = GPLR;
 
 	state_array->state[0].detect = (levels & SHANNON_GPIO_EJECT_0) ? 0 : 1;

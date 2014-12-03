@@ -11,6 +11,7 @@
 
 #include <linux/config.h>
 #include <linux/init.h>
+#include <linux/delay.h>
 
 #include <asm/io.h>
 #include <asm/irq.h>
@@ -56,7 +57,11 @@ static int __init allocate_cf_area(void)
 	/* open I/O area window */
 	paddrbase = virt_to_phys((void*)CONFIG_CF_BASE_ADDR);
 	psize = PAGE_SIZE;
-	prot = PAGE_KERNEL_PCC(slot_no, _PAGE_PCC_IO16);
+#if defined(CONFIG_SH_7760_SOLUTION_ENGINE_NB)
+        prot = PAGE_KERNEL_PCC(slot_no, _PAGE_PCC_COM16);
+#else
+        prot = PAGE_KERNEL_PCC(slot_no, _PAGE_PCC_IO16);
+#endif
 	cf_io_base = p3_ioremap(paddrbase, psize, prot.pgprot);
 	if (!cf_io_base) {
 		printk("allocate_cf_area : can't open CF I/O window!\n");
@@ -87,9 +92,30 @@ static int __init cf_init_default(void)
 	return 0;
 }
 
-#if defined(CONFIG_SH_GENERIC) || defined(CONFIG_SH_SOLUTION_ENGINE)
+#if defined(CONFIG_SH_SOLUTION_ENGINE) || \
+    defined(CONFIG_SH_7760_SOLUTION_ENGINE) || \
+    defined(CONFIG_SH_MS7710SE) || \
+    defined(CONFIG_SH_MS7720RP) || \
+    defined(CONFIG_SH_MS7727RP) || \
+    defined(CONFIG_SH_MS7290CP)
+#include <asm/mrshpc.h>
+#else
 #include <asm/hitachi_se.h>
+#endif
 
+#if defined(CONFIG_SH_7760_SOLUTION_ENGINE)
+#include <asm/ms7760cp.h>
+#endif
+
+#if defined(CONFIG_SH_MS7290CP)
+/*
+ * MS7290CP01
+ *
+ * 0xAC400000 : Common Memory
+ * 0xAC500000 : Attribute
+ * 0xAC600000 : I/O
+ */
+#else
 /*
  * SolutionEngine
  *
@@ -97,9 +123,23 @@ static int __init cf_init_default(void)
  * 0xB8500000 : Attribute
  * 0xB8600000 : I/O
  */
+#endif
 
 static int __init cf_init_se(void)
 {
+#if defined(CONFIG_SH_7760_SOLUTION_ENGINE)
+	ctrl_outw(0x0009, MS7760CP_SYSCR);
+	udelay(20000);
+	udelay(20000);
+	ctrl_outw(0x0001, MS7760CP_SYSCR);
+	udelay(20000);
+	ctrl_outw(0x0030, MRSHPC_MODE);
+	ctrl_outw(0x0003, MRSHPC_OPTION);
+#endif
+#if defined(CONFIG_SH_MS7710SE)
+	ctrl_outw(MRSHPC_MODE_MODE66, MRSHPC_MODE);
+#endif
+
 	if ((ctrl_inw(MRSHPC_CSR) & 0x000c) != 0)
 		return 0;	/* Not detected */
 
@@ -108,7 +148,17 @@ static int __init cf_init_se(void)
 	} else {
 		ctrl_outw(0x0678, MRSHPC_CPWCR); /* Card Vcc is 5V */
 	}
+	udelay(20000);
 
+#if defined(CONFIG_SH_7760_SOLUTION_ENGINE)
+        udelay(20000);
+        udelay(20000);
+        udelay(20000);
+        udelay(20000);
+        udelay(20000);
+        udelay(20000);
+        udelay(20000);
+#endif
 	/*
 	 *  PC-Card window open 
 	 *  flag == COMMON/ATTRIBUTE/IO
@@ -139,18 +189,27 @@ static int __init cf_init_se(void)
 	else
 		ctrl_outw(0x0200, MRSHPC_IOWCR2); /* bus width 16bit SWAP = 0*/
 
+#if defined(CONFIG_SH_MS7710SE)
+	ctrl_outw(0x2800, MRSHPC_ICR); // SIR1
+#else
 	ctrl_outw(0x2000, MRSHPC_ICR);
+#endif
 	ctrl_outb(0x00, PA_MRSHPC_MW2 + 0x206);
 	ctrl_outb(0x42, PA_MRSHPC_MW2 + 0x200);
 	return 0;
 }
-#endif
 
 int __init cf_init(void)
 {
+#if defined(CONFIG_SH_7760_SOLUTION_ENGINE)
+        cf_init_se();
+	return cf_init_default();
+#endif
 #if defined(CONFIG_SH_GENERIC) || defined(CONFIG_SH_SOLUTION_ENGINE)
 	if (MACH_SE)
 		return cf_init_se();
+#elif defined(CONFIG_SH_MS7727RP) || defined(CONFIG_SH_MS7290CP) || defined(CONFIG_SH_MS7710SE) || defined(CONFIG_SH_MS7720RP)
+	return cf_init_se();
 #endif
 	return cf_init_default();
 }

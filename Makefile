@@ -5,7 +5,15 @@ EXTRAVERSION =
 
 KERNELRELEASE=$(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
 
-ARCH := $(shell uname -m | sed -e s/i.86/i386/ -e s/sun4u/sparc64/ -e s/arm.*/arm/ -e s/sa110/arm/)
+#ARCH := $(shell uname -m | sed -e s/i.86/i386/ -e s/sun4u/sparc64/ -e s/arm.*/arm/ -e s/sa110/arm/)
+#ARCH := armnommu
+ARCH := arm
+#ARCH := i386
+#ARCH := mipsnommu
+#ARCH := mips
+#ARCH := ppc
+#ARCH := shnommu
+#ARCH := sh
 KERNELPATH=kernel-$(shell echo $(KERNELRELEASE) | sed -e "s/-//g")
 
 CONFIG_SHELL := $(shell if [ -x "$$BASH" ]; then echo $$BASH; \
@@ -16,7 +24,7 @@ TOPDIR	:= $(shell /bin/pwd)
 HPATH   	= $(TOPDIR)/include
 FINDHPATH	= $(HPATH)/asm $(HPATH)/linux $(HPATH)/scsi $(HPATH)/net $(HPATH)/math-emu
 
-HOSTCC  	= gcc
+HOSTCC  	= unset GCC_EXEC_PREFIX; gcc
 HOSTCFLAGS	= -Wall -Wstrict-prototypes -O2 -fomit-frame-pointer
 
 CROSS_COMPILE 	=
@@ -45,6 +53,8 @@ export	VERSION PATCHLEVEL SUBLEVEL EXTRAVERSION KERNELRELEASE ARCH \
 	CONFIG_SHELL TOPDIR HPATH HOSTCC HOSTCFLAGS CROSS_COMPILE AS LD CC \
 	CPP AR NM STRIP OBJCOPY OBJDUMP MAKE MAKEFILES GENKSYMS MODFLAGS PERL
 
+.PHONY: dummy
+
 all:	do-it-all
 
 #
@@ -56,7 +66,12 @@ ifeq (.config,$(wildcard .config))
 include .config
 ifeq (.depend,$(wildcard .depend))
 include .depend
-do-it-all:	Version vmlinux
+ifndef CONFIG_UCLINUX
+	LINUX=vmlinux
+else
+	LINUX=linux
+endif
+do-it-all:	Version $(LINUX)
 else
 CONFIGURATION = depend
 do-it-all:	depend
@@ -88,10 +103,25 @@ export MODLIB
 
 CPPFLAGS := -D__KERNEL__ -I$(HPATH)
 
+ifndef CONFIG_FULLDEBUG
 CFLAGS := $(CPPFLAGS) -Wall -Wstrict-prototypes -Wno-trigraphs -O2 \
 	  -fno-strict-aliasing -fno-common
+else
+CFLAGS := $(CPPFLAGS) -Wall -Wstrict-prototypes -Wno-trigraphs -O1 \
+          -g -fno-strict-aliasing -fno-common
+CONFIG_FRAME_POINTER := y
+endif
+ifeq ($(CONFIG_REMOTE_DEBUG),y)
+CFLAGS += -g
+else
 ifndef CONFIG_FRAME_POINTER
 CFLAGS += -fomit-frame-pointer
+endif
+endif
+ifeq ($(ARCH),arm)
+  ifdef CONFIG_KGDB
+  CFLAGS += -g
+  endif
 endif
 AFLAGS := -D__ASSEMBLY__ $(CPPFLAGS)
 
@@ -121,11 +151,21 @@ export SVGA_MODE = -DSVGA_MODE=NORMAL_VGA
 
 #export RAMDISK = -DRAMDISK=512
 
+ifndef CONFIG_UCLINUX
+
 CORE_FILES	=kernel/kernel.o mm/mm.o fs/fs.o ipc/ipc.o
 NETWORKS	=net/network.o
+CRYPTO		=crypto/crypto.o
 
 LIBS		=$(TOPDIR)/lib/lib.a
-SUBDIRS		=kernel drivers mm fs net ipc lib
+SUBDIRS		=kernel drivers mm fs net ipc lib crypto
+
+else # CONFIG_UCLINUX
+CORE_FILES	=kernel/kernel.o mmnommu/mmnommu.o fs/fs.o ipc/ipc.o
+NETWORKS	=net/network.o
+LIBS		=$(TOPDIR)/lib/lib.a
+SUBDIRS		=kernel drivers mmnommu fs net ipc lib
+endif # CONFIG_UCLINUX
 
 DRIVERS-n :=
 DRIVERS-y :=
@@ -134,7 +174,8 @@ DRIVERS-  :=
 
 DRIVERS-$(CONFIG_ACPI) += drivers/acpi/acpi.o
 DRIVERS-$(CONFIG_PARPORT) += drivers/parport/driver.o
-DRIVERS-y += drivers/char/char.o \
+DRIVERS-y += drivers/serial/serial.o \
+	drivers/char/char.o \
 	drivers/block/block.o \
 	drivers/misc/misc.o \
 	drivers/net/net.o \
@@ -197,7 +238,7 @@ DRIVERS := $(DRIVERS-y)
 # files removed with 'make clean'
 CLEAN_FILES = \
 	kernel/ksyms.lst include/linux/compile.h \
-	vmlinux System.map \
+	$(LINUX) System.map \
 	.tmp* \
 	drivers/char/consolemap_deftbl.c drivers/video/promcon_tbl.c \
 	drivers/char/conmakehash \
@@ -216,6 +257,7 @@ CLEAN_FILES = \
 	drivers/scsi/aic7xxx/aicasm/aicdb.h \
 	drivers/scsi/aic7xxx/aicasm/y.tab.h \
 	drivers/scsi/53c700_d.h \
+	drivers/tc/lk201-map.c \
 	net/khttpd/make_times_h \
 	net/khttpd/times.h \
 	submenu*
@@ -250,7 +292,6 @@ MRPROPER_DIRS = \
 	include/config \
 	$(TOPDIR)/include/linux/modules
 
-
 include arch/$(ARCH)/Makefile
 
 # Extra cflags for kbuild 2.4.  The default is to forbid includes by kernel code
@@ -265,7 +306,7 @@ export kbuild_2_4_nostdinc
 
 export	CPPFLAGS CFLAGS CFLAGS_KERNEL AFLAGS AFLAGS_KERNEL
 
-export	NETWORKS DRIVERS LIBS HEAD LDFLAGS LINKFLAGS MAKEBOOT ASFLAGS
+export	NETWORKS CRYPTO DRIVERS LIBS HEAD LDFLAGS LINKFLAGS MAKEBOOT ASFLAGS
 
 .S.s:
 	$(CPP) $(AFLAGS) $(AFLAGS_KERNEL) -traditional -o $*.s $<
@@ -275,19 +316,20 @@ export	NETWORKS DRIVERS LIBS HEAD LDFLAGS LINKFLAGS MAKEBOOT ASFLAGS
 Version: dummy
 	@rm -f include/linux/compile.h
 
-boot: vmlinux
-	@$(MAKE) CFLAGS="$(CFLAGS) $(CFLAGS_KERNEL)" -C arch/$(ARCH)/boot
+boot: $(LINUX)
+	@$(MAKE) CFLAGS="$(CFLAGS) $(CFLAGS_KERNEL)" LINUX="$(LINUX)" -C arch/$(ARCH)/boot
 
-vmlinux: include/linux/version.h $(CONFIGURATION) init/main.o init/version.o init/do_mounts.o linuxsubdirs
+$(LINUX): include/linux/version.h $(CONFIGURATION) init/main.o init/version.o init/do_mounts.o linuxsubdirs
 	$(LD) $(LINKFLAGS) $(HEAD) init/main.o init/version.o init/do_mounts.o \
 		--start-group \
 		$(CORE_FILES) \
 		$(DRIVERS) \
 		$(NETWORKS) \
+		$(CRYPTO) \
 		$(LIBS) \
 		--end-group \
-		-o vmlinux
-	$(NM) vmlinux | grep -v '\(compiled\)\|\(\.o$$\)\|\( [aUw] \)\|\(\.\.ng$$\)\|\(LASH[RL]DI\)' | sort > System.map
+		-o $(LINUX)
+	$(NM) $(LINUX) | grep -v '\(compiled\)\|\(\.o$$\)\|\( [aUw] \)\|\(\.\.ng$$\)\|\(LASH[RL]DI\)' | sort > System.map
 
 symlinks:
 	rm -f include/asm
@@ -296,7 +338,7 @@ symlinks:
 		mkdir include/linux/modules; \
 	fi
 
-oldconfig: symlinks
+oldconfig: include/linux/version.h symlinks
 	$(CONFIG_SHELL) scripts/Configure -d arch/$(ARCH)/config.in
 
 xconfig: symlinks
@@ -333,7 +375,7 @@ include/linux/compile.h: $(CONFIGURATION) include/linux/version.h newversion
 	@echo -n \#`cat .version` > .ver1
 	@if [ -n "$(CONFIG_SMP)" ] ; then echo -n " SMP" >> .ver1; fi
 	@if [ -f .name ]; then  echo -n \-`cat .name` >> .ver1; fi
-	@LANG=C echo ' '`date` >> .ver1
+	@LANG=C echo ' '`date --rfc-822` >> .ver1
 	@echo \#define UTS_VERSION \"`cat .ver1 | $(uts_truncate)`\" > .ver
 	@LANG=C echo \#define LINUX_COMPILE_TIME \"`date +%T`\" >> .ver
 	@echo \#define LINUX_COMPILE_BY \"`whoami`\" >> .ver
@@ -396,11 +438,15 @@ $(patsubst %, _mod_%, $(SUBDIRS)) : include/linux/version.h include/config/MARKE
 modules_install: _modinst_ $(patsubst %, _modinst_%, $(SUBDIRS)) _modinst_post
 
 .PHONY: _modinst_
+ifeq ($(CONFIG_UCLINUX),y)
+_modinst_:
+else
 _modinst_:
 	@rm -rf $(MODLIB)/kernel
 	@rm -f $(MODLIB)/build
 	@mkdir -p $(MODLIB)/kernel
 	@ln -s $(TOPDIR) $(MODLIB)/build
+endif
 
 # If System.map exists, run depmod.  This deliberately does not have a
 # dependency on System.map since that would run the dependency tree on
@@ -455,10 +501,11 @@ mrproper: clean archmrproper
 	$(MAKE) -C Documentation/DocBook mrproper
 
 distclean: mrproper
-	rm -f core `find . \( -not -type d \) -and \
-		\( -name '*.orig' -o -name '*.rej' -o -name '*~' \
-		-o -name '*.bak' -o -name '#*#' -o -name '.*.orig' \
-		-o -name '.*.rej' -o -name '.SUMS' -o -size 0 \) -type f -print` TAGS tags
+	find . \( -not -type d \) -and \
+		\( -name core -o -name '*.orig' -o -name '*.rej' \
+		-o -name '*~' -o -name '*.bak' -o -name '#*#' \
+		-o -name '.*.rej' -o -name '.SUMS' -o -size 0 \
+		-o -name TAGS -o -name tags \) -print | env -i xargs rm -f
 
 backup: mrproper
 	cd .. && tar cf - linux/ | gzip -9 > backup.gz
@@ -485,11 +532,11 @@ mandocs:
 	$(MAKE) -C Documentation/DocBook man
 
 sums:
-	find . -type f -print | sort | xargs sum > .SUMS
+	find . -type f -print | sort | env -i xargs sum > .SUMS
 
 dep-files: scripts/mkdep archdep include/linux/version.h
 	scripts/mkdep -- init/*.c > .depend
-	scripts/mkdep -- `find $(FINDHPATH) \( -name SCCS -o -name .svn \) -prune -o -follow -name \*.h ! -name modversions.h -print` > .hdepend
+	find $(FINDHPATH) \( -name SCCS -o -name .svn \) -prune -o -follow -name \*.h ! -name modversions.h -print | env -i PATH="$(PATH)" HPATH="$(HPATH)" xargs scripts/mkdep -- > .hdepend
 	$(MAKE) $(patsubst %,_sfdep_%,$(SUBDIRS)) _FASTDEP_ALL_SUB_DIRS="$(SUBDIRS)"
 ifdef CONFIG_MODVERSIONS
 	$(MAKE) update-modverfile

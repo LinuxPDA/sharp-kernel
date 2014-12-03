@@ -78,6 +78,12 @@ struct sh_machine_vector
 	unsigned int mv_hw_bigsur : 1;
 	unsigned int mv_hw_7751se: 1;
 	unsigned int mv_hw_adx : 1;
+	unsigned int mv_hw_ms7727rp : 1;
+	unsigned int mv_hw_ms7290cp : 1;
+	unsigned int mv_hw_rts7751r2d : 1;
+	unsigned int mv_hw_ms7710se : 1;
+	unsigned int mv_hw_ms7720rp : 1;
+        unsigned int mv_hw_ms7760cp : 1;
 };
 
 extern struct sh_machine_vector sh_mv;
@@ -96,6 +102,15 @@ extern struct sh_machine_vector sh_mv;
 #define MACH_BIGSUR	(sh_mv.mv_hw_bigsur)
 #define MACH_7751SE	(sh_mv.mv_hw_7751se)
 #define MACH_ADX	(sh_mv.mv_hw_adx)
+#define MACH_MS7727RP	(sh_mv.mv_hw_ms7727rp)
+#define MACH_MS7290CP	(sh_mv.mv_hw_ms7290cp)
+#define MACH_RTS7751R2D	(sh_mv.mv_hw_rts7751r2d)
+#define MACH_MS7710SE    (sh_mv.mv_hw_ms7710se)
+#define MACH_MS7720RP    (sh_mv.mv_hw_ms7720rp)
+#define MACH_MS7760CP   (sh_mv.mv_hw_ms7760cp)
+#if 1
+#define MACH_7760SE     (sh_mv.mv_hw_ms7760cp)
+#endif
 #else
 # ifdef CONFIG_SH_SOLUTION_ENGINE
 #  define MACH_SE		1
@@ -161,6 +176,43 @@ extern struct sh_machine_vector sh_mv;
 #  define MACH_ADX		1
 # else
 #  define MACH_ADX		0
+# endif
+# ifdef CONFIG_SH_MS7727RP
+#  define MACH_MS7727RP		1
+# else
+#  define MACH_MS7727RP		0
+# endif
+# ifdef CONFIG_SH_MS7290CP
+#  define MACH_MS7290CP		1
+# else
+#  define MACH_MS7290CP		0
+# endif
+# ifdef CONFIG_SH_RTS7751R2D
+#  define MACH_RTS7751R2D      1
+# else
+#  define MACH_RTS7751R2D      0
+# endif
+# ifdef CONFIG_SH_MS7710SE
+#  define MACH_MS7710SE		1
+# else
+#  define MACH_MS7710SE		0
+# endif
+# ifdef CONFIG_SH_MS7720RP
+#  define MACH_MS7720RP		1
+# else
+#  define MACH_MS7720RP		0
+# endif
+# ifdef CONFIG_SH_7760_SOLUTION_ENGINE
+#  define MACH_MS7760CP         1
+# else
+#  define MACH_MS7760CP         0
+# endif
+#endif
+#if 1
+# ifdef CONFIG_SH_7760_SOLUTION_ENGINE
+#  define MACH_7760SE           1
+# else
+#  define MACH_7760SE           0
 # endif
 #endif
 

@@ -36,10 +36,24 @@ static void dma_reset_output(int dev);
 static void dma_reset_input(int dev);
 static int local_start_dma(struct audio_operations *adev, unsigned long physaddr, int count, int dma_mode);
 
-
+#if defined(CONFIG_SH_7760_SOLUTION_ENGINE)
+static void setup_dma(unsigned int dmanr, struct dma_info_t *info) { }
+static unsigned long claim_dma_lock(void) { return 0; }
+static void release_dma_lock(unsigned long flags) { }
+static void enable_dma(unsigned int dmanr) { }
+static void disable_dma(unsigned int dmanr) { }
+static void set_dma_mode(unsigned int dmanr, char mode) { }
+static void set_dma_addr(unsigned int dmanr, unsigned int a) { }
+static void set_dma_count(unsigned int dmanr, unsigned int count) { }
+static int get_dma_residue(unsigned int dmanr) { return 0; }
+#endif
 
 static int debugmem = 0;	/* switched off by default */
+#ifdef CONFIG_ARCH_DBMX2
+static int dma_buffsize = 2048*1024;
+#else
 static int dma_buffsize = DSP_BUFFSIZE;
+#endif
 
 static long dmabuf_timeout(struct dma_buffparms *dmap)
 {
@@ -67,7 +81,11 @@ static int sound_alloc_dmap(struct dma_buffparms *dmap)
 		return 0;	/* Already done */
 	if (dma_buffsize < 4096)
 		dma_buffsize = 4096;
+#ifdef CONFIG_ARCH_DBMX2
+	dma_pagesize = (dmap->dma < 4) ? (2048 * 1024) : (128 * 1024);
+#else
 	dma_pagesize = (dmap->dma < 4) ? (64 * 1024) : (128 * 1024);
+#endif
 	
 	/*
 	 *	Now check for the Cyrix problem.
@@ -201,7 +219,12 @@ static int open_dmap(struct audio_operations *adev, int mode, struct dma_buffpar
 	dma_init_buffers(dmap);
 	dmap->open_mode = mode;
 	dmap->subdivision = dmap->underrun_count = 0;
+#if defined(CONFIG_SH_7760_SOLUTION_ENGINE)
+	/* SH7760 uses DMA buffer as double buffer */
+	dmap->fragment_size = (DSP_BUFFSIZE/2);
+#else
 	dmap->fragment_size = 0;
+#endif
 	dmap->max_fragments = 65536;	/* Just a large value */
 	dmap->byte_counter = 0;
 	dmap->max_byte_counter = 8000 * 60 * 60;
@@ -361,10 +384,20 @@ static void dma_reset_output(int dev)
 		adev->d->halt_output(dev);
 	adev->dmap_out->flags &= ~DMA_STARTED;
 	
+#if defined(CONFIG_SH_7760_SOLUTION_ENGINE)
+	if (adev->dmap_out->dma >= 0) {
+		f=claim_dma_lock();
+		clear_dma_ff(dmap->dma);
+		disable_dma(dmap->dma);
+		release_dma_lock(f);
+	}
+#else
 	f=claim_dma_lock();
 	clear_dma_ff(dmap->dma);
 	disable_dma(dmap->dma);
 	release_dma_lock(f);
+
+#endif
 	
 	restore_flags(flags);
 	dmap->byte_counter = 0;
@@ -406,7 +439,11 @@ void DMAbuf_launch_output(int dev, struct dma_buffparms *dmap)
 			if (adev->d->prepare_for_output(dev, dmap->fragment_size, dmap->nbufs))
 				return;
 			if (!(dmap->flags & DMA_NODMA))
+#ifdef CONFIG_ARCH_DBMX2
+				local_start_dma(adev, dmap->raw_buf_phys, dmap->fragment_size,DMA_MODE_WRITE);
+#else
 				local_start_dma(adev, dmap->raw_buf_phys, dmap->bytes_in_use,DMA_MODE_WRITE);
+#endif
 			dmap->flags |= DMA_STARTED;
 		}
 		if (dmap->counts[dmap->qhead] == 0)
@@ -529,7 +566,11 @@ int DMAbuf_activate_recording(int dev, struct dma_buffparms *dmap)
 	if (!(dmap->flags & DMA_ACTIVE)) {
 		if (dmap->needs_reorg)
 			reorganize_buffers(dev, dmap, 0);
+#ifdef CONFIG_ARCH_DBMX2
+		local_start_dma(adev, dmap->raw_buf_phys, dmap->fragment_size, DMA_MODE_READ);
+#else
 		local_start_dma(adev, dmap->raw_buf_phys, dmap->bytes_in_use, DMA_MODE_READ);
+#endif
 		adev->d->start_input(dev, dmap->raw_buf_phys + dmap->qtail * dmap->fragment_size,
 				     dmap->fragment_size, 0);
 		dmap->flags |= DMA_ACTIVE;
@@ -877,8 +918,9 @@ int DMAbuf_move_wrpointer(int dev, int l)
 	end_ptr = (dmap->user_counter / dmap->fragment_size) * dmap->fragment_size;
 
 	p = (dmap->user_counter - 1) % dmap->bytes_in_use;
+#if !defined(CONFIG_SH_7760_SOLUTION_ENGINE)
 	dmap->neutral_byte = dmap->raw_buf[p];
-
+#endif
 	/* Update the fragment based bookkeeping too */
 	while (ptr < end_ptr) {
 		dmap->counts[dmap->qtail] = dmap->fragment_size;
@@ -931,7 +973,11 @@ static int local_start_dma(struct audio_operations *adev, unsigned long physaddr
 		return 1;
 	if (dmap->dma < 0)
 		return 0;
+#ifdef CONFIG_ARCH_DBMX2
+	sound_start_dma(dmap, dmap->raw_buf_phys, dmap->fragment_size, dma_mode | DMA_AUTOINIT);
+#else
 	sound_start_dma(dmap, dmap->raw_buf_phys, dmap->bytes_in_use, dma_mode | DMA_AUTOINIT);
+#endif
 	dmap->flags |= DMA_STARTED;
 	return count;
 }
@@ -1026,6 +1072,7 @@ void DMAbuf_outputintr(int dev, int notify_only)
 
 	save_flags(flags);
 	cli();
+#ifndef CONFIG_ARCH_DBMX2
 	if (!(dmap->flags & DMA_NODMA)) {
 		int chan = dmap->dma, pos, n;
 		unsigned long f;
@@ -1048,6 +1095,7 @@ void DMAbuf_outputintr(int dev, int notify_only)
 			do_outputintr(dev, notify_only);
 	}
 	else
+#endif
 		do_outputintr(dev, notify_only);
 	restore_flags(flags);
 }
@@ -1127,6 +1175,7 @@ void DMAbuf_inputintr(int dev)
 	save_flags(flags);
 	cli();
 
+#ifndef CONFIG_ARCH_DBMX2
 	if (!(dmap->flags & DMA_NODMA)) {
 		int chan = dmap->dma, pos, n;
 		unsigned long f;
@@ -1148,6 +1197,7 @@ void DMAbuf_inputintr(int dev)
 		while (dmap->qtail != pos && ++n < dmap->nbufs)
 			do_inputintr(dev);
 	} else
+#endif
 		do_inputintr(dev);
 	restore_flags(flags);
 }

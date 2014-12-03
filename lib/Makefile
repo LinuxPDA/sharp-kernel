@@ -1,3 +1,4 @@
+# $USAGI: Makefile,v 1.9.12.1 2003/02/05 07:45:53 yoshfuji Exp $
 #
 # Makefile for some libs needed in the kernel.
 #
@@ -10,8 +11,7 @@ L_TARGET := lib.a
 
 export-objs := cmdline.o dec_and_lock.o rwsem-spinlock.o rwsem.o rbtree.o
 
-obj-y := errno.o ctype.o string.o vsprintf.o brlock.o cmdline.o \
-	 bust_spinlocks.o rbtree.o dump_stack.o
+obj-y := errno.o ctype.o string.o vsprintf.o brlock.o cmdline.o bust_spinlocks.o rbtree.o md5.o
 
 obj-$(CONFIG_RWSEM_GENERIC_SPINLOCK) += rwsem-spinlock.o
 obj-$(CONFIG_RWSEM_XCHGADD_ALGORITHM) += rwsem.o

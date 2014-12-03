@@ -1048,6 +1048,12 @@ static int __devinit vortex_probe1(struct pci_dev *pdev,
 		if (request_region(ioaddr, vci->io_size, print_name) != NULL)
 			vp->must_free_region = 1;
 
+		/* wake up and enable device */		
+		if (pci_enable_device (pdev)) {
+			retval = -EIO;
+			goto free_region;
+		}
+
 		/* enable bus-mastering if necessary */		
 		if (vci->flags & PCI_USES_MASTER)
 			pci_set_master (pdev);

@@ -375,7 +375,11 @@ void set_debug_traps(void)
 	unsigned long flags;
 	unsigned char c;
 
+#if defined(CONFIG_RTHAL)
+	hard_save_flags_and_cli(flags);
+#else /* CONFIG_RTHAL */
 	save_and_cli(flags);
+#endif /* CONFIG_RTHAL */
 	for (ht = hard_trap_info; ht->tt && ht->signo; ht++)
 		saved_vectors[ht->tt] = set_except_vector(ht->tt, trap_low);
 
@@ -391,7 +395,11 @@ void set_debug_traps(void)
 	putDebugChar('+'); /* ack it */
 
 	initialized = 1;
+#if defined(CONFIG_RTHAL)
+	hard_restore_flags(flags);
+#else /* CONFIG_RTHAL */
 	restore_flags(flags);
+#endif /* CONFIG_RTHAL */
 }
 
 /*
@@ -951,11 +959,11 @@ static void gdb_console_write(struct console *con, const char *s, unsigned n)
 }
 
 static struct console gdb_console = {
-	name:	"gdb",
-	write:	gdb_console_write,
-	device:	gdb_console_dev,
-	flags:	CON_PRINTBUFFER,
-	index:	-1
+	.name	= "gdb",
+	.write	= gdb_console_write,
+	.device	= gdb_console_dev,
+	.flags	= CON_PRINTBUFFER,
+	.index	= -1
 };
 
 __init void register_gdb_console(void)

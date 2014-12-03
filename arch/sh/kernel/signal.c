@@ -213,9 +213,17 @@ static inline int save_sigcontext_fpu(struct sigcontext *sc)
 	   */
 	tsk->used_math = 0;
 
+#if defined(CONFIG_RTHAL)
+	hard_save_flags_and_cli(flags);
+#else
 	save_and_cli(flags);
+#endif
 	unlazy_fpu(tsk);
+#if defined(CONFIG_RTHAL)
+	hard_restore_flags(flags);
+#else
 	restore_flags(flags);
+#endif
 
 	return __copy_to_user(&sc->sc_fpregs[0], &tsk->thread.fpu.hard,
 			      sizeof(long)*(16*2+2));

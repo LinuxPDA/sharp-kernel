@@ -8,6 +8,8 @@
  * Copyright (C) 1992 Linus Torvalds
  * Copyright (C) 1994 - 2000 Ralf Baechle
  */
+
+#include <linux/sched.h>
 #include <linux/config.h>
 #include <linux/kernel.h>
 #include <linux/delay.h>
@@ -19,11 +21,13 @@
 #include <linux/slab.h>
 #include <linux/mm.h>
 #include <linux/random.h>
-#include <linux/sched.h>
+#include <linux/spinlock.h>
+#include <linux/ptrace.h>
 
 #include <asm/atomic.h>
 #include <asm/system.h>
 #include <asm/uaccess.h>
+#include <asm/debug.h>
 
 /*
  * Controller mappings for all interrupt sources:
@@ -429,6 +433,8 @@ asmlinkage unsigned int do_IRQ(int irq, struct pt_regs *regs)
 	struct irqaction * action;
 	unsigned int status;
 
+	preempt_disable();
+
 	kstat.irqs[cpu][irq]++;
 	spin_lock(&desc->lock);
 	desc->handler->ack(irq);
@@ -490,6 +496,27 @@ out:
 
 	if (softirq_pending(cpu))
 		do_softirq();
+
+#if defined(CONFIG_PREEMPT)
+	while (--current->preempt_count == 0) {
+		db_assert(intr_off());
+		db_assert(!in_interrupt());
+
+		if (current->need_resched == 0) {
+			break;
+		}
+
+		current->preempt_count ++;
+		sti();
+		if (user_mode(regs)) {
+			schedule();
+		} else {
+			preempt_schedule();
+		}
+		cli();
+	}
+#endif
+
 	return 1;
 }
 

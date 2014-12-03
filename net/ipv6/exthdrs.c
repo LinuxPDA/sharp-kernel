@@ -1,3 +1,5 @@
+/* $USAGI: exthdrs.c,v 1.28.4.3 2002/09/08 10:53:49 yoshfuji Exp $ */
+
 /*
  *	Extension Header handling for IPv6
  *	Linux INET6 implementation
@@ -42,6 +44,11 @@
 #include <net/addrconf.h>
 
 #include <asm/uaccess.h>
+
+#ifdef CONFIG_IPV6_IPSEC
+#include <net/ipsec6_utils.h>
+#endif
+
 
 /*
  *	Parsing inbound headers.
@@ -116,7 +123,7 @@ static int ip6_parse_tlv(struct tlvtype_proc *procs, struct sk_buff *skb)
 	len -= 2;
 
 	while (len > 0) {
-		int optlen = skb->nh.raw[off+1]+2;
+		int optlen;
 
 		switch (skb->nh.raw[off]) {
 		case IPV6_TLV_PAD0:
@@ -124,10 +131,18 @@ static int ip6_parse_tlv(struct tlvtype_proc *procs, struct sk_buff *skb)
 			break;
 
 		case IPV6_TLV_PADN:
+			if (len < 2)
+				goto bad;
+			optlen = skb->nh.raw[off+1]+2;
+			if (len < optlen)
+				goto bad;
 			break;
 
 		default: /* Other TLV code so scan list */
-			if (optlen > len)
+			if (len < 2)
+				goto bad;
+			optlen = skb->nh.raw[off+1]+2;
+			if (len < optlen)
 				goto bad;
 			for (curr=procs; curr->type >= 0; curr++) {
 				if (curr->type == skb->nh.raw[off]) {
@@ -160,7 +175,6 @@ bad:
  *****************************/
 
 struct tlvtype_proc tlvprocdestopt_lst[] = {
-	/* No destination options are defined now */
 	{-1,			NULL}
 };
 
@@ -205,7 +219,6 @@ static int ipv6_routing_header(struct sk_buff **skb_ptr, int nhoff)
 	struct inet6_skb_parm *opt = (struct inet6_skb_parm *)skb->cb;
 	struct in6_addr *addr;
 	struct in6_addr daddr;
-	int addr_type;
 	int n, i;
 
 	struct ipv6_rt_hdr *hdr;
@@ -213,7 +226,10 @@ static int ipv6_routing_header(struct sk_buff **skb_ptr, int nhoff)
 
 	if (!pskb_may_pull(skb, (skb->h.raw-skb->data)+8) ||
 	    !pskb_may_pull(skb, (skb->h.raw-skb->data)+((skb->h.raw[1]+1)<<3))) {
-		IP6_INC_STATS_BH(Ip6InHdrErrors);
+		struct inet6_dev *idev = in6_dev_get(skb->dev);
+		IP6_INC_STATS_BH(idev,Ip6InHdrErrors);
+		if (idev)
+			in6_dev_put(idev);
 		kfree_skb(skb);
 		return -1;
 	}
@@ -235,14 +251,19 @@ looped_back:
 		return (&hdr->nexthdr) - skb->nh.raw;
 	}
 
-	if (hdr->type != IPV6_SRCRT_TYPE_0 || (hdr->hdrlen & 0x01)) {
-		icmpv6_param_prob(skb, ICMPV6_HDR_FIELD, hdr->type != IPV6_SRCRT_TYPE_0 ? 2 : 1);
+	if (hdr->type != IPV6_SRCRT_TYPE_0) {
+		icmpv6_param_prob(skb, ICMPV6_HDR_FIELD, (&hdr->type) - skb->nh.raw);
+		return -1;
+	}
+
+	if (hdr->hdrlen & 0x01) {
+		icmpv6_param_prob(skb, ICMPV6_HDR_FIELD, (&hdr->hdrlen) - skb->nh.raw);
 		return -1;
 	}
 
 	/*
 	 *	This is the routing header forwarding algorithm from
-	 *	RFC 1883, page 17.
+	 *	RFC 2460, page 15-16 in Section 4.4: Routing Header.
 	 */
 
 	n = hdr->hdrlen >> 1;
@@ -274,9 +295,8 @@ looped_back:
 	addr = rthdr->addr;
 	addr += i - 1;
 
-	addr_type = ipv6_addr_type(addr);
-
-	if (addr_type&IPV6_ADDR_MULTICAST) {
+	if ((ipv6_addr_type(addr) & IPV6_ADDR_MULTICAST) ||
+	    (ipv6_addr_type(&skb->nh.ipv6h->daddr) & IPV6_ADDR_MULTICAST)) {
 		kfree_skb(skb);
 		return -1;
 	}
@@ -364,7 +384,7 @@ ipv6_invert_rthdr(struct sock *sk, struct ipv6_rt_hdr *hdr)
 	memcpy(opt->srcrt, hdr, sizeof(*hdr));
 	irthdr = (struct rt0_hdr*)opt->srcrt;
 	/* Obsolete field, MBZ, when originated by us */
-	irthdr->bitmap = 0;
+	irthdr->reserved = 0;
 	opt->srcrt->segments_left = n;
 	for (i=0; i<n; i++)
 		memcpy(irthdr->addr+i, rthdr->addr+(n-1-i), 16);
@@ -402,13 +422,20 @@ static int ipv6_auth_hdr(struct sk_buff **skb_ptr, int nhoff)
 	if (!pskb_may_pull(skb, (skb->h.raw-skb->data)+8))
 		goto fail;
 
-	len = (skb->h.raw[1]+1)<<2;
+	len = (skb->h.raw[1]+2)<<2;
 
 	if (len&7)
 		goto fail;
 
 	if (!pskb_may_pull(skb, (skb->h.raw-skb->data)+len))
 		goto fail;
+
+
+#ifdef CONFIG_IPV6_IPSEC
+	if (ipsec6_input_check_ah(skb_ptr,
+		 (struct ipv6_auth_hdr*)((*skb_ptr)->h.raw)) <= 0)
+		goto fail;
+#endif /* CONFIG_IPV6_IPSEC */		 
 
 	opt->auth = skb->h.raw - skb->nh.raw;
 	skb->h.raw += len;
@@ -418,6 +445,22 @@ fail:
 	kfree_skb(skb);
 	return -1;
 }
+
+#ifdef CONFIG_IPV6_IPSEC
+static int ipv6_esp_hdr(struct sk_buff **skb_ptr, int nhoff, u8 *nexthdr)
+{
+	struct inet6_skb_parm *opt = (struct inet6_skb_parm *)(*skb_ptr)->cb;
+
+	u32 espspi = ipsec6_input_check_esp(skb_ptr,
+			(struct ipv6_esp_hdr*)(*skb_ptr)->h.raw, nexthdr);
+	if (ntohl(espspi) >0 ) {
+		opt->espspi = espspi;
+		return nhoff;
+	} else {
+		return -1;
+	}
+}
+#endif
 
 /* This list MUST NOT contain entry for NEXTHDR_HOP.
    It is parsed immediately after packet received
@@ -437,20 +480,28 @@ struct hdrtype_proc hdrproc_lst[] = {
 	{-1,			NULL}
 };
 
-int ipv6_parse_exthdrs(struct sk_buff **skb_in, int nhoff)
+int ipv6_parse_exthdrs(struct sk_buff **skb_in, int nhoff, u8* nexthdr)
 {
 	struct hdrtype_proc *hdrt;
-	u8 nexthdr = (*skb_in)->nh.raw[nhoff];
 
 restart:
 	for (hdrt=hdrproc_lst; hdrt->type >= 0; hdrt++) {
-		if (hdrt->type == nexthdr) {
+		if (hdrt->type == *nexthdr) {
 			if ((nhoff = hdrt->func(skb_in, nhoff)) >= 0) {
-				nexthdr = (*skb_in)->nh.raw[nhoff];
+				*nexthdr = (*skb_in)->nh.raw[nhoff];
+				goto restart;
+			}
+			return -1;
+		} 
+#ifdef CONFIG_IPV6_IPSEC
+		if (*nexthdr == NEXTHDR_ESP) {
+			if ((nhoff = ipv6_esp_hdr(skb_in, nhoff, nexthdr)) >= 0) {
 				goto restart;
 			}
 			return -1;
 		}
+#endif
+
 	}
 	return nhoff;
 }
@@ -460,7 +511,8 @@ restart:
   Hop-by-hop options.
  **********************************/
 
-/* Router Alert as of draft-ietf-ipngwg-ipv6router-alert-04 */
+
+/* RFC 2711 : IPv6 Router Alert Option */
 
 static int ipv6_hop_ra(struct sk_buff *skb, int optoff)
 {
@@ -497,7 +549,10 @@ static int ipv6_hop_jumbo(struct sk_buff *skb, int optoff)
 	}
 
 	if (pkt_len > skb->len - sizeof(struct ipv6hdr)) {
-		IP6_INC_STATS_BH(Ip6InTruncatedPkts);
+		struct inet6_dev *idev = in6_dev_get(skb->dev);
+		IP6_INC_STATS_BH(idev,Ip6InTruncatedPkts);
+		if (idev)
+			in6_dev_put(idev);
 		goto drop;
 	}
 	if (pkt_len + sizeof(struct ipv6hdr) < skb->len) {
@@ -539,6 +594,7 @@ int ipv6_parse_hopopts(struct sk_buff *skb, int nhoff)
 u8 *ipv6_build_rthdr(struct sk_buff *skb, u8 *prev_hdr,
 		     struct ipv6_rt_hdr *opt, struct in6_addr *addr)
 {
+	struct inet6_skb_parm *parm = (struct inet6_skb_parm*)skb->cb;
 	struct rt0_hdr *phdr, *ihdr;
 	int hops;
 
@@ -557,26 +613,30 @@ u8 *ipv6_build_rthdr(struct sk_buff *skb, u8 *prev_hdr,
 
 	phdr->rt_hdr.nexthdr = *prev_hdr;
 	*prev_hdr = NEXTHDR_ROUTING;
+	parm->srcrt = (unsigned char*)phdr - skb->nh.raw;
 	return &phdr->rt_hdr.nexthdr;
 }
 
-static u8 *ipv6_build_exthdr(struct sk_buff *skb, u8 *prev_hdr, u8 type, struct ipv6_opt_hdr *opt)
+static u8 *ipv6_build_exthdr(struct sk_buff *skb, u8 *prev_hdr, u8 type, struct ipv6_opt_hdr *opt, __u16 *optoff)
 {
 	struct ipv6_opt_hdr *h = (struct ipv6_opt_hdr *)skb_put(skb, ipv6_optlen(opt));
 
 	memcpy(h, opt, ipv6_optlen(opt));
 	h->nexthdr = *prev_hdr;
 	*prev_hdr = type;
+	*optoff = (unsigned char*)h - skb->nh.raw;
 	return &h->nexthdr;
 }
 
 static u8 *ipv6_build_authhdr(struct sk_buff *skb, u8 *prev_hdr, struct ipv6_opt_hdr *opt)
 {
+	struct inet6_skb_parm *parm = (struct inet6_skb_parm*)skb->cb;
 	struct ipv6_opt_hdr *h = (struct ipv6_opt_hdr *)skb_put(skb, (opt->hdrlen+2)<<2);
 
 	memcpy(h, opt, (opt->hdrlen+2)<<2);
 	h->nexthdr = *prev_hdr;
 	*prev_hdr = NEXTHDR_AUTH;
+	parm->auth = (unsigned char*)h - skb->nh.raw;
 	return &h->nexthdr;
 }
 
@@ -584,10 +644,11 @@ static u8 *ipv6_build_authhdr(struct sk_buff *skb, u8 *prev_hdr, struct ipv6_opt
 u8 *ipv6_build_nfrag_opts(struct sk_buff *skb, u8 *prev_hdr, struct ipv6_txoptions *opt,
 			  struct in6_addr *daddr, u32 jumbolen)
 {
+	struct inet6_skb_parm *parm = (struct inet6_skb_parm*)skb->cb;
 	struct ipv6_opt_hdr *h = (struct ipv6_opt_hdr *)skb->data;
 
 	if (opt && opt->hopopt)
-		prev_hdr = ipv6_build_exthdr(skb, prev_hdr, NEXTHDR_HOP, opt->hopopt);
+		prev_hdr = ipv6_build_exthdr(skb, prev_hdr, NEXTHDR_HOP, opt->hopopt, &parm->hop);
 
 	if (jumbolen) {
 		u8 *jumboopt = (u8 *)skb_put(skb, 8);
@@ -610,7 +671,7 @@ u8 *ipv6_build_nfrag_opts(struct sk_buff *skb, u8 *prev_hdr, struct ipv6_txoptio
 	}
 	if (opt) {
 		if (opt->dst0opt)
-			prev_hdr = ipv6_build_exthdr(skb, prev_hdr, NEXTHDR_DEST, opt->dst0opt);
+			prev_hdr = ipv6_build_exthdr(skb, prev_hdr, NEXTHDR_DEST, opt->dst0opt, &parm->dst0);
 		if (opt->srcrt)
 			prev_hdr = ipv6_build_rthdr(skb, prev_hdr, opt->srcrt, daddr);
 	}
@@ -619,21 +680,23 @@ u8 *ipv6_build_nfrag_opts(struct sk_buff *skb, u8 *prev_hdr, struct ipv6_txoptio
 
 u8 *ipv6_build_frag_opts(struct sk_buff *skb, u8 *prev_hdr, struct ipv6_txoptions *opt)
 {
+	struct inet6_skb_parm *parm = (struct inet6_skb_parm*)skb->cb;
+
 	if (opt->auth)
 		prev_hdr = ipv6_build_authhdr(skb, prev_hdr, opt->auth);
 	if (opt->dst1opt)
-		prev_hdr = ipv6_build_exthdr(skb, prev_hdr, NEXTHDR_DEST, opt->dst1opt);
+		prev_hdr = ipv6_build_exthdr(skb, prev_hdr, NEXTHDR_DEST, opt->dst1opt, &parm->dst1);
 	return prev_hdr;
 }
 
 static void ipv6_push_rthdr(struct sk_buff *skb, u8 *proto,
-			    struct ipv6_rt_hdr *opt,
+			    struct ipv6_rt_hdr **opt,
 			    struct in6_addr **addr_p)
 {
 	struct rt0_hdr *phdr, *ihdr;
 	int hops;
 
-	ihdr = (struct rt0_hdr *) opt;
+	ihdr = (struct rt0_hdr *) *opt;
 	
 	phdr = (struct rt0_hdr *) skb_push(skb, (ihdr->rt_hdr.hdrlen + 1) << 3);
 	memcpy(phdr, ihdr, sizeof(struct rt0_hdr));
@@ -649,24 +712,36 @@ static void ipv6_push_rthdr(struct sk_buff *skb, u8 *proto,
 
 	phdr->rt_hdr.nexthdr = *proto;
 	*proto = NEXTHDR_ROUTING;
+
+#ifdef CONFIG_IPV6_IPSEC
+	*opt = (struct ipv6_rt_hdr*)phdr;
+#endif
 }
 
-static void ipv6_push_exthdr(struct sk_buff *skb, u8 *proto, u8 type, struct ipv6_opt_hdr *opt)
+static void ipv6_push_exthdr(struct sk_buff *skb, u8 *proto, u8 type, struct ipv6_opt_hdr **opt)
 {
-	struct ipv6_opt_hdr *h = (struct ipv6_opt_hdr *)skb_push(skb, ipv6_optlen(opt));
+	struct ipv6_opt_hdr *h = (struct ipv6_opt_hdr *)skb_push(skb, ipv6_optlen(*opt));
 
-	memcpy(h, opt, ipv6_optlen(opt));
+	memcpy(h, *opt, ipv6_optlen(*opt));
 	h->nexthdr = *proto;
 	*proto = type;
+
+#ifdef CONFIG_IPV6_IPSEC
+	*opt = h;
+#endif
 }
 
-static void ipv6_push_authhdr(struct sk_buff *skb, u8 *proto, struct ipv6_opt_hdr *opt)
+static void ipv6_push_authhdr(struct sk_buff *skb, u8 *proto, struct ipv6_opt_hdr **opt)
 {
-	struct ipv6_opt_hdr *h = (struct ipv6_opt_hdr *)skb_push(skb, (opt->hdrlen+2)<<2);
+	struct ipv6_opt_hdr *h = (struct ipv6_opt_hdr *)skb_push(skb, ((*opt)->hdrlen+2)<<2);
 
-	memcpy(h, opt, (opt->hdrlen+2)<<2);
+	memcpy(h, *opt, ((*opt)->hdrlen+2)<<2);
 	h->nexthdr = *proto;
 	*proto = NEXTHDR_AUTH;
+
+#ifdef CONFIG_IPV6_IPSEC
+	*opt = h;
+#endif
 }
 
 void ipv6_push_nfrag_opts(struct sk_buff *skb, struct ipv6_txoptions *opt,
@@ -674,19 +749,19 @@ void ipv6_push_nfrag_opts(struct sk_buff *skb, struct ipv6_txoptions *opt,
 			  struct in6_addr **daddr)
 {
 	if (opt->srcrt)
-		ipv6_push_rthdr(skb, proto, opt->srcrt, daddr);
+		ipv6_push_rthdr(skb, proto, &opt->srcrt, daddr);
 	if (opt->dst0opt)
-		ipv6_push_exthdr(skb, proto, NEXTHDR_DEST, opt->dst0opt);
+		ipv6_push_exthdr(skb, proto, NEXTHDR_DEST, &opt->dst0opt);
 	if (opt->hopopt)
-		ipv6_push_exthdr(skb, proto, NEXTHDR_HOP, opt->hopopt);
+		ipv6_push_exthdr(skb, proto, NEXTHDR_HOP, &opt->hopopt);
 }
 
 void ipv6_push_frag_opts(struct sk_buff *skb, struct ipv6_txoptions *opt, u8 *proto)
 {
 	if (opt->dst1opt)
-		ipv6_push_exthdr(skb, proto, NEXTHDR_DEST, opt->dst1opt);
+		ipv6_push_exthdr(skb, proto, NEXTHDR_DEST, &opt->dst1opt);
 	if (opt->auth)
-		ipv6_push_authhdr(skb, proto, opt->auth);
+		ipv6_push_authhdr(skb, proto, &opt->auth);
 }
 
 struct ipv6_txoptions *
@@ -726,6 +801,7 @@ int ipv6_ext_hdr(u8 nexthdr)
 		 (nexthdr == NEXTHDR_ROUTING)	||
 		 (nexthdr == NEXTHDR_FRAGMENT)	||
 		 (nexthdr == NEXTHDR_AUTH)	||
+		 (nexthdr == NEXTHDR_ESP)	||
 		 (nexthdr == NEXTHDR_NONE)	||
 		 (nexthdr == NEXTHDR_DEST) );
 }

@@ -4,6 +4,8 @@
 
 # Subdirs.
 
+subdir-$(CONFIG_USBD)           += device
+
 # The target object and module list name.
 
 O_TARGET	:= usbdrv.o
@@ -15,10 +17,60 @@ export-objs		:= hcd.o usb.o ov511.o pwc-uncompress.o
 # Multipart objects.
 
 list-multi		:= usbcore.o hid.o pwc.o
+ifeq ($(CONFIG_USB_OHCI_VOYAGERGX),y)
+list-multi		+= usb_ohci_voyagergx.o
+endif
+ifeq ($(CONFIG_USB_OHCI_VOYAGERGX),m)
+list-multi		+= usb_ohci_voyagergx.o
+endif
+ifeq ($(CONFIG_USB_OHCI_SH7760),y)
+list-multi		+= usb_ohci_sh7760.o
+endif
+ifeq ($(CONFIG_USB_OHCI_SH7760),m)
+list-multi		+= usb_ohci_sh7760.o
+endif
+ifeq ($(CONFIG_USB_OHCI_TC6393),y)
+list-multi		+= usb_ohci_tc6393.o
+endif
+ifeq ($(CONFIG_USB_OHCI_TC6393),m)
+list-multi		+= usb_ohci_tc6393.o
+endif
+
+ifeq ($(CONFIG_USB_OHCI_PXA27X),y)
+list-multi		+= usb-ohci-pxa27x.o
+endif
+
 usbcore-objs		:= usb.o usb-debug.o hub.o
 hid-objs		:= hid-core.o
 pwc-objs		:= pwc-if.o pwc-misc.o pwc-ctrl.o pwc-uncompress.o
 
+ifeq ($(CONFIG_USB_OHCI_VOYAGERGX),y)
+ohci-voyagergx-objs	:= usb-ohci.o usb_pcipool.o usb-ohci-voyagergx.o mem-onchip.o
+endif
+ifeq ($(CONFIG_USB_OHCI_VOYAGERGX),m)
+ohci-voyagergx-objs	:= usb-ohci.o usb_pcipool.o usb-ohci-voyagergx.o mem-onchip.o
+endif
+
+ifeq ($(CONFIG_USB_OHCI_SH7760),y)
+ohci-sh7760-objs	:= usb-ohci.o usb-ohci-sh.o mem-onchip.o
+endif
+ifeq ($(CONFIG_USB_OHCI_SH7760),m)
+ohci-sh7760-objs	:= usb-ohci.o usb-ohci-sh.o mem-onchip.o
+endif
+
+ifeq ($(CONFIG_USB_OHCI_TC6393),y)
+ohci-tc6393-objs	:= usb-ohci.o usb-ohci-tc6393.o pcipool.o mem-onchip.o
+endif
+ifeq ($(CONFIG_USB_OHCI_TC6393),m)
+ohci-tc6393-objs	:= usb-ohci.o usb-ohci-tc6393.o pcipool.o mem-onchip.o
+endif
+
+ifeq ($(CONFIG_USB_OHCI_PXA27X),y)
+ohci-pxa27x-objs	:= usb-ohci.o usb-ohci-pxa27x.o pcipool.o
+endif
+ifeq ($(CONFIG_USB_OHCI_PXA27X),m)
+ohci-pxa27x-objs	:= usb-ohci.o usb-ohci-pxa27x.o pcipool.o
+endif
 
 # Optional parts of multipart objects.
 
@@ -53,6 +105,11 @@ endif
 obj-$(CONFIG_USB_UHCI)		+= usb-uhci.o
 obj-$(CONFIG_USB_UHCI_ALT)	+= uhci.o
 obj-$(CONFIG_USB_OHCI)		+= usb-ohci.o
+obj-$(CONFIG_USB_OHCI_SH7760)	+= usb_ohci_sh7760.o
+obj-$(CONFIG_USB_OHCI_SH7727)	+= usb-ohci.o usb-ohci-sh.o
+obj-$(CONFIG_USB_OHCI_VOYAGERGX)+= usb_ohci_voyagergx.o
+obj-$(CONFIG_USB_OHCI_PXA27X)	+= usb_ohci_pxa27x.o
+obj-$(CONFIG_USB_OHCI_PXA27X)	+= usb-monitor.o 
 
 ifneq ($(CONFIG_USB_EHCI_HCD),n)
 	usbcore-objs		+= hcd.o
@@ -123,3 +180,15 @@ hid.o: $(hid-objs)
 
 pwc.o: $(pwc-objs)
 	$(LD) -r -o $@ $(pwc-objs)
+
+usb_ohci_voyagergx.o: $(ohci-voyagergx-objs)
+	$(LD) -r -o $@ $(ohci-voyagergx-objs)
+
+usb_ohci_sh7760.o: $(ohci-sh7760-objs)
+	$(LD) -r -o $@ $(ohci-sh7760-objs)
+
+usb_ohci_tc6393.o: $(ohci-tc6393-objs)
+	$(LD) -r -o $@ $(ohci-tc6393-objs)
+
+usb_ohci_pxa27x.o: $(ohci-pxa27x-objs)
+	$(LD) -r -o $@ $(ohci-pxa27x-objs)

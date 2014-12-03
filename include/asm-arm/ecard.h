@@ -53,6 +53,9 @@
 #define MANU_SERPORT		0x003f
 #define PROD_SERPORT_DSPORT		0x00b9
 
+#define MANU_ARXE 		0x0041
+#define PROD_ARXE_SCSI			0x00be
+
 #define MANU_I3			0x0046
 #define PROD_I3_ETHERLAN500		0x00d4
 #define PROD_I3_ETHERLAN600		0x00ec

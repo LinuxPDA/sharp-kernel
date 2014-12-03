@@ -67,7 +67,6 @@
 #include <linux/sysctl.h>
 #include <net/tcp.h>
 #include <net/inet_common.h>
-#include <linux/ipsec.h>
 
 int sysctl_tcp_timestamps = 1;
 int sysctl_tcp_window_scaling = 1;

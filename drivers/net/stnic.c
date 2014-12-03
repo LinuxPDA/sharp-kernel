@@ -57,6 +57,10 @@
 static byte stnic_eadr[6] =
 {0x00, 0xc0, 0x6e, 0x00, 0x00, 0x07};
 
+#ifdef CONFIG_SH_SOLUTION_ENGINE
+extern unsigned char cmdline_ifa[];
+#endif
+
 static struct net_device *stnic_dev;
 
 static int stnic_open (struct net_device *dev);
@@ -121,11 +125,35 @@ int __init stnic_probe(void)
       return -ENOMEM;
     }
 
+#ifdef CONFIG_SH_SOLUTION_ENGINE
+    {
+	    for (i = 0;i < ETHER_ADDR_LEN;i++){
+		    if (cmdline_ifa[i] != 0xff)
+			    break;
+	    }
+	    if (i != ETHER_ADDR_LEN){
+#ifdef CONFIG_SH_STANDARD_BIOS 
+		sh_bios_get_node_addr (cmdline_ifa);
+#endif
+		for (i = 0; i < ETHER_ADDR_LEN; i++)
+			dev->dev_addr[i] = cmdline_ifa[i];
+	    }else{
+#ifdef CONFIG_SH_STANDARD_BIOS 
+		sh_bios_get_node_addr (stnic_eadr);
+#endif
+		for (i = 0; i < ETHER_ADDR_LEN; i++)
+			dev->dev_addr[i] = stnic_eadr[i];
+	    }
+    }
+#else
+
 #ifdef CONFIG_SH_STANDARD_BIOS 
   sh_bios_get_node_addr (stnic_eadr);
 #endif
   for (i = 0; i < ETHER_ADDR_LEN; i++)
     dev->dev_addr[i] = stnic_eadr[i];
+
+#endif
 
   /* Set the base address to point to the NIC, not the "real" base! */
   dev->base_addr = 0x1000;

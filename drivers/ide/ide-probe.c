@@ -27,6 +27,9 @@
  * Version 1.06		stream line request queue and prep for cascade project.
  * Version 1.07		max_sect <= 255; slower disks would get behind and
  * 			then fall over when they get to 256.	Paul G.
+ *
+ * ChangLog:
+ *	12-Dec-2002 Lineo Japan, Inc.
  */
 
 #undef REALLY_SLOW_IO		/* most systems can safely undef this */
@@ -48,6 +51,7 @@
 #include <linux/spinlock.h>
 
 #include <asm/byteorder.h>
+#include <asm/dma.h>
 #include <asm/irq.h>
 #include <asm/uaccess.h>
 #include <asm/io.h>
@@ -202,6 +206,16 @@ static int actual_try_to_identify (ide_drive_t *drive, byte cmd)
 	unsigned long timeout;
 	byte s, a;
 
+#if defined(CONFIG_SH_7760_SOLUTION_ENGINE)
+        unsigned long flags;
+#ifdef CONFIG_RTHAL
+        hard_save_flags(flags);
+        hard_cli();   // FIXME: ignore an interrupt from extended IDE board
+#else
+        __save_flags(flags);
+        __cli();   // FIXME: ignore an interrupt from extended IDE board
+#endif
+#endif
 	if (IDE_CONTROL_REG) {
 		/* take a deep breath */
 		ide_delay_50ms();
@@ -236,6 +250,13 @@ static int actual_try_to_identify (ide_drive_t *drive, byte cmd)
 	timeout += jiffies;
 	do {
 		if (0 < (signed long)(jiffies - timeout)) {
+#if defined(CONFIG_SH_7760_SOLUTION_ENGINE)
+#ifdef CONFIG_RTHAL
+            hard_restore_flags(flags);
+#else
+            __restore_flags(flags);
+#endif
+#endif
 			return 1;	/* drive timed-out */
 		}
 		ide_delay_50ms();		/* give drive a breather */
@@ -244,12 +265,21 @@ static int actual_try_to_identify (ide_drive_t *drive, byte cmd)
 	ide_delay_50ms();		/* wait for IRQ and DRQ_STAT */
 	if (OK_STAT(GET_STAT(),DRQ_STAT,BAD_R_STAT)) {
 		unsigned long flags;
+#ifdef CONFIG_RTHAL
+		hard_save_flags(flags);	/* local CPU only */
+		hard_cli();		/* local CPU only; some systems need this */
+#else
 		__save_flags(flags);	/* local CPU only */
 		__cli();		/* local CPU only; some systems need this */
+#endif
 		do_identify(drive, cmd); /* drive returned ID */
 		rc = 0;			/* drive responded with ID */
 		(void) GET_STAT();	/* clear drive IRQ */
+#ifdef CONFIG_RTHAL
+		hard_restore_flags(flags);	/* local CPU only */
+#else
 		__restore_flags(flags);	/* local CPU only */
+#endif
 	} else
 		rc = 2;			/* drive refused ID */
 	return rc;
@@ -261,7 +291,7 @@ static int try_to_identify (ide_drive_t *drive, byte cmd)
 	int autoprobe = 0;
 	unsigned long cookie = 0;
 
-	if (IDE_CONTROL_REG && !HWIF(drive)->irq) {
+	if (IDE_CONTROL_REG && !HWIF(drive)->hw.irq) {
 		autoprobe = 1;
 		cookie = probe_irq_on();
 		OUT_BYTE(drive->ctl,IDE_CONTROL_REG);	/* enable device irq */
@@ -275,9 +305,9 @@ static int try_to_identify (ide_drive_t *drive, byte cmd)
 		(void) GET_STAT();			/* clear drive IRQ */
 		udelay(5);
 		irq = probe_irq_off(cookie);
-		if (!HWIF(drive)->irq) {
+		if (!HWIF(drive)->hw.irq) {
 			if (irq > 0) {
-				HWIF(drive)->irq = irq;
+				HWIF(drive)->hw.irq = irq;
 			} else {	/* Mmmm.. multiple IRQs.. don't know which was ours */
 				printk("%s: IRQ probe failed (0x%lx)\n", drive->name, cookie);
 #ifdef CONFIG_BLK_DEV_CMD640
@@ -327,6 +357,25 @@ static int do_probe (ide_drive_t *drive, byte cmd)
 	ide_delay_50ms();	/* needed for some systems (e.g. crw9624 as drive0 with disk as slave) */
 	SELECT_DRIVE(hwif,drive);
 	ide_delay_50ms();
+
+#ifdef CONFIG_COLDFIRE
+	    /*
+		 *  ColdFire platforms boot up so quick that most hard drives
+		 *  have not completed there own self tests. Pause here for
+		 *  a couple of seconds if it looks like there is a drive
+		 *  present...
+		 */
+	    if (IN_BYTE(IDE_SELECT_REG) != drive->select.all) {
+			printk("IDE: waiting for drives to settle...\n");
+			for (rc = 0; (rc < 400); rc++) {
+				SELECT_DRIVE(hwif,drive);
+				ide_delay_50ms();
+				if (IN_BYTE(IDE_SELECT_REG) == drive->select.all)
+					break;
+			}
+		}
+#endif
+
 	if (IN_BYTE(IDE_SELECT_REG) != drive->select.all && !drive->present) {
 		if (drive->select.b.unit != 0) {
 			SELECT_DRIVE(hwif,&hwif->drives[0]);	/* exit with drive0 selected */
@@ -436,21 +485,21 @@ static int hwif_check_regions (ide_hwif_t *hwif)
 	int region_errors = 0;
 
 	hwif->straight8 = 0;
-	region_errors  = ide_check_region(hwif->io_ports[IDE_DATA_OFFSET], 1);
-	region_errors += ide_check_region(hwif->io_ports[IDE_ERROR_OFFSET], 1);
-	region_errors += ide_check_region(hwif->io_ports[IDE_NSECTOR_OFFSET], 1);
-	region_errors += ide_check_region(hwif->io_ports[IDE_SECTOR_OFFSET], 1);
-	region_errors += ide_check_region(hwif->io_ports[IDE_LCYL_OFFSET], 1);
-	region_errors += ide_check_region(hwif->io_ports[IDE_HCYL_OFFSET], 1);
-	region_errors += ide_check_region(hwif->io_ports[IDE_SELECT_OFFSET], 1);
-	region_errors += ide_check_region(hwif->io_ports[IDE_STATUS_OFFSET], 1);
+	region_errors  = ide_check_region(hwif->hw.io_ports[IDE_DATA_OFFSET], 1);
+	region_errors += ide_check_region(hwif->hw.io_ports[IDE_ERROR_OFFSET], 1);
+	region_errors += ide_check_region(hwif->hw.io_ports[IDE_NSECTOR_OFFSET], 1);
+	region_errors += ide_check_region(hwif->hw.io_ports[IDE_SECTOR_OFFSET], 1);
+	region_errors += ide_check_region(hwif->hw.io_ports[IDE_LCYL_OFFSET], 1);
+	region_errors += ide_check_region(hwif->hw.io_ports[IDE_HCYL_OFFSET], 1);
+	region_errors += ide_check_region(hwif->hw.io_ports[IDE_SELECT_OFFSET], 1);
+	region_errors += ide_check_region(hwif->hw.io_ports[IDE_STATUS_OFFSET], 1);
 
-	if (hwif->io_ports[IDE_CONTROL_OFFSET])
-		region_errors += ide_check_region(hwif->io_ports[IDE_CONTROL_OFFSET], 1);
+	if (hwif->hw.io_ports[IDE_CONTROL_OFFSET])
+		region_errors += ide_check_region(hwif->hw.io_ports[IDE_CONTROL_OFFSET], 1);
 #if defined(CONFIG_AMIGA) || defined(CONFIG_MAC)
-	if (hwif->io_ports[IDE_IRQ_OFFSET])
-		region_errors += ide_check_region(hwif->io_ports[IDE_IRQ_OFFSET], 1);
-#endif /* (CONFIG_AMIGA) || (CONFIG_MAC) */
+	if (hwif->hw.io_ports[IDE_IRQ_OFFSET])
+		region_errors += ide_check_region(hwif->hw.io_ports[IDE_IRQ_OFFSET], 1);
+#endif
 	/*
 	 * If any errors are return, we drop the hwif interface.
 	 */
@@ -459,36 +508,36 @@ static int hwif_check_regions (ide_hwif_t *hwif)
 
 static void hwif_register (ide_hwif_t *hwif)
 {
-	if (((unsigned long)hwif->io_ports[IDE_DATA_OFFSET] | 7) ==
-	    ((unsigned long)hwif->io_ports[IDE_STATUS_OFFSET])) {
-		ide_request_region(hwif->io_ports[IDE_DATA_OFFSET], 8, hwif->name);
+	if (((unsigned long)hwif->hw.io_ports[IDE_DATA_OFFSET] | 7) ==
+	    ((unsigned long)hwif->hw.io_ports[IDE_STATUS_OFFSET])) {
+		ide_request_region(hwif->hw.io_ports[IDE_DATA_OFFSET], 8, hwif->name);
 		hwif->straight8 = 1;
 		goto jump_straight8;
 	}
 
-	if (hwif->io_ports[IDE_DATA_OFFSET])
-		ide_request_region(hwif->io_ports[IDE_DATA_OFFSET], 1, hwif->name);
-	if (hwif->io_ports[IDE_ERROR_OFFSET])
-		ide_request_region(hwif->io_ports[IDE_ERROR_OFFSET], 1, hwif->name);
-	if (hwif->io_ports[IDE_NSECTOR_OFFSET])
-		ide_request_region(hwif->io_ports[IDE_NSECTOR_OFFSET], 1, hwif->name);
-	if (hwif->io_ports[IDE_SECTOR_OFFSET])
-		ide_request_region(hwif->io_ports[IDE_SECTOR_OFFSET], 1, hwif->name);
-	if (hwif->io_ports[IDE_LCYL_OFFSET])
-		ide_request_region(hwif->io_ports[IDE_LCYL_OFFSET], 1, hwif->name);
-	if (hwif->io_ports[IDE_HCYL_OFFSET])
-		ide_request_region(hwif->io_ports[IDE_HCYL_OFFSET], 1, hwif->name);
-	if (hwif->io_ports[IDE_SELECT_OFFSET])
-		ide_request_region(hwif->io_ports[IDE_SELECT_OFFSET], 1, hwif->name);
-	if (hwif->io_ports[IDE_STATUS_OFFSET])
-		ide_request_region(hwif->io_ports[IDE_STATUS_OFFSET], 1, hwif->name);
+	if (hwif->hw.io_ports[IDE_DATA_OFFSET])
+		ide_request_region(hwif->hw.io_ports[IDE_DATA_OFFSET], 1, hwif->name);
+	if (hwif->hw.io_ports[IDE_ERROR_OFFSET])
+		ide_request_region(hwif->hw.io_ports[IDE_ERROR_OFFSET], 1, hwif->name);
+	if (hwif->hw.io_ports[IDE_NSECTOR_OFFSET])
+		ide_request_region(hwif->hw.io_ports[IDE_NSECTOR_OFFSET], 1, hwif->name);
+	if (hwif->hw.io_ports[IDE_SECTOR_OFFSET])
+		ide_request_region(hwif->hw.io_ports[IDE_SECTOR_OFFSET], 1, hwif->name);
+	if (hwif->hw.io_ports[IDE_LCYL_OFFSET])
+		ide_request_region(hwif->hw.io_ports[IDE_LCYL_OFFSET], 1, hwif->name);
+	if (hwif->hw.io_ports[IDE_HCYL_OFFSET])
+		ide_request_region(hwif->hw.io_ports[IDE_HCYL_OFFSET], 1, hwif->name);
+	if (hwif->hw.io_ports[IDE_SELECT_OFFSET])
+		ide_request_region(hwif->hw.io_ports[IDE_SELECT_OFFSET], 1, hwif->name);
+	if (hwif->hw.io_ports[IDE_STATUS_OFFSET])
+		ide_request_region(hwif->hw.io_ports[IDE_STATUS_OFFSET], 1, hwif->name);
 
 jump_straight8:
-	if (hwif->io_ports[IDE_CONTROL_OFFSET])
-		ide_request_region(hwif->io_ports[IDE_CONTROL_OFFSET], 1, hwif->name);
+	if (hwif->hw.io_ports[IDE_CONTROL_OFFSET])
+		ide_request_region(hwif->hw.io_ports[IDE_CONTROL_OFFSET], 1, hwif->name);
 #if defined(CONFIG_AMIGA) || defined(CONFIG_MAC)
-	if (hwif->io_ports[IDE_IRQ_OFFSET])
-		ide_request_region(hwif->io_ports[IDE_IRQ_OFFSET], 1, hwif->name);
+	if (hwif->hw.io_ports[IDE_IRQ_OFFSET])
+		ide_request_region(hwif->hw.io_ports[IDE_IRQ_OFFSET], 1, hwif->name);
 #endif /* (CONFIG_AMIGA) || (CONFIG_MAC) */
 }
 
@@ -504,7 +553,7 @@ static void probe_hwif (ide_hwif_t *hwif)
 	if (hwif->noprobe)
 		return;
 #ifdef CONFIG_BLK_DEV_IDE
-	if (hwif->io_ports[IDE_DATA_OFFSET] == HD_DATA) {
+	if (hwif->hw.io_ports[IDE_DATA_OFFSET] == (ide_ioreg_t)HD_DATA) {
 		extern void probe_cmos_for_drives(ide_hwif_t *);
 
 		probe_cmos_for_drives (hwif);
@@ -529,9 +578,9 @@ static void probe_hwif (ide_hwif_t *hwif)
 			printk("%s: ports already in use, skipping probe\n", hwif->name);
 		return;	
 	}
-
 	__save_flags(flags);	/* local CPU only */
 	__sti();		/* local CPU only; needed for jiffies and irq probing */
+
 	/*
 	 * Second drive should only exist if first drive was found,
 	 * but a lot of cdrom drives are configured as single slaves.
@@ -546,17 +595,17 @@ static void probe_hwif (ide_hwif_t *hwif)
 			}
 		}
 	}
-	if (hwif->io_ports[IDE_CONTROL_OFFSET] && hwif->reset) {
+	if (hwif->hw.io_ports[IDE_CONTROL_OFFSET] && hwif->reset) {
 		unsigned long timeout = jiffies + WAIT_WORSTCASE;
 		byte stat;
 
 		printk("%s: reset\n", hwif->name);
-		OUT_BYTE(12, hwif->io_ports[IDE_CONTROL_OFFSET]);
+		OUT_BYTE(12, hwif->hw.io_ports[IDE_CONTROL_OFFSET]);
 		udelay(10);
-		OUT_BYTE(8, hwif->io_ports[IDE_CONTROL_OFFSET]);
+		OUT_BYTE(8, hwif->hw.io_ports[IDE_CONTROL_OFFSET]);
 		do {
 			ide_delay_50ms();
-			stat = IN_BYTE(hwif->io_ports[IDE_STATUS_OFFSET]);
+			stat = IN_BYTE(hwif->hw.io_ports[IDE_STATUS_OFFSET]);
 		} while ((stat & BUSY_STAT) && 0 < (signed long)(timeout - jiffies));
 
 	}
@@ -592,7 +641,7 @@ static void save_match (ide_hwif_t *hwif, ide_hwif_t *new, ide_hwif_t **match)
 			return;
 		printk("%s: potential irq problem with %s and %s\n", hwif->name, new->name, m->name);
 	}
-	if (!m || m->irq != hwif->irq) /* don't undo a prior perfect match */
+	if (!m || m->hw.irq != hwif->hw.irq) /* don't undo a prior perfect match */
 		*match = new;
 }
 #endif /* MAX_HWIFS > 1 */
@@ -650,18 +699,18 @@ static int init_irq (ide_hwif_t *hwif)
 	for (index = 0; index < MAX_HWIFS; index++) {
 		ide_hwif_t *h = &ide_hwifs[index];
 		if (h->hwgroup) {  /* scan only initialized hwif's */
-			if (hwif->irq == h->irq) {
+			if (hwif->hw.irq == h->hw.irq) {
 				hwif->sharing_irq = h->sharing_irq = 1;
 				if (hwif->chipset != ide_pci || h->chipset != ide_pci) {
 					save_match(hwif, h, &match);
 				}
 			}
 			if (hwif->serialized) {
-				if (hwif->mate && hwif->mate->irq == h->irq)
+				if (hwif->mate && hwif->mate->hw.irq == h->hw.irq)
 					save_match(hwif, h, &match);
 			}
 			if (h->serialized) {
-				if (h->mate && hwif->irq == h->mate->irq)
+				if (h->mate && hwif->hw.irq == h->mate->hw.irq)
 					save_match(hwif, h, &match);
 			}
 		}
@@ -694,18 +743,21 @@ static int init_irq (ide_hwif_t *hwif)
 	/*
 	 * Allocate the irq, if not already obtained for another hwif
 	 */
-	if (!match || match->irq != hwif->irq) {
+	if (!match || match->hw.irq != hwif->hw.irq) {
+#ifdef CONFIG_ARCH_SHARP_SL
+		int sa = SA_INTERRUPT|SA_SHIRQ;
+#else
 #ifdef CONFIG_IDEPCI_SHARE_IRQ
 		int sa = IDE_CHIPSET_IS_PCI(hwif->chipset) ? SA_SHIRQ : SA_INTERRUPT;
 #else /* !CONFIG_IDEPCI_SHARE_IRQ */
 		int sa = IDE_CHIPSET_IS_PCI(hwif->chipset) ? SA_INTERRUPT|SA_SHIRQ : SA_INTERRUPT;
 #endif /* CONFIG_IDEPCI_SHARE_IRQ */
+#endif
 
-		if (hwif->io_ports[IDE_CONTROL_OFFSET])
-			OUT_BYTE(0x08, hwif->io_ports[IDE_CONTROL_OFFSET]); /* clear nIEN */
+		if (hwif->hw.io_ports[IDE_CONTROL_OFFSET])
+			OUT_BYTE(0x08, hwif->hw.io_ports[IDE_CONTROL_OFFSET]); /* clear nIEN */
 
-		if (ide_request_irq(hwif->irq, &ide_intr, sa, hwif->name, hwgroup)) {
-			if (!match)
+		if (ide_request_irq(hwif->hw.irq, &ide_intr, sa, hwif->name, hwgroup)) {			if (!match)
 				kfree(hwgroup);
 			restore_flags(flags);	/* all CPUs */
 			return 1;
@@ -735,22 +787,24 @@ static int init_irq (ide_hwif_t *hwif)
 		printk("%s : Adding missed hwif to hwgroup!!\n", hwif->name);
 #endif
 	}
-	restore_flags(flags);	/* all CPUs; safe now that hwif->hwgroup is set up */
-
-#if !defined(__mc68000__) && !defined(CONFIG_APUS) && !defined(__sparc__)
+	restore_flags(flags);/* all CPUs; safe now that hwif->hwgroup is set up */
+#if !defined(__mc68000__) && !defined(CONFIG_APUS) && !defined(__sparc__) && !defined(__H8300H__)
 	printk("%s at 0x%03x-0x%03x,0x%03x on irq %d", hwif->name,
-		hwif->io_ports[IDE_DATA_OFFSET],
-		hwif->io_ports[IDE_DATA_OFFSET]+7,
-		hwif->io_ports[IDE_CONTROL_OFFSET], hwif->irq);
+		(unsigned int)hwif->hw.io_ports[IDE_DATA_OFFSET],
+		(unsigned int)hwif->hw.io_ports[IDE_DATA_OFFSET]+7,
+		(unsigned int)hwif->hw.io_ports[IDE_CONTROL_OFFSET],
+		hwif->hw.irq);
 #elif defined(__sparc__)
 	printk("%s at 0x%03lx-0x%03lx,0x%03lx on irq %s", hwif->name,
-		hwif->io_ports[IDE_DATA_OFFSET],
-		hwif->io_ports[IDE_DATA_OFFSET]+7,
-		hwif->io_ports[IDE_CONTROL_OFFSET], __irq_itoa(hwif->irq));
-#else
+		hwif->hw.io_ports[IDE_DATA_OFFSET],
+		hwif->hw.io_ports[IDE_DATA_OFFSET]+7,
+		hwif->hw.io_ports[IDE_CONTROL_OFFSET], __irq_itoa(hwif->irq));
+#elif defined(__mc68000__)
 	printk("%s at %p on irq 0x%08x", hwif->name,
-		hwif->io_ports[IDE_DATA_OFFSET], hwif->irq);
-#endif /* __mc68000__ && CONFIG_APUS */
+		(void *)hwif->hw.io_ports[IDE_DATA_OFFSET], hwif->hw.irq);
+#elif defined(__H8300H__)
+	ide_print_resource(hwif->name,&(hwif->hw));
+#endif /* __mc68000__ */
 	if (match)
 		printk(" (%sed with %s)",
 			hwif->sharing_irq ? "shar" : "serializ", match->name);
@@ -884,15 +938,14 @@ static int hwif_init (ide_hwif_t *hwif)
 {
 	if (!hwif->present)
 		return 0;
-	if (!hwif->irq) {
-		if (!(hwif->irq = ide_default_irq(hwif->io_ports[IDE_DATA_OFFSET])))
-		{
+	if (!hwif->hw.irq) {
+		if (!(hwif->hw.irq = ide_default_irq(hwif->hw.io_ports[IDE_DATA_OFFSET]))) {
 			printk("%s: DISABLED, NO IRQ\n", hwif->name);
 			return (hwif->present = 0);
 		}
 	}
 #ifdef CONFIG_BLK_DEV_HD
-	if (hwif->irq == HD_IRQ && hwif->io_ports[IDE_DATA_OFFSET] != HD_DATA) {
+	if (hwif->hw.irq == HD_IRQ && hwif->hw.io_ports[IDE_DATA_OFFSET] != HD_DATA) {
 		printk("%s: CANNOT SHARE IRQ WITH OLD HARDDISK DRIVER (hd.c)\n", hwif->name);
 		return (hwif->present = 0);
 	}
@@ -906,24 +959,24 @@ static int hwif_init (ide_hwif_t *hwif)
 	}
 	
 	if (init_irq(hwif)) {
-		int i = hwif->irq;
+		int i = hwif->hw.irq;
 		/*
 		 *	It failed to initialise. Find the default IRQ for 
 		 *	this port and try that.
 		 */
-		if (!(hwif->irq = ide_default_irq(hwif->io_ports[IDE_DATA_OFFSET]))) {
+		if (!(hwif->hw.irq = ide_default_irq(hwif->hw.io_ports[IDE_DATA_OFFSET]))) {
 			printk("%s: Disabled unable to get IRQ %d.\n", hwif->name, i);
 			(void) unregister_blkdev (hwif->major, hwif->name);
 			return (hwif->present = 0);
 		}
 		if (init_irq(hwif)) {
 			printk("%s: probed IRQ %d and default IRQ %d failed.\n",
-				hwif->name, i, hwif->irq);
+				hwif->name, i, hwif->hw.irq);
 			(void) unregister_blkdev (hwif->major, hwif->name);
 			return (hwif->present = 0);
 		}
 		printk("%s: probed IRQ %d failed, using default.\n",
-			hwif->name, hwif->irq);
+			hwif->name, hwif->hw.irq);
 	}
 	
 	init_gendisk(hwif);

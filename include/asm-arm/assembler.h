@@ -13,3 +13,26 @@
 
 #include <asm/proc/ptrace.h>
 #include <asm/proc/assembler.h>
+
+/*
+ * Endian independent macros for shifting bytes within registers.
+ */
+#ifndef __ARMEB__
+#define pull            lsr
+#define push            lsl
+#define byte(x)         (x*8)
+#else
+#define pull            lsl
+#define push            lsr
+#define byte(x)         ((3-x)*8)
+#endif
+
+/*
+ * Data preload for architectures that support it
+ */
+#if __LINUX_ARM_ARCH__ >= 5 && defined(CONFIG_CPU_XSCALE)
+#define PLD(code...)	code
+#else
+#define PLD(code...)
+#endif
+

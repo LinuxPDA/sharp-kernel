@@ -231,13 +231,19 @@ asmlinkage void
 fpu_prepare_fd(unsigned long sr, unsigned long r5, unsigned long r6,
 	       unsigned long r7, struct pt_regs regs)
 {
+#if defined(CONFIG_RTHAL)
+	hard_cli();
+#else
 	__cli();
+#endif /* CONFIG_RTHAL */
 	if (!user_mode(&regs)) {
 		if (init_task.flags & PF_USEDFPU)
 			grab_fpu();
 		else {
 			if (!(sr & SR_FD)) {
+#if !defined(CONFIG_RTHAL)
 				BUG();
+#endif /* CONFIG_RTHAL */
 				release_fpu();
 			}
 		}
@@ -261,7 +267,9 @@ fpu_prepare_fd(unsigned long sr, unsigned long r5, unsigned long r6,
 		if (init_task.flags & PF_USEDFPU)
 			save_fpu(&init_task);
 		else {
+#if !defined(CONFIG_RTHAL)
 			BUG();
+#endif /* CONFIG_RTHAL */
 			release_fpu();
 		}
 	}

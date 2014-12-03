@@ -1234,7 +1234,7 @@ int usb_stor_Bulk_transport(Scsi_Cmnd *srb, struct us_data *us)
 		  le32_to_cpu(bcs->Signature), bcs->Tag, 
 		  bcs->Residue, bcs->Status);
 	if (bcs->Signature != cpu_to_le32(US_BULK_CS_SIGN) || 
-	    bcs->Tag != bcb->Tag || 
+	    ((bcs->Tag != bcb->Tag ) && (!(us->flags & US_FL_SL_IDE_BUG))) ||
 	    bcs->Status > US_BULK_STAT_PHASE || partial != 13) {
 		US_DEBUGP("Bulk logical error\n");
 		ret = USB_STOR_TRANSPORT_ERROR;

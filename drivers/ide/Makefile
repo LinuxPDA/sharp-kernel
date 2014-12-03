@@ -83,7 +83,7 @@ ide-probe-mod-objs	:= ide-probe.o ide-geometry.o
 include $(TOPDIR)/Rules.make
 
 ide-mod.o: $(ide-mod-objs)
-	$(LD) -r -o $@ $(ide-mod-objs)
+	$(LD) $(LDFLAGS) -r -o $@ $(ide-mod-objs)
 
 ide-probe-mod.o: $(ide-probe-mod-objs)
-	$(LD) -r -o $@ $(ide-probe-mod-objs)
+	$(LD) $(LDFLAGS) -r -o $@ $(ide-probe-mod-objs)

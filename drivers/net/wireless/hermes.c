@@ -503,6 +503,9 @@ int hermes_read_ltv(hermes_t *hw, int bap, u16 rid, int bufsize,
 	
 	/* FIXME: we should read the min of the requested length and
            the actual record length */
+#ifdef CONFIG_DBMX1_TPM102
+	udelay(200);
+#endif
 	hermes_read_words(hw, dreg, buf, bufsize / 2);
 
  out:

@@ -21,17 +21,22 @@ CONFIG_KMOD=y
 # Machine selection
 #
 # CONFIG_ACER_PICA_61 is not set
+# CONFIG_MIPS_DB1000 is not set
+# CONFIG_MIPS_DB1100 is not set
+# CONFIG_MIPS_DB1500 is not set
 # CONFIG_MIPS_PB1000 is not set
 # CONFIG_MIPS_PB1100 is not set
 # CONFIG_MIPS_PB1500 is not set
-# CONFIG_ALGOR_P4032 is not set
 # CONFIG_BAGET_MIPS is not set
+# CONFIG_CASIO_E55 is not set
 # CONFIG_MIPS_COBALT is not set
 # CONFIG_DECSTATION is not set
 # CONFIG_MIPS_EV64120 is not set
 # CONFIG_MIPS_EV96100 is not set
 # CONFIG_MIPS_IVR is not set
 # CONFIG_HP_LASERJET is not set
+# CONFIG_IBM_WORKPAD is not set
+# CONFIG_LASAT is not set
 # CONFIG_MIPS_ITE8172 is not set
 # CONFIG_MIPS_ATLAS is not set
 # CONFIG_MIPS_MAGNUM_4000 is not set
@@ -44,6 +49,7 @@ CONFIG_KMOD=y
 # CONFIG_DDB5477 is not set
 # CONFIG_NEC_OSPREY is not set
 CONFIG_NEC_EAGLE=y
+CONFIG_VRC4173=y
 # CONFIG_OLIVETTI_M700 is not set
 # CONFIG_NINO is not set
 # CONFIG_SGI_IP22 is not set
@@ -52,12 +58,12 @@ CONFIG_NEC_EAGLE=y
 # CONFIG_SIBYTE_SB1xxx_SOC is not set
 # CONFIG_SNI_RM200_PCI is not set
 # CONFIG_TOSHIBA_JMR3927 is not set
+# CONFIG_VICTOR_MPC30X is not set
 # CONFIG_ZAO_CAPCELLA is not set
 # CONFIG_HIGHMEM is not set
 CONFIG_RWSEM_GENERIC_SPINLOCK=y
 # CONFIG_RWSEM_XCHGADD_ALGORITHM is not set
 CONFIG_CPU_VR41XX=y
-CONFIG_NEW_IRQ=y
 CONFIG_IRQ_CPU=y
 CONFIG_NEW_TIME_C=y
 CONFIG_VR41XX_TIME_C=y
@@ -117,6 +123,8 @@ CONFIG_KCORE_ELF=y
 # CONFIG_BINFMT_AOUT is not set
 CONFIG_BINFMT_ELF=y
 # CONFIG_MIPS32_COMPAT is not set
+# CONFIG_MIPS32_O32 is not set
+# CONFIG_MIPS32_N32 is not set
 # CONFIG_BINFMT_ELF32 is not set
 # CONFIG_BINFMT_MISC is not set
 # CONFIG_PM is not set
@@ -171,13 +179,13 @@ CONFIG_MTD_PHYSMAP_BUSWIDTH=4
 # CONFIG_MTD_PB1100 is not set
 # CONFIG_MTD_CSTM_MIPS_IXX is not set
 # CONFIG_MTD_OCELOT is not set
+# CONFIG_MTD_LASAT is not set
 # CONFIG_MTD_PCI is not set
 
 #
 # Self-contained MTD device drivers
 #
 # CONFIG_MTD_PMC551 is not set
-# CONFIG_MTD_MS02NV is not set
 # CONFIG_MTD_SLRAM is not set
 # CONFIG_MTD_MTDRAM is not set
 # CONFIG_MTD_BLKMTD is not set
@@ -378,6 +386,7 @@ CONFIG_PCNET32=y
 # CONFIG_SIS900 is not set
 # CONFIG_EPIC100 is not set
 # CONFIG_SUNDANCE is not set
+# CONFIG_SUNDANCE_MMIO is not set
 # CONFIG_TLAN is not set
 # CONFIG_TC35815 is not set
 # CONFIG_VIA_RHINE is not set
@@ -511,6 +520,7 @@ CONFIG_WATCHDOG=y
 # CONFIG_MACHZ_WDT is not set
 # CONFIG_INDYDOG is not set
 # CONFIG_AMD7XX_TCO is not set
+# CONFIG_AMD_PM768 is not set
 # CONFIG_NVRAM is not set
 # CONFIG_RTC is not set
 # CONFIG_DTLK is not set
@@ -653,7 +663,108 @@ CONFIG_SGI_PARTITION=y
 #
 # USB support
 #
-# CONFIG_USB is not set
+CONFIG_USB=y
+# CONFIG_USB_DEBUG is not set
+
+#
+# Miscellaneous USB options
+#
+CONFIG_USB_DEVICEFS=y
+CONFIG_USB_BANDWIDTH=y
+CONFIG_USB_LONG_TIMEOUT=y
+
+#
+# USB Host Controller Drivers
+#
+# CONFIG_USB_EHCI_HCD is not set
+# CONFIG_USB_UHCI is not set
+# CONFIG_USB_UHCI_ALT is not set
+CONFIG_USB_OHCI=y
+
+#
+# USB Device Class drivers
+#
+# CONFIG_USB_AUDIO is not set
+# CONFIG_USB_EMI26 is not set
+# CONFIG_USB_BLUETOOTH is not set
+# CONFIG_USB_MIDI is not set
+
+#
+#   SCSI support is needed for USB Storage
+#
+# CONFIG_USB_STORAGE is not set
+# CONFIG_USB_STORAGE_DEBUG is not set
+# CONFIG_USB_STORAGE_DATAFAB is not set
+# CONFIG_USB_STORAGE_FREECOM is not set
+# CONFIG_USB_STORAGE_ISD200 is not set
+# CONFIG_USB_STORAGE_DPCM is not set
+# CONFIG_USB_STORAGE_HP8200e is not set
+# CONFIG_USB_STORAGE_SDDR09 is not set
+# CONFIG_USB_STORAGE_SDDR55 is not set
+# CONFIG_USB_STORAGE_JUMPSHOT is not set
+# CONFIG_USB_ACM is not set
+# CONFIG_USB_PRINTER is not set
+
+#
+# USB Human Interface Devices (HID)
+#
+# CONFIG_USB_HID is not set
+
+#
+#     Input core support is needed for USB HID input layer or HIDBP support
+#
+# CONFIG_USB_HIDINPUT is not set
+# CONFIG_USB_HIDDEV is not set
+# CONFIG_USB_KBD is not set
+# CONFIG_USB_MOUSE is not set
+# CONFIG_USB_AIPTEK is not set
+# CONFIG_USB_WACOM is not set
+
+#
+# USB Imaging devices
+#
+# CONFIG_USB_DC2XX is not set
+# CONFIG_USB_MDC800 is not set
+# CONFIG_USB_SCANNER is not set
+# CONFIG_USB_MICROTEK is not set
+# CONFIG_USB_HPUSBSCSI is not set
+
+#
+# USB Multimedia devices
+#
+
+#
+#   Video4Linux support is needed for USB Multimedia device support
+#
+
+#
+# USB Network adaptors
+#
+CONFIG_USB_PEGASUS=y
+CONFIG_USB_RTL8150=y
+# CONFIG_USB_KAWETH is not set
+# CONFIG_USB_CATC is not set
+# CONFIG_USB_CDCETHER is not set
+# CONFIG_USB_USBNET is not set
+
+#
+# USB port drivers
+#
+# CONFIG_USB_USS720 is not set
+
+#
+# USB Serial Converter support
+#
+# CONFIG_USB_SERIAL is not set
+
+#
+# USB Miscellaneous drivers
+#
+# CONFIG_USB_RIO500 is not set
+# CONFIG_USB_AUERSWALD is not set
+# CONFIG_USB_TIGL is not set
+# CONFIG_USB_BRLVGER is not set
+# CONFIG_USB_LCD is not set
 
 #
 # Bluetooth support
@@ -664,8 +775,6 @@ CONFIG_SGI_PARTITION=y
 # Kernel hacking
 #
 CONFIG_CROSSCOMPILE=y
-# CONFIG_REMOTE_DEBUG is not set
-# CONFIG_GDB_CONSOLE is not set
 # CONFIG_DEBUG is not set
 # CONFIG_MAGIC_SYSRQ is not set
 # CONFIG_MIPS_UNCACHED is not set

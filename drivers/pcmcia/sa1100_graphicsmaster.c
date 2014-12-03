@@ -12,22 +12,19 @@
 #include <linux/sched.h>
 
 #include <asm/hardware.h>
+#include <asm/hardware/sa1111.h>
 
 #include "sa1100_generic.h"
 #include "sa1111_generic.h"
 
 static int graphicsmaster_pcmcia_init(struct pcmcia_init *init)
 {
-  int return_val=0;
 
   /* Set GPIO_A<3:0> to be outputs for PCMCIA/CF power controller: */
   PA_DDR &= ~(GPIO_GPIO0 | GPIO_GPIO1 | GPIO_GPIO2 | GPIO_GPIO3);
 
   /* Disable Power 3.3V/5V for PCMCIA/CF */
   PA_DWR |= GPIO_GPIO0 | GPIO_GPIO1 | GPIO_GPIO2 | GPIO_GPIO3;
-
-  /* why? */
-  MECR = 0x09430943;
 
   return sa1111_pcmcia_init(init);
 }
@@ -59,6 +56,10 @@ graphicsmaster_pcmcia_configure_socket(const struct pcmcia_configure *conf)
     case 33:	pa_dwr_set = GPIO_GPIO3;		break;
     case 50:	pa_dwr_set = GPIO_GPIO2;		break;
     }
+    break;
+
+  default:
+    return -1;
   }
 
   if (conf->vpp != conf->vcc && conf->vpp != 0) {

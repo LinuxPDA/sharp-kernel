@@ -1,0 +1,76 @@
+CONFIG_USBD
+  Universal Serial Bus (USB) is a specification for a serial bus
+  subsystem which offers higher speeds and more features than the
+  traditional PC serial port. The bus supplies power to peripherals
+  and allows for hot swapping. Up to 127 USB peripherals can be
+  connected to a single USB port in a tree structure. The USB port is
+  the root of the tree, the peripherals are the leaves and the inner
+  nodes are special USB devices called hubs. Many newer PC's have USB
+  ports and newer peripherals such as scanners, keyboards, mice,
+  modems, and printers support the USB protocol and can be connected
+  to the PC via those ports.
+
+  Say Y here if your computer has a USB Function / Device port and you
+  want to plug it into a USB Host. You then need to say Y to a MINIMUM
+  OF ONE of "USB Function Drivers" and a MAXIMUM of one of the "USB
+  Device Bus Interface Drivers".  Normally only one bus interface
+  driver is available for any architecture.
+
+  If you have any doubt about what this is, say N here.
+
+  This code is also available as a module ( = code which can be
+  inserted in and removed from the running kernel whenever you want).
+  The module will be called usbd.o. If you want to compile it as a
+  module, say M here and read Documentation/modules.txt.
+
+CONFIG_USBD_VENDORID
+  Specify the USB Device Vendor ID.
+
+CONFIG_USBD_PRODUCTID
+  Specify the USB Device Product ID.
+
+CONFIG_USBD_PRODUCT_NAME
+  Specify the USB Device Product name.
+
+CONFIG_USBD_MANUFACTURER
+  Specify the USB Device Manufacturer name.
+
+CONFIG_USBD_USE_SERIAL_NUMBER
+  Specify whether the device serial number should be used in the device
+  descriptor.
+
+CONFIG_USBD_SERIAL_NUMBER_STR
+  Specify a default serial number. This will be used if the bus interface
+  driver cannot determine a serial number for the device.
+
+CONFIG_USBD_SELFPOWERED
+  Is the device self powered. This is used to set the appropriate flag
+  in the configuration descriptor.
+
+CONFIG_USBD_MAXPOWER
+  Specify the maximum power draw for this device in milli-amps (ma).
+  This is used in the configuration descriptor if the Self Powered 
+  flag is NOT set.
+
+CONFIG_USBD_MONITOR
+  Enable a small module that will monitor for the USB Device being 
+  connected to a host. It will load and unload the rest of the USB
+  Device software via the hotplug facility.
+
+  Hotplug will call the usbd.agent with:
+
+  	INTERFACE=monitor
+
+  And one of:
+
+	ACTION=load		# called when connected to USB 
+	ACTION=unload		# called when dis-connected from USB 
+	ACTION=off		# called when power down invoked
+
+  The power down action is invoked if the local power management software
+  is putting the local system into standby or power off mode. This is 
+  not invoked for a USB suspend event (which would be handled by the
+  USB Device software).
+
+CONFIG_USBD_PROCFS
+  Enable a proc file system for the USB Device support.

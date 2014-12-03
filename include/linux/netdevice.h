@@ -481,6 +481,11 @@ extern struct net_device	*dev_get_by_index(int ifindex);
 extern struct net_device	*__dev_get_by_index(int ifindex);
 extern int		dev_restart(struct net_device *dev);
 
+extern struct net_device	*dev_get_by_flags(unsigned short flags,
+						  unsigned short mask);
+extern struct net_device	*__dev_get_by_flags(unsigned short flags,
+						    unsigned short mask);
+
 typedef int gifconf_func_t(struct net_device * dev, char * bufptr, int len);
 extern int		register_gifconf(unsigned int family, gifconf_func_t * gifconf);
 static inline int unregister_gifconf(unsigned int family)

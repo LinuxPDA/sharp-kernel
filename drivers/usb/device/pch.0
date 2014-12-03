@@ -1,0 +1,340 @@
+Script started on Tue May  7 12:03:19 2002
+[tom@localhost device]$ patch < ~/tbr.pch  < ~/tbr.pch- < ~/tbr.pchp < ~/tbr.pch0 < ~/tbr.pch < ~/tbr.pch
+sh: get: command not found
+warning: Patching file bi/pxa.c, which does not match default SCCS version
+patching file bi/pxa.c
+Hunk #3 succeeded at 931 (offset 1 line).
+Hunk #5 succeeded at 955 (offset 1 line).
+sh: get: command not found
+warning: Patching file bi/pxa.h, which does not match default SCCS version
+patching file bi/pxa.h
+Hunk #2 succeeded at 30 with fuzz 2 (offset -5 lines).
+sh: get: command not found
+warning: Patching file usbd-monitor.c, which does not match default SCCS version
+patching file usbd-monitor.c
+[tom@localhost device]$ ls
+[00m[01;34mbi[00m           [00mep0.c[00m      [00mMakefile[00m  [01;34mSCCS[00m         [00musbd-bus.c[00m  [00musbd-debug.c[00m  [00musbd-func.h[00m    [00musbd-module.h[00m
+[00mConfig.help[00m  [00mhotplug.c[00m  [01;34mnet_fd[00m    [01;34mserial_fd[00m    [00musbd-bus.h[00m  [00musbd-debug.h[00m  [00musbd.h[00m         [00musbd-monitor.c[00m
+[00mConfig.in[00m    [00mhotplug.h[00m  [00mpch.0[00m     [00musbd-arch.h[00m  [00musbd.c[00m      [00musbd-func.c[00m   [00musbd-inline.h[00m  [00musbd-serialnumber.c[00m
+[m[tom@localhost device]$ vi usbd-monitor.c
+[?1h=[1;49r[H[J[49;1H"usbd-monitor.c" [readonly] 785L, 17550C[1;1H/*
+ * linux/drivers/usbd/usbd-monitor.c - USB Device Cable Monitor
+ *
+ * Copyright (c) 2000, 2001, 2002 Lineo
+ * Copyright (c) 2001 Hewlett Packard
+ *
+ * By:
+ *      Stuart Lynne <sl@lineo.com>,
+ *      Tom Rushworth <tbr@lineo.com>,
+ *      Bruce Balden <balden@lineo.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ *
+ */
+
+
+#include <linux/config.h>
+#include <linux/module.h>
+
+#include "usbd-export.h"
+#include "usbd-build.h"
+#include "usbd-module.h"
+
+MODULE_AUTHOR ("sl@lineo.com, tbr@lineo.com");
+MODULE_DESCRIPTION ("USB Device Monitor");
+USBD_MODULE_INFO ("usbd_monitor 0.3");
+
+EXPORT_NO_SYMBOLS;
+
+#include <linux/init.h>
+#include <linux/kernel.h>
+#include <linux/list.h>
+#include <asm/uaccess.h>
+#include <linux/netdevice.h>
+#include <linux/skbuff.h>
+#include <linux/etherdevice.h>[1;1H
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;48r[48;1H
+[1;49r[48;1H#include <net/arp.h>[49;1H[K[1;48r[48;1H
+[1;49r[48;1H#include <linux/rtnetlink.h>[1;48r[48;1H
+[1;49r[48;1H#include <linux/smp_lock.h>[1;48r[48;1H
+[1;49r[48;1H#include <linux/ctype.h>[1;48r[48;1H
+[1;49r[48;1H#include <linux/timer.h>[1;48r[48;1H
+[1;49r[48;1H#include <linux/string.h>[1;48r[48;1H
+[1;49r[48;1H#include <linux/pkt_sched.h>[1;48r[48;1H
+[1;49r[48;1H#include <asm/io.h>[1;48r[48;1H
+[1;49r[48;1H#include <linux/proc_fs.h>[1;48r[48;1H
+[1;49r[48;1H#include <linux/kmod.h>[1;48r[48;1H
+[1;49r[48;1H[1;48r[48;1H
+[1;49r[48;1H[1;48r[48;1H
+[1;49r[48;1H/*[1;48r[48;1H
+[1;49r[48;2H* Architecture specific includes[1;48r[48;1H
+[1;49r[48;2H*/[1;48r[48;1H
+[1;49r[48;1H[1;48r[48;1H
+[1;49r[48;1H#if defined(CONFIG_ARCH_SA1100) || defined(CONFIG_SABINAL_DISCOVERY)[1;48r[48;1H
+[1;49r[48;1H[1;48r[48;1H
+[1;49r[48;1H#include <asm/irq.h>[1;48r[48;1H
+[1;49r[48;1H#include <asm/hardware.h>[1;48r[48;1H
+[1;49r[48;1H[1;48r[48;1H
+[1;49r[48;1H#include "usbd.h"[1;48r[48;1H
+[1;49r[48;1H#include "usbd-func.h"[1;48r[48;1H
+[1;49r[48;1H#include "usbd-bus.h"[1;48r[48;1H
+[1;49r[48;1H#include "hotplug.h"[1;48r[48;1H
+[1;49r[48;1H/* pick up any required GPIO pin definitions */[1;48r[48;1H
+[1;49r[48;1H#if defined(CONFIG_ARCH_SA1100)[1;48r[48;1H
+[1;49r[48;1H#include "bi/sa1100.h"[1;48r[48;1H
+[1;49r[48;1H#endif[1;48r[48;1H
+[1;49r[48;1H#endif[1;48r[48;1H
+[1;49r[48;1H[1;48r[48;1H
+[1;49r[48;1H#if defined(CONFIG_PM)[1;48r[48;1H
+[1;49r[48;1H#include <linux/pm.h>[1;48r[48;1H
+[1;49r[48;1H#endif[1;48r[48;1H
+[1;49r[48;1H[1;48r[48;1H
+[1;49r[48;1H[1;48r[48;1H
+[1;49r[48;1H/* Module Parameters ************************************************************************* */[1;48r[48;1H
+[1;49r[48;1H[1;48r[48;1H
+[1;49r[48;1Htypedef enum monitor_status {[1;48r[48;1H
+[1;49r[48;9HMONITOR_UNKNOWN,[48;8H[1;48r[48;1H
+[1;49r[48;9HMONITOR_LOADING,[8C// loading due to cable connection interrupt[48;8H[1;48r[48;1H
+[1;49r[48;9HMONITOR_LOADED,[9C// loaded[48;8H[1;48r[48;1H
+[1;49r[48;9HMONITOR_UNLOADING,      // unloading due to cable disconnection interrupt[48;8H[1;48r[48;1H
+[1;49r[48;9HMONITOR_UNLOADED,[7C// unloaded[48;8H[1;48r[48;1H
+[1;49r[48;1H#ifdef CONFIG_PM[1;48r[48;1H
+[1;49r[48;9HMONITOR_SUSPENDING,     // suspending due to power management event[48;8H[1;48r[48;1H
+[1;49r[48;9HMONITOR_SUSPENDED,      // suspended due to power management event[48;8H[1;48r[48;1H
+[1;49r[48;9HMONITOR_RESTORING,      // restoring[48;8H[1;48r[48;1H
+[1;49r[48;1H#endif[1;48r[48;1H
+[1;49r[48;1H} monitor_status_t;[1;48r[48;1H
+[1;49r[48;1H[1;48r[48;1H
+[1;49r[48;1H/* struct monitor_bi_data -[1;48r[48;1H
+[1;49r[48;2H*[1;48r[48;1H
+[1;49r[48;2H* private data structure for this bus interface driver[1;48r[48;1H
+[1;49r[48;2H*/[1;48r[48;1H
+[1;49r[48;1Hstruct monitor_data {[1;48r[48;1H
+[1;49r[48;9Hmonitor_status_t status;[48;8H[1;48r[48;1H
+[1;49r[48;9Hstruct tq_struct monitor_bh;[48;8H[1;48r[48;1H
+[1;49r[48;9Hstruct tq_struct hotplug_bh;[48;8H[1;48r[48;1H
+[1;49r[48;1H[1;48r[48;1H
+[1;49r[48;9Hint have_irq;[48;8H[1;48r[48;1H
+[1;49r[48;1H#ifdef CONFIG_PM[1;48r[48;1H
+[1;49r[48;9Hstruct pm_dev *pm_info;[48;8H[1;48r[48;1H
+[1;49r[48;1H#endif[1;48r[48;1H
+[1;49r[48;1H[1;48r[48;1H
+[1;49r[48;1H};[1;48r[48;1H
+[1;49r[48;1H[1;48r[48;1H
+[1;49r[48;1Hstruct monitor_data monitor;[1;48r[48;1H
+[1;49r[48;1Hvoid monitor_int_hndlr (int irq, void *dev_id, struct pt_regs *regs);[1;48r[48;1H
+[1;49r[48;1H[1;48r[48;1H
+[1;49r[48;1H/**[1;48r[48;1H
+[1;49r[48;2H* monitor_request_irq[1;48r[48;1H
+[1;49r[48;2H*/[1;48r[48;1H
+[1;49r[48;1Hint monitor_request_irq (void)[1;48r[48;1H
+[1;49r[48;1H{[1;48r[48;1H
+[1;49r[48;1H#if defined(CONFIG_SA1100_USBCABLE_GPIO)[1;48r[48;1H
+[1;49r[48;9Hint rc;[48;8H[1;48r[48;1H
+[1;49r[48;1H[1;48r[48;1H
+
+[1;49r[47;9Hprintk (KERN_DEBUG "monitor_request_irq: %d %d\n", CONFIG_SA1100_USBCABLE_GPIO, SA1100_GPIO_TO_IRQ (CONFIG_SA1100_USBCABLE_G[48;1HPIO));[47;8H[1;48r[48;1H
+[1;49r[48;1H[1;48r[48;1H
+
+[1;49r[47;9Hif ((rc = request_irq (SA1100_GPIO_TO_IRQ (CONFIG_SA1100_USBCABLE_GPIO), monitor_int_hndlr, SA_SHIRQ, "USBD Monitor", &monit[48;1Hor))) {[47;8H[1;48r[48;1H
+[1;49r[48;17Hprintk (KERN_DEBUG "monitor_request_irq: failed: %d\n", rc);[48;8H[1;48r[48;1H
+[1;49r[48;17Hreturn -EINVAL;[48;8H[1;48r[48;1H
+[1;49r[48;9H}[1;48r[48;1H
+[1;49r[48;9HGPDR &= ~GPIO_GPIO (CONFIG_SA1100_USBCABLE_GPIO);[48;8H[1;48r[48;1H
+[1;49r[48;9Hset_GPIO_IRQ_edge (GPIO_GPIO (CONFIG_SA1100_USBCABLE_GPIO), GPIO_BOTH_EDGES);[48;8H[1;48r[48;1H
+[1;49r[48;1H#endif[1;48r[48;1H
+[1;49r[48;9Hreturn 0;[48;8H[1;48r[48;1H
+[1;49r[48;1H}[1;48r[48;1H
+[1;49r[48;1H[1;48r[48;1H
+[1;49r[48;1H/**[1;48r[48;1H
+[1;49r[48;2H* monitor_free_irq[1;48r[48;1H
+[1;49r[48;2H*/[1;48r[48;1H
+[1;49r[48;1Hvoid monitor_free_irq (void)[1;48r[48;1H
+[1;49r[48;1H{[1;48r[48;1H
+[1;49r[48;1H#if defined(CONFIG_SA1100_USBCABLE_GPIO)[1;48r[48;1H
+[1;49r[48;9Hfree_irq (SA1100_GPIO_TO_IRQ (CONFIG_SA1100_USBCABLE_GPIO), NULL);[48;8H[1;48r[48;1H
+[1;49r[48;1H#endif[1;48r[48;1H
+[1;49r[48;1H}[1;48r[48;1H
+[1;49r[48;1H[1;48r[48;1H
+[1;49r[48;1H[1;48r[48;1H
+[1;49r[48;1H/**[1;48r[48;1H
+[1;49r[48;2H* monitor_connected - connected to cable[1;48r[48;1H
+[1;49r[48;2H*[1;48r[48;1H
+[1;49r[48;2H* Return non-zero if via USB cable to USB Hub or Host[1;48r[48;1H
+[1;49r[48;2H*/[1;48r[48;1H
+[1;49r[48;1Hint monitor_connected (void)[1;48r[48;1H
+[1;49r[48;1H{[1;48r[48;1H
+[1;49r[48;9Hint rc = 1;[48;8H[1;48r[48;1H
+[1;49r[48;1H[1;48r[48;1H
+[1;49r[48;9H/*[1;48r[48;1H
+[1;49r[48;10H* Architecture specific - determine connect status[48;8H[1;48r[48;1H
+[1;49r[48;10H*/[1;48r[48;1H
+[1;49r[48;1H[1;48r[48;1H
+[1;49r[48;9H/*[1;48r[48;1H
+[1;49r[48;10H* SA-1100[48;8H[1;48r[48;1H
+[1;49r[48;10H*
+/free_irq[H[J[1;9H// XXX monitor.hotplug_bh.sync = 0;[4;9H/*[5;10H* Architecture specific - request IRQ[6;10H*/[8;9Hif (!monitor_request_irq ()) {[9;17Hmonitor.have_irq++;[10;9H} else {[11;17Hprintk (KERN_DEBUG "usbdm: request irq failed\n");[12;9H}
+
+#ifdef CONFIG_PM[15;9H/*[16;10H* Architecture specific - register with power management[17;10H*/[19;9Hmonitor.pm_info = NULL;[21;9Hif (!(monitor.pm_info = pm_register (PM_USB_DEV, PM_SYS_UNKNOWN, monitor_pm_event))) {[22;17Hprintk (KERN_ERR "%s: couldn't register for power management\n", __FUNCTION__);[23;17Hif (monitor.have_irq) {[24;25Hmonitor_free_irq ();[25;17H}[26;17Hreturn 1;[27;9H}[28;9Hmonitor.pm_info->state = 0;
+#endif
+
+#ifdef CONFIG_USBD_PROCFS[32;9H{[33;17Hstruct proc_dir_entry *p;[35;17H// create proc filesystem entries[36;17Hif ((p = create_proc_entry ("usb-monitor", 0, 0)) == NULL) {[37;25Hif (monitor.have_irq) {[38;33Hmonitor_free_irq ();[39;33Hmonitor.have_irq = 0;[40;25H}
+#ifdef CONFIG_PM[42;25Hif (monitor.pm_info) {[43;33Hpm_unregister (monitor.pm_info);[44;33Hmonitor.pm_info = NULL;[45;25H}
+#endif[47;25Hreturn -ENOMEM;[48;17H}[24;33H[49;1H/free_irq[38;41H[49;1H[H[J[1;9Hprintk (KERN_INFO "monitor_modinit: finished\n");[3;9Hreturn 0;
+}
+
+
+/**
+ * monitor_modexit - decommission bus interface driver
+ *
+ */
+static void __exit monitor_modexit (void)
+{[14;9Hprintk (KERN_INFO "\n");[15;9Hprintk (KERN_INFO "monitor_modexit:\n");[17;9H/* Stop any hotplug actions except unload */[18;9Hmonitor_exiting = 1;[20;9H/*[21;10H* Architecture specific - free appropriate IRQ[22;10H*/[24;9Hmonitor_free_irq ();
+
+#ifdef CONFIG_PM[27;9Hif (monitor.pm_info) {[28;17Hpm_unregister (monitor.pm_info);[29;17Hmonitor.pm_info = NULL;[30;9H}
+#endif[33;9H/*[34;10H* Force unloading[35;10H*/[36;9Hmonitor_hotplug (MHA_UNLOAD);
+
+#ifdef CONFIG_USBD_PROCFS[39;9H// remove proc filesystem entry *AFTER* the last hotplug,[40;9H// in case it is being used for sync hotplug.[41;9Hremove_proc_entry ("usb-monitor", NULL);
+#endif[44;9Hreturn;
+}
+
+
+module_init (monitor_modinit);[24;17H[49;1H/free_irq[7msearch hit BOTTOM, continuing at TOP[m[H[J[1;1H/**
+ * monitor_request_irq
+ */
+int monitor_request_irq (void)
+{
+#if defined(CONFIG_SA1100_USBCABLE_GPIO)[7;9Hint rc;[9;9Hprintk (KERN_DEBUG "monitor_request_irq: %d %d\n", CONFIG_SA1100_USBCABLE_GPIO, SA1100_GPIO_TO_IRQ (CONFIG_SA1100_USBCABLE_G[10;1HPIO));[12;9Hif ((rc = request_irq (SA1100_GPIO_TO_IRQ (CONFIG_SA1100_USBCABLE_GPIO), monitor_int_hndlr, SA_SHIRQ, "USBD Monitor", &monit[13;1Hor))) {[14;17Hprintk (KERN_DEBUG "monitor_request_irq: failed: %d\n", rc);[15;17Hreturn -EINVAL;[16;9H}[17;9HGPDR &= ~GPIO_GPIO (CONFIG_SA1100_USBCABLE_GPIO);[18;9Hset_GPIO_IRQ_edge (GPIO_GPIO (CONFIG_SA1100_USBCABLE_GPIO), GPIO_BOTH_EDGES);
+#endif[20;9Hreturn 0;
+}
+
+/**
+ * monitor_free_irq
+ */
+void monitor_free_irq (void)
+{
+#if defined(CONFIG_SA1100_USBCABLE_GPIO)[29;9Hfree_irq (SA1100_GPIO_TO_IRQ (CONFIG_SA1100_USBCABLE_GPIO), NULL);
+#endif
+}
+
+
+/**
+ * monitor_connected - connected to cable
+ *
+ * Return non-zero if via USB cable to USB Hub or Host
+ */
+int monitor_connected (void)
+{[41;9Hint rc = 1;[43;9H/*[44;10H* Architecture specific - determine connect status[45;10H*/[47;9H/*[48;10H* SA-1100
+[7msearch hit BOTTOM, continuing at TOP[24;12H[m[49;1H/free_irq[49;10H[K[49;1H[26;14H[49;1H[29;9H[49;1H[H[J[1;9H// XXX monitor.hotplug_bh.sync = 0;[4;9H/*[5;10H* Architecture specific - request IRQ[6;10H*/[8;9Hif (!monitor_request_irq ()) {[9;17Hmonitor.have_irq++;[10;9H} else {[11;17Hprintk (KERN_DEBUG "usbdm: request irq failed\n");[12;9H}
+
+#ifdef CONFIG_PM[15;9H/*[16;10H* Architecture specific - register with power management[17;10H*/[19;9Hmonitor.pm_info = NULL;[21;9Hif (!(monitor.pm_info = pm_register (PM_USB_DEV, PM_SYS_UNKNOWN, monitor_pm_event))) {[22;17Hprintk (KERN_ERR "%s: couldn't register for power management\n", __FUNCTION__);[23;17Hif (monitor.have_irq) {[24;25Hmonitor_free_irq ();[25;17H}[26;17Hreturn 1;[27;9H}[28;9Hmonitor.pm_info->state = 0;
+#endif
+
+#ifdef CONFIG_USBD_PROCFS[32;9H{[33;17Hstruct proc_dir_entry *p;[35;17H// create proc filesystem entries[36;17Hif ((p = create_proc_entry ("usb-monitor", 0, 0)) == NULL) {[37;25Hif (monitor.have_irq) {[38;33Hmonitor_free_irq ();[39;33Hmonitor.have_irq = 0;[40;25H}
+#ifdef CONFIG_PM[42;25Hif (monitor.pm_info) {[43;33Hpm_unregister (monitor.pm_info);[44;33Hmonitor.pm_info = NULL;[45;25H}
+#endif[47;25Hreturn -ENOMEM;[48;17H}[24;33H[49;1H/free_irq[38;41H[49;1H[H[J[1;9Hprintk (KERN_INFO "monitor_modinit: finished\n");[3;9Hreturn 0;
+}
+
+
+/**
+ * monitor_modexit - decommission bus interface driver
+ *
+ */
+static void __exit monitor_modexit (void)
+{[14;9Hprintk (KERN_INFO "\n");[15;9Hprintk (KERN_INFO "monitor_modexit:\n");[17;9H/* Stop any hotplug actions except unload */[18;9Hmonitor_exiting = 1;[20;9H/*[21;10H* Architecture specific - free appropriate IRQ[22;10H*/[24;9Hmonitor_free_irq ();
+
+#ifdef CONFIG_PM[27;9Hif (monitor.pm_info) {[28;17Hpm_unregister (monitor.pm_info);[29;17Hmonitor.pm_info = NULL;[30;9H}
+#endif[33;9H/*[34;10H* Force unloading[35;10H*/[36;9Hmonitor_hotplug (MHA_UNLOAD);
+
+#ifdef CONFIG_USBD_PROCFS[39;9H// remove proc filesystem entry *AFTER* the last hotplug,[40;9H// in case it is being used for sync hotplug.[41;9Hremove_proc_entry ("usb-monitor", NULL);
+#endif[44;9Hreturn;
+}
+
+
+module_init (monitor_modinit);[24;17H[49;1H/free_irq[7msearch hit BOTTOM, continuing at TOP[m[H[J[1;1H/**
+ * monitor_request_irq
+ */
+int monitor_request_irq (void)
+{
+#if defined(CONFIG_SA1100_USBCABLE_GPIO)[7;9Hint rc;[9;9Hprintk (KERN_DEBUG "monitor_request_irq: %d %d\n", CONFIG_SA1100_USBCABLE_GPIO, SA1100_GPIO_TO_IRQ (CONFIG_SA1100_USBCABLE_G[10;1HPIO));[12;9Hif ((rc = request_irq (SA1100_GPIO_TO_IRQ (CONFIG_SA1100_USBCABLE_GPIO), monitor_int_hndlr, SA_SHIRQ, "USBD Monitor", &monit[13;1Hor))) {[14;17Hprintk (KERN_DEBUG "monitor_request_irq: failed: %d\n", rc);[15;17Hreturn -EINVAL;[16;9H}[17;9HGPDR &= ~GPIO_GPIO (CONFIG_SA1100_USBCABLE_GPIO);[18;9Hset_GPIO_IRQ_edge (GPIO_GPIO (CONFIG_SA1100_USBCABLE_GPIO), GPIO_BOTH_EDGES);
+#endif[20;9Hreturn 0;
+}
+
+/**
+ * monitor_free_irq
+ */
+void monitor_free_irq (void)
+{
+#if defined(CONFIG_SA1100_USBCABLE_GPIO)[29;9Hfree_irq (SA1100_GPIO_TO_IRQ (CONFIG_SA1100_USBCABLE_GPIO), NULL);
+#endif
+}
+
+
+/**
+ * monitor_connected - connected to cable
+ *
+ * Return non-zero if via USB cable to USB Hub or Host
+ */
+int monitor_connected (void)
+{[41;9Hint rc = 1;[43;9H/*[44;10H* Architecture specific - determine connect status[45;10H*/[47;9H/*[48;10H* SA-1100
+[7msearch hit BOTTOM, continuing at TOP[24;12H[m[49;1H[K[49;1H:q[?1l>[49;1H[K[49;1H[tom@localhost device]$ exit
+
+Script done on Tue May  7 12:07:24 2002

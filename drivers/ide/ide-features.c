@@ -290,7 +290,7 @@ int ide_config_drive_speed (ide_drive_t *drive, byte speed)
         /*
          * Select the drive, and issue the SETFEATURES command
          */
-	disable_irq(hwif->irq);	/* disable_irq_nosync ?? */
+	disable_irq(hwif->hw.irq);	/* disable_irq_nosync ?? */
 	udelay(1);
 	SELECT_DRIVE(HWIF(drive), drive);
 	SELECT_MASK(HWIF(drive), drive, 0);
@@ -335,7 +335,7 @@ int ide_config_drive_speed (ide_drive_t *drive, byte speed)
 
 	SELECT_MASK(HWIF(drive), drive, 0);
 
-	enable_irq(hwif->irq);
+	enable_irq(hwif->hw.irq);
 
 	if (error) {
 		(void) ide_dump_status(drive, "set_drive_speed_status", stat);

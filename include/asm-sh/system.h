@@ -16,6 +16,16 @@ typedef struct {
 	unsigned long seg;
 } mm_segment_t;
 
+/* DEBUG LED for SE */
+#if defined(CONFIG_SH_MS7710SE)
+#if 1
+#define PA_LED 0xb0c00000
+#define SELED(a) (*((volatile unsigned short*)(PA_LED))=(a<<8))
+#else
+#define SELED(a)
+#endif
+#endif
+
 #ifdef CONFIG_SMP
 #error no SMP SuperH
 #else
@@ -103,6 +113,10 @@ extern void __xchg_called_with_bad_pointer(void);
 #define set_mb(var, value) do { xchg(&var, value); } while (0)
 #define set_wmb(var, value) do { var = value; wmb(); } while (0)
 
+#if defined(CONFIG_RTHAL)
+#include <asm/rthal.h>
+#else /* CONFIG_RTHAL */
+
 /* Interrupt Control */
 static __inline__ void __sti(void)
 {
@@ -172,6 +186,8 @@ static __inline__ void  __restore_flags(unsigned long x)
 } while (0)
 #endif
 
+#endif /* CONFIG_RTHAL */
+
 #define really_restore_flags(x) do { 			\
 	if ((x & 0x000000f0) != 0x000000f0)		\
 		__sti();				\
@@ -215,11 +231,18 @@ do {							\
 		: "=&r" (__dummy));			\
 } while (0)
 
+#if defined(CONFIG_RTHAL)
+#define local_irq_save(x)	__save_flags_and_cli(x)
+#define local_irq_restore(x)	__restore_flags(x)
+#define local_irq_disable()	__cli()
+#define local_irq_enable()	__sti()
+#else /* CONFIG_RTHAL */
 /* For spinlocks etc */
 #define local_irq_save(x)	x = __save_and_cli()
 #define local_irq_restore(x)	__restore_flags(x)
 #define local_irq_disable()	__cli()
 #define local_irq_enable()	__sti()
+#endif /* CONFIG_RTHAL */
 
 #ifdef CONFIG_SMP
 
@@ -234,11 +257,20 @@ extern void __global_restore_flags(unsigned long);
 
 #else
 
+#if defined(CONFIG_RTHAL)
+#define cli()                  __cli()
+#define sti()                  __sti()
+#define save_flags(x)          __save_flags(x)
+#define save_flags_and_cli(x)  __save_flags_and_cli(x)
+#define restore_flags(x)       __restore_flags(x)
+#define save_and_cli(x)        x = __save_and_cli()
+#else /* CONFIG_RTHAL */
 #define cli() __cli()
 #define sti() __sti()
 #define save_flags(x) __save_flags(x)
 #define save_and_cli(x) x = __save_and_cli()
 #define restore_flags(x) __restore_flags(x)
+#endif /* CONFIG_RTHAL */
 
 #endif
 
@@ -284,5 +316,18 @@ static __inline__ unsigned long __xchg(unsigned long x, volatile void * ptr, int
 #define HAVE_DISABLE_HLT
 void disable_hlt(void);
 void enable_hlt(void);
+
+/*
+ * irqs_disabled - are interrupts disabled?
+ */
+static inline int irqs_disabled(void) 
+{
+	unsigned long flags;
+
+	__save_flags(flags);
+	if (flags & 0x000000f0)
+		return 1;
+	return 0;
+}
 
 #endif

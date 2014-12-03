@@ -47,7 +47,6 @@ extern struct hpc3_miscregs *hpc3mregs;
 extern struct rtc_ops indy_rtc_ops;
 extern void indy_reboot_setup(void);
 extern void sgi_volume_set(unsigned char);
-extern void create_gio_proc_entry(void);
 
 #define sgi_kh ((struct hpc_keyb *) &(hpc3mregs->kbdmouse0))
 
@@ -69,11 +68,6 @@ static int sgi_request_irq(void (*handler)(int, void *, struct pt_regs *))
 	 * ip22_setup wouldn't work since kmalloc isn't initialized yet.
 	 */
 	indy_reboot_setup();
-
-	/* Ehm, well... once David used hack above, let's add yet another.
-	 * Register GIO bus proc entry here.
-	 */
-	create_gio_proc_entry();
 
 	return request_irq(SGI_KEYBD_IRQ, handler, 0, "keyboard", NULL);
 }
@@ -162,19 +156,22 @@ void __init ip22_setup(void)
 	 * line and "d2" for the second serial line.
 	 */
 	ctype = ArcGetEnvironmentVariable("console");
-	if (*ctype == 'd') {
+	if (ctype && *ctype == 'd') {
 #ifdef CONFIG_SERIAL_CONSOLE
 		if(*(ctype + 1) == '2')
 			console_setup("ttyS1");
 		else
 			console_setup("ttyS0");
 #endif
-	} else {
-#ifdef CONFIG_ARC_CONSOLE
-		prom_flags &= PROM_FLAG_USE_AS_CONSOLE;
-		console_setup("ttyS0");
-#endif
 	}
+#ifdef CONFIG_ARC_CONSOLE
+	else if (!ctype || *ctype != 'g') {
+		/* Use ARC if we don't want serial ('d') or
+		 * Newport ('g'). */
+		prom_flags |= PROM_FLAG_USE_AS_CONSOLE;
+		console_setup("arc");
+	}
+#endif
 
 #ifdef CONFIG_REMOTE_DEBUG
 	kgdb_ttyd = prom_getcmdline();
@@ -201,7 +198,7 @@ void __init ip22_setup(void)
 
 #ifdef CONFIG_VT
 #ifdef CONFIG_SGI_NEWPORT_CONSOLE
-	{
+	if (ctype && *ctype == 'g'){
 		unsigned long *gfxinfo;
 		long (*__vec)(void) = (void *) *(long *)((PROMBLOCK)->pvector + 0x20);
 
@@ -209,29 +206,29 @@ void __init ip22_setup(void)
 		sgi_gfxaddr = ((gfxinfo[1] >= 0xa0000000
 			       && gfxinfo[1] <= 0xc0000000)
 			       ? gfxinfo[1] - 0xa0000000 : 0);
-	}
-	/* newport addresses? */
-	if (sgi_gfxaddr == 0x1f0f0000 || sgi_gfxaddr == 0x1f4f0000) {
-		conswitchp = &newport_con;
 
-		screen_info = (struct screen_info) {
-			0, 0,		/* orig-x, orig-y */
-			0,		/* unused */
-			0,		/* orig_video_page */
-			0,		/* orig_video_mode */
-			160,		/* orig_video_cols */
-			0, 0, 0,	/* unused, ega_bx, unused */
-			64,		/* orig_video_lines */
-			0,		/* orig_video_isVGA */
-			16		/* orig_video_points */
-		};
-	} else {
-		conswitchp = &dummy_con;
+		/* newport addresses? */
+		if (sgi_gfxaddr == 0x1f0f0000 || sgi_gfxaddr == 0x1f4f0000) {
+			conswitchp = &newport_con;
+
+			screen_info = (struct screen_info) {
+				0, 0,		/* orig-x, orig-y */
+				0,		/* unused */
+				0,		/* orig_video_page */
+				0,		/* orig_video_mode */
+				160,		/* orig_video_cols */
+				0, 0, 0,	/* unused, ega_bx, unused */
+				64,		/* orig_video_lines */
+				0,		/* orig_video_isVGA */
+				16		/* orig_video_points */
+			};
+		}
 	}
-#else
-#ifdef CONFIG_DUMMY_CONSOLE
-	conswitchp = &dummy_con;
 #endif
+#ifdef CONFIG_DUMMY_CONSOLE
+	/* Either if newport console wasn't used or failed to initialize. */
+	if(conswitchp != &newport_con)
+		conswitchp = &dummy_con;
 #endif
 #endif
 

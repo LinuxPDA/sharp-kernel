@@ -11,6 +11,10 @@
  *  go into icache. We cache the reference to task_struct upon lookup too.
  *  Eventually it should become a filesystem in its own. We don't use the
  *  rest of procfs anymore.
+ *
+ * ChangeLog:
+ *     23-Nov-2002 SHARP  add pmem
+ *
  */
 
 #include <asm/uaccess.h>
@@ -41,6 +45,7 @@ int proc_pid_stat(struct task_struct*,char*);
 int proc_pid_status(struct task_struct*,char*);
 int proc_pid_statm(struct task_struct*,char*);
 int proc_pid_cpu(struct task_struct*,char*);
+int proc_pid_pmem(struct task_struct*,char*);
 
 static int proc_fd_link(struct inode *inode, struct dentry **dentry, struct vfsmount **mnt)
 {
@@ -54,9 +59,10 @@ static int proc_fd_link(struct inode *inode, struct dentry **dentry, struct vfsm
 
 static int proc_exe_link(struct inode *inode, struct dentry **dentry, struct vfsmount **mnt)
 {
+	int result = -ENOENT;
+#ifndef NO_MM /* DAVIDM - Some other time */
 	struct mm_struct * mm;
 	struct vm_area_struct * vma;
-	int result = -ENOENT;
 	struct task_struct *task = inode->u.proc_i.task;
 
 	task_lock(task);
@@ -81,6 +87,7 @@ static int proc_exe_link(struct inode *inode, struct dentry **dentry, struct vfs
 	up_read(&mm->mmap_sem);
 	mmput(mm);
 out:
+#endif /* !NO_MM */
 	return result;
 }
 
@@ -540,6 +547,7 @@ enum pid_directory_inos {
 	PROC_PID_MAPS,
 	PROC_PID_CPU,
 	PROC_PID_MOUNTS,
+	PROC_PID_PMEM,
 	PROC_PID_FD_DIR = 0x8000,	/* 0x8000-0xffff */
 };
 
@@ -560,6 +568,7 @@ static struct pid_entry base_stuff[] = {
   E(PROC_PID_ROOT,	"root",		S_IFLNK|S_IRWXUGO),
   E(PROC_PID_EXE,	"exe",		S_IFLNK|S_IRWXUGO),
   E(PROC_PID_MOUNTS,	"mounts",	S_IFREG|S_IRUGO),
+  E(PROC_PID_PMEM,	"pmem",	S_IFREG|S_IRUGO),
   {0,0,NULL,0}
 };
 #undef E
@@ -927,6 +936,10 @@ static struct dentry *proc_base_lookup(struct inode *dir, struct dentry *dentry)
 			break;
 		case PROC_PID_MOUNTS:
 			inode->i_fop = &proc_mounts_operations;
+			break;
+		case PROC_PID_PMEM:
+			inode->i_fop = &proc_info_file_operations;
+			inode->u.proc_i.op.proc_read = proc_pid_pmem;
 			break;
 		default:
 			printk("procfs: impossible type (%d)",p->type);

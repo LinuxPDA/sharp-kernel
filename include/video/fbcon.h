@@ -6,6 +6,9 @@
  *  This file is subject to the terms and conditions of the GNU General Public
  *  License.  See the file COPYING in the main directory of this archive
  *  for more details.
+ *
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
  */
 
 #ifndef _VIDEO_FBCON_H
@@ -60,8 +63,13 @@ struct display {
     int visual;
     int type;                       /* see FB_TYPE_* */
     int type_aux;                   /* Interleave for interleaved Planes */
+#if defined(CONFIG_FBCON_ROTATE_R) || defined(CONFIG_FBCON_ROTATE_L)
+    u_short xpanstep;               /* zero if no hardware xpan */
+    u_short xwrapstep;              /* zero if no hardware xwrap */
+#else
     u_short ypanstep;               /* zero if no hardware ypan */
     u_short ywrapstep;              /* zero if no hardware ywrap */
+#endif
     u_long line_length;             /* length of a line in bytes */
     u_short can_soft_blank;         /* zero if no hardware blanking */
     u_short inverse;                /* != 0 text black on white as default */
@@ -92,7 +100,11 @@ struct display {
     unsigned short _fontwidth;
     int userfont;                   /* != 0 if fontdata kmalloc()ed */
     u_short scrollmode;             /* Scroll Method */
+#if defined(CONFIG_FBCON_ROTATE_R) || defined(CONFIG_FBCON_ROTATE_L)
+    short xscroll;                  /* Hardware scrolling */
+#else
     short yscroll;                  /* Hardware scrolling */
+#endif
     unsigned char fgshift, bgshift;
     unsigned short charmask;        /* 0xff or 0x1ff */
 };
@@ -157,6 +169,17 @@ extern int set_all_vcs(int fbidx, struct fb_ops *fb,
      */
      
 /* Internal flags */
+#if defined(CONFIG_FBCON_ROTATE_R) || defined(CONFIG_FBCON_ROTATE_L)
+#define __SCROLL_XPAN		0x001
+#define __SCROLL_XWRAP		0x002
+#define __SCROLL_XMOVE		0x003
+#define __SCROLL_XREDRAW	0x004
+#define __SCROLL_XMASK		0x00f
+#define __SCROLL_XFIXED		0x010
+#define __SCROLL_XNOMOVE	0x020
+#define __SCROLL_XPANREDRAW	0x040
+#define __SCROLL_XNOPARTIAL	0x080
+#else
 #define __SCROLL_YPAN		0x001
 #define __SCROLL_YWRAP		0x002
 #define __SCROLL_YMOVE		0x003
@@ -166,6 +189,7 @@ extern int set_all_vcs(int fbidx, struct fb_ops *fb,
 #define __SCROLL_YNOMOVE	0x020
 #define __SCROLL_YPANREDRAW	0x040
 #define __SCROLL_YNOPARTIAL	0x080
+#endif
 
 /* Only these should be used by the drivers */
 /* Which one should you use? If you have a fast card and slow bus,
@@ -180,8 +204,13 @@ extern int set_all_vcs(int fbidx, struct fb_ops *fb,
    with every line covering all screen columns, it would not be the right
    benchmark).
  */
+#if defined(CONFIG_FBCON_ROTATE_R) || defined(CONFIG_FBCON_ROTATE_L)
+#define SCROLL_XREDRAW		(__SCROLL_XFIXED|__SCROLL_XREDRAW)
+#define SCROLL_XNOMOVE		(__SCROLL_XNOMOVE|__SCROLL_XPANREDRAW)
+#else
 #define SCROLL_YREDRAW		(__SCROLL_YFIXED|__SCROLL_YREDRAW)
 #define SCROLL_YNOMOVE		(__SCROLL_YNOMOVE|__SCROLL_YPANREDRAW)
+#endif
 
 /* SCROLL_YNOPARTIAL, used in combination with the above, is for video
    cards which can not handle using panning to scroll a portion of the
@@ -189,7 +218,11 @@ extern int set_all_vcs(int fbidx, struct fb_ops *fb,
    whole screens.
  */
 /* Namespace consistency */
+#if defined(CONFIG_FBCON_ROTATE_R) || defined(CONFIG_FBCON_ROTATE_L)
+#define SCROLL_XNOPARTIAL	(__SCROLL_XNOPARTIAL)
+#else
 #define SCROLL_YNOPARTIAL	__SCROLL_YNOPARTIAL
+#endif
 
 
 #if defined(__sparc__)
@@ -295,6 +328,7 @@ static __inline__ void *fb_memclear_small(void *s, size_t count)
          : "=a" (s), "=d" (count)
          : "d" (0), "0" ((char *)s+count), "1" (count)
    );
+#ifndef CONFIG_COLDFIRE
    __asm__ __volatile__(
          "subql  #1,%1 ; jcs 3f\n\t"
 	 "movel %2,%%d4; movel %2,%%d5; movel %2,%%d6\n\t"
@@ -305,7 +339,22 @@ static __inline__ void *fb_memclear_small(void *s, size_t count)
          : "d" (0), "0" (s), "1" (count)
 	 : "d4", "d5", "d6"
   );
-
+#else
+   __asm__ __volatile__(
+         "subql  #1,%1 ; jcs 3f\n\t"
+	 "movel %2,%%d4; movel %2,%%d5; movel %2,%%d6\n\t"
+      "2: movel %2,%0@-\n\t"
+	 "movel %%d4,%0@-\n\t"
+	 "movel %%d5,%0@-\n\t"
+	 "movel %%d6,%0@-\n\t"
+         "subql #1,%1\n\t"
+	 "bra 2b\n\t"
+      "3:"
+         : "=a" (s), "=d" (count)
+         : "d" (0), "0" (s), "1" (count)
+	 : "d4", "d5", "d6"
+  );
+#endif
    return(0);
 }
 
@@ -327,6 +376,7 @@ static __inline__ void *fb_memclear(void *s, size_t count)
      );
    } else {
       long tmp;
+#ifndef CONFIG_COLDFIRE
       __asm__ __volatile__(
             "movel %1,%2\n\t"
             "lsrl   #1,%2 ; jcc 1f ; clrb %0@+ ; subqw #1,%1\n\t"
@@ -346,6 +396,28 @@ static __inline__ void *fb_memclear(void *s, size_t count)
             : "=a" (s), "=d" (count), "=d" (tmp)
             : "0" (s), "1" (count)
      );
+#else
+      __asm__ __volatile__(
+            "movel %1,%2\n\t"
+            "lsrl   #1,%2 ; jcc 1f ; clrb %0@+ ; subql #1,%1\n\t"
+            "lsrl   #1,%2 ; jcs 2f\n\t"  /* %0 increased=>bit 2 switched*/
+            "clrw   %0@+  ; subql  #2,%1 ; jra 2f\n\t"
+         "1: lsrl   #1,%2 ; jcc 2f\n\t"
+            "clrw   %0@+  ; subql  #2,%1\n\t"
+         "2: movew %1,%2; lsrl #2,%1 ; jeq 6f\n\t"
+            "lsrl   #1,%1 ; jcc 3f ; clrl %0@+\n\t"
+         "3: lsrl   #1,%1 ; jcc 4f ; clrl %0@+ ; clrl %0@+\n\t"
+         "4: subql  #1,%1 ; jcs 6f\n\t"
+         "5: clrl %0@+; clrl %0@+ ; clrl %0@+ ; clrl %0@+\n\t"
+	    "subql #1,%1  ; bra 5b\n\t"
+            "clrw %1; subql #1,%1; jcc 5b\n\t"
+         "6: movew %2,%1; btst #1,%1 ; jeq 7f ; clrw %0@+\n\t"
+         "7:            ; btst #0,%1 ; jeq 8f ; clrb %0@+\n\t"
+         "8:"
+            : "=a" (s), "=d" (count), "=d" (tmp)
+            : "0" (s), "1" (count)
+     );
+#endif
    }
 
    return(0);
@@ -366,6 +438,7 @@ static __inline__ void *fb_memset255(void *s, size_t count)
          : "=a" (s), "=d" (count)
          : "d" (-1), "0" ((char *)s+count), "1" (count)
    );
+#ifndef CONFIG_COLDFIRE
    __asm__ __volatile__(
          "subql  #1,%1 ; jcs 3f\n\t"
 	 "movel %2,%%d4; movel %2,%%d5; movel %2,%%d6\n\t"
@@ -376,6 +449,23 @@ static __inline__ void *fb_memset255(void *s, size_t count)
          : "d" (-1), "0" (s), "1" (count)
 	 : "d4", "d5", "d6"
   );
+#else
+   __asm__ __volatile__(
+         "subql  #1,%1 ; jcs 3f\n\t"
+	 "movel %2,%%d4; movel %2,%%d5; movel %2,%%d6\n\t"
+      "2: movel %2,%0@-\n\t"
+	 "movel %%d4, %0@-\n\t"
+	 "movel %%d5,%0@-\n\t"
+	 "movel %%d6,%0@-\n\t"
+	 "subql #1,%1\n\t"
+	 "bra 2b\n\t"
+      "3:"
+         : "=a" (s), "=d" (count)
+         : "d" (-1), "0" (s), "1" (count)
+	 : "d4", "d5", "d6"
+  );
+#endif
+
 
    return(0);
 }
@@ -396,6 +486,7 @@ static __inline__ void *fb_memmove(void *d, const void *s, size_t count)
         );
       } else {
          long tmp;
+#ifndef CONFIG_COLDFIRE
          __asm__ __volatile__(
                "movel  %0,%3\n\t"
                "lsrl   #1,%3 ; jcc 1f ; moveb %1@+,%0@+ ; subqw #1,%2\n\t"
@@ -416,6 +507,29 @@ static __inline__ void *fb_memmove(void *d, const void *s, size_t count)
                : "=a" (d), "=a" (s), "=d" (count), "=d" (tmp)
                : "0" (d), "1" (s), "2" (count)
         );
+#else
+         __asm__ __volatile__(
+               "movel  %0,%3\n\t"
+               "lsrl   #1,%3 ; jcc 1f ; moveb %1@+,%0@+ ; subql #1,%2\n\t"
+               "lsrl   #1,%3 ; jcs 2f\n\t"  /* %0 increased=>bit 2 switched*/
+               "movew  %1@+,%0@+  ; subql  #2,%2 ; jra 2f\n\t"
+            "1: lsrl   #1,%3 ; jcc 2f\n\t"
+               "movew  %1@+,%0@+  ; subql  #2,%2\n\t"
+            "2: movew  %2,%-; lsrl #2,%2 ; jeq 6f\n\t"
+               "lsrl   #1,%2 ; jcc 3f ; movel %1@+,%0@+\n\t"
+            "3: lsrl   #1,%2 ; jcc 4f ; movel %1@+,%0@+ ; movel %1@+,%0@+\n\t"
+            "4: subql  #1,%2 ; jcs 6f\n\t"
+            "5: movel  %1@+,%0@+;movel %1@+,%0@+\n\t"
+               "movel  %1@+,%0@+;movel %1@+,%0@+\n\t"
+               "subql #1,%2 ; clrw %2; subql #1,%2; jcc 5b\n\t"
+               "bra 5b ; clrw %2\n\t"
+            "6: movew  %+,%2; btst #1,%2 ; jeq 7f ; movew %1@+,%0@+\n\t"
+            "7:              ; btst #0,%2 ; jeq 8f ; moveb %1@+,%0@+\n\t"
+            "8:"
+               : "=a" (d), "=a" (s), "=d" (count), "=d" (tmp)
+               : "0" (d), "1" (s), "2" (count)
+        );
+#endif
       }
    } else {
       if (count < 16) {
@@ -430,6 +544,7 @@ static __inline__ void *fb_memmove(void *d, const void *s, size_t count)
         );
       } else {
          long tmp;
+#ifndef CONFIG_COLDFIRE
          __asm__ __volatile__(
                "movel %0,%3\n\t"
                "lsrl   #1,%3 ; jcc 1f ; moveb %1@-,%0@- ; subqw #1,%2\n\t"
@@ -450,6 +565,29 @@ static __inline__ void *fb_memmove(void *d, const void *s, size_t count)
                : "=a" (d), "=a" (s), "=d" (count), "=d" (tmp)
                : "0" ((char *) d + count), "1" ((char *) s + count), "2" (count)
         );
+#else
+         __asm__ __volatile__(
+               "movel %0,%3\n\t"
+               "lsrl   #1,%3 ; jcc 1f ; moveb %1@-,%0@- ; subql #1,%2\n\t"
+               "lsrl   #1,%3 ; jcs 2f\n\t"  /* %0 increased=>bit 2 switched*/
+               "movew  %1@-,%0@-  ; subql  #2,%2 ; jra 2f\n\t"
+            "1: lsrl   #1,%3 ; jcc 2f\n\t"
+               "movew  %1@-,%0@-  ; subql  #2,%2\n\t"
+            "2: movew %2,%-; lsrl #2,%2 ; jeq 6f\n\t"
+               "lsrl   #1,%2 ; jcc 3f ; movel %1@-,%0@-\n\t"
+            "3: lsrl   #1,%2 ; jcc 4f ; movel %1@-,%0@- ; movel %1@-,%0@-\n\t"
+            "4: subql  #1,%2 ; jcs 6f\n\t"
+            "5: movel %1@-,%0@-;movel %1@-,%0@-\n\t"
+               "movel %1@-,%0@-;movel %1@-,%0@-\n\t"
+               "subql #1,%2 ; clrw %2; subql #1,%2; jcc 5b\n\t"
+               "bra 5b\n\t"
+            "6: movew %+,%2; btst #1,%2 ; jeq 7f ; movew %1@-,%0@-\n\t"
+            "7:              ; btst #0,%2 ; jeq 8f ; moveb %1@-,%0@-\n\t"
+            "8:"
+               : "=a" (d), "=a" (s), "=d" (count), "=d" (tmp)
+               : "0" ((char *) d + count), "1" ((char *) s + count), "2" (count)
+        );
+#endif
       }
    }
 
@@ -464,6 +602,7 @@ static __inline__ void fast_memmove(char *dst, const char *src, size_t size)
   if (!size)
     return;
   if (dst < src)
+#ifndef CONFIG_COLDFIRE
     __asm__ __volatile__
       ("1:"
        "  moveml %0@+,%/d0/%/d1/%/a0/%/a1\n"
@@ -475,7 +614,22 @@ static __inline__ void fast_memmove(char *dst, const char *src, size_t size)
        : "=a" (src), "=a" (dst), "=d" (size)
        : "0" (src), "1" (dst), "2" (size / 16 - 1)
        : "d0", "d1", "a0", "a1", "memory");
+#else
+    __asm__ __volatile__
+      ("1:"
+       "  moveml %0@+,%/d0/%/d1/%/a0/%/a1\n"
+       "  moveml %/d0/%/d1/%/a0/%/a1,%1@\n"
+       "  addql #8,%1; addql #8,%1\n"
+       "  subql #1,%2\n"
+       "  bra 1b\n"
+       "  clrw %2; subql #1,%2\n"
+       "  jcc 1b"
+       : "=a" (src), "=a" (dst), "=d" (size)
+       : "0" (src), "1" (dst), "2" (size / 16 - 1)
+       : "d0", "d1", "a0", "a1", "memory");
+#endif
   else
+#ifndef CONFIG_COLDFIRE
     __asm__ __volatile__
       ("1:"
        "  subql #8,%0; subql #8,%0\n"
@@ -487,6 +641,20 @@ static __inline__ void fast_memmove(char *dst, const char *src, size_t size)
        : "=a" (src), "=a" (dst), "=d" (size)
        : "0" (src + size), "1" (dst + size), "2" (size / 16 - 1)
        : "d0", "d1", "a0", "a1", "memory");
+#else
+    __asm__ __volatile__
+      ("1:"
+       "  subql #8,%0; subql #8,%0\n"
+       "  moveml %0@,%/d0/%/d1/%/a0/%/a1\n"
+       "  moveml %/d0/%/d1/%/a0/%/a1,%1@-\n"
+       "  subql #1,%2\n"
+       "  bra 1b\n"
+       "  clrw %2; subql #1,%2\n"
+       "  jcc 1b"
+       : "=a" (src), "=a" (dst), "=d" (size)
+       : "0" (src + size), "1" (dst + size), "2" (size / 16 - 1)
+       : "d0", "d1", "a0", "a1", "memory");
+#endif
 }
 
 #elif defined(CONFIG_SUN4)

@@ -72,6 +72,14 @@ static inline int ioctl_return(int *addr, int value)
 #define MAX_BUFSIZE	(1<<17)	/* Limit for Amiga is 128 kb */
 #define MAX_FRAG_SIZE	15	/* allow *4 for mono-8 => stereo-16 (for multi) */
 
+#elif defined(CONFIG_DMASOUND_MS7720RP) || defined(CONFIG_DMASOUND_MS7720RP_MODULE)
+#define MIN_BUFFERS	4
+#define MIN_BUFSIZE	(1<<12)	/* in bytes (- where does this come from ?) */
+#define MIN_FRAG_SIZE	8	/* not 100% sure about this */
+#define MAX_BUFSIZE	(1<<17)	/* Limit for Amiga is 128 kb */
+#define MAX_FRAG_SIZE	15	/* allow *4 for mono-8 => stereo-16 (for multi) */
+#define HAS_RECORD
+
 #else /* is pmac and multi is off */
 
 #define MIN_BUFFERS	2
@@ -84,7 +92,8 @@ static inline int ioctl_return(int *addr, int value)
 #define DEFAULT_N_BUFFERS 4
 #define DEFAULT_BUFF_SIZE (1<<15)
 
-#if defined(CONFIG_DMASOUND_PMAC) || defined(CONFIG_DMASOUND_PMAC_MODULE)
+#if defined(CONFIG_DMASOUND_PMAC) || defined(CONFIG_DMASOUND_PMAC_MODULE) || \
+    defined(CONFIG_DMASOUND_MS7727RP) || defined(CONFIG_DMASOUND_MS7727RP_MODULE)
 #define HAS_RECORD
 #endif
 

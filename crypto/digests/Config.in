@@ -1,0 +1,7 @@
+# cryptoapi/kernel/crypto/digests/Config.in
+
+if [ "$CONFIG_DIGESTS" != "n" ]; then
+	dep_tristate ' MD5 digest' CONFIG_DIGEST_MD5 $CONFIG_DIGESTS
+	dep_tristate ' SHA1 digest' CONFIG_DIGEST_SHA1 $CONFIG_DIGESTS
+fi
+

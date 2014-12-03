@@ -62,6 +62,9 @@ extern struct ide_ops eagle_ide_ops;
 extern void eagle_irq_init(void);
 
 #ifdef CONFIG_PCI
+
+extern void vrc4173_preinit(void);
+
 static struct resource vr41xx_pci_io_resource = {
 	"PCI I/O space",
 	VR41XX_PCI_IO_START,
@@ -143,14 +146,14 @@ void __init nec_eagle_setup(void)
 
 	vr41xx_cmu_init(0);
 
+#ifdef CONFIG_SERIAL
 	vr41xx_dsiu_init();
 	vr41xx_siu_init(SIU_RS232C, 0);
+#endif
 
 #ifdef CONFIG_PCI
 	vr41xx_pciu_init(&pci_address_map);
-#endif
 
-#ifdef CONFIG_VRC4173
-	vrc4173_init();
+	vrc4173_preinit();
 #endif
 }

@@ -39,6 +39,11 @@ EXPORT_SYMBOL(fat_dir_empty);
 EXPORT_SYMBOL(fat_truncate);
 EXPORT_SYMBOL(fat_brelse);
 
+EXPORT_SYMBOL(fat_getblk);
+EXPORT_SYMBOL(fat_fs_panic);
+EXPORT_SYMBOL(fat_add_cluster);
+EXPORT_SYMBOL(fat_set_uptodate);
+
 static int __init init_fat_fs(void)
 {
 	fat_hash_init();

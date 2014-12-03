@@ -1,3 +1,5 @@
+/* $USAGI: sock.c,v 1.11 2002/08/04 02:57:45 yoshfuji Exp $ */
+
 /*
  * INET		An implementation of the TCP/IP protocol suite for the LINUX
  *		operating system.  INET is implemented using the  BSD Socket
@@ -7,7 +9,7 @@
  *		handler for protocols to use and generic option handler.
  *
  *
- * Version:	$Id: sock.c,v 1.116 2001/11/08 04:20:06 davem Exp $
+ * Version:	$Id: sock.c,v 1.1 2004/08/21 02:23:13 namikosi Exp $
  *
  * Authors:	Ross Biro, <bir7@leland.Stanford.Edu>
  *		Fred N. van Kempen, <waltje@uWalt.NL.Mugnet.ORG>
@@ -207,6 +209,11 @@ int sock_setsockopt(struct socket *sock, int level, int optname,
 		case SO_REUSEADDR:
 			sk->reuse = valbool;
 			break;
+#ifdef SO_REUSEPORT
+		case SO_REUSEPORT:
+			sk->reuseport = valbool;
+			break;
+#endif
 		case SO_TYPE:
 		case SO_ERROR:
 			ret = -ENOPROTOOPT;
@@ -459,6 +466,12 @@ int sock_getsockopt(struct socket *sock, int level, int optname,
 			v.val = sk->reuse;
 			break;
 
+#ifdef SO_REUSEPORT
+		case SO_REUSEPORT:
+			v.val = sk->reuseport;
+			break;
+#endif
+
 		case SO_KEEPALIVE:
 			v.val = sk->keepopen;
 			break;
@@ -626,6 +639,7 @@ void __init sk_init(void)
 	if (num_physpages <= 4096) {
 		sysctl_wmem_max = 32767;
 		sysctl_rmem_max = 32767;
+		sysctl_wmem_default = 32767;
 		sysctl_wmem_default = 32767;
 		sysctl_rmem_default = 32767;
 	} else if (num_physpages >= 131072) {

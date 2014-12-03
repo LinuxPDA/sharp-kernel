@@ -83,6 +83,7 @@ extern int sonic_probe(struct net_device *);
 extern int SK_init(struct net_device *);
 extern int seeq8005_probe(struct net_device *);
 extern int smc_init( struct net_device * );
+extern int fec_enet_init( struct net_device * );
 extern int sgiseeq_probe(struct net_device *);
 extern int atarilance_probe(struct net_device *);
 extern int sun3lance_probe(struct net_device *);
@@ -102,6 +103,10 @@ extern int macsonic_probe(struct net_device *dev);
 extern int mac8390_probe(struct net_device *dev);
 extern int mac89x0_probe(struct net_device *dev);
 extern int mc32_probe(struct net_device *dev);
+extern int aplat_ne_probe(struct net_device *dev);
+
+/* uClinux devices */
+extern int s3c_probe(struct net_device *);
   
 /* Detachable devices ("pocket adaptors") */
 extern int de600_probe(struct net_device *);
@@ -247,7 +252,7 @@ static struct devprobe isa_probes[] __initdata = {
 #ifdef CONFIG_LANCE		/* ISA/VLB (use pcnet32 for PCI cards) */
 	{lance_probe, 0},
 #endif
-#ifdef CONFIG_SMC9194
+#if defined(CONFIG_SMC9194) || defined(CONFIG_SMC91111)
 	{smc_init, 0},
 #endif
 #ifdef CONFIG_SEEQ8005 
@@ -327,6 +332,15 @@ static struct devprobe parport_probes[] __initdata = {
 };
 
 static struct devprobe m68k_probes[] __initdata = {
+#if defined(CONFIG_COLDFIRE) && defined(CONFIG_SMC9194)
+	{smc_init, 0},		/* here so that we probe for multiple devices */
+#endif
+#if defined(CONFIG_COLDFIRE) && defined(CONFIG_FEC)
+	{fec_enet_init, 0},	/* here so that we probe for multiple devices */
+#endif
+#if defined(CONFIG_COLDFIRE) && defined(CONFIG_NE2000)
+	{ne_probe, 0},		/* here so that we probe for multiple devices */
+#endif
 #ifdef CONFIG_ATARILANCE	/* Lance-based Atari ethernet boards */
 	{atarilance_probe, 0},
 #endif
@@ -384,6 +398,24 @@ static struct devprobe mips_probes[] __initdata = {
 	{NULL, 0},
 };
 
+static struct devprobe arm_probes[] __initdata = {
+#ifdef  CONFIG_ETH_S3C4530
+        {s3c_probe, 0},                         /* S3C4530      */
+#endif
+#ifdef CONFIG_UCCS8900                  	/* CS8900A      */
+        {cs89x0_probe, 0},
+#endif
+#ifdef CONFIG_CS89x0
+        {cs89x0_probe, 0},
+#endif
+#ifdef CONFIG_NET_APLAT
+	{aplat_ne_probe, 0},
+#endif
+
+
+        {NULL, 0},
+};
+
 /*
  * Unified ethernet device probe, segmented per architecture and
  * per bus interface. This drives the legacy devices only for now.
@@ -407,6 +439,8 @@ static int __init ethif_probe(struct net_device *dev)
 	if (probe_list(dev, m68k_probes) == 0)
 		return 0;
 	if (probe_list(dev, mips_probes) == 0)
+		return 0;
+	if (probe_list(dev, arm_probes) == 0)
 		return 0;
 	if (probe_list(dev, sgi_probes) == 0)
 		return 0;

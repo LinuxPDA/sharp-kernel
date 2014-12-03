@@ -20,6 +20,8 @@ obj-$(CONFIG_DMASOUND_ATARI)  += dmasound_atari.o
 obj-$(CONFIG_DMASOUND_PMAC)   += dmasound_pmac.o
 obj-$(CONFIG_DMASOUND_PAULA)  += dmasound_paula.o
 obj-$(CONFIG_DMASOUND_Q40)    += dmasound_q40.o
+obj-$(CONFIG_DMASOUND_MS7727RP) += dmasound_ms7727rp.o
+obj-$(CONFIG_DMASOUND_MS7720RP) += dmasound_ms7720rp.o
 
 include $(TOPDIR)/Rules.make
 

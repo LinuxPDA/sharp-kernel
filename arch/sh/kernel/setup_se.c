@@ -31,7 +31,7 @@ static void __init init_smsc(void)
 {
 	outb_p(CONFIG_ENTER, CONFIG_PORT);
 	outb_p(CONFIG_ENTER, CONFIG_PORT);
-
+#if 0
 	/* FDC */
 	smsc_config(CURRENT_LDN_INDEX, LDN_FDC);
 	smsc_config(ACTIVATE_INDEX, 0x01);
@@ -46,27 +46,39 @@ static void __init init_smsc(void)
 	smsc_config(CURRENT_LDN_INDEX, LDN_AUXIO);
 	smsc_config(GPIO46_INDEX, 0x00); /* nIOROP */
 	smsc_config(GPIO47_INDEX, 0x00); /* nIOWOP */
+#endif
+        /* RTC */
+        smsc_config(CURRENT_LDN_INDEX, LDN_RTC);
+        smsc_config(ACTIVATE_INDEX, 0x01);
+        smsc_config(IRQ_SELECT_INDEX, 8); /* IRQ8 */
 
-	/* COM1 */
-	smsc_config(CURRENT_LDN_INDEX, LDN_COM1);
-	smsc_config(ACTIVATE_INDEX, 0x01);
-	smsc_config(IO_BASE_HI_INDEX, 0x03);
-	smsc_config(IO_BASE_LO_INDEX, 0xf8);
-	smsc_config(IRQ_SELECT_INDEX, 4); /* IRQ4 */
+        /* KBD */
+        smsc_config(CURRENT_LDN_INDEX, LDN_KBC);
+        smsc_config(ACTIVATE_INDEX, 0x01);
+        smsc_config(IRQ_SELECT_INDEX, 1); /* IRQ1 */
+        smsc_config(IRQ_SELECT_INDEX2, 12); /* IRQ12 */
 
-	/* COM2 */
-	smsc_config(CURRENT_LDN_INDEX, LDN_COM2);
-	smsc_config(ACTIVATE_INDEX, 0x01);
-	smsc_config(IO_BASE_HI_INDEX, 0x02);
-	smsc_config(IO_BASE_LO_INDEX, 0xf8);
-	smsc_config(IRQ_SELECT_INDEX, 3); /* IRQ3 */
+        /* COM1 */
+        smsc_config(CURRENT_LDN_INDEX, LDN_COM1);
+        smsc_config(ACTIVATE_INDEX, 0x01);
+        smsc_config(IO_BASE_HI_INDEX, 0x03);
+        smsc_config(IO_BASE_LO_INDEX, 0xf8);
+        smsc_config(IRQ_SELECT_INDEX, 4); /* IRQ4 */
 
-	/* RTC */
-	smsc_config(CURRENT_LDN_INDEX, LDN_RTC);
-	smsc_config(ACTIVATE_INDEX, 0x01);
-	smsc_config(IRQ_SELECT_INDEX, 8); /* IRQ8 */
+        /* COM2 */
+        smsc_config(CURRENT_LDN_INDEX, LDN_COM2);
+        smsc_config(ACTIVATE_INDEX, 0x01);
+        smsc_config(IO_BASE_HI_INDEX, 0x02);
+        smsc_config(IO_BASE_LO_INDEX, 0xf8);
+        smsc_config(IRQ_SELECT_INDEX, 3); /* IRQ3 */
 
-	/* XXX: PARPORT, KBD, and MOUSE will come here... */
+        /* PARPORT */
+        smsc_config(CURRENT_LDN_INDEX, LDN_PARPORT);
+        smsc_config(ACTIVATE_INDEX, 0x01);
+        smsc_config(IO_BASE_HI_INDEX, 0x03);
+        smsc_config(IO_BASE_LO_INDEX, 0x78);
+        smsc_config(IRQ_SELECT_INDEX, 5); /* IRQ5 */
+
 	outb_p(CONFIG_EXIT, CONFIG_PORT);
 }
 

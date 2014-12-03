@@ -86,8 +86,7 @@ int idled(void)
  * SMP entry into the idle task - calls the same thing as the
  * non-smp versions. -- Cort
  */
-int cpu_idle(void)
+void cpu_idle(void)
 {
 	idled();
-	return 0; 
 }

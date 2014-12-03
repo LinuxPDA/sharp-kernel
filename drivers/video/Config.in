@@ -9,6 +9,9 @@ bool 'Support for frame buffer devices (EXPERIMENTAL)' CONFIG_FB
 
 if [ "$CONFIG_FB" = "y" ]; then
    define_bool CONFIG_DUMMY_CONSOLE y
+   if [ "$CONFIG_SH_SOLUTION_ENGINE" = "y" ]; then
+      bool '  Hitachi HD64413 support' CONFIG_FB_HD64413
+   fi
    if [ "$CONFIG_EXPERIMENTAL" = "y" ]; then
       if [ "$CONFIG_PCI" = "y" ]; then
          tristate '  nVidia Riva support (EXPERIMENTAL)' CONFIG_FB_RIVA
@@ -30,13 +33,60 @@ if [ "$CONFIG_FB" = "y" ]; then
          tristate '  Permedia3 support (EXPERIMENTAL)' CONFIG_FB_PM3
       fi
    fi
-   if [ "$CONFIG_ARCH_ACORN" = "y" ]; then
-      bool '  Acorn VIDC support' CONFIG_FB_ACORN
+   if [ "$CONFIG_SH_RTS7751R2D" = "y" ]; then
+      bool '  Silicon Motion Voyager GX support' CONFIG_FB_VOYAGER_GX
    fi
-   dep_tristate '  Cyber2000 support' CONFIG_FB_CYBER2000 $CONFIG_PCI
-   if [ "$CONFIG_ARCH_SA1100" = "y" ]; then
-      bool '  SA-1100 LCD support' CONFIG_FB_SA1100
+   if [ "$CONFIG_ARM" = "y" ]; then
+     if [ "$CONFIG_ARCH_ACORN" -o "$CONFIG_ARCH_RISCSTATION" ]; then
+  	bool '  Acorn VIDC support' CONFIG_FB_ACORN
+     else
+	define_bool CONFIG_FB_ACORN n
+     fi
+     dep_bool '  Anakin LCD support' CONFIG_FB_ANAKIN $CONFIG_ARCH_ANAKIN
+     dep_bool '  CLPS711X LCD support' CONFIG_FB_CLPS711X $CONFIG_ARCH_CLPS711X
+     dep_bool '  SA-1100 LCD support' CONFIG_FB_SA1100 $CONFIG_ARCH_SA1100
+     if [ "$CONFIG_FB_SA1100" = "y" -a "$CONFIG_SA1100_CERF" = "y" ]; then
+        choice 'CerfBoard LCD Display Size' \
+		"3.8_Color		CONFIG_CERF_LCD_38_A \
+		 3.8_Mono		CONFIG_CERF_LCD_38_B \
+		 5.7		CONFIG_CERF_LCD_57_A \
+		 7.2		CONFIG_CERF_LCD_72_A" 5.7
+     fi
+     if [ "$CONFIG_FB_SA1100" = "y" -a "$CONFIG_SA1100_CERF_CPLD" = "y" ]; then
+       bool 'Cerfboard Backlight (CerfPDA)' CONFIG_SA1100_CERF_LCD_BACKLIGHT
+     fi
+     tristate '  PXA LCD support' CONFIG_FB_PXA $CONFIG_ARCH_PXA
+     if [ "$CONFIG_FB_PXA" != "n" ]; then
+        choice 'LCD Bit Depth' \
+               "8-Bpp          CONFIG_FB_PXA_8BPP \
+                16-Bpp         CONFIG_FB_PXA_16BPP" Bit-Depth
+     fi
+     dep_bool '  Cotulla LCD support' CONFIG_FB_COTULLA $CONFIG_ARCH_PXA
+     dep_bool '  Poodle LCD support' CONFIG_FB_POODLE $CONFIG_ARCH_PXA_POODLE
+     if [ "$CONFIG_FB_POODLE" = "y" ]; then
+	dep_bool '  Cached FB support' CONFIG_POODLE_CONSISTENT_ALLOC $CONFIG_FB_POODLE
+     fi
+     dep_bool '  Corgi LCD support' CONFIG_FB_CORGI $CONFIG_ARCH_PXA_CORGI
+     dep_bool '  Tosa LCD support' CONFIG_FB_TOSA $CONFIG_ARCH_PXA_TOSA
+     dep_bool '  Sharp SL-Series PXA LCD support' CONFIG_FB_SHARPSL_PXA $CONFIG_ARCH_SHARP_SL
+     if [ "$CONFIG_FB_SHARPSL_PXA" = "y" ]; then
+	dep_bool '    Cached FB support for Sharp SL PXA LCDC' CONFIG_SHARPSL_PXA_CONSISTENT_ALLOC $CONFIG_FB_SHARPSL_PXA
+     fi
+     dep_bool '  SHARP LOGO screen support' CONFIG_SHARP_LOGO_SCREEN $CONFIG_ARCH_SHARP_SL
+     if [ "$CONFIG_FB_PXA" != "n" -a "$CONFIG_ARCH_LUBBOCK" = "y" ]; then
+	bool '  Lubbock QVGA LCD support instead of DSTN' CONFIG_FB_PXA_QVGA
+     fi
+     dep_bool '  Katana LCD support' CONFIG_FB_KATANA $CONFIG_ARCH_KATANA
+     if [ "$CONFIG_FB_KATANA" = "y" ]; then
+	define_bool CONFIG_FBCON_CFB16 y
+     fi
+     dep_bool '  DBMX1 LCD support' CONFIG_FB_DBMX1 $CONFIG_ARCH_DBMX1
+     dep_bool '  DBMX21 LCD support' CONFIG_FB_DBMX21 $CONFIG_ARCH_DBMX2
+     if [ "$CONFIG_FB_DBMX21" = "y" ]; then
+	bool '    DBMX21 hardware cursor support' CONFIG_FB_DBMX21_HWCURSOR
+     fi
    fi
+   dep_tristate '  CyberPro 2000/2010/5000 support' CONFIG_FB_CYBER2000 $CONFIG_PCI
    if [ "$CONFIG_APOLLO" = "y" ]; then
       define_bool CONFIG_FB_APOLLO y
    fi
@@ -112,6 +162,14 @@ if [ "$CONFIG_FB" = "y" ]; then
       dep_bool '    Debug pvr2fb' CONFIG_FB_PVR2_DEBUG $CONFIG_FB_PVR2
    fi
    if [ "$CONFIG_SUPERH" = "y" ]; then
+      dep_bool '  MS7290CP01 framebuffer support' CONFIG_FB_MS7290CP $CONFIG_SH_MS7290CP
+      if [ "$CONFIG_CPU_SUBTYPE_SH7727" = "y" ]; then
+         bool '  SH7727 LCD support' CONFIG_FB_SH7727
+      fi
+      if [ "$CONFIG_CPU_SUBTYPE_SH7720" = "y" ]; then
+      dep_bool '  SH7720 LCD support' CONFIG_FB_SH7720 $CONFIG_CPU_SUBTYPE_SH7720
+      fi
+      dep_bool '  SH7760 LCD support' CONFIG_FB_SH7760 $CONFIG_CPU_SUBTYPE_SH7760
       bool '  Epson 1355 framebuffer support' CONFIG_FB_E1355
       if [ "$CONFIG_FB_E1355" = "y" ]; then
          hex '    Register Base Address' CONFIG_E1355_REG_BASE a8000000
@@ -213,13 +271,13 @@ if [ "$CONFIG_FB" = "y" ]; then
    if [ "$CONFIG_DECSTATION" = "y" ]; then
       dep_bool '  PMAG-BA TURBOchannel framebuffer support' CONFIG_FB_PMAG_BA $CONFIG_TC
       dep_bool '  PMAGB-B TURBOchannel framebuffer support' CONFIG_FB_PMAGB_B $CONFIG_TC
-      bool '  Maxine (Personal DECstation) onboard framebuffer support' CONFIG_FB_MAXINE
+      dep_bool '  Maxine (Personal DECstation) onboard framebuffer support' CONFIG_FB_MAXINE $CONFIG_TC
    fi
    if [ "$CONFIG_NINO" = "y" ]; then
       bool '  TMPTX3912/PR31700 frame buffer support' CONFIG_FB_TX3912
    fi
    if [ "$CONFIG_EXPERIMENTAL" = "y" ]; then
-      tristate '  Virtual Frame Buffer support (ONLY FOR TESTING!) (EXPERIMENTAL)' CONFIG_FB_VIRTUAL
+      tristate '  Virtual Frame Buffer support (ONLY FOR TESTING!)' CONFIG_FB_VIRTUAL
    fi
 
    bool '  Advanced low level driver options' CONFIG_FBCON_ADVANCED
@@ -248,7 +306,7 @@ if [ "$CONFIG_FB" = "y" ]; then
 	   "$CONFIG_FB_MAC" = "y" -o "$CONFIG_FB_RETINAZ3" = "y" -o \
 	   "$CONFIG_FB_VIRGE" = "y" -o "$CONFIG_FB_VIRTUAL" = "y" -o \
 	   "$CONFIG_FB_BWTWO" = "y" -o "$CONFIG_FB_CLGEN" = "y"  -o \
-	   "$CONFIG_FB_TX3912" = "y" ]; then
+	   "$CONFIG_FB_TX3912" = "y" -o "$CONFIG_FB_CLPS711X" = "y" ]; then
 	 define_tristate CONFIG_FBCON_MFB y
       else
 	 if [ "$CONFIG_FB_ACORN" = "m" -o "$CONFIG_FB_AMIGA" = "m" -o \
@@ -256,19 +314,20 @@ if [ "$CONFIG_FB" = "y" ]; then
 	      "$CONFIG_FB_MAC" = "m" -o "$CONFIG_FB_RETINAZ3" = "m" -o \
 	      "$CONFIG_FB_VIRGE" = "m" -o "$CONFIG_FB_VIRTUAL" = "m" -o \
 	      "$CONFIG_FB_BWTWO" = "m" -o "$CONFIG_FB_CLGEN" = "m" -o \
-	      "$CONFIG_FB_TX3912" = "m" ]; then
+	      "$CONFIG_FB_TX3912" = "m" -o "$CONFIG_FB_CLPS711X" = "m"  ]; then
 	    define_tristate CONFIG_FBCON_MFB m
 	 fi
       fi
       if [ "$CONFIG_FB_ACORN" = "y" -o "$CONFIG_FB_MAC" = "y" -o \
 	   "$CONFIG_FB_SA1100" = "y" -o "$CONFIG_FB_VIRTUAL" = "y" -o \
-	   "$CONFIG_FB_TX3912" = "y" ]; then
+	   "$CONFIG_FB_TX3912" = "y"  -o "$CONFIG_FB_CLPS711X" = "y" -o \
+	   "$CONFIG_FB_PXA" = "y" -o "$CONFIG_FB_DBMX21" = "y" ]; then
 	 define_tristate CONFIG_FBCON_CFB2 y
 	 define_tristate CONFIG_FBCON_CFB4 y
       else
 	 if [ "$CONFIG_FB_ACORN" = "m" -o "$CONFIG_FB_MAC" = "m" -o \
 	      "$CONFIG_FB_SA1100" = "m" -o "$CONFIG_FB_VIRTUAL" = "m" -o \
-	      "$CONFIG_FB_TX3912" = "m" ]; then
+	      "$CONFIG_FB_TX3912" = "m" -o "$CONFIG_FB_CLPS711X" = "m" ]; then
 	    define_tristate CONFIG_FBCON_CFB2 m
 	    define_tristate CONFIG_FBCON_CFB4 m
 	 fi
@@ -292,7 +351,8 @@ if [ "$CONFIG_FB" = "y" ]; then
 	   "$CONFIG_FB_PMAG_BA" = "y" -o "$CONFIG_FB_PMAGB_B" = "y" -o \
 	   "$CONFIG_FB_MAXINE" = "y" -o "$CONFIG_FB_TX3912" = "y" -o \
 	   "$CONFIG_FB_SIS" = "y" -o "$CONFIG_FB_NEOMAGIC" = "y" -o \
-	   "$CONFIG_FB_STI" = "y" -o "$CONFIG_FB_HP300" = "y" ]; then
+	   "$CONFIG_FB_STI" = "y" -o "$CONFIG_FB_HP300" = "y" -o \
+	   "$CONFIG_FB_PXA" = "y" -o "$CONFIG_FB_DBMX21" = "y" ]; then
 	 define_tristate CONFIG_FBCON_CFB8 y
       else
 	 if [ "$CONFIG_FB_ACORN" = "m" -o "$CONFIG_FB_ATARI" = "m" -o \
@@ -332,7 +392,8 @@ if [ "$CONFIG_FB" = "y" ]; then
 	   "$CONFIG_FB_CYBER2000" = "y" -o "$CONFIG_FB_3DFX" = "y"  -o \
 	   "$CONFIG_FB_SIS" = "y" -o "$CONFIG_FB_SA1100" = "y" -o \
 	   "$CONFIG_FB_PVR2" = "y" -o "$CONFIG_FB_VOODOO1" = "y" -o \
-	   "$CONFIG_FB_NEOMAGIC" = "y" ]; then
+	   "$CONFIG_FB_NEOMAGIC" = "y" -o "$CONFIG_FB_ANAKIN" = "y" -o \
+	   "$CONFIG_FB_PXA" = "y" -o "$CONFIG_FB_DBMX21" = "y" ]; then
 	 define_tristate CONFIG_FBCON_CFB16 y
       else
 	 if [ "$CONFIG_FB_ATARI" = "m" -o "$CONFIG_FB_ATY" = "m" -o \
@@ -445,6 +506,9 @@ if [ "$CONFIG_FB" = "y" ]; then
 	 define_tristate CONFIG_FBCON_STI y
       fi
    fi
+   dep_bool '  Rotate FrameBuffer Console (right)' CONFIG_FBCON_ROTATE_R $CONFIG_FBCON_CFB16
+   dep_bool '  Rotate FrameBuffer Console (left)'  CONFIG_FBCON_ROTATE_L $CONFIG_FBCON_CFB16
+   dep_bool '  Logo Center' CONFIG_FBCON_LOGO_CENTER $CONFIG_FBCON_CFB16
    bool '  Support only 8 pixels wide fonts' CONFIG_FBCON_FONTWIDTH8_ONLY
    if [ "$CONFIG_SPARC32" = "y" -o "$CONFIG_SPARC64" = "y" ]; then
       bool '  Sparc console 8x16 font' CONFIG_FONT_SUN8x16
@@ -483,6 +547,9 @@ if [ "$CONFIG_FB" = "y" ]; then
 	 fi
 	 if [ "$CONFIG_AMIGA" = "y" ]; then
 	    define_bool CONFIG_FONT_PEARL_8x8 y
+	 fi
+	 if [ "$CONFIG_ARM" = "y" -a "$CONFIG_ARCH_RISCSTATION" = "y" ]; then
+	    define_bool CONFIG_FONT_ACORN_8x8 y
 	 fi
 	 if [ "$CONFIG_ARM" = "y" -a "$CONFIG_ARCH_ACORN" = "y" ]; then
 	    define_bool CONFIG_FONT_ACORN_8x8 y

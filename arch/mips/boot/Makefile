@@ -29,6 +29,23 @@ all: vmlinux.ecoff addinitrd
 vmlinux.ecoff:	$(CONFIGURE) elf2ecoff $(TOPDIR)/vmlinux
 	./elf2ecoff $(TOPDIR)/vmlinux vmlinux.ecoff $(E2EFLAGS)
 
+#@@@@@
+vmlinux.binary:	$(CONFIGURE) $(TOPDIR)/vmlinux
+	$(OBJCOPY) -S -O binary $(strip-flags) $(TOPDIR)/vmlinux $@
+
+vmlinux.binary.gz:	vmlinux.binary
+	gzip -9 --best < $< > $@
+#@@@@@
+
+xipImage: $(CONFIGURE) $(TOPDIR)/vmlinux
+	$(OBJCOPY) -S -O binary -R .data $(TOPDIR)/vmlinux vmlinux-text.bin
+	$(OBJCOPY) -S -O binary -R .init -R .text -R __ex_table -R __dbe_table -R __ksymtab $(TOPDIR)/vmlinux vmlinux-data.bin
+	cat vmlinux-text.bin vmlinux-data.bin > $@
+	$(RM) -f vmlinux-text.bin vmlinux-data.bin
+
+xipImage.gz:	xipImage
+	gzip --best < $< > $@
+
 elf2ecoff: elf2ecoff.c
 	$(HOSTCC) -o $@ $^
 

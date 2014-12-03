@@ -1,3 +1,4 @@
+# $USAGI: Config.in,v 1.17.12.1 2003/02/05 07:45:08 yoshfuji Exp $
 #
 # Network device configuration
 #
@@ -24,6 +25,15 @@ mainmenu_option next_comment
 comment 'Ethernet (10 or 100Mbit)'
 bool 'Ethernet (10 or 100Mbit)' CONFIG_NET_ETHERNET
 if [ "$CONFIG_NET_ETHERNET" = "y" ]; then
+   if [ "$CONFIG_CPU_S3C4510" = "y" ]; then
+      tristate '  Samsung 4510B ethernet support' CONFIG_ETH_S3C4510
+   fi
+   if [ "$CONFIG_CPU_S3C4530" = "y" ]; then
+      bool '  Samsung S3C4530A Embedded Ethernet support' CONFIG_ETH_S3C4530
+      if [ "$CONFIG_UCBOOTSTRAP" != "y" ]; then
+         string 'S3C4530 MAC Address' S3C4530_HWADDR 00:00:00:00:00:00
+      fi
+   fi
    if [ "$CONFIG_ARM" = "y" ]; then  
       dep_bool '  ARM EBSA110 AM79C961A support' CONFIG_ARM_AM79C961A $CONFIG_ARCH_EBSA110
       if [ "$CONFIG_ARCH_ACORN" = "y" ]; then
@@ -58,8 +68,8 @@ if [ "$CONFIG_NET_ETHERNET" = "y" ]; then
    if [ "$CONFIG_MIPS_GT96100" = "y" ]; then
       bool '  MIPS GT96100 Ethernet support' CONFIG_MIPS_GT96100ETH
    fi
-   if [ "$CONFIG_MIPS_AU1000" = "y" ]; then
-      bool '  MIPS AU1000 Ethernet support' CONFIG_MIPS_AU1000_ENET
+   if [ "$CONFIG_CPU_AU1X00" = "y" ]; then
+      bool '  MIPS Au1x00 Ethernet support' CONFIG_MIPS_AU1X00_ENET
    fi
    if [ "$CONFIG_SIBYTE_SB1250" = "y" ]; then
       tristate '  SB1250 Ethernet support' CONFIG_NET_SB1250_MAC
@@ -74,7 +84,11 @@ if [ "$CONFIG_NET_ETHERNET" = "y" ]; then
       bool '  SGI IOC3 Ethernet' CONFIG_SGI_IOC3_ETH
    fi
    if [ "$CONFIG_SUPERH" = "y" ]; then
-      tristate '  National DP83902AV  support' CONFIG_STNIC
+      if [ "$CONFIG_CPU_SUBTYPE_SH7710" = "y" ]; then
+         tristate '  SH7710 Ethernet Controler  support' CONFIG_SH7710_ETH
+      else
+         tristate '  National DP83902AV  support' CONFIG_STNIC
+      fi
    fi
    dep_tristate '  Sun LANCE support' CONFIG_SUNLANCE $CONFIG_SBUS
    if [ "$CONFIG_SBUS" = "y" -o "$CONFIG_PCI" = "y" ]; then
@@ -108,7 +122,13 @@ if [ "$CONFIG_NET_ETHERNET" = "y" ]; then
       dep_tristate '    SMC Ultra MCA support' CONFIG_ULTRAMCA $CONFIG_MCA
       dep_tristate '    SMC Ultra support' CONFIG_ULTRA $CONFIG_ISA
       dep_tristate '    SMC Ultra32 EISA support' CONFIG_ULTRA32 $CONFIG_EISA
-      dep_tristate '    SMC 9194 support' CONFIG_SMC9194 $CONFIG_ISA
+      if [ "$CONFIG_ARCH_LUBBOCK" = "y" ]; then
+         tristate '    SMC 9194 support' CONFIG_SMC9194
+      else
+         dep_tristate '    SMC 9194 support' CONFIG_SMC9194 $CONFIG_ISA
+      fi
+      tristate     '    SMC 91111 support' CONFIG_SMC91111
+      tristate     '    SMC 91x support (will replace 9194 driver)' CONFIG_SMC91X
    fi
    bool '  Racal-Interlan (Micom) NI cards' CONFIG_NET_VENDOR_RACAL
    if [ "$CONFIG_NET_VENDOR_RACAL" = "y" ]; then
@@ -158,6 +178,7 @@ if [ "$CONFIG_NET_ETHERNET" = "y" ]; then
    fi
    if [ "$CONFIG_NET_PCI" = "y" ]; then
       dep_tristate '    AMD PCnet32 PCI support' CONFIG_PCNET32 $CONFIG_PCI
+      dep_mbool    '        Use VMware support with AMD PCnet32(EXPERIMENTAL)' CONFIG_PCNET32_VMWARE $CONFIG_PCNET32 $CONFIG_EXPERIMENTAL
       dep_tristate '    Adaptec Starfire/DuraLAN support' CONFIG_ADAPTEC_STARFIRE $CONFIG_PCI
       if [ "$CONFIG_ISA" = "y" -o "$CONFIG_EISA" = "y" ]; then
 	 dep_tristate '    Ansel Communications EISA 3200 support (EXPERIMENTAL)' CONFIG_AC3200 $CONFIG_EXPERIMENTAL
@@ -215,6 +236,21 @@ if [ "$CONFIG_NET_ETHERNET" = "y" ]; then
       dep_tristate '    D-Link DE600 pocket adapter support' CONFIG_DE600 $CONFIG_ISA
       dep_tristate '    D-Link DE620 pocket adapter support' CONFIG_DE620 $CONFIG_ISA
    fi
+   bool '  FEC ethernet controller (of ColdFire 5272)' CONFIG_FEC
+   tristate '  CS89x0 support' CONFIG_CS89x0
+   if [ "$CONFIG_CS89x0" != "n" ]; then
+      bool '    Hardware byte-swapping support for CS89x0 Ethernet' CONFIG_UCCS89x0_HW_SWAP
+   fi
+   bool '  uCcs8900 support' CONFIG_UCCS8900
+   if [ "$CONFIG_UCCS8900" = "y" -a "$CONFIG_UCBOOTSTRAP" != "y" ]; then
+      string 'CS8900A MAC Address' CS8900A_HWADDR 00:00:00:00:00:00
+   fi
+   if [ "$CONFIG_ARCH_NETARM" = "y" ]; then
+      tristate 'NET+ARM built-in Ethernet controller' CONFIG_ETHER_NETARM
+      if [ "$CONFIG_ETHER_NETARM" = "y" ]; then
+         hex 'hexadecimal MAC OUI' NETARM_OUI 0040AF
+      fi
+   fi
    if [ "$CONFIG_SGI_IP22" = "y" ]; then
       bool '  SGI Seeq ethernet controller support' CONFIG_SGISEEQ
    fi
@@ -226,6 +262,12 @@ if [ "$CONFIG_NET_ETHERNET" = "y" ]; then
    fi
    if [ "$CONFIG_NEC_OSPREY" = "y" ]; then
       tristate '  Memory-mapped onboard NE2000-compatible ethernet' CONFIG_NE2000
+   fi
+   if [ "$CONFIG_ARCH_APLAT" = "y" ]; then
+      tristate '  A-plat NE2000-compatible ethernet' CONFIG_NET_APLAT
+      if [ "$CONFIG_NET_APLAT" != "n" ]; then
+        hex '    A-plat ethernet base address' CONFIG_NET_APLAT_BASE 14000200
+      fi
    fi
 fi
 

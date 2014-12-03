@@ -27,6 +27,24 @@
 
 #include <asm/uaccess.h>
 
+#if defined(CONFIG_VFAT_SHORTCUT_SYMLINK) || defined(CONFIG_VFAT_SHORTCUT_SYMLINK_MODULE)
+#undef  TOLOWER
+#define TOLOWER(c) ((((c)>='A')&&((c)<='Z')) ? ((c)-'A'+'a') : (c))
+int strcasecmp(const char* s1, const char* s2)
+{
+	for (;;) {
+		int rc = TOLOWER(*s1) - TOLOWER(*s2);
+		if (rc != 0)
+			return rc;
+		if (*s1 == 0)
+			break;
+		s1++;
+		s2++;
+	}
+	return 0;
+}
+#endif
+
 #define PRINTK(X)
 
 struct file_operations fat_dir_operations = {
@@ -183,8 +201,13 @@ fat_shortname2uni(struct nls_table *nls, char *buf, int buf_size,
  * Return values: negative -> error, 0 -> not found, positive -> found,
  * value is the total amount of slots, including the shortname entry.
  */
+#if defined(CONFIG_VFAT_SHORTCUT_SYMLINK) || defined(CONFIG_VFAT_SHORTCUT_SYMLINK_MODULE)
+int fat_search_long0(struct inode *inode, const char *name, int name_len,
+		     int anycase, loff_t *spos, loff_t *lpos)
+#else
 int fat_search_long(struct inode *inode, const char *name, int name_len,
 			int anycase, loff_t *spos, loff_t *lpos)
+#endif
 {
 	struct super_block *sb = inode->i_sb;
 	struct buffer_head *bh = NULL;
@@ -349,6 +372,22 @@ EODir:
 	}
 	return res;
 }
+
+#if defined(CONFIG_VFAT_SHORTCUT_SYMLINK) || defined(CONFIG_VFAT_SHORTCUT_SYMLINK_MODULE)
+int fat_search_long(struct inode *inode, const char *name, int name_len,
+			int anycase, loff_t *spos, loff_t *lpos)
+{
+	int res = fat_search_long0(inode, name, name_len, anycase, spos, lpos);
+	if ((res <= 0)&&(MSDOS_SB(inode->i_sb)->options.isvfat)) {
+		char tmp[256+4];
+		strcpy(tmp, name);
+		strcat(tmp, ".lnk");
+		res = fat_search_long0(inode, tmp, name_len + 4, anycase,
+				       spos, lpos);
+	}
+	return res;
+}
+#endif
 
 static int fat_readdirx(struct inode *inode, struct file *filp, void *dirent,
 			filldir_t filldir, int shortnames, int both)
@@ -558,6 +597,16 @@ ParseLong:
 	if (!long_slots||shortnames) {
 		if (both)
 			bufname[i] = '\0';
+#if defined(CONFIG_VFAT_SHORTCUT_SYMLINK) || defined(CONFIG_VFAT_SHORTCUT_SYMLINK_MODULE)
+		if (strcasecmp(bufname + i - 4, ".lnk") == 0) {
+			i -= 4;
+			bufname[i] = 0;
+			if (filldir(dirent, bufname, i,
+				    *furrfu, inum, DT_LNK) < 0)
+			goto FillFailed;
+		}
+		else 
+#endif
 		if (filldir(dirent, bufname, i, *furrfu, inum,
 			    (de->attr & ATTR_DIR) ? DT_DIR : DT_REG) < 0)
 			goto FillFailed;
@@ -571,6 +620,16 @@ ParseLong:
 			memcpy(&longname[long_len+1], bufname, i);
 			long_len += i;
 		}
+#if defined(CONFIG_VFAT_SHORTCUT_SYMLINK) || defined(CONFIG_VFAT_SHORTCUT_SYMLINK_MODULE)
+		if (strcasecmp(longname + long_len - 4, ".lnk") == 0) {
+			long_len -= 4;
+			longname[long_len] = 0;
+			if (filldir(dirent, longname, long_len,
+				    *furrfu, inum, DT_LNK) < 0)
+			goto FillFailed;
+		}
+		else
+#endif
 		if (filldir(dirent, longname, long_len, *furrfu, inum,
 			    (de->attr & ATTR_DIR) ? DT_DIR : DT_REG) < 0)
 			goto FillFailed;

@@ -72,7 +72,7 @@ static struct i2c_driver *drivers[I2C_DRIVER_MAX];
 static int driver_count;
 
 /**** debug level */
-static int i2c_debug=1;
+static int i2c_debug = 0;
 
 /* ---------------------------------------------------
  * /proc entry declarations
@@ -82,7 +82,7 @@ static int i2c_debug=1;
 #ifdef CONFIG_PROC_FS
 
 static int i2cproc_init(void);
-static int i2cproc_cleanup(void);
+static void i2cproc_cleanup(void);
 
 #if (LINUX_VERSION_CODE <= KERNEL_VERSION(2,3,27))
 static void monitor_bus_i2c(struct inode *inode, int fill);
@@ -656,8 +656,7 @@ ssize_t i2cproc_bus_read(struct file * file, char * buf,size_t count,
 	struct inode * inode = file->f_dentry->d_inode;
 	char *kbuf;
 	struct i2c_client *client;
-	int i,j,k,order_nr,len=0;
-	size_t len_total;
+	int i,j,k,order_nr,len=0,len_total;
 	int order[I2C_CLIENT_MAX];
 
 	if (count > 4000)
@@ -741,14 +740,13 @@ int i2cproc_init(void)
 	return 0;
 }
 
-int i2cproc_cleanup(void)
+static void i2cproc_cleanup(void)
 {
 
 	if (i2cproc_initialized >= 1) {
 		remove_proc_entry("i2c",proc_bus);
 		i2cproc_initialized -= 2;
 	}
-	return 0;
 }
 
 
@@ -1264,7 +1262,7 @@ int i2c_check_functionality (struct i2c_adapter *adap, u32 func)
 
 static int __init i2c_init(void)
 {
-	printk("i2c-core.o: i2c core module\n");
+	printk(KERN_DEBUG "i2c-core.o: i2c core module\n");
 	memset(adapters,0,sizeof(adapters));
 	memset(drivers,0,sizeof(drivers));
 	adap_count=0;
@@ -1277,98 +1275,6 @@ static int __init i2c_init(void)
 	
 	return 0;
 }
-
-#ifndef MODULE
-#ifdef CONFIG_I2C_CHARDEV
-	extern int i2c_dev_init(void);
-#endif
-#ifdef CONFIG_I2C_ALGOBIT
-	extern int i2c_algo_bit_init(void);
-#endif
-#ifdef CONFIG_I2C_PHILIPSPAR
-	extern int i2c_bitlp_init(void);
-#endif
-#ifdef CONFIG_I2C_ELV
-	extern int i2c_bitelv_init(void);
-#endif
-#ifdef CONFIG_I2C_VELLEMAN
-	extern int i2c_bitvelle_init(void);
-#endif
-#ifdef CONFIG_I2C_BITVIA
-	extern int i2c_bitvia_init(void);
-#endif
-
-#ifdef CONFIG_I2C_ALGOPCF
-	extern int i2c_algo_pcf_init(void);	
-#endif
-#ifdef CONFIG_I2C_ELEKTOR
-	extern int i2c_pcfisa_init(void);
-#endif
-
-#ifdef CONFIG_I2C_ALGO8XX
-	extern int i2c_algo_8xx_init(void);
-#endif
-#ifdef CONFIG_I2C_RPXLITE
-	extern int i2c_rpx_init(void);
-#endif
-#ifdef CONFIG_I2C_PROC
-	extern int sensors_init(void);
-#endif
-
-/* This is needed for automatic patch generation: sensors code starts here */
-/* This is needed for automatic patch generation: sensors code ends here   */
-
-int __init i2c_init_all(void)
-{
-	/* --------------------- global ----- */
-	i2c_init();
-
-#ifdef CONFIG_I2C_CHARDEV
-	i2c_dev_init();
-#endif
-	/* --------------------- bit -------- */
-#ifdef CONFIG_I2C_ALGOBIT
-	i2c_algo_bit_init();
-#endif
-#ifdef CONFIG_I2C_PHILIPSPAR
-	i2c_bitlp_init();
-#endif
-#ifdef CONFIG_I2C_ELV
-	i2c_bitelv_init();
-#endif
-#ifdef CONFIG_I2C_VELLEMAN
-	i2c_bitvelle_init();
-#endif
-
-	/* --------------------- pcf -------- */
-#ifdef CONFIG_I2C_ALGOPCF
-	i2c_algo_pcf_init();	
-#endif
-#ifdef CONFIG_I2C_ELEKTOR
-	i2c_pcfisa_init();
-#endif
-
-	/* --------------------- 8xx -------- */
-#ifdef CONFIG_I2C_ALGO8XX
-	i2c_algo_8xx_init();
-#endif
-#ifdef CONFIG_I2C_RPXLITE
-	i2c_rpx_init();
-#endif
-
-	/* -------------- proc interface ---- */
-#ifdef CONFIG_I2C_PROC
-	sensors_init();
-#endif
-/* This is needed for automatic patch generation: sensors code starts here */
-/* This is needed for automatic patch generation: sensors code ends here */
-
-	return 0;
-}
-
-#endif
-
-
 
 EXPORT_SYMBOL(i2c_add_adapter);
 EXPORT_SYMBOL(i2c_del_adapter);
@@ -1406,20 +1312,11 @@ EXPORT_SYMBOL(i2c_smbus_write_block_data);
 EXPORT_SYMBOL(i2c_get_functionality);
 EXPORT_SYMBOL(i2c_check_functionality);
 
-#ifdef MODULE
 MODULE_AUTHOR("Simon G. Vogl <simon@tk.uni-linz.ac.at>");
 MODULE_DESCRIPTION("I2C-Bus main module");
 MODULE_PARM(i2c_debug, "i");
 MODULE_PARM_DESC(i2c_debug,"debug level");
 MODULE_LICENSE("GPL");
 
-int init_module(void) 
-{
-	return i2c_init();
-}
-
-void cleanup_module(void) 
-{
-	i2cproc_cleanup();
-}
-#endif
+module_init(i2c_init);
+module_exit(i2cproc_cleanup);

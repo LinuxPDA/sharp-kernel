@@ -2,6 +2,11 @@
  *  linux/arch/i386/mm/fault.c
  *
  *  Copyright (C) 1995  Linus Torvalds
+ *
+ *  Change History
+ *
+ *	Tigran Aivazian <tigran@sco.com>	Remote debugging support.
+ *
  */
 
 #include <linux/signal.h>
@@ -19,6 +24,9 @@
 #include <linux/init.h>
 #include <linux/tty.h>
 #include <linux/vt_kern.h>		/* For unblank_screen() */
+#ifdef CONFIG_REMOTE_DEBUG
+#include <linux/gdb.h>
+#endif
 
 #include <asm/system.h>
 #include <asm/uaccess.h>
@@ -153,7 +161,11 @@ asmlinkage void do_page_fault(struct pt_regs *regs, unsigned long error_code)
 
 	/* It's safe to allow irq's after cr2 has been saved */
 	if (regs->eflags & X86_EFLAGS_IF)
+#if defined(CONFIG_RTHAL)
+		hard_sti();
+#else
 		local_irq_enable();
+#endif
 
 	tsk = current;
 
@@ -182,6 +194,15 @@ asmlinkage void do_page_fault(struct pt_regs *regs, unsigned long error_code)
 	 */
 	if (in_interrupt() || !mm)
 		goto no_context;
+
+#ifdef CONFIG_REMOTE_DEBUG
+	if (kgdb_memerr_expected) {
+		if (linux_debug_hook != (gdb_debug_hook *) NULL) {
+			(*linux_debug_hook)(14, SIGSEGV, error_code, regs) ;
+			return;            /* return w/modified regs */
+		}
+	}
+#endif
 
 	down_read(&mm->mmap_sem);
 
@@ -301,12 +322,26 @@ no_context:
 		return;
 	}
 
+#ifdef CONFIG_REMOTE_DEBUG
+	if (kgdb_memerr_expected) {
+		if (linux_debug_hook != (gdb_debug_hook *) NULL) {
+			(*linux_debug_hook)(14, SIGSEGV, error_code, regs);
+			return; /* Return with modified registers */
+		}
+	} else {
+		if (linux_debug_hook != (gdb_debug_hook *) NULL) {
+			(*linux_debug_hook)(14, SIGSEGV, error_code, regs);
+		}
+	}
+#endif
+
 /*
  * Oops. The kernel tried to access some bad page. We'll have to
  * terminate things with extreme prejudice.
  */
 
 	bust_spinlocks(1);
+
 
 	if (address < PAGE_SIZE)
 		printk(KERN_ALERT "Unable to handle kernel NULL pointer dereference");

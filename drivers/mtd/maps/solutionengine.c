@@ -59,6 +59,22 @@ struct map_info soleng_flash_map = {
 };
 
 #ifdef CONFIG_MTD_SUPERH_RESERVE
+#if 0
+static struct mtd_partition superh_se_partitions[] = {
+	/* Reserved for boot code, read-only */
+	{
+		name: "Boot Image",
+		offset: 0x00000000,
+		size: CONFIG_MTD_SUPERH_RESERVE,
+		mask_flags: MTD_WRITEABLE,
+	},
+	{
+		name: "Flash FS",
+		offset: MTDPART_OFS_NXTBLK,
+		size: MTDPART_SIZ_FULL,
+	}
+};
+#else
 static struct mtd_partition superh_se_partitions[] = {
 	/* Reserved for boot code, read-only */
 	{
@@ -74,11 +90,39 @@ static struct mtd_partition superh_se_partitions[] = {
 		size: MTDPART_SIZ_FULL,
 	}
 };
+#endif
 #endif /* CONFIG_MTD_SUPERH_RESERVE */
 
 static int __init init_soleng_maps(void)
 {
 	int nr_parts = 0;
+
+#if 0
+#if defined(CONFIG_XIP_KERNEL)
+	soleng_flash_map.map_priv_1 = P2SEGADDR(0);
+	soleng_eprom_map.map_priv_1 = P1SEGADDR(0x01000000);
+#else
+	soleng_flash_map.map_priv_1 = P2SEGADDR(0x01000000);
+	soleng_eprom_map.map_priv_1 = P1SEGADDR(0x0);
+#endif
+	flash_mtd = do_map_probe("map_rom", &soleng_flash_map);
+	flash_mtd->module = THIS_MODULE;
+	if (nr_parts == 0) {
+		parsed_parts = superh_se_partitions;
+		nr_parts = sizeof(superh_se_partitions)/sizeof(*parsed_parts);
+	}
+	if (nr_parts > 0)
+		add_mtd_partitions(flash_mtd, parsed_parts, nr_parts);
+	else
+		add_mtd_device(flash_mtd);
+#if 0
+	eprom_mtd = do_map_probe("map_rom", &soleng_eprom_map);
+	if (eprom_mtd) {
+		eprom_mtd->module = THIS_MODULE;
+		add_mtd_device(eprom_mtd);
+	}
+#endif
+#else
 
 	/* First probe at offset 0 */
 	soleng_flash_map.map_priv_1 = P2SEGADDR(0);
@@ -130,6 +174,7 @@ static int __init init_soleng_maps(void)
 	else
 		add_mtd_device(flash_mtd);
 
+#endif
 	return 0;
 }
 

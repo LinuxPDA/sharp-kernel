@@ -21,8 +21,9 @@
 #include <asm/mmu_context.h>
 #include <asm/bootinfo.h>
 #include <asm/cpu.h>
+#include <asm/war.h>
 
-extern char except_vec0_r4000[];
+extern char except_vec0_r4000[], except_vec0_sb1_m3[];
 
 /* Dump the current entry* and pagemask registers */
 static inline void dump_cur_tlb_regs(void)
@@ -35,7 +36,6 @@ static inline void dump_cur_tlb_regs(void)
 		".set noreorder        \n"
 		".set mips64           \n"
 		".set noat             \n"
-		"     tlbr             \n"
 		"     dmfc0  $1, $10   \n"
 		"     dsrl32 %0, $1, 0 \n"
 		"     sll    %1, $1, 0 \n"
@@ -47,13 +47,11 @@ static inline void dump_cur_tlb_regs(void)
 		"     sll    %5, $1, 0 \n"
 		"     mfc0   %6, $5    \n"
 		".set pop              \n"
-		: "=r" (entryhihi),
-		"=r" (entryhilo),
-		"=r" (entrylo0hi),
-		"=r" (entrylo0lo),
-		"=r" (entrylo1hi),
-		"=r" (entrylo1lo),
-		"=r" (pagemask));
+		: "=r" (entryhihi), "=r" (entryhilo),
+		  "=r" (entrylo0hi), "=r" (entrylo0lo),
+		  "=r" (entrylo1hi), "=r" (entrylo1lo),
+		  "=r" (pagemask));
+
 	printk("%08X%08X %08X%08X %08X%08X %08X",
 	       entryhihi, entryhilo,
 	       entrylo0hi, entrylo0lo,
@@ -66,29 +64,34 @@ void sb1_dump_tlb(void)
 	unsigned long old_ctx;
 	unsigned long flags;
 	int entry;
-	__save_and_cli(flags);
-	old_ctx = get_entryhi();
+
+#if defined(CONFIG_RTHAL)
+	hard_save_flags_and_cli(flags);
+#else /* CONFIG_RTHAL */
+	local_irq_save(flags);
+#endif /* CONFIG_RTHAL */
+	old_ctx = read_c0_entryhi();
 	printk("Current TLB registers state:\n"
 	       "      EntryHi       EntryLo0          EntryLo1     PageMask  Index\n"
 	       "--------------------------------------------------------------------\n");
 	dump_cur_tlb_regs();
-	printk(" %08X\n", read_32bit_cp0_register(CP0_INDEX));
+	printk(" %08X\n", read_c0_index());
 	printk("\n\nFull TLB Dump:\n"
 	       "Idx      EntryHi       EntryLo0          EntryLo1     PageMask\n"
 	       "--------------------------------------------------------------\n");
 	for (entry = 0; entry < mips_cpu.tlbsize; entry++) {
-		set_index(entry);
+		write_c0_index(entry);
 		printk("\n%02i ", entry);
-		__asm__ __volatile__ (
-			".set push             \n"
-			".set mips64           \n"
-			"     tlbr             \n"
-			".set pop              \n");
+		tlb_read();
 		dump_cur_tlb_regs();
 	}
 	printk("\n");
-	set_entryhi(old_ctx);
-	__restore_flags(flags);
+	write_c0_entryhi(old_ctx);
+#if defined(CONFIG_RTHAL)
+	hard_restore_flags(flags);
+#else /* CONFIG_RTHAL */
+	local_irq_restore(flags);
+#endif /* CONFIG_RTHAL */
 }
 
 void local_flush_tlb_all(void)
@@ -97,18 +100,26 @@ void local_flush_tlb_all(void)
 	unsigned long old_ctx;
 	int entry;
 
-	__save_and_cli(flags);
+#if defined(CONFIG_RTHAL)
+	hard_save_flags_and_cli(flags);
+#else /* CONFIG_RTHAL */
+	local_irq_save(flags);
+#endif /* CONFIG_RTHAL */
 	/* Save old context and create impossible VPN2 value */
-	old_ctx = (get_entryhi() & 0xff);
-	set_entrylo0(0);
-	set_entrylo1(0);
+	old_ctx = read_c0_entryhi() & ASID_MASK;
+	write_c0_entrylo0(0);
+	write_c0_entrylo1(0);
 	for (entry = 0; entry < mips_cpu.tlbsize; entry++) {
-		set_entryhi(KSEG0 + (PAGE_SIZE << 1) * entry);
-		set_index(entry);
+		write_c0_entryhi(KSEG0 + (PAGE_SIZE << 1) * entry);
+		write_c0_index(entry);
 		tlb_write_indexed();
 	}
-	set_entryhi(old_ctx);
-	__restore_flags(flags);
+	write_c0_entryhi(old_ctx);
+#if defined(CONFIG_RTHAL)
+	hard_restore_flags(flags);
+#else /* CONFIG_RTHAL */
+	local_irq_restore(flags);
+#endif /* CONFIG_RTHAL */
 }
 
 
@@ -126,15 +137,15 @@ void sb1_sanitize_tlb(void)
 
 	long inc = 1<<24;  /* 16MB */
 	/* Save old context and create impossible VPN2 value */
-	set_entrylo0(0);
-	set_entrylo1(0);
+	write_c0_entrylo0(0);
+	write_c0_entrylo1(0);
 	for (entry = 0; entry < mips_cpu.tlbsize; entry++) {
 		do {
 			addr += inc;
-			set_entryhi(addr);
+			write_c0_entryhi(addr);
 			tlb_probe();
-		} while ((int)(get_index()) >= 0);
-		set_index(entry);
+		} while ((int)(read_c0_index()) >= 0);
+		write_c0_index(entry);
 		tlb_write_indexed();
 	}
 	/* Now that we know we're safe from collisions, we can safely flush
@@ -149,41 +160,87 @@ void local_flush_tlb_range(struct mm_struct *mm, unsigned long start,
 	unsigned long flags;
 	int cpu;
 
-	__save_and_cli(flags);
+#if defined(CONFIG_RTHAL)
+	hard_save_flags_and_cli(flags);
+#else /* CONFIG_RTHAL */
+	local_irq_save(flags);
+#endif /* CONFIG_RTHAL */
 	cpu = smp_processor_id();
-	if(CPU_CONTEXT(cpu, mm) != 0) {
+	if (cpu_context(cpu, mm) != 0) {
 		int size;
 		size = (end - start + (PAGE_SIZE - 1)) >> PAGE_SHIFT;
 		size = (size + 1) >> 1;
-		if(size <= (mips_cpu.tlbsize/2)) {
-			int oldpid = (get_entryhi() & 0xff);
-			int newpid = (CPU_CONTEXT(cpu, mm) & 0xff);
+		if (size <= (mips_cpu.tlbsize/2)) {
+			int oldpid = read_c0_entryhi() & ASID_MASK;
+			int newpid = cpu_asid(cpu, mm);
 
 			start &= (PAGE_MASK << 1);
 			end += ((PAGE_SIZE << 1) - 1);
 			end &= (PAGE_MASK << 1);
-			while(start < end) {
+			while (start < end) {
 				int idx;
 
-				set_entryhi(start | newpid);
+				write_c0_entryhi(start | newpid);
 				start += (PAGE_SIZE << 1);
 				tlb_probe();
-				idx = get_index();
-				set_entrylo0(0);
-				set_entrylo1(0);
-				set_entryhi(KSEG0 + (idx << (PAGE_SHIFT+1)));
-				if(idx < 0)
+				idx = read_c0_index();
+				write_c0_entrylo0(0);
+				write_c0_entrylo1(0);
+				write_c0_entryhi(KSEG0 + (idx << (PAGE_SHIFT+1)));
+				if (idx < 0)
 					continue;
 				tlb_write_indexed();
 			}
-			set_entryhi(oldpid);
+			write_c0_entryhi(oldpid);
 		} else {
 			get_new_mmu_context(mm, cpu);
 			if (mm == current->active_mm)
-				set_entryhi(CPU_CONTEXT(cpu, mm) & 0xff);
+				write_c0_entryhi(cpu_asid(cpu, mm));
 		}
 	}
-	__restore_flags(flags);
+#if defined(CONFIG_RTHAL)
+	hard_restore_flags(flags);
+#else /* CONFIG_RTHAL */
+	local_irq_restore(flags);
+#endif /* CONFIG_RTHAL */
+}
+
+/*
+ * This one is only used for pages with the global bit set so we don't care
+ * much about the ASID.
+ */
+void __flush_tlb_one(unsigned long page)
+{
+	unsigned long flags;
+	int oldpid, idx;
+
+#if defined(CONFIG_RTHAL)
+	hard_save_flags_and_cli(flags);
+#else /* CONFIG_RTHAL */
+	local_irq_save(flags);
+#endif /* CONFIG_RTHAL */
+#ifdef DEBUG_TLB
+	printk("[tlbpage<%d,%08lx>]", cpu_context(cpu, vma->vm_mm), page);
+#endif
+	page &= (PAGE_MASK << 1);
+	oldpid = read_c0_entryhi() & ASID_MASK;
+	write_c0_entryhi(page);
+	tlb_probe();
+	idx = read_c0_index();
+	write_c0_entrylo0(0);
+	write_c0_entrylo1(0);
+	if (idx >= 0) {
+		/* Make sure all entries differ. */
+		write_c0_entryhi(KSEG0+(idx<<(PAGE_SHIFT+1)));
+		tlb_write_indexed();
+	}
+	write_c0_entryhi(oldpid);
+
+#if defined(CONFIG_RTHAL)
+	hard_restore_flags(flags);
+#else /* CONFIG_RTHAL */
+	local_irq_restore(flags);
+#endif /* CONFIG_RTHAL */
 }
 
 void local_flush_tlb_page(struct vm_area_struct *vma, unsigned long page)
@@ -192,36 +249,44 @@ void local_flush_tlb_page(struct vm_area_struct *vma, unsigned long page)
 
 #ifdef CONFIG_SMP
 	/*
-	 * This variable is eliminated from CPU_CONTEXT() if SMP isn't defined,
+	 * This variable is eliminated from cpu_context() if SMP isn't defined,
 	 * so conditional it to get rid of silly "unused variable" compiler
 	 * complaints
 	 */
 	int cpu = smp_processor_id();
 #endif
 
-	__save_and_cli(flags);
-	if (CPU_CONTEXT(cpu, vma->vm_mm) != 0) {
+#if defined(CONFIG_RTHAL)
+	hard_save_flags_and_cli(flags);
+#else /* CONFIG_RTHAL */
+	local_irq_save(flags);
+#endif /* CONFIG_RTHAL */
+	if (cpu_context(cpu, vma->vm_mm) != 0) {
 		int oldpid, newpid, idx;
 #ifdef DEBUG_TLB
-		printk("[tlbpage<%d,%08lx>]", CPU_CONTEXT(cpu, vma->vm_mm), page);
+		printk("[tlbpage<%d,%08lx>]", cpu_context(cpu, vma->vm_mm), page);
 #endif
-		newpid = (CPU_CONTEXT(cpu, vma->vm_mm) & 0xff);
+		newpid = cpu_asid(cpu, vma->vm_mm);
 		page &= (PAGE_MASK << 1);
-		oldpid = (get_entryhi() & 0xff);
-		set_entryhi	(page | newpid);
+		oldpid = read_c0_entryhi() & ASID_MASK;
+		write_c0_entryhi(page | newpid);
 		tlb_probe();
-		idx = get_index();
-		set_entrylo0(0);
-		set_entrylo1(0);
-		if(idx < 0)
+		idx = read_c0_index();
+		write_c0_entrylo0(0);
+		write_c0_entrylo1(0);
+		if (idx < 0)
 			goto finish;
 		/* Make sure all entries differ. */
-		set_entryhi(KSEG0+(idx<<(PAGE_SHIFT+1)));
+		write_c0_entryhi(KSEG0+(idx<<(PAGE_SHIFT+1)));
 		tlb_write_indexed();
 	finish:
-		set_entryhi(oldpid);
+		write_c0_entryhi(oldpid);
 	}
-	__restore_flags(flags);
+#if defined(CONFIG_RTHAL)
+	hard_restore_flags(flags);
+#else /* CONFIG_RTHAL */
+	local_irq_restore(flags);
+#endif /* CONFIG_RTHAL */
 }
 
 
@@ -231,15 +296,24 @@ void local_flush_tlb_mm(struct mm_struct *mm)
 {
 	unsigned long flags;
 	int cpu;
-	__save_and_cli(flags);
+
+#if defined(CONFIG_RTHAL)
+	hard_save_flags_and_cli(flags);
+#else /* CONFIG_RTHAL */
+	local_irq_save(flags);
+#endif /* CONFIG_RTHAL */
 	cpu = smp_processor_id();
-	if (CPU_CONTEXT(cpu, mm) != 0) {
+	if (cpu_context(cpu, mm) != 0) {
 		get_new_mmu_context(mm, smp_processor_id());
 		if (mm == current->active_mm) {
-			set_entryhi(CPU_CONTEXT(cpu, mm) & 0xff);
+			write_c0_entryhi(cpu_asid(cpu, mm));
 		}
 	}
-	__restore_flags(flags);
+#if defined(CONFIG_RTHAL)
+	hard_restore_flags(flags);
+#else /* CONFIG_RTHAL */
+	local_irq_restore(flags);
+#endif /* CONFIG_RTHAL */
 }
 
 /* Stolen from mips32 routines */
@@ -259,35 +333,42 @@ void update_mmu_cache(struct vm_area_struct *vma, unsigned long address,
 	if (current->active_mm != vma->vm_mm)
 		return;
 
-	__save_and_cli(flags);
+#if defined(CONFIG_RTHAL)
+	hard_save_flags_and_cli(flags);
+#else /* CONFIG_RTHAL */
+	local_irq_save(flags);
+#endif /* CONFIG_RTHAL */
 
-
-	pid = get_entryhi() & 0xff;
+	pid = read_c0_entryhi() & ASID_MASK;
 
 #ifdef DEBUG_TLB
-	if((pid != (CPU_CONTEXT(cpu, vma->vm_mm) & 0xff)) || (CPU_CONTEXT(cpu, vma->vm_mm) == 0)) {
+	if ((pid != (cpu_asid(cpu, vma->vm_mm))) || (cpu_context(cpu, vma->vm_mm) == 0)) {
 		printk("update_mmu_cache: Wheee, bogus tlbpid mmpid=%d tlbpid=%d\n",
-		       (int) (CPU_CONTEXT(cpu, vma->vm_mm) & 0xff), pid);
+		       (int) (cpu_asid(cpu, vma->vm_mm)), pid);
 	}
 #endif
 
 	address &= (PAGE_MASK << 1);
-	set_entryhi(address | (pid));
+	write_c0_entryhi(address | (pid));
 	pgdp = pgd_offset(vma->vm_mm, address);
 	tlb_probe();
 	pmdp = pmd_offset(pgdp, address);
-	idx = get_index();
+	idx = read_c0_index();
 	ptep = pte_offset(pmdp, address);
-	set_entrylo0(pte_val(*ptep++) >> 6);
-	set_entrylo1(pte_val(*ptep) >> 6);
-	set_entryhi(address | (pid));
-	if(idx < 0) {
+	write_c0_entrylo0(pte_val(*ptep++) >> 6);
+	write_c0_entrylo1(pte_val(*ptep) >> 6);
+	write_c0_entryhi(address | (pid));
+	if (idx < 0) {
 		tlb_write_random();
 	} else {
 		tlb_write_indexed();
 	}
-	set_entryhi(pid);
-	__restore_flags(flags);
+	write_c0_entryhi(pid);
+#if defined(CONFIG_RTHAL)
+	hard_restore_flags(flags);
+#else /* CONFIG_RTHAL */
+	local_irq_restore(flags);
+#endif /* CONFIG_RTHAL */
 }
 
 /*
@@ -299,7 +380,7 @@ void sb1_tlb_init(void)
 {
 	u32 config1;
 
-	config1 = read_mips32_cp0_config1();
+	config1 = read_c0_config1();
 	mips_cpu.tlbsize = ((config1 >> 25) & 0x3f) + 1;
 
 	/*
@@ -309,6 +390,10 @@ void sb1_tlb_init(void)
 	 */
 	sb1_sanitize_tlb();
 
+#ifdef BCM1250_M3_WAR
+	memcpy((void *)KSEG0, except_vec0_sb1_m3, 0x80);
+#else
 	memcpy((void *)KSEG0, except_vec0_r4000, 0x80);
+#endif
 	flush_icache_range(KSEG0, KSEG0 + 0x80);
 }

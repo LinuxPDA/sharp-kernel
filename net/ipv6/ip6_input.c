@@ -1,3 +1,5 @@
+/* $USAGI: ip6_input.c,v 1.18 2002/07/11 10:45:52 miyazawa Exp $ */
+
 /*
  *	IPv6 input
  *	Linux INET6 implementation 
@@ -40,6 +42,11 @@
 #include <net/ip6_route.h>
 #include <net/addrconf.h>
 
+#ifdef CONFIG_IPV6_IPSEC
+#include <linux/ipsec.h>
+#include <linux/ipsec6.h>
+#endif /* CONFIG_IPV6_IPSEC */
+
 
 
 static inline int ip6_rcv_finish( struct sk_buff *skb) 
@@ -54,11 +61,15 @@ int ipv6_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt
 {
 	struct ipv6hdr *hdr;
 	u32 		pkt_len;
+	struct inet6_dev *idev = NULL;
+	int saddr_type, daddr_type;
 
 	if (skb->pkt_type == PACKET_OTHERHOST)
 		goto drop;
 
-	IP6_INC_STATS_BH(Ip6InReceives);
+	idev = in6_dev_get(dev);
+
+	IP6_INC_STATS_BH(idev,Ip6InReceives);
 
 	if ((skb = skb_share_check(skb, GFP_ATOMIC)) == NULL)
 		goto out;
@@ -79,6 +90,24 @@ int ipv6_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt
 	if (hdr->version != 6)
 		goto err;
 
+	saddr_type = ipv6_addr_type(&hdr->saddr);
+	daddr_type = ipv6_addr_type(&hdr->daddr);
+
+	if ((saddr_type & IPV6_ADDR_MULTICAST) ||
+	    (daddr_type == IPV6_ADDR_ANY))
+		goto drop;	/*XXX*/
+
+	if (((saddr_type & IPV6_ADDR_LOOPBACK) ||
+	     (daddr_type & IPV6_ADDR_LOOPBACK)) &&
+	     !(dev->flags & IFF_LOOPBACK))
+		goto drop;	/*XXX*/
+
+#ifdef CONFIG_IPV6_DROP_FAKE_V4MAPPED
+	if (saddr_type == IPV6_ADDR_MAPPED ||
+	    daddr_type == IPV6_ADDR_MAPPED)
+		goto drop;	/*XXX*/
+#endif
+
 	pkt_len = ntohs(hdr->payload_len);
 
 	/* pkt_len may be zero if Jumbo payload option is present */
@@ -97,20 +126,26 @@ int ipv6_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt
 	if (hdr->nexthdr == NEXTHDR_HOP) {
 		skb->h.raw = (u8*)(hdr+1);
 		if (ipv6_parse_hopopts(skb, offsetof(struct ipv6hdr, nexthdr)) < 0) {
-			IP6_INC_STATS_BH(Ip6InHdrErrors);
+			IP6_INC_STATS_BH(idev,Ip6InHdrErrors);
+			if (idev)
+				in6_dev_put(idev);
 			return 0;
 		}
 		hdr = skb->nh.ipv6h;
 	}
+	if (idev)
+		in6_dev_put(idev);
 
 	return NF_HOOK(PF_INET6,NF_IP6_PRE_ROUTING, skb, dev, NULL, ip6_rcv_finish);
 truncated:
-	IP6_INC_STATS_BH(Ip6InTruncatedPkts);
+	IP6_INC_STATS_BH(idev,Ip6InTruncatedPkts);
 err:
-	IP6_INC_STATS_BH(Ip6InHdrErrors);
+	IP6_INC_STATS_BH(idev,Ip6InHdrErrors);
 drop:
 	kfree_skb(skb);
 out:
+	if (idev)
+		in6_dev_put(idev);
 	return 0;
 }
 
@@ -125,7 +160,7 @@ static inline int ip6_input_finish(struct sk_buff *skb)
 	struct inet6_protocol *ipprot;
 	struct sock *raw_sk;
 	int nhoff;
-	int nexthdr;
+	u8 nexthdr;
 	int found = 0;
 	u8 hash;
 
@@ -150,10 +185,10 @@ static inline int ip6_input_finish(struct sk_buff *skb)
 	   which are missing with probability of 200%
 	 */
 	if (nexthdr != IPPROTO_TCP && nexthdr != IPPROTO_UDP) {
-		nhoff = ipv6_parse_exthdrs(&skb, nhoff);
+		nexthdr = skb->nh.raw[nhoff];
+		nhoff = ipv6_parse_exthdrs(&skb, nhoff, &nexthdr);
 		if (nhoff < 0)
 			return 0;
-		nexthdr = skb->nh.raw[nhoff];
 		hdr = skb->nh.ipv6h;
 	}
 
@@ -163,6 +198,15 @@ static inline int ip6_input_finish(struct sk_buff *skb)
 	if (skb->ip_summed == CHECKSUM_HW)
 		skb->csum = csum_sub(skb->csum,
 				     csum_partial(skb->nh.raw, skb->h.raw-skb->nh.raw, 0));
+#ifdef CONFIG_IPV6_IPSEC 
+        /* StS: Defragmentation is done, now do ipsec stuff */
+	IPSEC6_DEBUG("called\n");
+	if (ipsec6_input_check(&skb, &nexthdr)) {       
+		if (net_ratelimit())
+			printk(KERN_DEBUG "ip6_input: (ipsec) dropping packet\n");
+		goto discard;
+	}
+#endif /* CONFIG_IPV6_IPSEC */
 
 	raw_sk = raw_v6_htable[nexthdr&(MAX_INET_PROTOS-1)];
 	if (raw_sk)
@@ -195,7 +239,10 @@ static inline int ip6_input_finish(struct sk_buff *skb)
 	 *	not found: send ICMP parameter problem back
 	 */
 	if (!found) {
-		IP6_INC_STATS_BH(Ip6InUnknownProtos);
+		struct inet6_dev *idev = in6_dev_get(skb->dev);
+		IP6_INC_STATS_BH(idev,Ip6InUnknownProtos);
+		if (idev)
+			in6_dev_put(idev);
 		icmpv6_param_prob(skb, ICMPV6_UNK_NEXTHDR, nhoff);
 	}
 
@@ -217,8 +264,9 @@ int ip6_mc_input(struct sk_buff *skb)
 	struct ipv6hdr *hdr;	
 	int deliver = 0;
 	int discard = 1;
+	struct inet6_dev *idev = in6_dev_get(skb->dev);
 
-	IP6_INC_STATS_BH(Ip6InMcastPkts);
+	IP6_INC_STATS_BH(idev,Ip6InMcastPkts);
 
 	hdr = skb->nh.ipv6h;
 	if (ipv6_chk_mcast_addr(skb->dev, &hdr->daddr))
@@ -258,6 +306,9 @@ int ip6_mc_input(struct sk_buff *skb)
 
 	if (discard)
 		kfree_skb(skb);
+
+	if (idev)
+		in6_dev_put(idev);
 
 	return 0;
 }

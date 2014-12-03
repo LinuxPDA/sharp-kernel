@@ -101,6 +101,7 @@ struct us_unusual_dev {
 #define US_FL_IGNORE_SER      0x00000010 /* Ignore the serial number given  */
 #define US_FL_SCM_MULT_TARG   0x00000020 /* supports multiple targets */
 #define US_FL_FIX_INQUIRY     0x00000040 /* INQUIRY response needs fixing */
+#define US_FL_SL_IDE_BUG      0x00000100 /* ScanLogic usb-ide workaround */
 
 #define USB_STOR_STRING_LEN 32
 

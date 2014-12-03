@@ -326,45 +326,6 @@ err_out_free:
 	return status;
 }
 
-/*
- * Taken from net/ipv6/ip6_output.c
- *
- * We should use the one there, but is defined static
- * so we put this just here and let the things as
- * they are now.
- *
- * If that one is modified, this one should be modified too.
- */
-static int
-route6_me_harder(struct sk_buff *skb)
-{
-	struct ipv6hdr *iph = skb->nh.ipv6h;
-	struct dst_entry *dst;
-	struct flowi fl;
-
-	fl.proto = iph->nexthdr;
-	fl.fl6_dst = &iph->daddr;
-	fl.fl6_src = &iph->saddr;
-	fl.oif = skb->sk ? skb->sk->bound_dev_if : 0;
-	fl.fl6_flowlabel = 0;
-	fl.uli_u.ports.dport = 0;
-	fl.uli_u.ports.sport = 0;
-
-	dst = ip6_route_output(skb->sk, &fl);
-
-	if (dst->error) {
-		if (net_ratelimit())
-			printk(KERN_DEBUG "route6_me_harder: No more route.\n");
-		return -EINVAL;
-	}
-
-	/* Drop old route. */
-	dst_release(skb->dst);
-
-	skb->dst = dst;
-	return 0;
-}
-
 static int
 ipq_mangle_ipv6(ipq_verdict_msg_t *v, struct ipq_queue_entry *e)
 {

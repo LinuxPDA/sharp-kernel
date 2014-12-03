@@ -18,6 +18,7 @@
 #ifdef CONFIG_KMOD
 #include <linux/kmod.h>
 #endif
+#include <linux/sched.h>
 #include <linux/spinlock.h>
 
 static struct nls_table *tables;

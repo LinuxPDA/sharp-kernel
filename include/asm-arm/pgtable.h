@@ -1,17 +1,20 @@
 /*
  *  linux/include/asm-arm/pgtable.h
  *
- *  Copyright (C) 2000-2001 Russell King
+ *  Copyright (C) 2000-2002 Russell King
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
+ *
+ * ChangeLog:
+ *     04-Apr-2003 Sharp for ARM FCSE
  */
 #ifndef _ASMARM_PGTABLE_H
 #define _ASMARM_PGTABLE_H
 
 #include <linux/config.h>
-#include <asm/arch/memory.h>
+#include <asm/memory.h>
 #include <asm/proc-fns.h>
 
 /*
@@ -75,21 +78,13 @@ extern void __pgd_error(const char *file, int line, unsigned long val);
 extern struct page *empty_zero_page;
 #define ZERO_PAGE(vaddr)	(empty_zero_page)
 
+#define pte_pfn(pte)		(pte_val(pte) >> PAGE_SHIFT)
+#define pfn_pte(pfn,prot)	(__pte(((pfn) << PAGE_SHIFT) | pgprot_val(prot)))
+
 #define pte_none(pte)		(!pte_val(pte))
 #define pte_clear(ptep)		set_pte((ptep), __pte(0))
 
-#ifndef CONFIG_DISCONTIGMEM
-#define pte_page(x)		(mem_map + (pte_val((x)) >> PAGE_SHIFT) - \
-				 (PHYS_OFFSET >> PAGE_SHIFT))
-#else
-/*
- * I'm not happy with this - we needlessly convert a physical address
- * to a virtual one, and then immediately back to a physical address,
- * which, if __va and __pa are expensive causes twice the expense for
- * zero gain. --rmk
- */
-#define pte_page(x)		(virt_to_page(__va(pte_val((x)))))
-#endif
+#define pte_page(pte)		(pfn_to_page(pte_pfn(pte)))
 
 #define pmd_none(pmd)		(!pmd_val(pmd))
 #define pmd_present(pmd)	(pmd_val(pmd))
@@ -111,13 +106,7 @@ static inline pte_t mk_pte_phys(unsigned long physpage, pgprot_t pgprot)
 	return pte;
 }
 
-#define mk_pte(page,pgprot)				\
-({							\
-	pte_t __pte;					\
-	pte_val(__pte) = __pa(page_address(page)) +	\
-			   pgprot_val(pgprot);		\
-	__pte;						\
-})
+#define mk_pte(page,prot)	pfn_pte(page_to_pfn(page),prot)
 
 /*
  * The "pgd_xxx()" functions here are trivial for a folded two-level
@@ -127,7 +116,7 @@ static inline pte_t mk_pte_phys(unsigned long physpage, pgprot_t pgprot)
 #define pgd_none(pgd)		(0)
 #define pgd_bad(pgd)		(0)
 #define pgd_present(pgd)	(1)
-#define pgd_clear(pgdp)
+#define pgd_clear(pgdp)		do { } while (0)
 
 #define page_pte_prot(page,prot)	mk_pte(page, prot)
 #define page_pte(page)		mk_pte(page, __pgprot(0))
@@ -136,7 +125,41 @@ static inline pte_t mk_pte_phys(unsigned long physpage, pgprot_t pgprot)
 #define pgd_index(addr)		((addr) >> PGDIR_SHIFT)
 #define __pgd_offset(addr)	pgd_index(addr)
 
+#ifdef CONFIG_ARM_FCSE
+#define DEFAULT_ADDRESS_SPACE_MODE	(0)
+#define ADDRESS_SPACE_ENV_STR		"ASMODE="
+#define ADDRESS_SPACE_ENV_STR_LEN	(7)
+
+#define CPU_PID_SHIFT		(25)
+#define CPU_PID_NOT_USE		(0)
+#define CPU_PID_SPECIAL		(1)
+#define CPU_PID_MAX_SIZE	(64)
+#define CPU_PID_MVA(a)		((a) << CPU_PID_SHIFT)
+#define CPU_PID_SIZE		(CPU_PID_MVA(1))
+#define CPU_PID_MAX_ADDR	(CPU_PID_MVA(CPU_PID_MAX_SIZE))
+#define CPU_PID_MASK(a)		((a) & (0xffffffff << CPU_PID_SHIFT))
+#define CPU_PID_OFFSET(a)	((a) & (0xffffffff >> (32 - CPU_PID_SHIFT)))
+#define	CPU_PID_VA_TO_MVA_MM(mm, address)	((CPU_PID_MASK(address) == 0) ? ((CPU_PID_MVA((mm)->context.cpu_pid)) | (address)) : (address))
+
+static inline unsigned long cpu_pid_va_to_mva(int address)
+{
+	if (CPU_PID_MASK((unsigned long)address) == 0) {
+		unsigned long pid;
+		__asm__("mrc p15, 0, %0, c13, c0, 0" : "=r"(pid));
+		return ((pid) | (address));
+	}
+	else {
+		return address;
+	}
+}
+
+extern int prev_cpu_pid;
+extern struct mm_struct *cpu_pid_table[CPU_PID_MAX_SIZE];
+
+#define pgd_offset(mm, addr) (CPU_PID_MASK(addr) ? ((mm)->pgd + pgd_index(addr)) : ((mm)->pgd + pgd_index(CPU_PID_MVA((mm)->context.cpu_pid) + addr)))
+#else
 #define pgd_offset(mm, addr)	((mm)->pgd+pgd_index(addr))
+#endif
 
 /* to find an entry in a kernel page-table-directory */
 #define pgd_offset_k(addr)	pgd_offset(&init_mm, addr)
@@ -175,6 +198,13 @@ extern pgd_t swapper_pg_dir[PTRS_PER_PGD];
 #include <asm-generic/pgtable.h>
 
 extern void pgtable_cache_init(void);
+
+/*
+ * remap a physical address `phys' of size `size' with page protection `prot'
+ * into virtual address `from'
+ */
+#define io_remap_page_range(from,phys,size,prot) \
+		remap_page_range(from,phys,size,prot)
 
 #endif /* !__ASSEMBLY__ */
 

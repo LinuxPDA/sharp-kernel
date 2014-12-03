@@ -26,6 +26,8 @@
  *     Foundation, Inc., 59 Temple Place, Suite 330, Boston, 
  *     MA 02111-1307 USA
  *     
+ * ChangeLog:
+ *	06-21-2002 SHARP	add rx-buffer and delayed disconnection control
  ********************************************************************/
 
 #ifndef IRCOMM_TTY_ATTACH_H
@@ -57,6 +59,8 @@ typedef enum {
 	IRCOMM_TTY_WD_TIMER_EXPIRED,
 	IRCOMM_TTY_GOT_PARAMETERS,
 	IRCOMM_TTY_GOT_LSAPSEL,
+	IRCOMM_TTY_DISCON_TIMER_EXPIRED,
+	IRCOMM_TTY_FLOW_TIMER_EXPIRED,
 } IRCOMM_TTY_EVENT;
 
 /* Used for passing information through the state-machine */

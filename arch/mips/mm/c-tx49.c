@@ -62,28 +62,44 @@ static inline void r49_flush_cache_all_d16i32(void)
 {
 	unsigned long flags, config;
 
-	__save_and_cli(flags);
+#if defined(CONFIG_RTHAL)
+	hard_save_flags_and_cli(flags);
+#else /* CONFIG_RTHAL */
+	local_irq_save(flags);
+#endif /* CONFIG_RTHAL */
 	blast_dcache16_wayLSB();
 	/* disable icache (set ICE#) */
-	config = read_32bit_cp0_register(CP0_CONFIG);
-	write_32bit_cp0_register(CP0_CONFIG, config|TX49_CONF_IC);
+	config = read_c0_config();
+	write_c0_config(config | TX49_CONF_IC);
 	blast_icache32_wayLSB();
-	write_32bit_cp0_register(CP0_CONFIG, config);
-	__restore_flags(flags);
+	write_c0_config(config);
+#if defined(CONFIG_RTHAL)
+	hard_restore_flags(flags);
+#else /* CONFIG_RTHAL */
+	local_irq_restore(flags);
+#endif /* CONFIG_RTHAL */
 }
 
 static inline void r49_flush_cache_all_d32i32(void)
 {
 	unsigned long flags, config;
 
-	__save_and_cli(flags);
+#if defined(CONFIG_RTHAL)
+	hard_save_flags_and_cli(flags);
+#else /* CONFIG_RTHAL */
+	local_irq_save(flags);
+#endif /* CONFIG_RTHAL */
 	blast_dcache32_wayLSB();
 	/* disable icache (set ICE#) */
-	config = read_32bit_cp0_register(CP0_CONFIG);
-	write_32bit_cp0_register(CP0_CONFIG, config|TX49_CONF_IC);
+	config = read_c0_config();
+	write_c0_config(config | TX49_CONF_IC);
 	blast_icache32_wayLSB();
-	write_32bit_cp0_register(CP0_CONFIG, config);
-	__restore_flags(flags);
+	write_c0_config(config);
+#if defined(CONFIG_RTHAL)
+	hard_restore_flags(flags);
+#else /* CONFIG_RTHAL */
+	local_irq_restore(flags);
+#endif /* CONFIG_RTHAL */
 }
 
 static void r49_flush_cache_range_d16i32(struct mm_struct *mm,
@@ -96,14 +112,22 @@ static void r49_flush_cache_range_d16i32(struct mm_struct *mm,
 #ifdef DEBUG_CACHE
 		printk("crange[%d,%08lx,%08lx]", (int)mm->context, start, end);
 #endif
-		__save_and_cli(flags);
+#if defined(CONFIG_RTHAL)
+		hard_save_flags_and_cli(flags);
+#else /* CONFIG_RTHAL */
+		local_irq_save(flags);
+#endif /* CONFIG_RTHAL */
 		blast_dcache16_wayLSB();
 		/* disable icache (set ICE#) */
-		config = read_32bit_cp0_register(CP0_CONFIG);
-		write_32bit_cp0_register(CP0_CONFIG, config|TX49_CONF_IC);
+		config = read_c0_config();
+		write_c0_config(config | TX49_CONF_IC);
 		blast_icache32_wayLSB();
-		write_32bit_cp0_register(CP0_CONFIG, config);
-		__restore_flags(flags);
+		write_c0_config(config);
+#if defined(CONFIG_RTHAL)
+		hard_restore_flags(flags);
+#else /* CONFIG_RTHAL */	
+		local_irq_restore(flags);
+#endif /* CONFIG_RTHAL */
 	}
 }
 
@@ -117,14 +141,22 @@ static void r49_flush_cache_range_d32i32(struct mm_struct *mm,
 #ifdef DEBUG_CACHE
 		printk("crange[%d,%08lx,%08lx]", (int)mm->context, start, end);
 #endif
-		__save_and_cli(flags);
+#if defined(CONFIG_RTHAL)
+		hard_save_flags_and_cli(flags);
+#else /* CONFIG_RTHAL */
+		local_irq_save(flags);
+#endif /* CONFIG_RTHAL */
 		blast_dcache32_wayLSB();
 		/* disable icache (set ICE#) */
-		config = read_32bit_cp0_register(CP0_CONFIG);
-		write_32bit_cp0_register(CP0_CONFIG, config|TX49_CONF_IC);
+		config = read_c0_config();
+		write_c0_config(config | TX49_CONF_IC);
 		blast_icache32_wayLSB();
-		write_32bit_cp0_register(CP0_CONFIG, config);
-		__restore_flags(flags);
+		write_c0_config(config);
+#if defined(CONFIG_RTHAL)
+		hard_restore_flags(flags);
+#else /* CONFIG_RTHAL */
+		local_irq_restore(flags);
+#endif /* CONFIG_RTHAL */
 	}
 }
 
@@ -172,7 +204,6 @@ static void r49_flush_cache_page_d16i32(struct vm_area_struct *vma,
 #ifdef DEBUG_CACHE
 	printk("cpage[%d,%08lx]", (int)mm->context, page);
 #endif
-	__save_and_cli(flags);
 	page &= PAGE_MASK;
 	pgdp = pgd_offset(mm, page);
 	pmdp = pmd_offset(pgdp, page);
@@ -183,7 +214,7 @@ static void r49_flush_cache_page_d16i32(struct vm_area_struct *vma,
 	 * in the cache.
 	 */
 	if (!(pte_val(*ptep) & _PAGE_PRESENT))
-		goto out;
+		return;
 
 	/*
 	 * Doing flushes for another ASID than the current one is
@@ -201,8 +232,6 @@ static void r49_flush_cache_page_d16i32(struct vm_area_struct *vma,
 		page = (KSEG0 + (page & (dcache_size - 1)));
 		blast_dcache16_page_indexed_wayLSB(page);
 	}
-out:
-	__restore_flags(flags);
 }
 
 static void r49_flush_cache_page_d32i32(struct vm_area_struct *vma,
@@ -224,7 +253,6 @@ static void r49_flush_cache_page_d32i32(struct vm_area_struct *vma,
 #ifdef DEBUG_CACHE
 	printk("cpage[%d,%08lx]", (int)mm->context, page);
 #endif
-	__save_and_cli(flags);
 	page &= PAGE_MASK;
 	pgdp = pgd_offset(mm, page);
 	pmdp = pmd_offset(pgdp, page);
@@ -235,7 +263,7 @@ static void r49_flush_cache_page_d32i32(struct vm_area_struct *vma,
 	 * in the cache.
 	 */
 	if (!(pte_val(*ptep) & _PAGE_PRESENT))
-		goto out;
+		return;
 
 	/*
 	 * Doing flushes for another ASID than the current one is
@@ -253,8 +281,6 @@ static void r49_flush_cache_page_d32i32(struct vm_area_struct *vma,
 		page = (KSEG0 + (page & (dcache_size - 1)));
 		blast_dcache32_page_indexed_wayLSB(page);
 	}
-out:
-	__restore_flags(flags);
 }
 
 /* If the addresses passed to these routines are valid, they are
@@ -308,16 +334,24 @@ r4k_dma_cache_wback_inv(unsigned long addr, unsigned long size)
 	if (size >= dcache_size) {
 		flush_cache_all();
 	} else {
-		__save_and_cli(flags);
+#if defined(CONFIG_RTHAL)
+		hard_save_flags_and_cli(flags);
+#else /* CONFIG_RTHAL */
+		local_irq_save(flags);
+#endif /* CONFIG_RTHAL */
 
 		a = addr & ~(dc_lsize - 1);
-		end = (addr + size) & ~(dc_lsize - 1);
+		end = (addr + size - 1) & ~(dc_lsize - 1);
 		while (1) {
 			flush_dcache_line(a); /* Hit_Writeback_Inv_D */
 			if (a == end) break;
 			a += dc_lsize;
 		}
-		__restore_flags(flags);
+#if defined(CONFIG_RTHAL)
+		hard_restore_flags(flags);
+#else /* CONFIG_RTHAL */
+		local_irq_restore(flags);
+#endif /* CONFIG_RTHAL */
 	}
 }
 
@@ -330,16 +364,24 @@ r4k_dma_cache_inv(unsigned long addr, unsigned long size)
 	if (size >= dcache_size) {
 		flush_cache_all();
 	} else {
-		__save_and_cli(flags);
+#if defined(CONFIG_RTHAL)
+		hard_save_flags_and_cli(flags);
+#else /* CONFIG_RTHAL */
+		local_irq_save(flags);
+#endif /* CONFIG_RTHAL */
 
 		a = addr & ~(dc_lsize - 1);
-		end = (addr + size) & ~(dc_lsize - 1);
+		end = (addr + size - 1) & ~(dc_lsize - 1);
 		while (1) {
 			flush_dcache_line(a); /* Hit_Writeback_Inv_D */
 			if (a == end) break;
 			a += dc_lsize;
 		}
-		__restore_flags(flags);
+#if defined(CONFIG_RTHAL)
+		hard_restore_flags(flags);
+#else /* CONFIG_RTHAL */
+		local_irq_restore(flags);
+#endif /* CONFIG_RTHAL */
 	}
 }
 
@@ -382,12 +424,12 @@ static void __init probe_dcache(unsigned long config)
 int mips_configk0 = -1;	/* board-specific setup routine can override this */
 void __init ld_mmu_tx49(void)
 {
-	unsigned long config = read_32bit_cp0_register(CP0_CONFIG);
+	unsigned long config = read_c0_config();
 
 	if (mips_configk0 != -1)
-		change_cp0_config(CONF_CM_CMASK, mips_configk0);
+		change_c0_config(CONF_CM_CMASK, mips_configk0);
 	else
-		change_cp0_config(CONF_CM_CMASK, CONF_CM_DEFAULT);
+		change_c0_config(CONF_CM_CMASK, CONF_CM_DEFAULT);
 
 	probe_icache(config);
 	probe_dcache(config);

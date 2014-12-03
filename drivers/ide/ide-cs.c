@@ -28,6 +28,12 @@
     and other provisions required by the GPL.  If you do not delete
     the provisions above, a recipient may use your version of this
     file under either the MPL or the GPL.
+
+     Change Log
+	12-Nov-2001 Lineo Japan, Inc.
+	30-Jul-2002 Lineo Japan, Inc.  for 2.4.18
+	26-Feb-2004 Lineo Solutions, Inc.  2 slot support
+	12-Oct-2004 Lineo Solutions, Inc.  for Spitz
     
 ======================================================================*/
 
@@ -43,6 +49,9 @@
 #include <linux/hdreg.h>
 #include <linux/major.h>
 #include <linux/ide.h>
+#ifdef CONFIG_ARCH_SHARP_SL
+#include <linux/interrupt.h>
+#endif
 
 #include <asm/io.h>
 #include <asm/system.h>
@@ -62,6 +71,10 @@ static char *version =
 "ide_cs.c 1.26 1999/11/16 02:10:49 (David Hinds)";
 #else
 #define DEBUG(n, args...)
+#endif
+
+#ifdef CONFIG_ARCH_SHARP_SL
+extern int ide_resume_handling[];
 #endif
 
 /*====================================================================*/
@@ -99,7 +112,11 @@ static void ide_release(u_long arg);
 static int ide_event(event_t event, int priority,
 		     event_callback_args_t *args);
 
+#ifdef CONFIG_ARCH_SHARP_SL
+static dev_info_t dev_info = "ide_cs";
+#else
 static dev_info_t dev_info = "ide-cs";
+#endif
 
 static dev_link_t *ide_attach(void);
 static void ide_detach(dev_link_t *);
@@ -236,6 +253,8 @@ int idecs_register (int arg1, int arg2, int irq)
         return ide_register_hw(&hw, NULL);
 }
 
+#define	BASE_OFFSET (0x10 << PCMCIA_ADDRESS_SHIFT)
+
 void ide_config(dev_link_t *link)
 {
     client_handle_t handle = link->handle;
@@ -312,7 +331,7 @@ void ide_config(dev_link_t *link)
 		link->io.NumPorts2 = 0;
 		CFG_CHECK(RequestIO, link->handle, &link->io);
 		io_base = link->io.BasePort1;
-		ctl_base = link->io.BasePort1+0x0e;
+		ctl_base = link->io.BasePort1 + (0x0e << PCMCIA_ADDRESS_SHIFT);
 	    } else goto next_entry;
 	    /* If we've got this far, we're done */
 	    break;
@@ -333,9 +352,11 @@ void ide_config(dev_link_t *link)
     CS_CHECK(RequestConfiguration, handle, &link->conf);
 
     /* deal with brain dead IDE resource management */
-    release_region(link->io.BasePort1, link->io.NumPorts1);
+    release_region(link->io.BasePort1,
+		   link->io.NumPorts1 << PCMCIA_ADDRESS_SHIFT);
     if (link->io.NumPorts2)
-	release_region(link->io.BasePort2, link->io.NumPorts2);
+	release_region(link->io.BasePort2,
+		       link->io.NumPorts2 << PCMCIA_ADDRESS_SHIFT);
 
     /* retry registration in case device is still spinning up */
     for (i = 0; i < 10; i++) {
@@ -345,11 +366,11 @@ void ide_config(dev_link_t *link)
 	if (hd >= 0) break;
 	if (link->io.NumPorts1 == 0x20) {
 	    if (ctl_base)
-		outb(0x02, ctl_base+0x10);
-	    hd = idecs_register(io_base+0x10, ctl_base+0x10,
+		outb(0x02, ctl_base+BASE_OFFSET);
+	    hd = idecs_register(io_base+BASE_OFFSET, ctl_base+BASE_OFFSET,
 			      link->irq.AssignedIRQ);
 	    if (hd >= 0) {
-		io_base += 0x10; ctl_base += 0x10;
+		io_base += BASE_OFFSET; ctl_base += BASE_OFFSET;
 		break;
 	    }
 	}
@@ -399,15 +420,31 @@ void ide_release(u_long arg)
     ide_info_t *info = link->priv;
     
     DEBUG(0, "ide_release(0x%p)\n", link);
+#ifdef CONFIG_ARCH_SHARP_SL
+    if (in_interrupt()) {
+	DEBUG(0, "in_interrupt\n");
+	return;
+    }
+#endif
 
     if (info->ndev) {
 	ide_unregister(info->hd);
 	MOD_DEC_USE_COUNT;
     }
 
-    request_region(link->io.BasePort1, link->io.NumPorts1,"ide-cs");
+#ifdef CONFIG_ARCH_SHARP_SL
+    request_region(link->io.BasePort1,
+		   link->io.NumPorts1 << PCMCIA_ADDRESS_SHIFT,"ide_cs");
     if (link->io.NumPorts2)
-	request_region(link->io.BasePort2, link->io.NumPorts2,"ide-cs");
+	request_region(link->io.BasePort2,
+		       link->io.NumPorts2 << PCMCIA_ADDRESS_SHIFT,"ide_cs");
+#else
+    request_region(link->io.BasePort1,
+		   link->io.NumPorts1 << PCMCIA_ADDRESS_SHIFT,"ide-cs");
+    if (link->io.NumPorts2)
+	request_region(link->io.BasePort2,
+		       link->io.NumPorts2 << PCMCIA_ADDRESS_SHIFT,"ide-cs");
+#endif
     
     info->ndev = 0;
     link->dev = NULL;
@@ -419,6 +456,27 @@ void ide_release(u_long arg)
     link->state &= ~DEV_CONFIG;
 
 } /* ide_release */
+
+#ifdef CONFIG_ARCH_SHARP_SL
+static void
+ide_invalidate_devices(int major, int minor)
+{
+    int i;
+
+    for (i = minor; i < minor + 10; i++) {
+	kdev_t dev = MKDEV(major, i);
+// Richard modify for kernel 2.4.x, fixing get_super() races
+//	struct super_block* sb = get_super(dev);
+
+//	if (sb) {
+//	    shrink_dcache_sb(sb);
+//	    drop_super(sb);
+//	}
+// Richard End
+	invalidate_device(dev, 1);
+    }
+}
+#endif
 
 /*======================================================================
 
@@ -445,9 +503,27 @@ int ide_event(event_t event, int priority,
     case CS_EVENT_CARD_INSERTION:
 	link->state |= DEV_PRESENT | DEV_CONFIG_PENDING;
 	ide_config(link);
+#ifdef CONFIG_ARCH_SHARP_SL
+	ide_resume_handling[sharpsl_pcmcia_irq_to_sock(link->irq.AssignedIRQ)] = 0;
+#endif
 	break;
     case CS_EVENT_PM_SUSPEND:
 	link->state |= DEV_SUSPEND;
+#ifdef CONFIG_ARCH_SHARP_SL
+	if (link->dev) {
+#if defined(CONFIG_ARCH_PXA_SPITZ)
+	    if (sharpsl_pcmcia_irq_to_sock(link->irq.AssignedIRQ) == 1) {
+		ide_drive_t *drive = get_info_ptr(MKDEV(link->dev->major,
+							link->dev->minor));
+		DRIVER(drive)->standby(drive);
+	    } else {
+		ide_invalidate_devices(link->dev->major, link->dev->minor);
+	    }
+#else
+	    ide_invalidate_devices(link->dev->major, link->dev->minor);
+#endif
+	}
+#endif
 	/* Fall through... */
     case CS_EVENT_RESET_PHYSICAL:
 	if (link->state & DEV_CONFIG)
@@ -455,6 +531,14 @@ int ide_event(event_t event, int priority,
 	break;
     case CS_EVENT_PM_RESUME:
 	link->state &= ~DEV_SUSPEND;
+#ifdef CONFIG_ARCH_SHARP_SL
+#if defined(CONFIG_ARCH_PXA_SPITZ)
+	if (link->dev && sharpsl_pcmcia_irq_to_sock(link->irq.AssignedIRQ) != 1)
+#else
+	if (link->dev)
+#endif
+	    ide_invalidate_devices(link->dev->major, link->dev->minor);
+#endif
 	/* Fall through... */
     case CS_EVENT_CARD_RESET:
 	if (DEV_OK(link))

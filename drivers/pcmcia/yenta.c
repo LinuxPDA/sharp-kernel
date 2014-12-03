@@ -30,6 +30,15 @@
 #define to_cycles(ns)	((ns)/120)
 #define to_ns(cycles)	((cycles)*120)
 
+#if defined(CONFIG_SH_RTS7751R2D)
+#define PCI_CB_SYSTEM_CONTROL	0x80	/* System Control Register */
+#define PCI_CB_MULTIFUNCTION	0x8c	/* Multifunction Routing Register */
+#define PCI_CB_RETRY_STATUS	0x90	/* Retry Status Register */
+#define PCI_CB_CARD_CONTROL	0x91	/* Card Control Register */
+#define PCI_CB_DEVICE_CONTROL	0x92	/* Device Control Register */
+#define PCI_CB_DIAGNOSTIC	0x93	/* Diagnostic Register */
+#endif
+
 /*
  * Generate easy-to-use ways of reading a cardbus sockets
  * regular memory space ("cb_xxx"), configuration space
@@ -664,11 +673,48 @@ static void yenta_config_init(pci_socket_t *socket)
 		bridge |= CB_BRIDGE_INTR;
 	config_writew(socket, CB_BRIDGE_CONTROL, bridge);
 
+#if defined(CONFIG_SH_RTS7751R2D)
+	exca_writeb(socket, I365_GBLCTL, I365_GBL_CSC_LEV | I365_GBL_IRQ_0_LEV);
+	exca_writeb(socket, I365_INTCTL, I365_INTR_ENA);
+#else
 	exca_writeb(socket, I365_GBLCTL, 0x00);
+#endif
 	exca_writeb(socket, I365_GENCTL, 0x00);
 
 	/* Redo card voltage interrogation */
 	cb_writel(socket, CB_SOCKET_FORCE, CB_CVSTEST);
+#if defined(CONFIG_SH_RTS7751R2D)
+	/* System Control Register
+	 *	SER_STEP=00, INTRTIE=1, RSVD=0, P2CCLK=1,
+	 *	SMIROUTE=0, SMISTATUS=0, SMIENB=0, RSVD=0,
+	 *	CBRSVD=1, VCCPROT=0, REDUCEZV=0, RSVD=0100,
+	 *	MRBURSTD=1, MRBURSTU=0, SOCACTIV=0, RSVD=1,
+	 *	PWRSTREAM=0, DELAYUP=0, DELAYCOWN=0, INTERROGATE=0,
+	 *	RSVD=0, PWRSAVINGS=1, SUBSYSRW=1, CB_DPAR=0,
+	 *	RSVD=0, EXCAPOWER=0, KEEPCLK=0, RIMUX=0
+	 */
+	config_writel(socket, PCI_CB_SYSTEM_CONTROL, 0x28449060);
+	/* Retry Status Register
+	 *	PCIRETRY=0, CBRETRY=0, TEXP_CBB=0, RSVD=0,
+	 *	TEXP_CBA=0, RSVD=0, TEXP_PCI=0, RSVD=0
+	 */
+	config_writeb(socket, PCI_CB_RETRY_STATUS, 0x00);
+	/* Device Control Register
+	 *	SKTPWR_LOCK=0, 3VCAPABLE=1, IO16V2=1, RSVD=0,
+	 *	TEST=0, INTMODE=01, RSVD=0
+	 */
+	config_writeb(socket, PCI_CB_DEVICE_CONTROL, 0x62);
+	/* Diagnostic Register
+	 *	TRUE_VAL=0, RSVD=1, CSC=0, DIAG4=0,
+	 *	DIAG3=0, DIAG2=0, DIAG1=0, STDZVEN=0
+	 */
+	config_writeb(socket, PCI_CB_DIAGNOSTIC, 0x40);
+	/* Multifunction Routing Register
+	 *	RSVD=0000, MFUNC6=0000, MFUNC5=0000, MFUNC4=0000,
+	 *	MFUNC3=0001, MFUNC2=0000, MFUNC1=0000, MFUNC0=0010
+	 */
+	config_writel(socket, PCI_CB_MULTIFUNCTION, 0x00001002);
+#endif
 }
 
 /* Called at resume and initialization events */
@@ -813,6 +859,9 @@ static struct cardbus_override_struct {
 	{ PD(TI,1420),	&ti_ops },
 	{ PD(TI,4410),	&ti_ops },
 	{ PD(TI,4451),	&ti_ops },
+#if defined(CONFIG_SH_RTS7751R2D)
+	{ PD(TI,1520),  &ti_ops },
+#endif
 
 	{ PD(RICOH,RL5C465), &ricoh_ops },
 	{ PD(RICOH,RL5C466), &ricoh_ops },

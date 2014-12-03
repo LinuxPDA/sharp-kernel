@@ -1,0 +1,12 @@
+mainmenu_option next_comment
+comment 'MMC device drivers'
+tristate 'Multi Media Card support' CONFIG_MMC
+if [ "$CONFIG_MMC" = "y" -o "$CONFIG_MMC" = "m" ]; then
+   dep_tristate 'PXA250 MMC driver' CONFIG_MMC_PXA  $CONFIG_MMC
+   dep_tristate 'MMC block driver' CONFIG_MMC_BLOCK  $CONFIG_MMC
+   if [ "$CONFIG_MMC_BLOCK" = "y" -o "$CONFIG_MMC_BLOCK" = "m" ]; then
+      bool '  MMC partitioning support' CONFIG_MMC_PARTITIONS
+   fi
+fi				       
+endmenu
+

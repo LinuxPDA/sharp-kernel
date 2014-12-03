@@ -235,23 +235,23 @@
 /*       MISCELLANEOUS DEFINES       */
 /* --------------------------------- */
 
-#define I2C_CLOCK_PRESCALER 	0x03
-
 #define FRAMES_PER_DESC		10	/* FIXME - What should this be? */
 #define MAX_FRAME_SIZE_PER_DESC	993	/* For statically allocated stuff */
-#define PIXELS_PER_SEG		256	/* Pixels per segment */
-
 #define OV511_ENDPOINT_ADDRESS	1	/* Isoc endpoint number */
+#define OV511_NUMSBUF		2
 
 #define OV511_NUMFRAMES	2
 #if OV511_NUMFRAMES > VIDEO_MAX_FRAME
 	#error "OV511_NUMFRAMES is too high"
 #endif
 
-#define OV511_NUMSBUF		2
-
 /* Control transfers use up to 4 bytes */
 #define OV511_CBUF_SIZE		4
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 4, 20)
+	/* Size of usb_make_path() buffer */
+	#define OV511_USB_PATH_LEN	64
+#endif
 
 /* Bridge types */
 enum {
@@ -286,21 +286,6 @@ enum {
 	SEN_SAA7111A,
 };
 
-// Not implemented yet
-#if 0
-/* Sensor classes */
-enum {
-	SCL_UNKNOWN,
-	SCL_OV7610,	/* 7610, 76BE, 7620AE (for now) */
-	SCL_OV7620,
-	SCL_OV6620,	
-	SCL_OV6630,	/* 6630, 6630AE, 6630AF */
-	SCL_OV8600,
-	SCL_KS0127,	/* SEN_KS0127, SEN_KS0127B */
-	SCL_SAA7111A,
-};
-#endif
-
 enum {
 	STATE_SCANNING,		/* Scanning for start */
 	STATE_HEADER,		/* Parsing header */
@@ -311,7 +296,6 @@ enum {
 enum {
 	BUF_NOT_ALLOCATED,
 	BUF_ALLOCATED,
-	BUF_PEND_DEALLOC,	/* ov511->buf_timer is set */
 };
 
 /* --------- Definition of ioctl interface --------- */
@@ -466,6 +450,9 @@ struct usb_ov511 {
 	int customid;
 	char *desc;
 	unsigned char iface;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 4, 20)
+	char usb_path[OV511_USB_PATH_LEN];
+#endif
 
 	/* Determined by sensor type */
 	int maxwidth;
@@ -509,7 +496,7 @@ struct usb_ov511 {
 	int subw;		/* Pix Array subcapture width */
 	int subh;		/* Pix Array subcapture height */
 
-	int curframe;		/* Current receiving sbuf */
+	int curframe;		/* Frame currently being written to */
 	struct ov511_frame frame[OV511_NUMFRAMES];	
 
 	struct ov511_sbuf sbuf[OV511_NUMSBUF];
@@ -521,7 +508,6 @@ struct usb_ov511 {
 	int bridge;		/* Type of bridge (BRG_*) */
 	int bclass;		/* Class of bridge (BCL_*) */
 	int sensor;		/* Type of image sensor chip (SEN_*) */
-	int sclass;		/* Type of image sensor chip (SCL_*) */
 
 	int packet_size;	/* Frame size per isoc desc */
 	int packet_numbering;	/* Is ISO frame numbering enabled? */
@@ -537,7 +523,6 @@ struct usb_ov511 {
 	/* Framebuffer/sbuf management */
 	int buf_state;
 	struct semaphore buf_lock;
-	struct timer_list buf_timer;
 
 	struct ov51x_decomp_ops *decomp_ops;
 
@@ -560,6 +545,16 @@ struct usb_ov511 {
 	/* Control transaction stuff */
 	unsigned char *cbuf;		/* Buffer for payload */
 	struct semaphore cbuf_lock;
+};
+
+struct ovsensor_window {
+	int x;
+	int y;
+	int width;
+	int height;
+	int format;
+	int quarter;		/* Scale width and height down 2x */
+	int clockdiv;		/* Clock divisor setting */
 };
 
 /* Used to represent a list of values and their respective symbolic names */

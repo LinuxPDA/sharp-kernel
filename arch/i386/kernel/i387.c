@@ -10,6 +10,7 @@
 
 #include <linux/config.h>
 #include <linux/sched.h>
+#include <linux/spinlock.h>
 #include <linux/init.h>
 #include <asm/processor.h>
 #include <asm/i387.h>
@@ -89,6 +90,8 @@ void kernel_fpu_begin(void)
 {
 	struct task_struct *tsk = current;
 
+	preempt_disable();
+	
 	if (tsk->flags & PF_USEDFPU) {
 		__save_init_fpu(tsk);
 		return;

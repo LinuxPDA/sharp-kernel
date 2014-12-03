@@ -9,11 +9,11 @@
 
 #include <asm/mipsregs.h>
 #include <asm/bcache.h>
+#include <asm/cacheops.h>
 #include <asm/page.h>
 #include <asm/pgtable.h>
 #include <asm/system.h>
 #include <asm/mmu_context.h>
-#include <asm/r4kcacheops.h>
 
 /* Secondary cache size in bytes, if present.  */
 static unsigned long scache_size;
@@ -68,25 +68,25 @@ static void r5k_sc_enable(void)
 {
         unsigned long flags;
 
-	__save_and_cli(flags);
-	change_cp0_config(CONF_SE, CONF_SE);
+	local_irq_save(flags);
+	change_c0_config(CONF_SE, CONF_SE);
 	blast_r5000_scache();
-	__restore_flags(flags);
+	local_irq_restore(flags);
 }
 
 static void r5k_sc_disable(void)
 {
         unsigned long flags;
 
-	__save_and_cli(flags);
+	local_irq_save(flags);
 	blast_r5000_scache();
-	change_cp0_config(CONF_SE, 0);
-	__restore_flags(flags);
+	change_c0_config(CONF_SE, 0);
+	local_irq_restore(flags);
 }
 
 static inline int __init r5k_sc_probe(void)
 {
-	unsigned long config = read_32bit_cp0_register(CP0_CONFIG);
+	unsigned long config = read_c0_config();
 
 	if(config & CONF_SC)
 		return(0);

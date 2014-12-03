@@ -4,6 +4,7 @@
  *  Copyright (C) 1991, 1992  Linus Torvalds
  *  Copyright (C) 1992, 1993, 1994, 1995, 1996, 1997, 
  * 		1998, 1999  Theodore Ts'o
+ *  Copyright (C) 2000 VERITAS Software Corporation.
  *
  *  Extensively rewritten by Theodore Ts'o, 8/16/92 -- 9/14/92.  Now
  *  much more extensible to support other serial cards based on the
@@ -34,6 +35,10 @@
  *  4/98: Added changes to support the ARM architecture proposed by
  * 	  Russell King
  *
+ *  3/99: Added TIOCGDB for remote debugging with gdb if compiled with
+ *        CONFIG_REMOTE_DEBUG
+ * 	  Tigran Aivazian
+ *
  *  5/99: Updated to include support for the XR16C850 and ST16C654
  *        uarts.  Stuart MacDonald <stuartm@connecttech.com>
  *
@@ -62,6 +67,18 @@
  *        Robert Schwebel <robert@schwebel.de>,
  *        Juergen Beisert <jbeisert@eurodsn.de>,
  *        Theodore Ts'o <tytso@mit.edu>
+ *
+ * 10/00: Added suport for MIPS Atlas board.
+ * 11/00: Hooks for serial kernel debug port support added.
+ *        Kevin D. Kissell, kevink@mips.com and Carsten Langgaard,
+ *        carstenl@mips.com
+ *        Copyright (C) 2000 MIPS Technologies, Inc.  All rights reserved.
+ *
+ * Change Log
+ *	30-Jul-2002 Lineo Japan, Inc.  for 2.4.18
+ *	31-Jul-2002 Lineo Japan, Inc.  for ARCH_PXA
+ *      12-Dec-2002 Sharp Corporation  for Poodle and Corgi
+ *      26-Feb-2004 Lineo Solutions, Inc.  for Tosa
  */
 
 static char *serial_version = "5.05c";
@@ -100,6 +117,17 @@ static char *serial_revdate = "2001-07-08";
 #include <linux/config.h>
 #include <linux/version.h>
 
+#ifdef CONFIG_KGDB
+#include <linux/gdb.h>
+#endif
+
+#if defined(CONFIG_ARCH_SHARP_SL)
+#undef CONFIG_SERIAL_CONSOLE
+#endif
+#if defined(CONFIG_SABINAL_DISCOVERY)
+#define CONFIG_REDEFINE_IO8BIT
+#endif
+
 #undef SERIAL_PARANOIA_CHECK
 #define CONFIG_SERIAL_NOPAUSE_IO
 #define SERIAL_DO_RESTART
@@ -131,6 +159,16 @@ static char *serial_revdate = "2001-07-08";
 #ifndef ENABLE_SERIAL_PNP
 #define ENABLE_SERIAL_PNP
 #endif
+#endif
+
+#ifdef CONFIG_ARCH_PXA
+#define pxa_port(x) ((x) == PORT_PXA)
+#define pxa_buggy_port(x) ({ \
+	int cpu_ver; asm("mrc%? p15, 0, %0, c0, c0" : "=r" (cpu_ver)); \
+	((x) == PORT_PXA && (cpu_ver & ~1) == 0x69052100); })
+#else
+#define pxa_port(x) (0)
+#define pxa_buggy_port(x) (0)
 #endif
 
 /* Set of debugging defines */
@@ -172,6 +210,18 @@ static char *serial_revdate = "2001-07-08";
 #define SERIAL_INLINE
 #endif
   
+#if defined(CONFIG_SH_RTS7751R2D)
+#include <asm/io.h>
+#include <asm/renesas_rts7751r2d.h>
+#include <asm/voyagergx_reg.h>
+
+#ifndef CONFIG_SERIAL_SHARE_IRQ
+#define CONFIG_SERIAL_SHARE_IRQ
+#endif
+#undef ENABLE_SERIAL_PCI
+#undef CONFIG_SERIAL_CONSOLE
+#endif
+
 /*
  * End of serial driver configuration section.
  */
@@ -210,7 +260,7 @@ static char *serial_revdate = "2001-07-08";
 #include <asm/uaccess.h>
 #endif
 #include <linux/delay.h>
-#ifdef CONFIG_SERIAL_CONSOLE
+#if defined(CONFIG_SERIAL_CONSOLE) || defined (CONFIG_GDB_CONSOLE)
 #include <linux/console.h>
 #endif
 #ifdef ENABLE_SERIAL_PCI
@@ -221,6 +271,9 @@ static char *serial_revdate = "2001-07-08";
 #endif
 #ifdef CONFIG_MAGIC_SYSRQ
 #include <linux/sysrq.h>
+#endif
+#ifdef CONFIG_LEDMAN
+#include <linux/ledman.h>
 #endif
 
 /*
@@ -235,9 +288,18 @@ static char *serial_revdate = "2001-07-08";
 #include <asm/io.h>
 #include <asm/irq.h>
 #include <asm/bitops.h>
+#if defined(CONFIG_ARCH_SHARP_SL)
+#include <asm/sharp_apm.h>
+#endif
 
 #if defined(CONFIG_MAC_SERIAL)
 #define SERIAL_DEV_OFFSET	((_machine == _MACH_prep || _machine == _MACH_chrp) ? 0 : 2)
+#elif defined(CONFIG_ARCH_SHARP_SL)
+#define SERIAL_DEV_OFFSET	3
+#elif defined(CONFIG_ARCH_DBMX1)
+#define SERIAL_DEV_OFFSET	2
+#elif defined(CONFIG_ARCH_DBMX2)
+#define SERIAL_DEV_OFFSET	4
 #else
 #define SERIAL_DEV_OFFSET	0
 #endif
@@ -289,6 +351,10 @@ static void autoconfig(struct serial_state * state);
 static void change_speed(struct async_struct *info, struct termios *old);
 static void rs_wait_until_sent(struct tty_struct *tty, int timeout);
 
+#if defined(CONFIG_SH_RTS7751R2D)
+static void voyagergx_uart_init(void);
+#endif
+
 /*
  * Here we define the default xmit fifo size used for each type of
  * UART
@@ -301,8 +367,13 @@ static struct serial_uart_config uart_config[] = {
 	{ "16550A", 16, UART_CLEAR_FIFO | UART_USE_FIFO }, 
 	{ "cirrus", 1, 0 }, 	/* usurped by cyclades.c */
 	{ "ST16650", 1, UART_CLEAR_FIFO | UART_STARTECH }, 
+#if defined(CONFIG_SH_RTS7751R2D)
+	{ "ST16650V2", 64, UART_CLEAR_FIFO | UART_USE_FIFO |
+		  UART_STARTECH },
+#else
 	{ "ST16650V2", 32, UART_CLEAR_FIFO | UART_USE_FIFO |
 		  UART_STARTECH }, 
+#endif
 	{ "TI16750", 64, UART_CLEAR_FIFO | UART_USE_FIFO},
 	{ "Startech", 1, 0},	/* usurped by cyclades.c */
 	{ "16C950/954", 128, UART_CLEAR_FIFO | UART_USE_FIFO},
@@ -311,6 +382,7 @@ static struct serial_uart_config uart_config[] = {
 	{ "XR16850", 128, UART_CLEAR_FIFO | UART_USE_FIFO |
 		  UART_STARTECH },
 	{ "RSA", 2048, UART_CLEAR_FIFO | UART_USE_FIFO }, 
+	{ "PXA UART", 32, UART_CLEAR_FIFO | UART_USE_FIFO },
 	{ 0, 0}
 };
 
@@ -331,6 +403,12 @@ struct serial_state rs_table[RS_TABLE_SIZE] = {
 };
 
 #define NR_PORTS	(sizeof(rs_table)/sizeof(struct serial_state))
+
+#if defined(CONFIG_SH_RTS7751R2D)
+#undef NR_PORTS
+#define NR_PORTS 1
+#endif
+
 int serial_nr_ports = NR_PORTS;
 
 #if (defined(ENABLE_SERIAL_PCI) || defined(ENABLE_SERIAL_PNP))
@@ -413,6 +491,22 @@ static inline int serial_paranoia_check(struct async_struct *info,
 	return 0;
 }
 
+#if defined(CONFIG_MIPS_ATLAS) || defined(CONFIG_MIPS_SEAD)
+
+#include <asm/mips-boards/atlas.h>
+
+static _INLINE_ unsigned int serial_in(struct async_struct *info, int offset)
+{
+        return (*(volatile unsigned int *)(mips_io_port_base + ATLAS_UART_REGS_BASE + offset*8) & 0xff);
+}
+
+static _INLINE_ void serial_out(struct async_struct *info, int offset, int value)
+{
+        *(volatile unsigned int *)(mips_io_port_base + ATLAS_UART_REGS_BASE + offset*8) = value;
+}
+
+#else
+
 static _INLINE_ unsigned int serial_in(struct async_struct *info, int offset)
 {
 	switch (info->io_type) {
@@ -423,6 +517,9 @@ static _INLINE_ unsigned int serial_in(struct async_struct *info, int offset)
 #endif
 	case SERIAL_IO_MEM:
 		return readb((unsigned long) info->iomem_base +
+			     (offset<<info->iomem_reg_shift));
+	case SERIAL_IO_MEM32:
+		return readl((unsigned long) info->iomem_base +
 			     (offset<<info->iomem_reg_shift));
 	default:
 		return inb(info->port + offset);
@@ -443,10 +540,15 @@ static _INLINE_ void serial_out(struct async_struct *info, int offset,
 		writeb(value, (unsigned long) info->iomem_base +
 			      (offset<<info->iomem_reg_shift));
 		break;
+	case SERIAL_IO_MEM32:
+		writel(value, (unsigned long) info->iomem_base +
+			      (offset<<info->iomem_reg_shift));
+		break;
 	default:
 		outb(value, info->port+offset);
 	}
 }
+#endif
 
 /*
  * We used to support using pause I/O for certain machines.  We
@@ -569,6 +671,11 @@ static _INLINE_ void receive_chars(struct async_struct *info,
 	struct	async_icount *icount;
 	int	max_count = 256;
 
+#ifdef CONFIG_LEDMAN
+	ledman_cmd(LEDMAN_CMD_SET,
+		(info->line == 0) ? LEDMAN_COM1_RX : LEDMAN_COM2_RX);
+#endif
+
 	icount = &info->state->icount;
 	do {
 		if (tty->flip.count >= TTY_FLIPBUF_SIZE) {
@@ -682,6 +789,11 @@ static _INLINE_ void transmit_chars(struct async_struct *info, int *intr_done)
 {
 	int count;
 
+#ifdef CONFIG_LEDMAN
+	ledman_cmd(LEDMAN_CMD_SET,
+		(info->line == 0) ? LEDMAN_COM1_TX : LEDMAN_COM2_TX);
+#endif
+
 	if (info->x_char) {
 		serial_outp(info, UART_TX, info->x_char);
 		info->state->icount.tx++;
@@ -750,6 +862,13 @@ static _INLINE_ void check_modem_status(struct async_struct *info)
 			icount->cts++;
 		wake_up_interruptible(&info->delta_msr_wait);
 	}
+
+#ifdef CONFIG_SH_RTS7751R2D
+	wake_up_interruptible(&info->open_wait);
+#if defined(SERIAL_DEBUG_OPEN)
+	printk("wake up open_wait\n");
+#endif
+#endif
 
 	if ((info->flags & ASYNC_CHECK_CD) && (status & UART_MSR_DDCD)) {
 #if (defined(SERIAL_DEBUG_OPEN) || defined(SERIAL_DEBUG_INTR))
@@ -1296,6 +1415,22 @@ static int startup(struct async_struct * info)
 	}
 #endif
 
+#ifdef CONFIG_ARCH_PXA
+	if (state->type == PORT_PXA) {
+		switch ((long)state->iomem_base) {
+#if defined(CONFIG_PM) && defined(CONFIG_ARCH_SHARP_SL) && !defined(CONFIG_SABINAL_DISCOVERY)
+			case (long)&FFUART: lock_FCS(LOCK_FCS_FFUART, 1); CKEN |= CKEN6_FFUART; break;
+			case (long)&BTUART: lock_FCS(LOCK_FCS_BTUART, 1); CKEN |= CKEN7_BTUART; break;
+			case (long)&STUART: lock_FCS(LOCK_FCS_STUART, 1); CKEN |= CKEN5_STUART; break;
+#else
+			case (long)&FFUART: CKEN |= CKEN6_FFUART; break;
+			case (long)&BTUART: CKEN |= CKEN7_BTUART; break;
+			case (long)&STUART: CKEN |= CKEN5_STUART; break;
+#endif
+		}
+	}
+#endif
+
 	/*
 	 * Clear the FIFO buffers and disable them
 	 * (they will be reenabled in change_speed())
@@ -1321,6 +1456,7 @@ static int startup(struct async_struct * info)
 	 * if it is, then bail out, because there's likely no UART
 	 * here.
 	 */
+#ifndef CONFIG_ARCH_APLAT
 	if (!(info->flags & ASYNC_BUGGY_UART) &&
 	    (serial_inp(info, UART_LSR) == 0xff)) {
 		printk("ttyS%d: LSR safety check engaged!\n", state->line);
@@ -1331,6 +1467,7 @@ static int startup(struct async_struct * info)
 			retval = -ENODEV;
 		goto errout;
 	}
+#endif
 	
 	/*
 	 * Allocate the IRQ if necessary
@@ -1353,8 +1490,13 @@ static int startup(struct async_struct * info)
 		} else 
 			handler = rs_interrupt_single;
 
+#if defined(CONFIG_SH_RTS7751R2D)
+		retval = request_irq(state->irq, handler, SA_SHIRQ,
+				"VoyagerGX serial", &IRQ_ports[state->irq]);
+#else
 		retval = request_irq(state->irq, handler, SA_SHIRQ,
 				     "serial", &IRQ_ports[state->irq]);
+#endif
 		if (retval) {
 			if (capable(CAP_SYS_ADMIN)) {
 				if (info->tty)
@@ -1393,6 +1535,8 @@ static int startup(struct async_struct * info)
 	{
 		if (state->irq != 0)
 			info->MCR |= UART_MCR_OUT2;
+		if (pxa_buggy_port(state->type) && state->irq != 0)
+			info->MCR ^= UART_MCR_OUT2;
 	}
 	info->MCR |= ALPHA_KLUDGE_MCR; 		/* Don't ask */
 	serial_outp(info, UART_MCR, info->MCR);
@@ -1401,6 +1545,8 @@ static int startup(struct async_struct * info)
 	 * Finally, enable interrupts
 	 */
 	info->IER = UART_IER_MSI | UART_IER_RLSI | UART_IER_RDI;
+	if (pxa_port(state->type))
+		info->IER |= UART_IER_UUE | UART_IER_RTOIE;
 	serial_outp(info, UART_IER, info->IER);	/* enable interrupts */
 	
 #ifdef CONFIG_SERIAL_MANY_PORTS
@@ -1451,6 +1597,9 @@ static int startup(struct async_struct * info)
 	change_speed(info, 0);
 
 	info->flags |= ASYNC_INITIALIZED;
+#ifdef CONFIG_KGDB
+	info->flags &= ~ASYNC_GDB;
+#endif
 	restore_flags(flags);
 	return 0;
 	
@@ -1513,6 +1662,11 @@ static void shutdown(struct async_struct * info)
 				printk("serial shutdown: request_irq: error %d"
 				       "  Couldn't reacquire IRQ.\n", retval);
 		} else
+#ifdef CONFIG_KGDB
+			if (info->flags & ASYNC_GDB)
+			    	free_irq(state->irq, NULL);
+			else
+#endif
 			free_irq(state->irq, &IRQ_ports[state->irq]);
 	}
 
@@ -1532,6 +1686,8 @@ static void shutdown(struct async_struct * info)
 	} else
 #endif
 		info->MCR &= ~UART_MCR_OUT2;
+		if (pxa_buggy_port(state->type))
+			info->MCR ^= UART_MCR_OUT2;
 	info->MCR |= ALPHA_KLUDGE_MCR; 		/* Don't ask */
 	
 	/* disable break condition */
@@ -1557,6 +1713,22 @@ static void shutdown(struct async_struct * info)
 		state->baud_base = SERIAL_RSA_BAUD_BASE_LO;
 #endif
 	
+#ifdef CONFIG_ARCH_PXA
+	if (state->type == PORT_PXA) {
+		switch ((long)state->iomem_base) {
+#if defined(CONFIG_PM) && defined(CONFIG_ARCH_SHARP_SL) && !defined(CONFIG_SABINAL_DISCOVERY)
+			case (long)&FFUART: CKEN &= ~CKEN6_FFUART; lock_FCS(LOCK_FCS_FFUART, 0); break;
+			case (long)&BTUART: CKEN &= ~CKEN7_BTUART; lock_FCS(LOCK_FCS_BTUART, 0); break;
+			case (long)&STUART: CKEN &= ~CKEN5_STUART; lock_FCS(LOCK_FCS_STUART, 0); break;
+#else
+			case (long)&FFUART: CKEN &= ~CKEN6_FFUART; break;
+			case (long)&BTUART: CKEN &= ~CKEN7_BTUART; break;
+			case (long)&STUART: CKEN &= ~CKEN5_STUART; break;
+#endif
+		}
+	}
+#endif
+
 
 	(void)serial_in(info, UART_RX);    /* read data port to reset things */
 	
@@ -1580,6 +1752,13 @@ static void shutdown(struct async_struct * info)
 	info->flags &= ~ASYNC_INITIALIZED;
 	restore_flags(flags);
 }
+
+#if defined(CONFIG_KGDB) || defined(CONFIG_REMOTE_DEBUG)
+void shutdown_for_gdb(struct async_struct * info)
+{
+    shutdown(info) ;
+}
+#endif
 
 #if (LINUX_VERSION_CODE < 131394) /* Linux 2.1.66 */
 static int baud_table[] = {
@@ -1722,6 +1901,17 @@ static void change_speed(struct async_struct *info,
 	info->timeout += HZ/50;		/* Add .02 seconds of slop */
 
 	/* Set up FIFO's */
+#if defined(CONFIG_SH_RTS7751R2D)
+	/*
+	 * bit[7:6] RX fifo trigger level
+	 * bit[5:4] TX fifo trigger level
+	 *      00 1
+	 *      01 16
+	 *      10 32
+	 *      11 64
+	 */
+	fcr = UART_FCR_ENABLE_FIFO | 0xc0;
+#else
 	if (uart_config[info->state->type].flags & UART_USE_FIFO) {
 		if ((info->state->baud_base / quot) < 2400)
 			fcr = UART_FCR_ENABLE_FIFO | UART_FCR_TRIGGER_1;
@@ -1732,6 +1922,7 @@ static void change_speed(struct async_struct *info,
 		else
 			fcr = UART_FCR_ENABLE_FIFO | UART_FCR_TRIGGER_8;
 	}
+#endif
 	if (info->state->type == PORT_16750)
 		fcr |= UART_FCR7_64BYTE;
 	
@@ -1786,10 +1977,25 @@ static void change_speed(struct async_struct *info,
 	save_flags(flags); cli();
 	if (uart_config[info->state->type].flags & UART_STARTECH) {
 		serial_outp(info, UART_LCR, 0xBF);
+#if defined(CONFIG_SH_RTS7751R2D)
+		serial_outp(info, UART_EFR, UART_EFR_CTS | UART_EFR_RTS | UART_EFR_ECB);
+#else
 		serial_outp(info, UART_EFR,
 			    (cflag & CRTSCTS) ? UART_EFR_CTS : 0);
+#endif
 	}
 	serial_outp(info, UART_LCR, cval | UART_LCR_DLAB);	/* set DLAB */
+#if defined(CONFIG_SH_RTS7751R2D)
+	/*
+	 * Baud rate    8MHz Divisor
+	 * 2400         208
+	 * 4800         139
+	 * 9600         52
+	 * 38400        13
+	 * 56000        9
+	 */
+	quot = 13;
+#endif
 	serial_outp(info, UART_DLL, quot & 0xff);	/* LS of divisor */
 	serial_outp(info, UART_DLM, quot >> 8);		/* MS of divisor */
 	if (info->state->type == PORT_16750)
@@ -1847,6 +2053,11 @@ static void rs_flush_chars(struct tty_struct *tty)
 	save_flags(flags); cli();
 	info->IER |= UART_IER_THRI;
 	serial_out(info, UART_IER, info->IER);
+#ifdef CONFIG_ARCH_S1C38000
+	if (!info->tty->hw_stopped &&
+	    (serial_inp(info, UART_LSR) & UART_LSR_THRE))
+		transmit_chars(info, 0);
+#endif
 	restore_flags(flags);
 }
 
@@ -1921,8 +2132,17 @@ static int rs_write(struct tty_struct * tty, int from_user,
 	    && !tty->stopped
 	    && !tty->hw_stopped
 	    && !(info->IER & UART_IER_THRI)) {
+#ifdef CONFIG_ARCH_S1C38000
+		save_flags(flags); cli();
+#endif
 		info->IER |= UART_IER_THRI;
 		serial_out(info, UART_IER, info->IER);
+#ifdef CONFIG_ARCH_S1C38000
+		if (!info->tty->hw_stopped &&
+		    (serial_inp(info, UART_LSR) & UART_LSR_THRE))
+			transmit_chars(info, 0);
+		restore_flags(flags);
+#endif
 	}
 	return ret;
 }
@@ -2692,6 +2912,13 @@ static int rs_ioctl(struct tty_struct *tty, struct file * file,
 			printk ("TIOCSER?WILD ioctl obsolete, ignored.\n");
 			return 0;
 
+#if defined(CONFIG_KGDB) || defined(CONFIG_REMOTE_DEBUG)
+		case TIOCGDB:
+			gdb_ttyS = MINOR(tty->device) & 0x03F ;
+			gdb_baud = tty_get_baud_rate(tty) ;
+			return gdb_hook();
+#endif
+
 		default:
 			return -ENOIOCTLCMD;
 		}
@@ -3062,15 +3289,24 @@ static int block_til_ready(struct tty_struct *tty, struct file * filp,
 #endif
 			break;
 		}
+#if defined(CONFIG_SABINAL_DISCOVERY)
+		if (!(info->flags & ASYNC_CALLOUT_ACTIVE) &&
+		    !(info->flags & ASYNC_CLOSING))
+#else
 		if (!(info->flags & ASYNC_CALLOUT_ACTIVE) &&
 		    !(info->flags & ASYNC_CLOSING) &&
 		    (do_clocal || (serial_in(info, UART_MSR) &
 				   UART_MSR_DCD)))
+#endif
 			break;
 		if (signal_pending(current)) {
 			retval = -ERESTARTSYS;
 			break;
 		}
+#ifdef CONFIG_SH_RTS7751R2D
+		if(!(info->flags & ASYNC_CLOSING))
+			break;
+#endif
 #ifdef SERIAL_DEBUG_OPEN
 		printk("block_til_ready blocking: ttys%d, count = %d\n",
 		       info->line, state->count);
@@ -3608,10 +3844,14 @@ static void autoconfig_startech_uarts(struct async_struct *info,
 	 * serial driver update, but I'm not convinced this works.
 	 * I've had problems doing this in the past.  -TYT
 	 */
+#ifdef CONFIG_SH_RTS7751R2D
+	state->type = PORT_16650V2;
+#else
 	if (size_fifo(info) == 64)
 		state->type = PORT_16654;
 	else
 		state->type = PORT_16650V2;
+#endif
 }
 
 /*
@@ -3647,9 +3887,17 @@ static void autoconfig(struct serial_state * state)
 #ifdef CONFIG_HUB6
 	info->hub6 = state->hub6;
 #endif
+#if defined(CONFIG_SH_RTS7751R2D)
+	state->irq = VOYAGER_UART0_IRQ;
+	info->io_type = state->io_type = SERIAL_IO_MEM;
+	info->iomem_base = state->iomem_base = (void *)VOYAGER_UART_BASE;
+	info->iomem_reg_shift = state->iomem_reg_shift = 2;
+	state->baud_base = 38400;
+#else
 	info->io_type = state->io_type;
 	info->iomem_base = state->iomem_base;
 	info->iomem_reg_shift = state->iomem_reg_shift;
+#endif
 
 	save_flags(flags); cli();
 	
@@ -3744,6 +3992,7 @@ static void autoconfig(struct serial_state * state)
 		}
 	}
 	if (state->type == PORT_16550A) {
+#ifndef CONFIG_ARCH_SHARP_SL /* @@@@ for P-in Memory By SHARP */
 		/* Check for TI 16750 */
 		serial_outp(info, UART_LCR, save_lcr | UART_LCR_DLAB);
 		serial_outp(info, UART_FCR,
@@ -3765,6 +4014,7 @@ static void autoconfig(struct serial_state * state)
 				state->type = PORT_16750;
 		}
 		serial_outp(info, UART_FCR, UART_FCR_ENABLE_FIFO);
+#endif
 	}
 #if defined(CONFIG_SERIAL_RSA) && defined(MODULE)
 	if (state->type == PORT_16550A) {
@@ -4936,11 +5186,16 @@ static struct pci_driver serial_pci_driver = {
  *
  * Accept a maximum of eight boards
  *
+ * 10/00: added console support for kgdb. Amit Kale <akale@veritas.com>
+ *
  */
 static void __devinit probe_serial_pci(void) 
 {
 #ifdef SERIAL_DEBUG_PCI
 	printk(KERN_DEBUG "Entered probe_serial_pci()\n");
+#endif
+#ifdef CONFIG_REMOTE_DEBUG
+#include <linux/gdb.h>
 #endif
 
 	/* Register call PCI serial devices.  Null out
@@ -5390,6 +5645,10 @@ static int __init rs_init(void)
 	serial_timer.function = rs_timer;
 	mod_timer(&serial_timer, jiffies + RS_STROBE_TIME);
 
+#if defined(CONFIG_SH_RTS7751R2D)
+	voyagergx_uart_init();
+#endif
+
 	for (i = 0; i < NR_IRQS; i++) {
 		IRQ_ports[i] = 0;
 		IRQ_timeout[i] = 0;
@@ -5488,7 +5747,6 @@ static int __init rs_init(void)
 	for (i = 0, state = rs_table; i < NR_PORTS; i++,state++) {
 		state->magic = SSTATE_MAGIC;
 		state->line = i;
-		state->type = PORT_UNKNOWN;
 		state->custom_divisor = 0;
 		state->close_delay = 5*HZ/10;
 		state->closing_wait = 30*HZ;
@@ -5502,14 +5760,18 @@ static int __init rs_init(void)
 		state->irq = irq_cannonicalize(state->irq);
 		if (state->hub6)
 			state->io_type = SERIAL_IO_HUB6;
-		if (state->port && check_region(state->port,8))
+		if (state->port && check_region(state->port,8)) {
+			state->type = PORT_UNKNOWN;
 			continue;
+		}
 #ifdef CONFIG_MCA			
 		if ((state->flags & ASYNC_BOOT_ONLYMCA) && !MCA_bus)
 			continue;
 #endif			
-		if (state->flags & ASYNC_BOOT_AUTOCONF)
+		if (state->flags & ASYNC_BOOT_AUTOCONF) {
+			state->type = PORT_UNKNOWN;
 			autoconfig(state);
+		}
 	}
 	for (i = 0, state = rs_table; i < NR_PORTS; i++,state++) {
 		if (state->type == PORT_UNKNOWN)
@@ -5545,6 +5807,45 @@ static int __init rs_init(void)
 #endif
 	return 0;
 }
+
+#if defined(CONFIG_SH_RTS7751R2D)
+static void voyagergx_uart_init(void)
+{
+	unsigned long	val;
+
+	/*
+	 * GPIO Control
+	 */
+	val = inl(GPIO_MUX_HIGH);
+	val |= 0x00001fe0;
+	outl(val, GPIO_MUX_HIGH);
+
+	/*
+	 * Select UART
+	 */
+//	val = inl(MISC_CTRL);
+//	val |= ~0x08000000;
+//	outl(val, MISC_CTRL);
+
+	/*
+	 * Interrupt Mask
+	 */
+//	val = inl(VOYAGER_INT_MASK);
+//	val |= 0x00001000;
+//	val |= 0x00003000;
+//	outl(val, VOYAGER_INT_MASK);
+
+	/*
+	 * Power Mode Gate
+	 */
+	val = inl(POWER_MODE0_GATE);
+	val |= (POWER_MODE0_GATE_U0 | POWER_MODE0_GATE_U1);
+	outl(val, POWER_MODE0_GATE);
+	val = inl(POWER_MODE1_GATE);
+	val |= (POWER_MODE1_GATE_U0 | POWER_MODE1_GATE_U1);
+	outl(val, POWER_MODE1_GATE);
+}
+#endif
 
 /*
  * This is for use by architectures that know their serial console 
@@ -5688,13 +5989,13 @@ int register_serial(struct serial_struct *req)
 void unregister_serial(int line)
 {
 	unsigned long flags;
-	struct serial_state *state = &rs_table[line];
+	struct serial_state *state = &rs_table[line - SERIAL_DEV_OFFSET];
 
 	save_flags(flags); cli();
 	if (state->info && state->info->tty)
 		tty_hangup(state->info->tty);
 	state->type = PORT_UNKNOWN;
-	printk(KERN_INFO "ttyS%02d unloaded\n", state->line);
+	printk(KERN_INFO "ttyS%02d unloaded\n", state->line + SERIAL_DEV_OFFSET);
 	/* These will be hidden, because they are devices that will no longer
 	 * be available to the system. (ie, PCMCIA modems, once ejected)
 	 */
@@ -5810,6 +6111,20 @@ static inline void wait_for_xmitr(struct async_struct *info)
 	}	
 }
 
+#ifdef CONFIG_KGDB
+static const char hexchars[] = "0123456789abcdef";
+
+static __inline__ char highhex(int  x)
+{
+	return hexchars[(x >> 4) & 0xf];
+}
+
+static __inline__ char lowhex(int  x)
+{
+	return hexchars[x & 0xf];
+}
+extern int kgdb_in;
+#endif
 
 /*
  *	Print a string to the serial port trying not to disturb
@@ -5824,11 +6139,48 @@ static void serial_console_write(struct console *co, const char *s,
 	int ier;
 	unsigned i;
 
+#ifdef CONFIG_KGDB
+
+        int checksum;
+
+    	/* This call only does a trap the first time it is
+	 * called, and so is safe to do here unconditionally
+	 */
+
+	if (kgdb_in) {
+
+	    /*  $<packet info>#<checksum>. */
+	    do {
+		unsigned char c;
+		write_char('$');
+		write_char('O'); /* 'O'utput to console */
+		checksum = 'O';
+
+		for (i=0; i<count; i++) { /* Don't use run length encoding */
+			int h, l;
+
+			c = *s++;
+			h = highhex(c);
+			l = lowhex(c);
+			write_char(h);
+			write_char(l);
+			checksum += h + l;
+		}
+		write_char('#');
+		write_char(highhex(checksum));
+		write_char(lowhex(checksum));
+	    } while  (read_char() != '+');
+	}
+	else
+#endif
+	{
 	/*
 	 *	First save the IER then disable the interrupts
 	 */
 	ier = serial_in(info, UART_IER);
 	serial_out(info, UART_IER, 0x00);
+	if (pxa_port(info->state->type))
+		serial_out(info, UART_IER, UART_IER_UUE);
 
 	/*
 	 *	Now, do each character
@@ -5853,6 +6205,7 @@ static void serial_console_write(struct console *co, const char *s,
 	 */
 	wait_for_xmitr(info);
 	serial_out(info, UART_IER, ier);
+	}
 }
 
 static kdev_t serial_console_device(struct console *c)
@@ -5956,10 +6309,18 @@ static int __init serial_console_setup(struct console *co, char *options)
 #ifdef CONFIG_HUB6
 	info->hub6 = state->hub6;
 #endif
+#if defined(CONFIG_SH_RTS7751R2D)
+	info->io_type = state->io_type = SERIAL_IO_MEM;
+	info->iomem_base = state->iomem_base = (void *)VOYAGER_UART_BASE;
+	info->iomem_reg_shift = state->iomem_reg_shift = 2;
+	state->baud_base = 38400;
+	quot = 13;
+#else
 	info->io_type = state->io_type;
 	info->iomem_base = state->iomem_base;
 	info->iomem_reg_shift = state->iomem_reg_shift;
 	quot = state->baud_base / baud;
+#endif
 	cval = cflag & (CSIZE | CSTOPB);
 #if defined(__powerpc__) || defined(__alpha__)
 	cval >>= 8;
@@ -5980,6 +6341,8 @@ static int __init serial_console_setup(struct console *co, char *options)
 	serial_out(info, UART_DLM, quot >> 8);		/* MS of divisor */
 	serial_out(info, UART_LCR, cval);		/* reset DLAB */
 	serial_out(info, UART_IER, 0);
+	if (pxa_port(info->state->type))
+		serial_out(info, UART_IER, UART_IER_UUE);
 	serial_out(info, UART_MCR, UART_MCR_DTR | UART_MCR_RTS);
 
 	/*
@@ -6008,6 +6371,235 @@ void __init serial_console_init(void)
 	register_console(&sercons);
 }
 #endif
+
+#ifdef CONFIG_KGDB
+/* 
+ *  Takes:
+ *	ttyS - integer specifying which serial port to use for debugging
+ *	baud - baud rate of specified serial port
+ *  Returns:
+ *	port for use by the gdb serial driver
+ */
+struct serial_state *
+gdb_serial_setup(int ttyS, int baud)
+{
+        struct serial_state *ser;
+        unsigned cval;
+        int     bits = 8;
+        int     parity = 'n';
+        int     cflag = CREAD | HUPCL | CLOCAL;
+        int     quot = 0;
+
+        /*
+         *      Now construct a cflag setting.
+         */
+        switch(baud) {
+                case 1200:
+                        cflag |= B1200;
+                        break;
+                case 2400:
+                        cflag |= B2400;
+                        break;
+                case 4800:
+                        cflag |= B4800;
+                        break;
+                case 19200:
+                        cflag |= B19200;
+                        break;
+                case 38400:
+                        cflag |= B38400;
+                        break;
+                case 57600:
+                        cflag |= B57600;
+                        break;
+                case 115200:
+                        cflag |= B115200;
+                        break;
+                case 9600:
+                default:
+                        cflag |= B9600;
+                        break;
+        }
+        switch(bits) {
+                case 7:
+                        cflag |= CS7;
+                        break;
+                default:
+                case 8:
+                        cflag |= CS8;
+                        break;
+        }
+        switch(parity) {
+                case 'o': case 'O':
+                        cflag |= PARODD;
+                        break;
+                case 'e': case 'E':
+                        cflag |= PARENB;
+                        break;
+        }
+
+        /*
+         *      Divisor, bytesize and parity
+         */
+
+        ser = rs_table + ttyS;
+#if 0
+	ser->flags &= ~ASYNC_BOOT_AUTOCONF;
+        quot = ser->baud_base / baud;
+        cval = cflag & (CSIZE | CSTOPB);
+        cval >>= 4;
+        if (cflag & PARENB)
+                cval |= UART_LCR_PARITY;
+        if (!(cflag & PARODD))
+                cval |= UART_LCR_EPAR;
+
+        /*
+         *      Disable UART interrupts, set DTR and RTS high
+         *      and set speed.
+         */
+	cval = 0x3;
+        outb(cval | UART_LCR_DLAB, ser->port + UART_LCR);       /* set DLAB */
+        outb(quot & 0xff, ser->port + UART_DLL);         /* LS of divisor */
+        outb(quot >> 8, ser->port + UART_DLM);           /* MS of divisor */
+        outb(cval, ser->port + UART_LCR);                /* reset DLAB */
+        outb(UART_IER_RDI, ser->port + UART_IER);        /* turn on interrupts*/
+        outb(UART_MCR_OUT2 | UART_MCR_DTR | UART_MCR_RTS, ser->port + UART_MCR);
+        /*
+         *      If we read 0xff from the LSR, there is no UART here.
+         */
+        if (inb(ser->port + UART_LSR) == 0xff) {
+                return 0;
+	}
+
+	printk("%s: ser=%08X\n", __func__, ser);
+#endif
+        return ser;
+}
+
+#endif /* CONFIG_KGDB */
+
+/*
+ * ------------------------------------------------------------
+ * Serial GDB driver (most in gdbserial.c)
+ * ------------------------------------------------------------
+ */
+
+#ifdef CONFIG_REMOTE_DEBUG
+#ifdef CONFIG_GDB_CONSOLE
+static struct console gdbcons = {
+	name: "gdb",
+	write: gdb_console_write,
+	flags: CON_PRINTBUFFER | CON_ENABLED,
+	index: -1,
+};
+#endif
+
+
+/* 
+ *  Takes:
+ *	ttyS - integer specifying which serial port to use for debugging
+ *	baud - baud rate of specified serial port
+ *  Returns:
+ *	port for use by the gdb serial driver
+ */
+struct serial_state *
+gdb_serial_setup(int ttyS, int baud)
+{
+        struct serial_state *ser;
+        unsigned cval;
+        int     bits = 8;
+        int     parity = 'n';
+        int     cflag = CREAD | HUPCL | CLOCAL;
+        int     quot = 0;
+
+        /*
+         *      Now construct a cflag setting.
+         */
+        switch(baud) {
+                case 1200:
+                        cflag |= B1200;
+                        break;
+                case 2400:
+                        cflag |= B2400;
+                        break;
+                case 4800:
+                        cflag |= B4800;
+                        break;
+                case 19200:
+                        cflag |= B19200;
+                        break;
+                case 38400:
+                        cflag |= B38400;
+                        break;
+                case 57600:
+                        cflag |= B57600;
+                        break;
+                case 115200:
+                        cflag |= B115200;
+                        break;
+                case 9600:
+                default:
+                        cflag |= B9600;
+                        break;
+        }
+        switch(bits) {
+                case 7:
+                        cflag |= CS7;
+                        break;
+                default:
+                case 8:
+                        cflag |= CS8;
+                        break;
+        }
+        switch(parity) {
+                case 'o': case 'O':
+                        cflag |= PARODD;
+                        break;
+                case 'e': case 'E':
+                        cflag |= PARENB;
+                        break;
+        }
+
+        /*
+         *      Divisor, bytesize and parity
+         */
+
+        ser = rs_table + ttyS;
+	ser->flags &= ~ASYNC_BOOT_AUTOCONF;
+        quot = ser->baud_base / baud;
+        cval = cflag & (CSIZE | CSTOPB);
+        cval >>= 4;
+        if (cflag & PARENB)
+                cval |= UART_LCR_PARITY;
+        if (!(cflag & PARODD))
+                cval |= UART_LCR_EPAR;
+
+        /*
+         *      Disable UART interrupts, set DTR and RTS high
+         *      and set speed.
+         */
+	cval = 0x3;
+        outb(cval | UART_LCR_DLAB, ser->port + UART_LCR);       /* set DLAB */
+        outb(quot & 0xff, ser->port + UART_DLL);         /* LS of divisor */
+        outb(quot >> 8, ser->port + UART_DLM);           /* MS of divisor */
+        outb(cval, ser->port + UART_LCR);                /* reset DLAB */
+        outb(UART_IER_RDI, ser->port + UART_IER);        /* turn on interrupts*/
+        outb(UART_MCR_OUT2 | UART_MCR_DTR | UART_MCR_RTS, ser->port + UART_MCR);
+
+        /*
+         *      If we read 0xff from the LSR, there is no UART here.
+         */
+        if (inb(ser->port + UART_LSR) == 0xff)
+                return 0;
+        return ser;
+}
+#ifdef CONFIG_GDB_CONSOLE
+void __init gdb_console_init(void)
+{
+	register_console(&gdbcons);
+}
+#endif
+#endif /* CONFIG_REMOTE_DEBUG */
 
 /*
   Local variables:

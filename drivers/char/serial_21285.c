@@ -5,7 +5,6 @@
  *
  * Based on drivers/char/serial.c
  */
-
 #include <linux/config.h>
 #include <linux/module.h>
 #include <linux/errno.h>
@@ -26,7 +25,7 @@
 #include <asm/io.h>
 #include <asm/irq.h>
 #include <asm/uaccess.h>
-#include <asm/dec21285.h>
+#include <asm/hardware/dec21285.h>
 #include <asm/hardware.h>
 
 #define BAUD_BASE		(mem_fclk_21285/64)
@@ -38,6 +37,22 @@
 #define SERIAL_21285_AUXNAME	"cuafb"
 #define SERIAL_21285_AUXMAJOR	205
 #define SERIAL_21285_AUXMINOR	4
+
+#ifdef CONFIG_SERIAL_21285_OLD
+#include <asm/mach-types.h>
+/*
+ * Compatability with a mistake made a long time ago.
+ * Note - the use of "ttyI", "/dev/ttyS0" and major/minor 5,64
+ * is HIGHLY DEPRECIATED, and will be removed in the 2.5
+ * kernel series.
+ *					-- rmk 15/04/2000 
+ */
+#define SERIAL_21285_OLD_NAME	"ttyI"
+#define SERIAL_21285_OLD_MAJOR	TTY_MAJOR
+#define SERIAL_21285_OLD_MINOR	64
+
+static struct tty_driver rs285_old_driver;
+#endif
 
 static struct tty_driver rs285_driver, callout_driver;
 static int rs285_refcount;
@@ -339,6 +354,18 @@ static int __init rs285_init(void)
 	if (request_irq(IRQ_CONTX, rs285_tx_int, 0, "rs285", NULL))
 		panic("Couldn't get tx irq for rs285");
 
+#ifdef CONFIG_SERIAL_21285_OLD
+	if (!machine_is_ebsa285() && !machine_is_netwinder()) {
+		rs285_old_driver = rs285_driver;
+		rs285_old_driver.name = SERIAL_21285_OLD_NAME;
+		rs285_old_driver.major = SERIAL_21285_OLD_MAJOR;
+		rs285_old_driver.minor_start = SERIAL_21285_OLD_MINOR;
+
+		if (tty_register_driver(&rs285_old_driver))
+			printk(KERN_ERR "Couldn't register old 21285 serial driver\n");
+	}
+#endif
+
 	if (tty_register_driver(&rs285_driver))
 		printk(KERN_ERR "Couldn't register 21285 serial driver\n");
 	if (tty_register_driver(&callout_driver))
@@ -362,6 +389,14 @@ static void __exit rs285_fini(void)
 	if (ret)
 		printk(KERN_ERR "Unable to unregister 21285 driver (%d)\n",
 			ret);
+#ifdef CONFIG_SERIAL_21285_OLD
+	if (!machine_is_ebsa285() && !machine_is_netwinder()) {
+		ret = tty_unregister_driver(&rs285_old_driver);
+		if (ret)
+			printk(KERN_ERR "Unable to unregister old 21285 "
+				"driver (%d)\n", ret);
+	}
+#endif
 	free_irq(IRQ_CONTX, NULL);
 	free_irq(IRQ_CONRX, NULL);
 	restore_flags(flags);
@@ -477,6 +512,23 @@ static int __init rs285_console_setup(struct console *co, char *options)
 	return 0;
 }
 
+#ifdef CONFIG_SERIAL_21285_OLD
+static struct console rs285_old_cons =
+{
+	SERIAL_21285_OLD_NAME,
+	rs285_console_write,
+	NULL,
+	rs285_console_device,
+	rs285_console_wait_key,
+	NULL,
+	rs285_console_setup,
+	CON_PRINTBUFFER,
+	-1,
+	0,
+	NULL
+};
+#endif
+
 static struct console rs285_cons =
 {
 	name:		SERIAL_21285_NAME,
@@ -489,6 +541,10 @@ static struct console rs285_cons =
 
 void __init rs285_console_init(void)
 {
+#ifdef CONFIG_SERIAL_21285_OLD
+	if (!machine_is_ebsa285() && !machine_is_netwinder())
+		register_console(&rs285_old_cons);
+#endif
 	register_console(&rs285_cons);
 }
 

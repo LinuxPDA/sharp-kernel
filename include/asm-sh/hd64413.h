@@ -1,0 +1,102 @@
+#ifndef __ASM_SH_HITACHI_HD64413_H
+#define __ASM_SH_HITACHI_HD64413_H
+
+#define Q2SD_SH_AREA2 1
+
+#if defined(Q2SD_SH_AREA2)
+#define Q2SD_IOBASE  0xA8800000 /* Area2 */
+#define Q2SD_UGMBASE 0xA8000000
+#else
+#define Q2SD_IOBASE  0xB4800000 /* Area5 */
+#define Q2SD_UGMBASE 0xB4000000
+#endif
+
+#define DL0 0x0F0000
+#define DL1 0x0F8000
+
+#define COLOR_WORK	0x00200000	// color data work area
+#define USE_DL		DL0		// use Display List area
+
+#define Q2SYSR     (Q2SD_IOBASE+0x0000)
+#define Q2SR       (Q2SD_IOBASE+0x0002)
+#define Q2SRCR     (Q2SD_IOBASE+0x0004)
+#define Q2IER      (Q2SD_IOBASE+0x0006)
+#define Q2MEMR     (Q2SD_IOBASE+0x0008)
+#define Q2DSMR     (Q2SD_IOBASE+0x000A)
+#define Q2REMR     (Q2SD_IOBASE+0x000C)
+#define Q2IEMR     (Q2SD_IOBASE+0x000E)
+
+#define Q2DSX      (Q2SD_IOBASE+0x0010)
+#define Q2DSY      (Q2SD_IOBASE+0x0012)
+#define Q2DSA0     (Q2SD_IOBASE+0x0014)
+#define Q2DSA1     (Q2SD_IOBASE+0x0016)
+#define Q2DLSAH    (Q2SD_IOBASE+0x0018)
+#define Q2DLSAL    (Q2SD_IOBASE+0x001A)
+#define Q2SSAR     (Q2SD_IOBASE+0x001C)
+#define Q2WSAR     (Q2SD_IOBASE+0x001E)
+#define Q2DMASH    (Q2SD_IOBASE+0x0020)
+#define Q2DMASL    (Q2SD_IOBASE+0x0022)
+#define Q2DMAWL    (Q2SD_IOBASE+0x0024)
+
+#define Q2HDS      (Q2SD_IOBASE+0x0026)
+#define Q2HDE      (Q2SD_IOBASE+0x0028)
+#define Q2VDS      (Q2SD_IOBASE+0x002A)
+#define Q2VDE      (Q2SD_IOBASE+0x002C)
+#define Q2HSW      (Q2SD_IOBASE+0x002E)
+#define Q2HC       (Q2SD_IOBASE+0x0030)
+#define Q2VSP      (Q2SD_IOBASE+0x0032)
+#define Q2VC       (Q2SD_IOBASE+0x0034)
+#define Q2DOR      (Q2SD_IOBASE+0x0036)
+#define Q2DOG_DOB  (Q2SD_IOBASE+0x0038)
+#define Q2CDR      (Q2SD_IOBASE+0x003A)
+#define Q2CDG_CDB  (Q2SD_IOBASE+0x003C)
+#define Q2CSTH     (Q2SD_IOBASE+0x003E)
+#define Q2CSTL     (Q2SD_IOBASE+0x0040)
+
+#define Q2ISAH     (Q2SD_IOBASE+0x0042)
+#define Q2ISAL     (Q2SD_IOBASE+0x0044)
+#define Q2IDSX     (Q2SD_IOBASE+0x0046)
+#define Q2IDSY     (Q2SD_IOBASE+0x0048)
+#define Q2IDE      (Q2SD_IOBASE+0x004A)
+
+#define Q2BGSX     (Q2SD_IOBASE+0x004C)
+#define Q2BGSY     (Q2SD_IOBASE+0x004E)
+#define Q2DMAWH    (Q2SD_IOBASE+0x0050)
+
+#define Q2EQW      (Q2SD_IOBASE+0x0052)
+#define Q2SPW      (Q2SD_IOBASE+0x0054)
+#define Q2DSMR2    (Q2SD_IOBASE+0x0056)
+#define Q2HVP      (Q2SD_IOBASE+0x0058)
+#define Q2VVP      (Q2SD_IOBASE+0x005A)
+
+#define Q2VSAH0    (Q2SD_IOBASE+0x0062)
+#define Q2VSAL0    (Q2SD_IOBASE+0x0064)
+#define Q2VSAH1    (Q2SD_IOBASE+0x0066)
+#define Q2VSAL1    (Q2SD_IOBASE+0x0068)
+#define Q2VSAH2    (Q2SD_IOBASE+0x006A)
+#define Q2VSAL2    (Q2SD_IOBASE+0x006C)
+#define Q2VSIZEX   (Q2SD_IOBASE+0x006E)
+#define Q2VSIZEY   (Q2SD_IOBASE+0x0070)
+#define Q2VIMR     (Q2SD_IOBASE+0x0072)
+#define Q2HCSR1    (Q2SD_IOBASE+0x0074)
+#define Q2VCSR1    (Q2SD_IOBASE+0x0076)
+#define Q2HCS2     (Q2SD_IOBASE+0x0078)
+#define Q2VCS2     (Q2SD_IOBASE+0x007A)
+#define Q2CSAR1    (Q2SD_IOBASE+0x007C)
+#define Q2CSAR2    (Q2SD_IOBASE+0x007E)
+
+#define Q2XC       (Q2SD_IOBASE+0x0080)
+#define Q2YC       (Q2SD_IOBASE+0x0082)
+#define Q2XO       (Q2SD_IOBASE+0x0084)
+#define Q2YO       (Q2SD_IOBASE+0x0086)
+#define Q2UXMIN    (Q2SD_IOBASE+0x0088)
+#define Q2UYMIN    (Q2SD_IOBASE+0x008A)
+#define Q2UXMAX    (Q2SD_IOBASE+0x008C)
+#define Q2UYMAX    (Q2SD_IOBASE+0x008E)
+#define Q2SXMAX    (Q2SD_IOBASE+0x0090)
+#define Q2SYMAX    (Q2SD_IOBASE+0x0092)
+#define Q2RTNH     (Q2SD_IOBASE+0x0094)
+#define Q2RTNL     (Q2SD_IOBASE+0x0096)
+#define Q2RSAR     (Q2SD_IOBASE+0x0098)
+
+#endif

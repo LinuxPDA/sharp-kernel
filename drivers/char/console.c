@@ -72,6 +72,9 @@
  *
  * Removed console_lock, enabled interrupts across all console operations
  * 13 March 2001, Andrew Morton
+ *
+ * ChangLog:
+ *	12-Dec-2002 Lineo Japan, Inc.
  */
 
 #include <linux/module.h>
@@ -161,7 +164,11 @@ int do_poke_blanked_console;
 int console_blanked;
 
 static int vesa_blank_mode; /* 0:none 1:suspendV 2:suspendH 3:powerdown */
+#if defined(CONFIG_SH_7760_SOLUTION_ENGINE) || defined(CONFIG_ARCH_DBMX2)
+static int blankinterval = 0*60*HZ;
+#else
 static int blankinterval = 10*60*HZ;
+#endif
 static int vesa_off_interval;
 
 static struct tq_struct console_callback_tq = {
@@ -2998,7 +3005,15 @@ static int pm_con_request(struct pm_dev *dev, pm_request_t rqst, void *data)
 	switch (rqst)
 	{
 	case PM_RESUME:
+#ifdef CONFIG_ARCH_SHARP_SL
+		if (vt_cons[fg_console]->vc_mode == KD_TEXT) {
+			unblank_screen();
+		} else {
+			console_blanked = 0;
+		}
+#else
 		unblank_screen();
+#endif
 		break;
 	case PM_SUSPEND:
 		do_blank_screen(0);

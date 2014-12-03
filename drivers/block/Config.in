@@ -47,6 +47,34 @@ if [ "$CONFIG_BLK_DEV_RAM" = "y" -o "$CONFIG_BLK_DEV_RAM" = "m" ]; then
    int '  Default RAM disk size' CONFIG_BLK_DEV_RAM_SIZE 4096
 fi
 dep_bool '  Initial RAM disk (initrd) support' CONFIG_BLK_DEV_INITRD $CONFIG_BLK_DEV_RAM
+dep_bool '  RAM disk data block compiled in' CONFIG_BLK_DEV_RAMDISK_DATA $CONFIG_BLK_DEV_INITRD
+
+tristate 'ROM disk memory block device (blkmem)' CONFIG_BLK_DEV_BLKMEM $CONFIG_BLK_DEV_BLKMEM
+if [ "$CONFIG_BLK_DEV_BLKMEM" = "y" -o "$CONFIG_BLK_DEV_BLKMEM" = "m" ]; then
+    choice '  FLASH type' \
+        "NONE   CONFIG_NOFLASH \
+         AMD    CONFIG_AMDFLASH \
+         INTEL  CONFIG_INTELFLASH" NONE
+    if [ "$CONFIG_AMDFLASH" = "y" -o "$CONFIG_INTELFLASH" = "y" ]; then
+        choice '  FLASH size' \
+                " AUTO  CONFIG_FLASHAUTO \
+                 128KB  CONFIG_FLASH128KB \
+                   1MB  CONFIG_FLASH1MB \
+                   2MB  CONFIG_FLASH2MB \
+                   4MB  CONFIG_FLASH4MB \
+                   6MB  CONFIG_FLASH6MB \
+                   8MB  CONFIG_FLASH8MB \
+                  16MB  CONFIG_FLASH16MB" AUTO
+        choice '  FLASH bit width' \
+                " AUTO  CONFIG_FLASHAUTOBIT \
+                  8bit  CONFIG_FLASH8BIT \
+                 16bit  CONFIG_FLASH16BIT \
+                 32bit  CONFIG_FLASH32bit" AUTO
+        if [ "$CONFIG_FLASH1MB" = "y" ]; then
+                bool '  2nd 1MB flash in /dev/rom8' CONFIG_EXTRA_FLASH1MB
+        fi
+    fi
+fi
 
 bool 'Per partition statistics in /proc/partitions' CONFIG_BLK_STATS
 

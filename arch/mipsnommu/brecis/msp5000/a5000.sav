@@ -1,0 +1,845 @@
+/*************************************************************
+ * File: lib/a5000.s
+ * Purpose: Part of C runtime library
+ * Author: Phil Bunce (pjb@carmel.com)
+ * Revision History:
+ *	970304	Start of revision history
+ */
+
+#ifndef BRECIS5000
+#define BRECIS5000
+#endif
+#ifndef LR4011
+#define LR4011
+#endif
+#include <mips.h>
+
+/*--------------------------------------------------------------------------*/
+/* MIPS Interrupt Cause Register C0_CAUSE				    				*/
+/* 15  14  13  12  11 10  9  8						    					*/
+/* |   |   |   |   |  |   |  |						    					*/
+/* |   |   |   |   |  |   |  --> IP 0 = Software Interrupt 0		    	*/
+/* |   |   |   |   |  |   -----> IP 1 = Software Interrupt 1		    	*/
+/* |   |   |   |   |  ---------> IP 2 = INT0: MAC 0					    	*/
+/* |   |   |   |   ------------> IP 3 = INT1: MAC 1				    		*/
+/* |   |   |   ----------------> IP 4 = INT2: VE, FE or SEC Programable     */
+/* |   |   --------------------> IP 5 = INT3: VE, FE or SEC Programable	    */
+/* |   ------------------------> IP 6 = INT4: SLM				    		*/
+/* ----------------------------> IP 7 = INT5: MIPS Timer			        */
+/*--------------------------------------------------------------------------*/
+#define	SW0_INT_ID	SR_IBIT1			/* Sw0 interrupt ID */
+#define SW1_INT_ID	SR_IBIT2			/* SW1 interrupt ID */
+
+#define INT_MAC0_ID	SR_IBIT3			/* MAC0 Interrupt ID */
+#define INT_MAC1_ID	SR_IBIT4			/* MAC1 Interrupt ID */
+#define INT_VFS_ID2	SR_IBIT5			/* VOICE, FE OR SEC  Interrupt ID Option 2*/
+#define INT_VFS_ID3	SR_IBIT6		   	/* VOICE, FE OR SEC  Interrupt ID Option 3*/
+#define INT_SLM_ID  SR_IBIT7			/* SLM  Interrupt ID */
+#define INT_COU_ID	SR_IBIT8			/* MIPS INTERNAL TIMER INTERRUPT */
+
+		
+#define	MEM_CTL_BASE	0xB7F00000	/* Base address to memory contlr   */
+#define MEM_CNFG_REG	(MEM_CTL_BASE + 0x00)	/* memory configuration reg */
+#define MEM_RFT_REG		(MEM_CTL_BASE + 0x04)	/* refresh timer reg */
+#define MEM_RFC_REG		(MEM_CTL_BASE + 0x08)	/* refresh counter reg */
+#define MEM_TMGM_REG	(MEM_CTL_BASE + 0x0C)	/* Timing param reg */
+#define MEM_INIT_REG	(MEM_CTL_BASE + 0x10)	/* initialization reg */
+
+		
+#define	SREG_BASE	0xBC000000	/* Base address to SLM Block       */
+#define	SYS_RST_REG	(SREG_BASE + 0x010)  /* system Reset Status Register RO */
+#define	RST_SET_REG	(SREG_BASE + 0x014)  /* System set Reset Register    WO */
+#define	RST_CLR_REG	(SREG_BASE + 0x018)  /* System Clear Reset Register  WO */
+#define	PCM0_CLK_REG	(SREG_BASE + 0x020)  /* PCM0 Clock Generator       */
+#define	PCM1_CLK_REG	(SREG_BASE + 0x024)  /* PCM1 Clock Generator       */
+#define	PCM2_CLK_REG	(SREG_BASE + 0x028)  /* PCM2 Clock Generator       */
+#define PCM3_CLK_REG	(SREG_BASE + 0x02C)  /* PCM3 Clock Generator	   */
+#define	PLL_DIV_REG	(SREG_BASE + 0x030)  /* PLL Divider Value          */
+#define	MIPS_CLK_REG	(SREG_BASE + 0x034)  /* MIPS Clock Generator       */
+#define	VE_CLK_REG	(SREG_BASE + 0x038)  /* Voice Engine Clock Gen     */
+#define	FE_CLK_REG	(SREG_BASE + 0x03C)  /* Framer Engine Clock Gen    */
+#define	DVB_CLK_REG	(SREG_BASE + 0x040)  /* DV-Bus Clock Generator     */
+#define	SMAC_CLK_REG	(SREG_BASE + 0x044)  /* SEC & MAC Clock Generator  */
+#define	PERF_CLK_REG	(SREG_BASE + 0x048)  /* Peripheral & ADPCM Clk Gen */
+#define	INT_STA_REG	(SREG_BASE + 0x070)  /* Interrupt Status Register  */
+#define	INT_MSK_REG	(SREG_BASE + 0x074)  /* Interrupt Mask Register    */
+
+/*****************************************************************************/
+/* System reset register definetion											 */
+/* System Reset Status register												 */
+/*																			 */
+/*  31-------10 9  8  7  6  5  4  3  2  1  0								 */
+/*Reserved      |  |  |  |  |  |  |  |  |  |								 */
+/*	           |  |  |  |  |  |  |  |  |  ----> Global Reset				 */
+/* 	          |  |  |  |  |  |  |  |  --> Mips Processor SLM And SDRAM		 */
+/* 	         |  |  |  |  |  |  |  --> Voice Engine DMA						 */
+/* 	        |  |  |  |  |  |  --> Voice Engine Processor					 */
+/* 	       |  |  |  |  |  --> Framer Engine DMA								 */
+/* 	      |  |  |  |  ----> Framer Engine Processor							 */
+/* 	     |  |  |  --------> Ethernet 0										 */
+/* 	    |  |  ------------> Ethernet 1										 */
+/*     |   ---------------> Security engine									 */
+/* 	   -------------------> Peripheral Block								 */
+/*****************************************************************************/
+#define	GLOBAL_RST	0x1						/* Global Reset */
+#define MIPS_RST	0x2						/* MIPS reset   */
+#define VE_DMA_RST	0x4						/* Voice Engine DMA reset  */
+#define VE_CPU_RST	0x8						/* Voice Processor Reset   */
+#define FE_DMA_RST	0x10					/* Framer Engine DMA reset */
+#define FE_CPU_RST	0x20					/* Framer Engine Processor */
+#define MAC0_RST	0x40					/* Ethernet 0 Reset */
+#define MAC1_RST	0x80					/* Ethernet 1 Reset */
+#define SE_RST		0x100					/* Security Engine Reset */
+#define PER_RST		0x200					/* Peripheral Block Reset */
+		
+#define MSP_RESET_VAL	(MAC0_RST | MAC1_RST | VE_DMA_RST | VE_CPU_RST | FE_DMA_RST | FE_CPU_RST | SE_RST | PER_RST)
+
+#define ELB_BASE	0xBC000080
+#define	CS0_CNFG_REG	(ELB_BASE + 0x00)  /* ELB CS0 Configuration Reg    */
+#define	CS0_BA_REG		(ELB_BASE + 0x04)  /* ELB CS0 Base Address Reg     */
+#define	CS0_MSK_REG		(ELB_BASE + 0x08)  /* ELB CS0 Mask Register        */
+
+#define	CS1_CNFG_REG	(ELB_BASE + 0x10)  /* ELB CS1 Configuration Reg    */
+#define	CS1_BA_REG		(ELB_BASE + 0x14)  /* ELB CS1 Base Address Reg     */
+#define	CS1_MSK_REG		(ELB_BASE + 0x18)  /* ELB CS1 Mask Register        */
+
+#define	CS2_CNFG_REG	(ELB_BASE + 0x20)  /* ELB CS2 Configuration Reg    */
+#define	CS2_BA_REG		(ELB_BASE + 0x24)  /* ELB CS2 Base Address Reg     */
+#define	CS2_MSK_REG		(ELB_BASE + 0x28)  /* ELB CS2 Mask Register        */
+
+#define	CS3_CNFG_REG	(ELB_BASE + 0x30)  /* ELB CS3 Configuration Reg    */
+#define	CS3_BA_REG		(ELB_BASE + 0x34)  /* ELB CS3 Base Address Reg     */
+#define	CS3_MSK_REG		(ELB_BASE + 0x38)  /* ELB CS3 Mask Register        */
+
+#define	CS4_CNFG_REG	(ELB_BASE + 0x40)  /* ELB CS4 Configuration Reg    */
+#define	CS4_BA_REG		(ELB_BASE + 0x44)  /* ELB CS4 Base Address Reg     */
+#define	CS4_MSK_REG		(ELB_BASE + 0x48)  /* ELB CS4 Mask Register        */
+
+#define	CS5_CNFG_REG	(ELB_BASE + 0x50)  /* ELB CS5 Configuration Reg    */
+#define	CS5_BA_REG		(ELB_BASE + 0x54)  /* ELB CS5 Base Address Reg     */
+#define	CS5_MSK_REG		(ELB_BASE + 0x58)  /* ELB CS5 Mask Register        */
+
+#define	CS6_CNFG_REG	(ELB_BASE + 0x60)  /* ELB CS6 Configuration Reg    */
+#define	CS6_BA_REG		(ELB_BASE + 0x64)  /* ELB CS6 Base Address Reg     */
+#define	CS6_MSK_REG		(ELB_BASE + 0x68)  /* ELB CS6 Mask Register        */
+
+#define	CS7_CNFG_REG	(ELB_BASE + 0x70)  /* ELB CS7 Configuration Reg    */
+#define	CS7_BA_REG		(ELB_BASE + 0x74)  /* ELB CS7 Base Address Reg     */
+#define	CS7_MSK_REG		(ELB_BASE + 0x78)  /* ELB CS7 Mask Register        */
+		
+#define		CS_SIZE_8MEG		0x0
+#define 	CS_SIZE_4MEG		0x40
+#define 	CS_SIZE_2MEG		0x60
+#define 	CS_SIZE_1MEG		0x70
+#define 	CS_SIZE_512K		0x78
+#define 	CS_SIZE_256K		0x7c
+#define 	CS_SIZE_128K		0x7e
+#define		CS_SIZE_64K			0x7f
+
+#define CS0_BASE_ADD_VAL	0x180			/* base 0x1f800000 */		
+#define CS0_CNFG_REG_VAL	0x765			/* Time = Max, Size 8bits, Mode Intel */
+#define CS0_ADD_SPACE		CS_SIZE_8MEG	/* Last 8 MegBytes */
+
+#define CS1_BASE_ADD_VAL	0x0				/* base 0x1E000000 */		
+#define CS1_CNFG_REG_VAL	0x5				/* Size 8bits, Mode Intel */
+#define CS1_ADD_SPACE		CS_SIZE_4MEG	/* Address Space 4 MegBytes */
+
+#define CS2_BASE_ADD_VAL	0x40			/* base 0x1E400000 */		
+#define CS2_CNFG_REG_VAL	0x5				/* Size 8bits, Mode Intel */
+#define CS2_ADD_SPACE		CS_SIZE_4MEG	/* Address Space 4 MegBytes */
+
+#define CS3_BASE_ADD_VAL	0x80			/* base 0x1E800000 */		
+#define CS3_CNFG_REG_VAL	0x5				/* Size 8bits, Mode Intel */
+#define CS3_ADD_SPACE		CS_SIZE_4MEG	/* Address Space 4 MegBytes */
+
+#define CS4_BASE_ADD_VAL	0xc0			/* base 0x1EC00000 */		
+#define CS4_CNFG_REG_VAL	0x765			/* Time = Max, Size 8bits, Mode Intel */
+#define CS4_ADD_SPACE		CS_SIZE_4MEG	/* Address Space 4 MegBytes */
+
+#define CS5_BASE_ADD_VAL	0x100			/* base 0x1F000000 */		
+#define CS5_CNFG_REG_VAL	0x5				/* Size 8bits, Mode Intel */
+#define CS5_ADD_SPACE		CS_SIZE_4MEG	/* Address Space 4 MegBytes */
+
+#define CS6_BASE_ADD_VAL	0x140			/* base 0x1F400000 */		
+#define CS6_CNFG_REG_VAL	0x5				/* Size 8bits, Mode Intel */
+#define CS6_ADD_SPACE		CS_SIZE_2MEG	/* Address Space 2 MegBytes */
+
+#define CS7_BASE_ADD_VAL	0x160			/* base 0x1F600000 */		
+#define CS7_CNFG_REG_VAL	0x5				/* Size 8bits, Mode Intel */
+#define CS7_ADD_SPACE		CS_SIZE_2MEG	/* Address Space 2 MegBytes	*/
+
+#define CPU_CLOCK_RATE	        75000000			/* 150 Mhz Half */
+#define CPU_CLOCK_VAL			0x78				/* Parmeter value */
+#define DRAM_CLOCK_RATE	       100000000			/* 100 Mhz Mega 	*/
+#define DRAM_CLOCK_VAL			0x50				/* Parmeter value   */
+#define SLM_CLOCK_RATE	        50000000			/* 50 Mhz Mega 	*/
+#define SLM_CLOCK_VAL			0x28				/* Parmeter value   */
+#define PE_CLOCK_RATE	        100000000			/* 100 Mhz Mega 	*/
+#define PE_CLOCK_VAL			0x50				/* Parmeter value   */
+#define VE_CLOCK_RATE	        1000000000			/* 100 Mhz Mega 	*/
+#define VE_CLOCK_VAL			0x50				/* Parmeter value   */
+#define PER_CLOCK_RATE	        25000000			/* 25 Mhz Mega 	*/
+#define PER_CLOCK_VAL			0x14				/* Parmeter value   */
+
+	.comm k1tmp,4
+
+
+	############# LR5000 #################
+	#
+	.globl a5000init
+	.ent a5000init
+a5000init:
+	beq     a0,zero,1f
+	j       c5000init
+    1:
+
+	/* clear software interrupts */
+	mtc0	zero, C0_CAUSE
+	nop
+
+	/* Initialize Config register */
+	mfc0	t0, C0_CCC
+	nop
+	li		t1, 0x7
+	not		t1
+	and		t0, t1
+	or		t0, 0x3
+	mtc0	t0, C0_CCC
+	nop
+		
+	/*********************************************************************/
+	/* Initialize Count and Compare registers							 */
+	/*********************************************************************/
+	mtc0    zero, C0_COUNT          /*Clear Count register */
+	la      t0, -1
+	nop
+	mtc0    t0, C0_COMPARE          /* Set compare to -1   */
+	nop
+	mtc0    zero, C0_CAUSE
+	nop
+
+/**********************************************************/
+/* Software reset MAC0, MAC1, Peripheral, PE DMA, PE CPU, */
+/*                VE DMA, VE CPU						  */
+/**********************************************************/ 
+romInitStartSysTemReset:
+	li		t0,RST_SET_REG
+	li		t1,MSP_RESET_VAL
+	sw		t1,0(t0)
+	nop
+	nop
+	nop
+	nop										
+	li		t1,MSP_RESET_VAL
+	li		t0,SYS_RST_REG				  
+romInitCheckReset:
+	lw		t2,0(t0)
+	bne		t1,t2,romInitCheckReset
+	nop
+	li		t0,RST_CLR_REG
+	li	 	t1,MSP_RESET_VAL
+	sw		t1,0(t0)
+	nop
+	nop
+	nop
+	nop
+	li		t0,SYS_RST_REG
+	li		t1,0
+romInitCheckClearReset:
+	lw	t2,0(t0)
+	bne	t1,t2,romInitCheckClearReset
+	nop
+
+
+	nop
+	nop
+	nop
+
+/***********************************************************/
+/* Program all the Clock Speed for all block               */
+/***********************************************************/
+
+	/* set CPU CLOCK REGISTER */
+	li			t0,MIPS_CLK_REG
+	li			t1,CPU_CLOCK_VAL
+	sw			t1,0(t0)				/* 	Set Mips CLock register */
+	nop
+	nop
+	/***************************/
+	/* 	set DRAM CLOCK         */
+	/***************************/
+	li			t0,DVB_CLK_REG
+	li			t1,DRAM_CLOCK_VAL
+	sw			t1,0(t0)				/* 	Set Mips CLock register */
+	nop
+	nop
+
+	/***************************/
+	/* 	set SLM CLOCK          */
+	/***************************/
+	li			t0,SMAC_CLK_REG
+	li			t1,SLM_CLOCK_VAL
+	sw			t1,0(t0)				/* 	SLM, SEC And Ethernet Clock*/
+	nop
+	nop
+	/***************************/
+	/* 	set PE CLOCK          */
+	/***************************/
+	li			t0,FE_CLK_REG
+	li			t1,PE_CLOCK_VAL
+	sw			t1,0(t0)				/* 	Set Packet Engine CLock register */
+	nop
+	nop
+	/***************************/
+	/* 	set VE CLOCK          */
+	/***************************/
+	li			t0,VE_CLK_REG
+	li			t1,VE_CLOCK_VAL
+	sw			t1,0(t0)				/* 	Set Voice Engine CLock register */
+	nop
+	nop
+	/***************************/
+	/* 	set PER CLOCK          */
+	/***************************/
+	li			t0,PERF_CLK_REG
+	li			t1,PER_CLOCK_VAL
+	sw			t1,0(t0)				/* 	Set Peripheral, ADPCM CLock register */
+	nop
+		
+	/* Set Refresh Rate to 64 Millsecond */
+	li      t0,MEM_RFT_REG
+	li      t1,0x9C400 
+	sw      t1,0(t0)
+	nop
+	nop
+	nop
+	li      t2,1
+	li  	t0, MEM_CNFG_REG       /* setup Dram Address */
+	li      t1, 0x319D
+	sw      t1, 0(t0)
+
+#if 0		
+	/* Set number of refreshes in a refresh period */
+	/* the default is already 0x1000 */
+	li      t0,MEM_RFC_REG
+	li      t1,0x1000 
+	sw      t1,0(t0)
+	nop
+	nop
+		
+	/* Set internal timing parameters */
+	/* the default is already 0x6a121 */
+	li      t0,MEM_TMGM_REG
+	li      t1,0x6a121 
+	sw      t1,0(t0)
+	nop
+	nop
+#endif
+
+waitForInitCntl:
+	li      t0,MEM_INIT_REG
+	lw      t1,0(t0)
+	bne     t1,t2,waitForInitCntl
+	nop
+
+	nop
+
+#if 1	/* DEBUGFROMUART */
+		
+#define UART_BASE	0xBC000100	/* Base address to UART            */
+#define NSREG(x) ((x)*4)
+#define DATA (NSREG(0))	/* data register (R/W)             */
+#define IER  (NSREG(1))	/* interrupt enable (W)            */
+#define IIR  (NSREG(2))	/* interrupt identification (R)    */
+#define	FIFO (NSREG(2))	/* 16550 fifo control (W)          */
+#define CFCR (NSREG(3))	/* line control register (R/W)     */
+#define MCR  (NSREG(4))	/* modem control register (R/W)    */
+#define LSR  (NSREG(5))	/* line status register (R/W)      */
+#define MSR  (NSREG(6))	/* modem status register (R/W)     */
+#define SCR  (NSREG(7))	/* scratch register (R/W)          */
+#define FIFO_ENABLE     0x01    /* enable fifo */
+#define FIFO_RCV_RST    0x02    /* reset receive fifo */
+#define FIFO_XMT_RST    0x04    /* reset transmit fifo */
+#define FIFO_DMA_MODE   0x08    /* enable dma mode */
+#define FIFO_TRIGGER_1  0x00    /* trigger at 1 char */
+#define FIFO_TRIGGER_4  0x40    /* trigger at 4 chars */
+#define FIFO_TRIGGER_8  0x80    /* trigger at 8 chars */
+#define FIFO_TRIGGER_14 0xc0    /* trigger at 14 chars */
+
+/*--------------------------------------------------------------------------+
+| character format control register
++--------------------------------------------------------------------------*/
+#define CFCR_DLAB       0x80    /* divisor latch */
+#define CFCR_SBREAK     0x40    /* send break */
+#define CFCR_PZERO      0x30    /* zero parity */
+#define CFCR_PONE       0x20    /* one parity */
+#define CFCR_PEVEN      0x10    /* even parity */
+#define CFCR_PODD       0x00    /* odd parity */
+#define CFCR_PENAB      0x08    /* parity enable */
+#define CFCR_STOPB      0x04    /* 2 stop bits */
+#define CFCR_8BITS      0x03    /* 8 data bits */
+#define CFCR_7BITS      0x02    /* 7 data bits */
+#define CFCR_6BITS      0x01    /* 6 data bits */
+#define CFCR_5BITS      0x00    /* 5 data bits */
+
+/*--------------------------------------------------------------------------+
+| modem control register
++--------------------------------------------------------------------------*/
+#define MCR_LOOPBACK    0x10    /* loopback */
+#define MCR_IENABLE     0x08    /* output 2 = int enable */
+#define MCR_DRS         0x04    /* output 1 = xxx */
+#define MCR_RTS         0x02    /* enable RTS */
+#define MCR_DTR         0x01    /* enable DTR */
+
+#define LSR_TXRDY       0x20    /* transmitter ready */
+
+#define NS16550_XTAL_FREQ       (SLM_CLOCK_RATE / 2)
+#define UART_FREQ	NS16550_XTAL_FREQ
+#define BAUD_RATE	19200 
+
+#define SAVE_REG(reg1,reg2,reg3,reg4)	\
+	or	s5,zero,reg1;	\
+	or	s6,zero,reg2;	\
+	or	s7,zero,reg3;	\
+	or	t8,zero,reg4		
+
+#define RES_REG(reg1,reg2,reg3,reg4)	\
+	or	reg1,zero,s5;	\
+	or	reg2,zero,s6;	\
+	or	reg3,zero,s7;	\
+	or	reg4,zero,t8		
+
+#define PRSTR(str)		\
+	.set	noreorder;	\
+	.set mips2; 		\
+	bal	101f;			\
+	nop;				\
+10:	.set mips2; 		\
+	.asciiz	str;		\
+	.word	0;			\
+101:	.set mips2; \
+	nop;			\
+	or	a0,zero,ra;	\
+	bal	strout1;	\
+	nop;			\
+ 	.set	reorder			
+
+UART_INITIALIZE:
+
+	/****************************************************************/
+	/* Initialize UART                                              */
+	/* Baud UART Clock 25MHz, Baud rate 115200    			        */
+	/****************************************************************/
+	/* uart init - Baud Rate 19200									*/
+	/****************************************************************/
+	li      t1,UART_BASE
+	li      t0,FIFO_ENABLE|FIFO_RCV_RST|FIFO_XMT_RST|FIFO_TRIGGER_4
+	sw      t0,FIFO(t1)
+	li      t2,UART_FREQ/(16*BAUD_RATE)     /* brtc = CLK/16/speed */
+	li      t0,CFCR_DLAB                    /* select brtc divisor */
+	sw      t0,CFCR(t1)
+	sw      t2,DATA(t1)                     /* store divisor lsb */
+	srl     t2,8    
+	sw      t2,IER(t1)                      /* store divisor msb */
+	li      t0,CFCR_8BITS                   /* set 8N1 mode */
+	sw      t0,CFCR(t1)
+#if 0
+	li      t0,MCR_DTR|MCR_RTS              /* |MCR_IENABLE enable DTR & RTS */
+	sw      t0,MCR(t1)
+#endif
+	li      t0,0
+	sw      t0,MCR(t1)
+	li      t0,0                            /* enable receive interrupt(!) */
+	sw      t0,IER(t1)
+	nop
+	nop
+	move	t9,ra
+	PRSTR("\n");
+	PRSTR("\n\rBrecis Communication ")
+	PRSTR("\n\rBoot ROM 0.0  ")
+	move	ra,t9
+#endif /* DEBUGFROMUART */
+
+	/*****************************************************************/
+    /*	Program External Local Bus CS  								 */
+	/*****************************************************************/
+ 
+    /************************************************************************/
+    /*	CS0 - ROM ICE or Flash if JP25 set to AB			 				*/
+ 	/*  base reg  	= 0x180		Base Addr 	= 0x1f800000	 				*/
+	/*	Config Reg	= 765		Max Time, Intel, 8bits		 				*/
+ 	/*	Mask reg    = 0										 				*/
+	/************************************************************************/
+	li		t0,CS0_BA_REG			/* Reg Add 	0xBC000084					*/
+	li		t1,CS0_BASE_ADD_VAL		/* CS0 Base address 0x1f800000			*/
+	sw		t1,0(t0)				/* MASK value 0x180						*/
+
+	li		t0,CS0_CNFG_REG			/* Reg Add 	0xBC000080				  	*/
+	li		t1,CS0_CNFG_REG_VAL		/* Time = Max, Size 8bits, Mode Intel 	*/
+	sw		t1,0(t0)				/* store value 0x765		    		*/
+
+	li		t0,CS0_MSK_REG			/* Reg Add 	0xBC000088					*/
+	li		t1,CS0_ADD_SPACE		/* Add space size 8Mbytes				*/
+	sw		t1,0(t0)				/* store value 0x0			    		*/
+	/************************************************************************/
+	/*	CS1 - NU	 FPGA									 				*/
+  	/*  Base reg     = 0x0	   base addr =  0x1e000000		 				*/
+	/*  Config       = 5	   Intel, 8bits					 				*/
+	/*  Mask reg     = 0x40	   Size 4MegBytes  				 				*/
+	/************************************************************************/
+	li		t0,CS1_BA_REG			/* Reg Add 	0xBC000094					*/
+	li		t1,CS1_BASE_ADD_VAL		/* CS1 Base address 0x1E000000			*/
+	sw		t1,0(t0)				/* MASK value 0x0						*/
+
+	li		t0,CS1_CNFG_REG			/* Reg Add 	0xBC000090				  	*/
+	li		t1,CS0_CNFG_REG_VAL		/* Size 8bits, Mode Intel 				*/
+	sw		t1,0(t0)				/* store value 0x5			    		*/
+
+	li		t0,CS1_MSK_REG			/* Reg Add 	0xBC000098					*/
+	li		t1,CS1_ADD_SPACE		/* Addr space size 4Mbytes				*/
+	sw		t1,0(t0)				/* store value 0x40			    		*/
+	/************************************************************************/
+	/*	CS2 - Dallas Ds21352 T1 framer/liu	 FPGA			 				*/
+  	/*  Base reg     = 0x40	   base addr =  0x1e400000		 				*/
+	/*  Config       = 5	   Intel, 8bits					 				*/
+	/*  Mask reg     = 0x40	   Size 4MegBytes  				 				*/
+	/*  										 			 				*/
+	/************************************************************************/
+	li		t0,CS2_BA_REG			/* Reg Add 	0xBC0000A4					*/
+	li		t1,CS2_BASE_ADD_VAL		/* CS2 Base address 0x1E400000			*/
+	sw		t1,0(t0)				/* MASK value 0x40						*/
+
+	li		t0,CS2_CNFG_REG			/* Reg Add 	0xBC0000A0				  	*/
+	li		t1,CS2_CNFG_REG_VAL		/* Size 8bits, Mode Intel 				*/
+	sw		t1,0(t0)				/* store value 0x5			    		*/
+
+	li		t0,CS2_MSK_REG			/* Reg Add 	0xBC0000A8					*/
+	li		t1,CS2_ADD_SPACE		/* Addr space size 4Mbytes				*/
+	sw		t1,0(t0)				/* store value 0x40			    		*/
+
+
+	/************************************************************************/
+	/*	cs3 - WAN chip -ADSL								 				*/
+  	/*  Base reg     = 0x8	   base addr =  0x1e800000		 				*/
+	/*  Config       = 5	   Intel, 8bits					 				*/
+	/*  Mask reg     = 0x40	   Size 4MegBytes  						 		*/
+	/*  										 			 				*/
+	/************************************************************************/
+	li		t0,CS3_BA_REG			/* Reg Add 	0xBC0000B4					*/
+	li		t1,CS3_BASE_ADD_VAL		/* CS2 Base address 0x1E800000			*/
+	sw		t1,0(t0)				/* MASK value 0x80						*/
+
+	li		t0,CS3_CNFG_REG			/* Reg Add 	0xBC0000B0				  	*/
+	li		t1,CS3_CNFG_REG_VAL		/* Size 8bits, Mode Intel 				*/
+	sw		t1,0(t0)				/* store value 0x5			    		*/
+
+	li		t0,CS3_MSK_REG			/* Reg Add 	0xBC0000B8					*/
+	li		t1,CS3_ADD_SPACE		/* Addr space size 4Mbytes				*/
+	sw		t1,0(t0)				/* store value 0x40			    		*/
+
+
+	/************************************************************************/
+	/*	cs4 - Flash if JP25 is set to BC					 				*/
+  	/*  Base reg     = 0xc	   base addr =  0x1ec00000		 				*/
+	/*  Config       = 0x765   Intel, 8bits, Max Time		 				*/
+	/*  Mask reg     = 0x40	   Size 4MegBytes  				 				*/
+	/*  										 			 				*/
+	/************************************************************************/
+	li		t0,CS4_BA_REG			/* Reg Add 	0xBC0000C4					*/
+	li		t1,CS4_BASE_ADD_VAL		/* CS4 Base address 0x1EC00000			*/
+	sw		t1,0(t0)				/* MASK value 0x80						*/
+
+	li		t0,CS4_CNFG_REG			/* Reg Add 	0xBC0000C0				  	*/
+	li		t1,CS4_CNFG_REG_VAL		/* Time = Max, Size 8bits, Mode Intel 	*/
+	sw		t1,0(t0)				/* store value 0x765		    		*/
+
+	li		t0,CS4_MSK_REG			/* Reg Add 	0xBC0000C8					*/
+	li		t1,CS4_ADD_SPACE		/* Add space size 4Mbytes				*/
+	sw		t1,0(t0)				/* store value 0x40			    		*/
+
+	/************************************************************************/
+	/*	cs5 - NU											 				*/
+  	/*  Base reg     = 0xc	   base addr =  0x1f000000		 				*/
+	/*  Config       = 0x5     Intel, 8bits					 				*/
+	/*  Mask reg     = 0x40	   Size 4MegBytes  				 				*/
+	/*  										 			 				*/
+	/************************************************************************/
+	li		t0,CS5_BA_REG			/* Reg Add 	0xBC0000D4					*/
+	li		t1,CS5_BASE_ADD_VAL		/* CS5 Base address 0x1f000000			*/
+	sw		t1,0(t0)				/* MASK value 0x100						*/
+
+	li		t0,CS5_CNFG_REG			/* Reg Add 	0xBC0000D0				  	*/
+	li		t1,CS5_CNFG_REG_VAL		/* Size 8bits, Mode Intel 				*/
+	sw		t1,0(t0)				/* store value 0x5			    		*/
+
+	li		t0,CS5_MSK_REG			/* Reg Add 	0xBC0000D8					*/
+	li		t1,CS5_ADD_SPACE		/* Add space size 4Mbytes				*/
+	sw		t1,0(t0)				/* store value 0x40			    		*/
+
+	/************************************************************************/
+	/*	cs6 - NU											 				*/	
+ 	/*  Base reg     = 0x14	   base addr =  0x1f400000		 				*/
+	/*  Config       = 0x5     Intel, 8bits					 				*/
+	/*  Mask reg     = 0x60	   Size 2MegBytes  				 				*/
+	/*  										 			 				*/
+	/************************************************************************/
+	li		t0,CS6_BA_REG			/* Reg Add 	0xBC0000E4					*/
+	li		t1,CS6_BASE_ADD_VAL		/* CS5 Base address 0x1f400000			*/
+	sw		t1,0(t0)				/* MASK value 0x140						*/
+
+	li		t0,CS6_CNFG_REG			/* Reg Add 	0xBC0000E0				  	*/
+	li		t1,CS6_CNFG_REG_VAL		/* Size 8bits, Mode Intel 				*/
+	sw		t1,0(t0)				/* store value 0x5			    		*/
+
+	li		t0,CS6_MSK_REG			/* Reg Add 	0xBC0000E8					*/
+	li		t1,CS6_ADD_SPACE		/* Add space size 2Mbytes				*/
+	sw		t1,0(t0)				/* store value 0x20			    		*/
+
+
+	/************************************************************************/
+	/*	cs7 - NU											 				*/
+ 	/*  Base reg     = 0x14	   base addr =  0x1f600000		 				*/
+	/*  Config       = 0x5     Intel, 8bits					 				*/
+	/*  Mask reg     = 0x60	   Size 2MegBytes  				 				*/
+	/*  										 			 				*/
+	/************************************************************************/
+	li		t0,CS7_BA_REG			/* Reg Add 	0xBC0000F4					*/
+	li		t1,CS7_BASE_ADD_VAL		/* CS5 Base address 0x1f600000			*/
+	sw		t1,0(t0)				/* MASK value 0x160						*/
+
+	li		t0,CS7_CNFG_REG			/* Reg Add 	0xBC0000F0				  	*/
+	li		t1,CS7_CNFG_REG_VAL		/* Size 8bits, Mode Intel 				*/
+	sw		t1,0(t0)				/* store value 0x5			    		*/
+
+	li		t0,CS7_MSK_REG			/* Reg Add 	0xBC0000F8					*/
+	li		t1,CS7_ADD_SPACE		/* Add space size 2Mbytes				*/
+	sw		t1,0(t0)				/* store value 0x20			    		*/
+
+	/**********************************************************/
+	/*	int0 - NU											 */	
+	/*	int1- Dallas Ds21352 T1 framer/liu					 */
+	/*	int2 - NU											 */
+	/*	int3- MAC PHY 1										 */
+	/*	int4- WAN chip -ADSL								 */
+	/*	int5- MACPHY 2										 */
+	/*	int6 - NU											 */
+	/*	int7 - NU											 */
+	/*********************************************************/
+
+	nop
+
+	# enable scbus bus error detection
+	li	t0,M_SCBUS_ST
+	li	t1,3
+	sw	t1,(t0)
+
+	# select the correct cache flushing routines
+	la	s0,r5000_flush
+
+	j	ra
+	.end a5000init
+
+/*************************************************************
+*  a5000clkfunc:		
+*  clkfunc args
+*	1,v = set secs to v
+*	2 = get secs
+*	3 = get usecs
+*/
+	.globl	a5000clkfunc
+	.ent	a5000clkfunc
+a5000clkfunc:
+	beq		a0, 1, 1f
+	beq		a0, 2, 2f
+	beq		a0, 3, 3f
+	b		9f
+		
+1:	/* set secs to a1 */
+	sw		a1, a5000clk_seconds
+	b		9f
+
+2:	/* get time in seconds */
+	lw		v0, a5000clk_seconds
+	b		9f
+
+3:	/* get time in micro-seconds */
+	lw		t1, a5000clk_seconds
+	mfc0	t2, C0_COMPARE
+	mfc0	t3, C0_COUNT
+	li		t4, 1000000					/* microseconds per second */
+	mult	t1, t4
+	mflo	t1							/* microseconds for seconds */
+	subu	t2, t2, CPU_CLOCK_RATE		/* start time previous interval */
+	subu	t3, t3,t2					/* 1/2 cpu pipeline since last int */
+	li		t4, (CPU_CLOCK_RATE/1000000)
+	div		t3, t4
+	mflo	t3
+	addu	v0, t1, t3
+9:		
+	j		ra
+	.end	a5000clkfunc
+			
+/*************************************************************
+*  a5000clkinit:		
+*	Called from _exception in mips.s. 
+*	Return address is saved in k1.
+*/
+	.globl	a5000clkinit
+	.ent	a5000clkinit
+a5000clkinit:
+	la		v0, a5000clkfunc
+	j		ra
+	.end	a5000clkinit
+
+/*************************************************************
+*  a5000exception:
+*	Called from _exception in mips.s. 
+*	Return address is saved in k1.
+*/
+	.globl	a5000exception
+	.ent	a5000exception
+a5000exception:
+	la	k0,k1tmp
+	sw	k1,(k0)
+
+        # check berr
+        li      k0,M_SCBUS_ST
+        lw      k1,(k0)
+        li      k0,SCBUSST_BERR
+        and     k0,k1
+        beq     k0,zero,1f              # brif BERR not set
+ 
+        # save EA
+        li      k0,M_SCBUS_EA
+        lw      k1,(k0)
+        la      k0,saved_bus_ea_5000
+        sw      k1,(k0)
+ 
+        # clear dberr
+        li      k0,M_SCBUS_ST
+        lw      k1,(k0)
+        li      k0,SCBUSST_BERR
+        or      k1,k0
+        li      k0,M_SCBUS_ST
+        sw      k1,(k0)
+   1:
+	la	k0,k1tmp
+	lw	k1,(k0)
+	j	k1
+	.end a5000exception
+
+#if 1	/* DEBUGFROMUART */
+
+	.globl a5000wave
+	.ent a5000wave
+a5000wave:
+	la	a0, wavestr
+	j	a5000print
+	.end a5000wave
+		
+	.globl a5000print
+	.ent a5000print
+a5000print:
+	move t9, ra
+	move t8, a0
+	la	a0, crlfstr
+	la	t0,strout1
+	jal	t0
+	nop
+	move a0, t8
+	la	t0,printWordReg
+	jal t0
+	nop
+	la	a0, colonstr
+	la	t0,strout1
+	jal	t0
+	nop
+	move a0, t8
+	la	t0,strout1
+	jal	t0
+	nop
+	move ra, t9
+	j	ra
+	.end a5000print
+		
+/**********************************************/
+/*  Output String out to console	      */
+/**********************************************/
+	.globl strout1
+	.ent strout1
+strout1:
+	.set noat
+	li	AT,UART_BASE
+10:
+	lbu	t3,0(a0)	/* read first char location */
+	lw	t4,LSR(AT)	/* Read LSR see character ready */
+	nop
+	nop
+	nop
+	nop
+	nop
+	and	t4,LSR_TXRDY
+	nop
+	beqz  t4,10b
+	nop
+	sw	t3,DATA(AT)
+	nop
+	nop
+	nop
+	addu a0,a0,1
+	nop
+	beqz t3,20f
+	nop
+	b	10b
+	nop
+20:
+	nop;nop;
+	j	ra
+	.end strout1
+		
+	.globl printWordReg
+	.ent printWordReg
+printWordReg:
+	 move 	t3,a0 
+	 li	t2,8		/* do 8 nibbles */
+
+pWord:
+	srl	a0,t3,28	/* Get the top nibble 	*/
+	and	a0,0x0000000f	/* clear all but nibble */
+	add	a0,'0'		/* Convert it to ascii 	*/
+	sub	t4,a0,'9'
+	nop
+	blez	t4,2f	/* Print it if between 0 & 9 */
+	nop
+	add	a0,0x27
+2:			/* Else add a little more for a to f */
+	.set 	noat
+	li	AT,UART_BASE
+waitrdy_printw:
+	lw	t4,LSR(AT) 
+	nop
+	nop
+	nop
+	nop
+	and	t4,LSR_TXRDY
+	beqz	t4,waitrdy_printw
+	nop
+	sw	a0,DATA(AT)	 
+	nop
+	nop
+ 	nop
+	sll	t3,t3,4	   /* Get the next digit */
+	sub	t2,1	   /* Bump the nibble count */
+	nop
+	bgtz	t2,pWord	
+	nop
+	j	ra
+	.end printWordReg
+
+	.data
+colonstr:	.asciiz	":"
+crlfstr:	.asciiz	"\n\r"
+wavestr:	.asciiz	"Called wave\n\r"
+
+#endif /* DEBUGFROMUART */
+

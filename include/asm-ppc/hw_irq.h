@@ -22,6 +22,12 @@ extern unsigned long __sti_end, __cli_end, __restore_flags_end, __save_flags_ptr
 #define __save_flags(flags) __save_flags_ptr((unsigned long *)&flags)
 #define __save_and_cli(flags) ({__save_flags(flags);__cli();})
 
+#define mfmsr()		({unsigned int rval; \
+			asm volatile("mfmsr %0" : "=r" (rval)); rval;})
+#define mtmsr(v)	asm volatile("mtmsr %0" : : "r" (v))
+
+#define irqs_disabled()	((mfmsr() & MSR_EE) == 0)
+
 extern void do_lost_interrupts(unsigned long);
 
 #define mask_irq(irq) ({if (irq_desc[irq].handler && irq_desc[irq].handler->disable) irq_desc[irq].handler->disable(irq);})

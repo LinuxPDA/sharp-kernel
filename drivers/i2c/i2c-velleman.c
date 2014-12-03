@@ -121,16 +121,12 @@ static int bit_velle_unreg(struct i2c_client *client)
 
 static void bit_velle_inc_use(struct i2c_adapter *adap)
 {
-#ifdef MODULE
 	MOD_INC_USE_COUNT;
-#endif
 }
 
 static void bit_velle_dec_use(struct i2c_adapter *adap)
 {
-#ifdef MODULE
 	MOD_DEC_USE_COUNT;
-#endif
 }
 
 /* ------------------------------------------------------------------------
@@ -158,7 +154,7 @@ static struct i2c_adapter bit_velle_ops = {
 	bit_velle_unreg,
 };
 
-int __init  i2c_bitvelle_init(void)
+static int __init i2c_bitvelle_init(void)
 {
 	printk("i2c-velleman.o: i2c Velleman K8000 adapter module\n");
 	if (base==0) {
@@ -184,24 +180,19 @@ int __init  i2c_bitvelle_init(void)
 	return 0;
 }
 
+static void __exit i2c_bitvelle_exit(void)
+{
+	i2c_bit_del_bus(&bit_velle_ops);
+	bit_velle_exit();
+}
+
 EXPORT_NO_SYMBOLS;
 
-#ifdef MODULE
 MODULE_AUTHOR("Simon G. Vogl <simon@tk.uni-linz.ac.at>");
 MODULE_DESCRIPTION("I2C-Bus adapter routines for Velleman K8000 adapter");
 MODULE_LICENSE("GPL");
 
 MODULE_PARM(base, "i");
 
-int init_module(void) 
-{
-	return i2c_bitvelle_init();
-}
-
-void cleanup_module(void) 
-{
-	i2c_bit_del_bus(&bit_velle_ops);
-	bit_velle_exit();
-}
-
-#endif
+module_init(i2c_bitvelle_init);
+module_exit(i2c_bitvelle_exit);

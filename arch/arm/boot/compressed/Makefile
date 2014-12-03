@@ -9,7 +9,7 @@
 
 HEAD		 = head.o
 OBJS		 = misc.o
-CFLAGS		 = $(CPPFLAGS) -O2 -DSTDC_HEADERS $(CFLAGS_BOOT)
+CFLAGS		 = $(CPPFLAGS) -O2 -DSTDC_HEADERS $(CFLAGS_BOOT) -fpic -Uarm
 FONTC		 = $(TOPDIR)/drivers/video/font_acorn_8x8.c
 ZLDFLAGS	 = -p -X -T vmlinux.lds
 
@@ -18,7 +18,12 @@ ZLDFLAGS	 = -p -X -T vmlinux.lds
 #
 ifeq ($(CONFIG_ARCH_ACORN),y)
 OBJS		+= ll_char_wr.o font.o
-ZLDFLAGS	+= -defsym params=$(PARAMS_PHYS)
+CFLAGS		+= -DPARAMS_PHYS=$(PARAMS_PHYS)
+endif
+
+ifeq ($(CONFIG_ARCH_RISCSTATION),y)
+OBJS		+= ll_char_wr.o font.o
+CFLAGS		+= -DPARAMS_PHYS=$(PARAMS_PHYS)
 endif
 
 ifeq ($(CONFIG_ARCH_NETWINDER),y)
@@ -31,6 +36,14 @@ endif
 
 ifeq ($(CONFIG_ARCH_INTEGRATOR),y)
 OBJS		+= head-integrator.o
+endif
+
+ifeq ($(CONFIG_ARCH_AT91RM9200DK),y)
+OBJS		+= head-at91rm9200dk.o
+endif
+
+ifeq ($(CONFIG_ARCH_KATANA),y)
+OBJS		+= head-katana.o
 endif
 
 ifeq ($(CONFIG_ARCH_MX1ADS),y)
@@ -49,6 +62,18 @@ ifeq ($(CONFIG_ARCH_L7200),y)
 OBJS		+= head-l7200.o
 endif
 
+ifeq ($(CONFIG_S1C38000_TTE301),y)
+OBJS		+= head-tte301.o
+endif
+
+ifeq ($(CONFIG_DBMX1_TPM102),y)
+OBJS		+= head-tpm102.o
+endif
+
+ifeq ($(CONFIG_ARCH_DBMX2),y)
+OBJS		+= head-dbmx2.o
+endif
+
 ifeq ($(CONFIG_ARCH_CLPS7500),y)
 HEAD		= head-clps7500.o
 endif
@@ -60,18 +85,13 @@ endif
 
 ifeq ($(CONFIG_ARCH_SA1100),y)
 OBJS		+= head-sa1100.o
-ifeq ($(CONFIG_SA1100_NANOENGINE),y)
-  OBJS += hw-bse.o
-endif
 endif
 
-SEDFLAGS	= s/TEXT_START/$(ZTEXTADDR)/;s/LOAD_ADDR/$(ZRELADDR)/;
-
-ifneq ($(ZBSSADDR),)
-SEDFLAGS	+= s/BSS_START/$(ZBSSADDR)/
-else
-SEDFLAGS	+= s/BSS_START/ALIGN(4)/
+ifeq ($(CONFIG_CPU_XSCALE),y)
+OBJS		+= head-xscale.o
 endif
+
+SEDFLAGS	= s/TEXT_START/$(ZTEXTADDR)/;s/LOAD_ADDR/$(ZRELADDR)/;s/BSS_START/$(ZBSSADDR)/
 
 LIBGCC		:= $(shell $(CC) $(CFLAGS) --print-libgcc-file-name)
 
@@ -80,11 +100,14 @@ all:		vmlinux
 vmlinux:	$(HEAD) $(OBJS) piggy.o vmlinux.lds
 		$(LD) $(ZLDFLAGS) $(HEAD) $(OBJS) piggy.o $(LIBGCC) -o vmlinux
 
-$(HEAD): 	$(HEAD:.o=.S)
+$(HEAD): 	$(HEAD:.o=.S) \
+			$(wildcard $(TOPDIR)/include/config/zboot/rom.h) \
+			$(wildcard $(TOPDIR)/include/config/cpu/32.h) \
+			$(wildcard $(TOPDIR)/include/config/cpu/26.h)
 		$(CC) $(AFLAGS) -traditional -c $(HEAD:.o=.S)
 
 piggy.o:	$(SYSTEM)
-		$(OBJCOPY) -O binary -R .note -R .comment -S $(SYSTEM) piggy
+		$(OBJCOPY) $(OBJCOPYFLAGS) $(SYSTEM) piggy
 		gzip $(GZFLAGS) < piggy > piggy.gz
 		$(LD) -r -o $@ -b binary piggy.gz
 		rm -f piggy piggy.gz

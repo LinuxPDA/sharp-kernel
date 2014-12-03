@@ -6,6 +6,9 @@
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
+ *
+ * ChangeLog:
+ *     04-Apr-2003 Sharp for ARM FCSE
  */
 #include <asm/mman.h>
 
@@ -42,6 +45,24 @@
 			cpu_cache_clean_invalidate_all();		\
 	} while (0)
 
+#ifdef CONFIG_ARM_FCSE
+#define flush_cache_range(_mm,_start,_end)				\
+	do {								\
+		if ((_mm) == current->active_mm)			\
+			cpu_cache_clean_invalidate_range(CPU_PID_VA_TO_MVA_MM((_mm),(_start)) & PAGE_MASK, \
+							 PAGE_ALIGN(CPU_PID_VA_TO_MVA_MM((_mm),(_end))), 1); \
+	} while (0)
+
+#define flush_cache_page(_vma,_vmaddr)					\
+	do {								\
+		if ((_vma)->vm_mm == current->active_mm) {		\
+			unsigned long _addr = CPU_PID_VA_TO_MVA_MM((_vma)->vm_mm,(_vmaddr)) & PAGE_MASK;	\
+			cpu_cache_clean_invalidate_range(_addr,		\
+				_addr + PAGE_SIZE,			\
+				((_vma)->vm_flags & VM_EXEC));		\
+		} \
+	} while (0)
+#else
 #define flush_cache_range(_mm,_start,_end)				\
 	do {								\
 		if ((_mm) == current->active_mm)			\
@@ -58,6 +79,7 @@
 				((_vma)->vm_flags & VM_EXEC));		\
 		} \
 	} while (0)
+#endif
 
 /*
  * This flushes back any buffered write data.  We have to clean the entries
@@ -92,16 +114,26 @@
  */
 static __inline__ void flush_page_to_ram(struct page *page)
 {
+#ifdef CONFIG_ARM_FCSE
+	cpu_flush_ram_page(cpu_pid_va_to_mva(page_address(page)));
+#else
 	cpu_flush_ram_page(page_address(page));
+#endif
 }
 
 /*
  * D cache only
  */
 
+#ifdef CONFIG_ARM_FCSE
+#define invalidate_dcache_range(_s,_e)	cpu_dcache_invalidate_range(cpu_pid_va_to_mva(_s),cpu_pid_va_to_mva(_e))
+#define clean_dcache_range(_s,_e)	cpu_dcache_clean_range(cpu_pid_va_to_mva(_s),cpu_pid_va_to_mva(_e))
+#define flush_dcache_range(_s,_e)	cpu_cache_clean_invalidate_range(cpu_pid_va_to_mva(_s),cpu_pid_va_to_mva(_e),0)
+#else
 #define invalidate_dcache_range(_s,_e)	cpu_dcache_invalidate_range((_s),(_e))
 #define clean_dcache_range(_s,_e)	cpu_dcache_clean_range((_s),(_e))
 #define flush_dcache_range(_s,_e)	cpu_cache_clean_invalidate_range((_s),(_e),0)
+#endif
 
 /*
  * flush_dcache_page is used when the kernel has written to the page
@@ -123,12 +155,23 @@ static inline void flush_dcache_page(struct page *page)
 	if (page->mapping && !mapping_mapped(page->mapping))
 		set_bit(PG_dcache_dirty, &page->flags);
 	else {
+#ifdef CONFIG_ARM_FCSE
+		unsigned long virt = (unsigned long)cpu_pid_va_to_mva(page_address(page));
+#else
 		unsigned long virt = (unsigned long)page_address(page);
+#endif
 		cpu_cache_clean_invalidate_range(virt, virt + PAGE_SIZE, 0);
 	}
 }
 
+#define flush_icache_user_range(vma,page,addr,len) \
+	flush_dcache_page(page)
+
+#ifdef CONFIG_ARM_FCSE
+#define clean_dcache_entry(_s)		cpu_dcache_clean_entry((unsigned long)cpu_pid_va_to_mva(_s))
+#else
 #define clean_dcache_entry(_s)		cpu_dcache_clean_entry((unsigned long)(_s))
+#endif
 
 /*
  * This function is misnamed IMHO.  There are three places where it
@@ -166,10 +209,17 @@ static inline void flush_dcache_page(struct page *page)
  * This generally means that we have to clean out the Dcache and write
  * buffers, and maybe flush the Icache in the specified range.
  */
+#ifdef CONFIG_ARM_FCSE
+#define flush_icache_range(_s,_e)					\
+	do {								\
+		cpu_icache_invalidate_range(cpu_pid_va_to_mva(_s), cpu_pid_va_to_mva(_e));		\
+	} while (0)
+#else
 #define flush_icache_range(_s,_e)					\
 	do {								\
 		cpu_icache_invalidate_range((_s), (_e));		\
 	} while (0)
+#endif
 
 /*
  * TLB flushing.
@@ -211,21 +261,38 @@ static inline void flush_dcache_page(struct page *page)
  *
  * _mm may not be current->active_mm, but may not be NULL.
  */
+#ifdef CONFIG_ARM_FCSE
+#define flush_tlb_range(_mm,_start,_end)				\
+	do {								\
+		if ((_mm) == current->active_mm)			\
+			cpu_tlb_invalidate_range(CPU_PID_VA_TO_MVA_MM((_mm),(_start)), CPU_PID_VA_TO_MVA_MM((_mm),(_end)));	\
+	} while (0)
+#else
 #define flush_tlb_range(_mm,_start,_end)				\
 	do {								\
 		if ((_mm) == current->active_mm)			\
 			cpu_tlb_invalidate_range((_start), (_end));	\
 	} while (0)
+#endif
 
 /*
  * Flush the specified user virtual address space translation.
  */
+#ifdef CONFIG_ARM_FCSE
+#define flush_tlb_page(_vma,_page)					\
+	do {								\
+		if ((_vma)->vm_mm == current->active_mm)		\
+			cpu_tlb_invalidate_page(CPU_PID_VA_TO_MVA_MM(((_vma)->vm_mm),(_page)),		\
+				 ((_vma)->vm_flags & VM_EXEC));		\
+	} while (0)
+#else
 #define flush_tlb_page(_vma,_page)					\
 	do {								\
 		if ((_vma)->vm_mm == current->active_mm)		\
 			cpu_tlb_invalidate_page((_page),		\
 				 ((_vma)->vm_flags & VM_EXEC));		\
 	} while (0)
+#endif
 
 /*
  * if PG_dcache_dirty is set for the page, we need to ensure that any

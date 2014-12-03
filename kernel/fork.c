@@ -2,6 +2,9 @@
  *  linux/kernel/fork.c
  *
  *  Copyright (C) 1991, 1992  Linus Torvalds
+ *
+ * ChangLog:
+ *	12-Dec-2002 Lineo Japan, Inc.
  */
 
 /*
@@ -27,6 +30,7 @@
 #include <asm/pgalloc.h>
 #include <asm/uaccess.h>
 #include <asm/mmu_context.h>
+#include <asm/processor.h>
 
 /* The idle threads do not count.. */
 int nr_threads;
@@ -74,10 +78,16 @@ void __init fork_init(unsigned long mempages)
 	 * value: the thread structures can take up at most half
 	 * of memory.
 	 */
+#if THREAD_SIZE > PAGE_SIZE
 	max_threads = mempages / (THREAD_SIZE/PAGE_SIZE) / 8;
-
-	init_task.rlim[RLIMIT_NPROC].rlim_cur = max_threads/2;
-	init_task.rlim[RLIMIT_NPROC].rlim_max = max_threads/2;
+#else
+	max_threads = (mempages * PAGE_SIZE) / (8 * THREAD_SIZE);
+#endif
+	/*
+	 * we need to allow at least 10 threads to boot a system
+	 */
+	init_task.rlim[RLIMIT_NPROC].rlim_cur = max(10, max_threads/2);
+	init_task.rlim[RLIMIT_NPROC].rlim_max = max(10, max_threads/2);
 }
 
 /* Protects next_safe and last_pid. */
@@ -138,6 +148,8 @@ nomorepids:
 	spin_unlock(&lastpid_lock);
 	return 0;
 }
+
+#ifndef CONFIG_UCLINUX
 
 static inline int dup_mmap(struct mm_struct * mm)
 {
@@ -217,6 +229,9 @@ static inline int dup_mmap(struct mm_struct * mm)
 
 fail_nomem:
 	flush_tlb_mm(current->mm);
+#ifdef __arm__
+	memc_update_mm(mm);
+#endif
 	return retval;
 }
 
@@ -232,7 +247,13 @@ static struct mm_struct * mm_init(struct mm_struct * mm)
 	atomic_set(&mm->mm_count, 1);
 	init_rwsem(&mm->mmap_sem);
 	mm->page_table_lock = SPIN_LOCK_UNLOCKED;
+#if defined(CONFIG_RTSCHED)
+	lock_kernel();
+#endif
 	mm->pgd = pgd_alloc(mm);
+#if defined(CONFIG_RTSCHED)
+	unlock_kernel();
+#endif
 	mm->def_flags = 0;
 	if (mm->pgd)
 		return mm;
@@ -264,7 +285,13 @@ struct mm_struct * mm_alloc(void)
 inline void __mmdrop(struct mm_struct *mm)
 {
 	BUG_ON(mm == &init_mm);
+#if defined(CONFIG_RTSCHED)
+	lock_kernel();
+#endif
 	pgd_free(mm->pgd);
+#if defined(CONFIG_RTSCHED)
+	unlock_kernel();
+#endif
 	destroy_context(mm);
 	free_mm(mm);
 }
@@ -373,6 +400,159 @@ free_pt:
 fail_nomem:
 	return retval;
 }
+
+#else /* !CONFIG_UCLINUX */
+
+spinlock_t mmlist_lock __cacheline_aligned = SPIN_LOCK_UNLOCKED;
+int mmlist_nr;
+
+static inline int dup_mmap(struct mm_struct * mm)
+{
+	struct mm_tblock_struct * tmp = &current->mm->tblock;
+	struct mm_tblock_struct * newtmp = &mm->tblock;
+	extern long realalloc, askedalloc;	
+
+	/* Kill me slowly. UGLY! FIXME! */
+	memcpy(&mm->start_code, &current->mm->start_code, 15*sizeof(unsigned long));
+	mm->tblock.rblock = 0;
+	mm->tblock.next = 0;
+
+	while((tmp = tmp->next)) {
+		newtmp->next = kmalloc(sizeof(struct mm_tblock_struct), GFP_KERNEL);
+		if (!newtmp->next) return -ENOMEM; /* FIXME:  Does not unwind */
+		realalloc += ksize(newtmp->next);
+		askedalloc += sizeof(struct mm_tblock_struct);
+		newtmp->next->rblock = tmp->rblock;
+		if (tmp->rblock)
+			tmp->rblock->refcount++;
+		newtmp->next->next = 0;
+		newtmp = newtmp->next;
+	}
+	return 0;
+}
+
+/*
+ * Allocate and initialize an mm_struct.
+ */
+struct mm_struct * mm_alloc(void)
+{
+	struct mm_struct * mm;
+
+	mm = kmem_cache_alloc(mm_cachep, SLAB_KERNEL);
+	if (mm) {
+		memset(mm, 0, sizeof(*mm));
+		atomic_set(&mm->mm_users, 1);
+		atomic_set(&mm->mm_count, 1);
+		init_rwsem(&mm->mmap_sem);
+		mm->page_table_lock = SPIN_LOCK_UNLOCKED;
+		return mm;
+	}
+	return NULL;
+}
+
+/*
+ * Called when the last reference to the mm
+ * is dropped: either by a lazy thread or by
+ * mmput. Free the mm.
+ */
+inline void __mmdrop(struct mm_struct *mm)
+{
+	if (mm == &init_mm) BUG();
+	kmem_cache_free(mm_cachep, mm);
+}
+
+/*
+ * Decrement the use count and release all resources for an mm.
+ */
+void mmput(struct mm_struct *mm)
+{
+	if (atomic_dec_and_test(&mm->mm_users)) {
+		exit_mmap(mm);
+		mmdrop(mm);
+	}
+}
+
+/* Please note the differences between mmput and mm_release.
+ * mmput is called whenever we stop holding onto a mm_struct,
+ * error success whatever.
+ *
+ * mm_release is called after a mm_struct has been removed
+ * from the current process.
+ *
+ * This difference is important for error handling, when we
+ * only half set up a mm_struct for a new process and need to restore
+ * the old one.  Because we mmput the new mm_struct before
+ * restoring the old one. . .
+ * Eric Biederman 10 January 1998
+ */
+void mm_release(void)
+{
+	struct task_struct *tsk = current;
+	struct completion *vfork_done = tsk->vfork_done;
+
+	/* notify parent sleeping on vfork() */
+	if (vfork_done) {
+		tsk->vfork_done = NULL;
+		complete(vfork_done);
+	}
+}
+
+static inline int copy_mm(unsigned long clone_flags, struct task_struct * tsk)
+{
+	struct mm_struct * mm;
+	int retval;
+
+	tsk->min_flt = tsk->maj_flt = 0;
+	tsk->cmin_flt = tsk->cmaj_flt = 0;
+	tsk->nswap = tsk->cnswap = 0;
+
+	tsk->mm = NULL;
+	tsk->active_mm = NULL;
+
+	/*
+	 * Are we cloning a kernel thread?
+	 *
+	 * We need to steal a active VM for that..
+	 */
+	mm = current->mm;
+	if (!mm)
+		return 0;
+
+	if (clone_flags & CLONE_VM) {
+		atomic_inc(&mm->mm_users);
+		goto good_mm;
+	}
+
+	retval = -ENOMEM;
+	mm = mm_alloc();
+	if (!mm)
+		goto fail_nomem;
+
+	tsk->mm = mm;
+	tsk->active_mm = mm;
+
+#if DAVIDM /* is this needed,  I took it out as it didn't appear to be */
+	if (tsk->mm->executable)
+		atomic_inc(&tsk->mm->executable->i_count);
+#endif
+
+	/*
+	 * child gets a private LDT (if there was an LDT in the parent)
+	 */
+	copy_segments(tsk, mm);
+
+good_mm:
+	tsk->mm = mm;
+	tsk->active_mm = mm;
+	return 0;
+
+free_pt:
+	mmput(mm);
+fail_nomem:
+	return retval;
+}
+
+#endif /* !CONFIG_UCLINUX */
 
 static inline struct fs_struct *__copy_fs_struct(struct fs_struct *old)
 {
@@ -565,6 +745,31 @@ static inline void copy_flags(unsigned long clone_flags, struct task_struct *p)
 	p->flags = new_flags;
 }
 
+long kernel_thread(int (*fn)(void *), void * arg, unsigned long flags)
+{
+	struct task_struct *task = current;
+	unsigned old_task_dumpable;
+	long ret;
+
+	/* lock out any potential ptracer */
+	task_lock(task);
+	if (task->ptrace) {
+		task_unlock(task);
+		return -EPERM;
+	}
+
+	old_task_dumpable = task->task_dumpable;
+	task->task_dumpable = 0;
+	task_unlock(task);
+
+	ret = arch_kernel_thread(fn, arg, flags);
+
+	/* never reached in child process, only in parent */
+	current->task_dumpable = old_task_dumpable;
+
+	return ret;
+}
+
 /*
  *  Ok, this is the main fork-routine. It copies the system process
  * information (task[nr]) and sets up the necessary registers. It also
@@ -629,6 +834,13 @@ int do_fork(unsigned long clone_flags, unsigned long stack_start,
 	if (p->binfmt && p->binfmt->module)
 		__MOD_INC_USE_COUNT(p->binfmt->module);
 
+#ifdef CONFIG_PREEMPT
+	/*
+	 * Continue with preemption disabled as part of the context
+	 * switch, so start with preempt_count set to 1.
+	 */
+	p->preempt_count = 1;
+#endif
 	p->did_exec = 0;
 	p->swappable = 0;
 	p->state = TASK_UNINTERRUPTIBLE;
@@ -704,6 +916,8 @@ int do_fork(unsigned long clone_flags, unsigned long stack_start,
 	p->swappable = 1;
 	p->exit_signal = clone_flags & CSIGNAL;
 	p->pdeath_signal = 0;
+	if (! is_oom_kill_survival_inherit(p))
+		oom_kill_survival_set(p, 0, 0);
 
 	/*
 	 * "share" dynamic priority between parent and child, thus the

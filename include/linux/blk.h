@@ -46,6 +46,7 @@ extern int ez_init(void);
 extern int bpcd_init(void);
 extern int ps2esdi_init(void);
 extern int jsfd_init(void);
+extern int blkmem_init(void);
 extern int viodasd_init(void);
 extern int viocd_init(void);
 

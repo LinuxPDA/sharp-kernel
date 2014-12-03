@@ -32,6 +32,9 @@ if [ "$CONFIG_PARPORT" != "n" ]; then
          fi
       fi
    fi
+   if [ "$CONFIG_DRAGONIXVZ" = "y" ]; then
+      dep_tristate '  Dragonix parallel port add-on board' CONFIG_PARPORT_DRAGONIX $CONFIG_PARPORT
+   fi
    if [ "$CONFIG_ARM" = "y" ]; then
       dep_tristate '  Archimedes hardware' CONFIG_PARPORT_ARC $CONFIG_PARPORT
    fi

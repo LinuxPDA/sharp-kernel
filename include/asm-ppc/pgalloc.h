@@ -68,20 +68,25 @@ extern __inline__ pgd_t *get_pgd_fast(void)
 {
         unsigned long *ret;
 
+	preempt_disable();
         if ((ret = pgd_quicklist) != NULL) {
                 pgd_quicklist = (unsigned long *)(*ret);
                 ret[0] = 0;
                 pgtable_cache_size--;
+		preempt_enable();
         } else
+		preempt_enable();
                 ret = (unsigned long *)get_pgd_slow();
         return (pgd_t *)ret;
 }
 
 extern __inline__ void free_pgd_fast(pgd_t *pgd)
 {
+	preempt_disable();
         *(unsigned long **)pgd = pgd_quicklist;
         pgd_quicklist = (unsigned long *) pgd;
         pgtable_cache_size++;
+	preempt_enable();
 }
 
 extern __inline__ void free_pgd_slow(pgd_t *pgd)
@@ -120,19 +125,23 @@ static inline pte_t *pte_alloc_one_fast(struct mm_struct *mm, unsigned long addr
 {
         unsigned long *ret;
 
+	preempt_disable();
         if ((ret = pte_quicklist) != NULL) {
                 pte_quicklist = (unsigned long *)(*ret);
                 ret[0] = 0;
                 pgtable_cache_size--;
 	}
+	preempt_enable();
         return (pte_t *)ret;
 }
 
 extern __inline__ void pte_free_fast(pte_t *pte)
 {
+	preempt_disable();
         *(unsigned long **)pte = pte_quicklist;
         pte_quicklist = (unsigned long *) pte;
         pgtable_cache_size++;
+	preempt_enable();
 }
 
 extern __inline__ void pte_free_slow(pte_t *pte)

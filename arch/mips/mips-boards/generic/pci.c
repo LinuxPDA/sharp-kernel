@@ -1,6 +1,6 @@
 /*
  * Carsten Langgaard, carstenl@mips.com
- * Copyright (C) 1999,2000 MIPS Technologies, Inc.  All rights reserved.
+ * Copyright (C) 1999, 2000 MIPS Technologies, Inc.  All rights reserved.
  *
  *  This program is free software; you can distribute it and/or modify it
  *  under the terms of the GNU General Public License (Version 2) as
@@ -51,9 +51,8 @@
 #define PCI_CFG_TYPE1_DEV_SHF           11
 #define PCI_CFG_TYPE1_BUS_SHF           16
 
-static int
-mips_pcibios_config_access(unsigned char access_type, struct pci_dev *dev,
-                           unsigned char where, u32 *data)
+static int mips_pcibios_config_access(unsigned char access_type,
+	struct pci_dev *dev, unsigned char where, u32 *data)
 {
 	unsigned char bus = dev->bus->number;
 	unsigned char dev_fn = dev->devfn;
@@ -167,12 +166,7 @@ mips_pcibios_config_access(unsigned char access_type, struct pci_dev *dev,
 
 		/* Flush Bonito register block */
 		dummy = BONITO_PCIMAP_CFG;
-		__asm__ __volatile__(
-				     ".set\tnoreorder\n\t"
-				     ".set\tnoat\n\t"
-				     "sync\n\t"
-				     ".set\tat\n\t"
-				     ".set\treorder");
+		iob();    /* sync */
 
 		/* Perform access */
 		if (access_type == PCI_ACCESS_WRITE) {
@@ -263,8 +257,8 @@ mips_pcibios_config_access(unsigned char access_type, struct pci_dev *dev,
  * We can't address 8 and 16 bit words directly.  Instead we have to
  * read/write a 32bit word and mask/modify the data we actually want.
  */
-static int
-mips_pcibios_read_config_byte (struct pci_dev *dev, int where, u8 *val)
+static int mips_pcibios_read_config_byte (struct pci_dev *dev, int where,
+	u8 *val)
 {
 	u32 data = 0;
 
@@ -276,9 +270,8 @@ mips_pcibios_read_config_byte (struct pci_dev *dev, int where, u8 *val)
 	return PCIBIOS_SUCCESSFUL;
 }
 
-
-static int
-mips_pcibios_read_config_word (struct pci_dev *dev, int where, u16 *val)
+static int mips_pcibios_read_config_word (struct pci_dev *dev, int where,
+	u16 *val)
 {
 	u32 data = 0;
 
@@ -293,8 +286,8 @@ mips_pcibios_read_config_word (struct pci_dev *dev, int where, u16 *val)
 	return PCIBIOS_SUCCESSFUL;
 }
 
-static int
-mips_pcibios_read_config_dword (struct pci_dev *dev, int where, u32 *val)
+static int mips_pcibios_read_config_dword (struct pci_dev *dev, int where,
+	u32 *val)
 {
 	u32 data = 0;
 
@@ -309,9 +302,8 @@ mips_pcibios_read_config_dword (struct pci_dev *dev, int where, u32 *val)
 	return PCIBIOS_SUCCESSFUL;
 }
 
-
-static int
-mips_pcibios_write_config_byte (struct pci_dev *dev, int where, u8 val)
+static int mips_pcibios_write_config_byte (struct pci_dev *dev, int where,
+	u8 val)
 {
 	u32 data = 0;
 
@@ -327,8 +319,8 @@ mips_pcibios_write_config_byte (struct pci_dev *dev, int where, u8 val)
 	return PCIBIOS_SUCCESSFUL;
 }
 
-static int
-mips_pcibios_write_config_word (struct pci_dev *dev, int where, u16 val)
+static int mips_pcibios_write_config_word (struct pci_dev *dev, int where,
+	u16 val)
 {
         u32 data = 0;
 
@@ -348,8 +340,8 @@ mips_pcibios_write_config_word (struct pci_dev *dev, int where, u16 val)
 	return PCIBIOS_SUCCESSFUL;
 }
 
-static int
-mips_pcibios_write_config_dword(struct pci_dev *dev, int where, u32 val)
+static int mips_pcibios_write_config_dword(struct pci_dev *dev, int where,
+	u32 val)
 {
 	if (where & 3)
 		return PCIBIOS_BAD_REGISTER_NUMBER;
@@ -400,14 +392,10 @@ int mips_pcibios_iack(void)
 
 		/* Flush Bonito register block */
 		dummy = BONITO_PCIMAP_CFG;
-		__asm__ __volatile__(
-			".set\tnoreorder\n\t"
-			".set\tnoat\n\t"
-			"sync\n\t"
-			".set\tat\n\t"
-			".set\treorder");
+		iob();    /* sync */
 
 		irq = *(volatile u32 *)(KSEG1ADDR(BONITO_PCICFG_BASE));
+		iob();    /* sync */
 		irq &= 0xff;
 		BONITO_PCIMAP_CFG = 0;
 		break;
@@ -497,21 +485,18 @@ void __init pcibios_init(void)
 #endif
 }
 
-int __init
-pcibios_enable_device(struct pci_dev *dev)
+int pcibios_enable_device(struct pci_dev *dev, int mask)
 {
 	/* Not needed, since we enable all devices at startup.  */
 	return 0;
 }
 
-void __init
-pcibios_align_resource(void *data, struct resource *res, unsigned long size,
-		       unsigned long align)
+void pcibios_align_resource(void *data, struct resource *res,
+	unsigned long size, unsigned long align)
 {
 }
 
-char * __init
-pcibios_setup(char *str)
+char * __init pcibios_setup(char *str)
 {
 	/* Nothing to do for now.  */
 
@@ -522,9 +507,8 @@ struct pci_fixup pcibios_fixups[] = {
 	{ 0 }
 };
 
-void __init
-pcibios_update_resource(struct pci_dev *dev, struct resource *root,
-                        struct resource *res, int resource)
+void pcibios_update_resource(struct pci_dev *dev, struct resource *root,
+	struct resource *res, int resource)
 {
 	unsigned long where, size;
 	u32 reg;
@@ -540,12 +524,12 @@ pcibios_update_resource(struct pci_dev *dev, struct resource *root,
  *  Called after each bus is probed, but before its children
  *  are examined.
  */
-void __init pcibios_fixup_bus(struct pci_bus *b)
+void __devinit pcibios_fixup_bus(struct pci_bus *b)
 {
 	pci_read_bridge_bases(b);
 }
 
-unsigned __init int pcibios_assign_all_busses(void)
+unsigned int pcibios_assign_all_busses(void)
 {
 	return 1;
 }

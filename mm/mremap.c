@@ -105,6 +105,9 @@ static int move_page_tables(struct mm_struct * mm,
 			goto oops_we_failed;
 	}
 	flush_tlb_range(mm, old_addr, old_addr + len);
+#ifdef __arm__
+	memc_update_mm(mm);
+#endif
 	return 0;
 
 	/*
@@ -119,6 +122,9 @@ oops_we_failed:
 	while ((offset += PAGE_SIZE) < len)
 		move_one_page(mm, new_addr + offset, old_addr + offset);
 	zap_page_range(mm, new_addr, len);
+#ifdef __arm__
+	memc_update_mm(mm);
+#endif
 	return -1;
 }
 

@@ -4112,7 +4112,9 @@ static struct param_table {
 	{ "no_unexpected_interrupts", 0, &print_unex, 0, 0 },
 	{ "L40SX", 0, &print_unex, 0, 0 }
 
+#ifdef EXTRA_FLOPPY_PARAMS
 	EXTRA_FLOPPY_PARAMS
+#endif
 };
 
 static int __init floppy_setup(char *str)

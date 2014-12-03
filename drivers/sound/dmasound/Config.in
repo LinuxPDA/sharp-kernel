@@ -12,16 +12,26 @@ fi
 if [ "$CONFIG_Q40" = "y" ]; then
    dep_tristate '  Q40 sound support' CONFIG_DMASOUND_Q40 $CONFIG_SOUND
 fi
+if [ "$CONFIG_SH_MS7727RP" = "y" ]; then
+   dep_tristate '  MS7727RP02 sound support' CONFIG_DMASOUND_MS7727RP $CONFIG_SOUND
+fi
+if [ "$CONFIG_SH_MS7720RP" = "y" ]; then
+   dep_tristate '  MS7720RP01 dmasound support' CONFIG_DMASOUND_MS7720RP $CONFIG_SOUNDfi
+fi
 if [ "$CONFIG_DMASOUND_ATARI" = "y" -o \
      "$CONFIG_DMASOUND_PMAC" = "y" -o \
      "$CONFIG_DMASOUND_PAULA" = "y" -o \
-     "$CONFIG_DMASOUND_Q40" = "y" ]; then
+     "$CONFIG_DMASOUND_Q40" = "y" -o \
+     "$CONFIG_DMASOUND_MS7720RP" = "y" -o \
+     "$CONFIG_DMASOUND_MS7727RP" = "y" ]; then
    define_tristate CONFIG_DMASOUND y
 else
    if [ "$CONFIG_DMASOUND_ATARI" = "m" -o \
 	"$CONFIG_DMASOUND_PMAC" = "m" -o \
 	"$CONFIG_DMASOUND_PAULA" = "m" -o \
-	"$CONFIG_DMASOUND_Q40" = "m" ]; then
+	"$CONFIG_DMASOUND_Q40" = "m" -o \
+	"$CONFIG_DMASOUND_MS7720RP" = "m" -o \
+	"$CONFIG_DMASOUND_MS7727RP" = "m" ]; then
       define_tristate CONFIG_DMASOUND m
    fi
 fi

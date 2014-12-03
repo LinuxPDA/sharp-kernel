@@ -9,6 +9,7 @@ define_bool CONFIG_SUPERH y
 define_bool CONFIG_UID16 y
 define_bool CONFIG_RWSEM_GENERIC_SPINLOCK y
 define_bool CONFIG_RWSEM_XCHGADD_ALGORITHM n
+define_bool CONFIG_GENERIC_ISA_DMA y
 
 mainmenu_option next_comment
 comment 'Code maturity level options'
@@ -30,6 +31,7 @@ choice 'SuperH system type'					\
 	"Generic		CONFIG_SH_GENERIC		\
 	 SolutionEngine		CONFIG_SH_SOLUTION_ENGINE	\
 	 SolutionEngine7751	CONFIG_SH_7751_SOLUTION_ENGINE	\
+         SolutionEngine7760     CONFIG_SH_7760_SOLUTION_ENGINE  \
 	 STB1_Harp		CONFIG_SH_STB1_HARP		\
 	 STB1_Overdrive		CONFIG_SH_STB1_OVERDRIVE	\
 	 HP620			CONFIG_SH_HP620			\
@@ -43,10 +45,27 @@ choice 'SuperH system type'					\
 	 BigSur			CONFIG_SH_BIGSUR		\
 	 SH2000			CONFIG_SH_SH2000		\
 	 ADX			CONFIG_SH_ADX			\
+	 MS7727RP		CONFIG_SH_MS7727RP		\
+	 MS7290CP		CONFIG_SH_MS7290CP		\
+	 MS7710SE		CONFIG_SH_MS7710SE		\
+	 MS7720RP		CONFIG_SH_MS7720RP		\
+	 RTS7751R2D		CONFIG_SH_RTS7751R2D		\
 	 BareCPU		CONFIG_SH_UNKNOWN" Generic
 
+# The SH7750 RTC module is disabled in the Dreamcast and SH-Mobile SolutionEngine
+if [ "$CONFIG_SH_7760_SOLUTION_ENGINE" = "y" ]; then
+   bool '  7760 SolutionEngine New Board support' CONFIG_SH_7760_SOLUTION_ENGINE_NB
+else
+   define_bool CONFIG_SH_7760_SOLUTION_ENGINE_NB n
+fi
+
+if [ "$CONFIG_SH_RTS7751R2D" = "y" ]; then
+   define_bool CONFIG_RTS7751R2D_VER_10 n
+fi
+
 # The SH7750 RTC module is disabled in the Dreamcast
-if [ "$CONFIG_SH_DREAMCAST" = "y" ]; then
+if [ "$CONFIG_SH_DREAMCAST" = "y" -o \
+     "$CONFIG_SH_7760_SOLUTION_ENGINE" = "y" ]; then
    define_bool CONFIG_SH_RTC n
 else
    define_bool CONFIG_SH_RTC y
@@ -61,8 +80,15 @@ choice 'Processor type' \
    "SH7707 CONFIG_CPU_SUBTYPE_SH7707 \
     SH7708 CONFIG_CPU_SUBTYPE_SH7708 \
     SH7709 CONFIG_CPU_SUBTYPE_SH7709 \
+    SH7710 CONFIG_CPU_SUBTYPE_SH7710 \
+    SH7720 CONFIG_CPU_SUBTYPE_SH7720 \
+    SH7727 CONFIG_CPU_SUBTYPE_SH7727 \
+    SH7290 CONFIG_CPU_SUBTYPE_SH7290 \
     SH7750 CONFIG_CPU_SUBTYPE_SH7750 \
     SH7751 CONFIG_CPU_SUBTYPE_SH7751 \
+    SH7750R CONFIG_CPU_SUBTYPE_SH7750R \
+    SH7751R CONFIG_CPU_SUBTYPE_SH7751R \
+    SH7760 CONFIG_CPU_SUBTYPE_SH7760 \
     ST40STB1 CONFIG_CPU_SUBTYPE_ST40STB1" SH7708
 if [ "$CONFIG_CPU_SUBTYPE_SH7707" = "y" ]; then
    define_bool CONFIG_CPU_SH3 y
@@ -76,11 +102,39 @@ if [ "$CONFIG_CPU_SUBTYPE_SH7709" = "y" ]; then
    define_bool CONFIG_CPU_SH3 y
    define_bool CONFIG_CPU_SH4 n
 fi
+if [ "$CONFIG_CPU_SUBTYPE_SH7710" = "y" ]; then
+   define_bool CONFIG_CPU_SH3 y
+   define_bool CONFIG_CPU_SH4 n
+fi
+if [ "$CONFIG_CPU_SUBTYPE_SH7720" = "y" ]; then
+   define_bool CONFIG_CPU_SH3 y
+   define_bool CONFIG_CPU_SH4 n
+fi
+if [ "$CONFIG_CPU_SUBTYPE_SH7727" = "y" ]; then
+   define_bool CONFIG_CPU_SH3 y
+   define_bool CONFIG_CPU_SH4 n
+fi
+if [ "$CONFIG_CPU_SUBTYPE_SH7290" = "y" ]; then
+   define_bool CONFIG_CPU_SH3 y
+   define_bool CONFIG_CPU_SH4 n
+fi
 if [ "$CONFIG_CPU_SUBTYPE_SH7750" = "y" ]; then
    define_bool CONFIG_CPU_SH3 n
    define_bool CONFIG_CPU_SH4 y
 fi
 if [ "$CONFIG_CPU_SUBTYPE_SH7751" = "y" ]; then
+   define_bool CONFIG_CPU_SH3 n
+   define_bool CONFIG_CPU_SH4 y
+fi
+if [ "$CONFIG_CPU_SUBTYPE_SH7750R" = "y" ]; then
+   define_bool CONFIG_CPU_SH3 n
+   define_bool CONFIG_CPU_SH4 y
+fi
+if [ "$CONFIG_CPU_SUBTYPE_SH7751R" = "y" ]; then
+   define_bool CONFIG_CPU_SH3 n
+   define_bool CONFIG_CPU_SH4 y
+fi
+if [ "$CONFIG_CPU_SUBTYPE_SH7760" = "y" ]; then
    define_bool CONFIG_CPU_SH3 n
    define_bool CONFIG_CPU_SH4 y
 fi
@@ -100,10 +154,25 @@ if [ "$CONFIG_SH_7751_SOLUTION_ENGINE" = "y" ]; then
    define_hex CONFIG_MEMORY_SIZE 04000000
    define_bool CONFIG_MEMORY_SET y
 fi
+if [ "$CONFIG_SH_7760_SOLUTION_ENGINE" = "y" ]; then
+   define_hex CONFIG_MEMORY_START 0c000000
+   define_hex CONFIG_MEMORY_SIZE 04000000
+   define_bool CONFIG_MEMORY_SET y
+fi
 if [ "$CONFIG_SH_HP600" = "y" -o "$CONFIG_SH_BIGSUR" = "y" -o \
      "$CONFIG_SH_DREAMCAST" = "y" -o "$CONFIG_SH_SH2000" = "y" ]; then
    define_hex CONFIG_MEMORY_START 0c000000
    define_hex CONFIG_MEMORY_SIZE 00400000
+   define_bool CONFIG_MEMORY_SET y
+fi
+if [ "$CONFIG_SH_MS7727RP" = "y" ]; then
+   define_hex CONFIG_MEMORY_START 0c000000
+   define_hex CONFIG_MEMORY_SIZE 00100000
+   define_bool CONFIG_MEMORY_SET y
+fi
+if [ "$CONFIG_SH_MS7720RP" = "y" ]; then
+   define_hex CONFIG_MEMORY_START 0c000000
+   define_hex CONFIG_MEMORY_SIZE 04000000
    define_bool CONFIG_MEMORY_SET y
 fi
 if [ "$CONFIG_CPU_SUBTYPE_ST40STB1" = "y" ]; then
@@ -119,11 +188,43 @@ if [ "$CONFIG_SH_ADX" = "y" ]; then
    define_hex CONFIG_MEMORY_SIZE 00400000
    define_bool CONFIG_MEMORY_SET y
 fi
+if [ "$CONFIG_SH_RTS7751R2D" = "y" ]; then
+   define_hex CONFIG_MEMORY_START 0c000000
+   define_hex CONFIG_MEMORY_SIZE 04000000
+   define_bool CONFIG_MEMORY_SET y
+fi
 # If none of the above have set memory start/size, ask the user.
 if [ "$CONFIG_MEMORY_SET" != "y" ]; then
    hex 'Physical memory start address' CONFIG_MEMORY_START 08000000
    hex 'Physical memory size' CONFIG_MEMORY_SIZE 00400000
 fi
+
+bool 'Kernel Execute-In-Place(XIP) on ROM support' CONFIG_XIP_KERNEL
+if [ "$CONFIG_XIP_KERNEL" = "y" ]; then
+   hex 'TEXTBASE' CONFIG_XIP_KERNEL_TEXTBASE 80000000
+fi
+bool 'Real-Time Hardware Abstraction Layer support' CONFIG_RTHAL
+if [ "$CONFIG_RTHAL" = "y" ]; then
+   define_bool CONFIG_RTSCHED y
+if [ "$CONFIG_RTSCHED" = "y" ]; then
+   int '    MAX PTHREAD (int)' CONFIG_RTH_PTHREAD_MAX 128	
+   hex '  RT MEMORY SIZE (hex)' CONFIG_RT_MEM_SIZE 80000
+   bool '      Real-Time Calibrate support' CONFIG_RTHAL_CALIBRATION
+   if [ "$CONFIG_RTHAL_CALIBRATION" != "y" ]; then
+       int '      TIMER INTERRUPT LATENCY (nsec)' CONFIG_LATENCY_MATCH_REG 5000
+#       int  '      TIMER SETUP LATENCY     (nsec)' CONFIG_SETUP_TIME_MATCH_REG 1000
+   fi
+fi
+dep_bool '  Real-Time debug support' CONFIG_RT_DEBUG $CONFIG_RTHAL
+if [ "$CONFIG_RT_DEBUG" = "y" ]; then
+   int '    IRQ TIME LOG SIZE' CONFIG_RT_IRQ_TIME_LOG_SIZE 3
+   int '    CPU TIME LOG SIZE' CONFIG_RT_CPU_TIME_LOG_SIZE 5
+fi
+fi
+
+bool 'Preemptible Kernel support' CONFIG_PREEMPT
+bool 'Set default calibrate delay value' CONFIG_ARCH_CALIBRATE_DELAY
+
 endmenu
 
 if [ "$CONFIG_SH_HP690" = "y" ]; then
@@ -145,22 +246,84 @@ define_bool CONFIG_SBUS n
 
 bool 'Networking support' CONFIG_NET
 
+bool 'Power Management support' CONFIG_PM
+dep_tristate '  Advanced Power Management support' CONFIG_APM $CONFIG_PM
+if [ "$CONFIG_APM" != "n" ]; then
+   bool '    Ignore USER SUSPEND' CONFIG_APM_IGNORE_USER_SUSPEND
+   bool '    Enable PM at boot time' CONFIG_APM_DO_ENABLE
+   bool '    Enable console blanking using APM' CONFIG_APM_DISPLAY_BLANK
+   bool '    RTC stores time in GMT' CONFIG_APM_RTC_IS_GMT
+fi
+
+bool 'Overwrite kernel command line string' CONFIG_OVERWRITE_CMDLINE
+if [ "$CONFIG_OVERWRITE_CMDLINE" = "y" ]; then
+   string 'Command line' CONFIG_CMDLINE ""
+fi
+
+dep_bool 'SH3-DSP support' CONFIG_SH_DSP $CONFIG_CPU_SH3
+
 if [ "$CONFIG_SH_GENERIC" = "y" -o "$CONFIG_SH_SOLUTION_ENGINE" = "y" -o \
+     "$CONFIG_SH_7760_SOLUTION_ENGINE" = "y" -o \
      "$CONFIG_SH_UNKNOWN" = "y" -o "$CONFIG_SH_CAT68701" = "y" -o \
-     "$CONFIG_SH_ADX" = "y" ]; then
+     "$CONFIG_SH_ADX" = "y" -o "$CONFIG_SH_MS7727RP" = "y" -o \
+     "$CONFIG_SH_MS7710SE" = "y" -o \
+     "$CONFIG_SH_MS7720RP" = "y" -o \
+     "$CONFIG_SH_MS7290CP" = "y" ]; then
   bool 'Compact Flash Enabler support' CONFIG_CF_ENABLER
 fi
 
 if [ "$CONFIG_CF_ENABLER" = "y" ]; then
-   choice 'Compact Flash Connection Area' \
-	"Area5 CONFIG_CF_AREA5 \
-	 Area6 CONFIG_CF_AREA6" Area6
+   if [ "$CONFIG_SH_SOLUTION_ENGINE" = "y" -o \
+        "$CONFIG_SH_MS7727RP" = "y" -o \
+        "$CONFIG_SH_MS7290CP" = "y" ]; then
+      define_bool CONFIG_CF_AREA6 y
+   else
+      if [ "$CONFIG_SH_7760_SOLUTION_ENGINE" = "y" ]; then
+         if [ "$CONFIG_SH_7760_SOLUTION_ENGINE_NB" = "y" ]; then
+            define_bool CONFIG_CF_AREA5 y
+            define_bool CONFIG_CF_AREA6 n
+         else
+            define_bool CONFIG_CF_AREA5 n
+            define_bool CONFIG_CF_AREA6 y
+         fi
+      else
+         choice 'Compact Flash Connection Area' \
+	      "Area5 CONFIG_CF_AREA5 \
+	       Area6 CONFIG_CF_AREA6" Area6
+      fi
+   fi
    if [ "$CONFIG_CF_AREA5" = "y" ]; then
       define_hex CONFIG_CF_BASE_ADDR b4000000
    fi
    if [ "$CONFIG_CF_AREA6" = "y" ]; then
       define_hex CONFIG_CF_BASE_ADDR b8000000
    fi
+else
+	if [ "$CONFIG_SH_7760_SOLUTION_ENGINE" = "y" ]; then
+		if [ "$CONFIG_SH_7760_SOLUTION_ENGINE_NB" = "y" ]; then
+            define_bool CONFIG_CF_AREA5 y
+            define_bool CONFIG_CF_AREA6 n
+         else
+            define_bool CONFIG_CF_AREA5 n
+            define_bool CONFIG_CF_AREA6 y
+		fi
+		if [ "$CONFIG_CF_AREA5" = "y" ]; then
+			define_hex CONFIG_CF_BASE_ADDR b4000000
+		fi
+		if [ "$CONFIG_CF_AREA6" = "y" ]; then
+			define_hex CONFIG_CF_BASE_ADDR b8000000
+		fi
+	fi
+fi
+
+if [ "$CONFIG_CPU_SUBTYPE_SH7727" = "y" ]; then
+  if [ "$CONFIG_SH_MS7727RP" = "y" ]; then
+    define_bool CONFIG_SH7727_ADC n
+    define_bool CONFIG_SH7727_DMA y
+  fi
+else
+  define_bool CONFIG_SH7727_ADC n
+  define_bool CONFIG_SH7727_DMA n
 fi
 
 bool 'Hitachi HD64461 companion chip support' CONFIG_HD64461
@@ -175,7 +338,19 @@ if [ "$CONFIG_HD64465" = "y" ]; then
    int 'HD64465 IRQ' CONFIG_HD64465_IRQ 5
 fi
 
-bool 'DMA controller (DMAC) support' CONFIG_SH_DMA
+if [ "$CONFIG_SH_RTS7751R2D" = "y" ]; then
+   bool 'VoyagerGX chip support' CONFIG_VOYAGERGX
+fi
+
+if [ "$CONFIG_CPU_SUBTYPE_SH7720" = "y" ]; then
+  bool 'DMA controller (DMAC) support' CONFIG_SH7720_DMA
+else
+  bool 'DMA controller (DMAC) support' CONFIG_SH_DMA
+fi
+
+if [ "$CONFIG_SH_RTS7751R2D" = "y" ]; then
+   bool 'Area 5/6 BUS Type PCMCIA support' CONFIG_PCMCIA_BUSTYPE
+fi
 
 bool 'PCI support' CONFIG_PCI
 if [ "$CONFIG_PCI" = "y" ]; then
@@ -190,6 +365,14 @@ if [ "$CONFIG_PCI" = "y" ]; then
       define_bool CONFIG_PCI_DIRECT y
    fi
    bool 'Cache and PCI noncoherent' CONFIG_SH_PCIDMA_NONCOHERENT n
+else
+   if [ "$CONFIG_SH_7760_SOLUTION_ENGINE" = "y" -o \
+        "$CONFIG_SH_MS7727RP" = "y" -o \
+        "$CONFIG_SH_MS7290CP" = "y" ]; then
+      define_bool CONFIG_PCIPOOL y
+   else
+      define_bool CONFIG_PCIPOOL n
+   fi
 fi
 
 source drivers/pci/Config.in
@@ -213,15 +396,17 @@ fi
 tristate 'Kernel support for ELF binaries' CONFIG_BINFMT_ELF
 tristate 'Kernel support for MISC binaries' CONFIG_BINFMT_MISC
 
-source drivers/parport/Config.in
-
 endmenu
+
+source drivers/parport/Config.in
 
 source drivers/mtd/Config.in
 
 source drivers/block/Config.in
 
 source drivers/md/Config.in
+
+source crypto/Config.in
 
 if [ "$CONFIG_NET" = "y" ]; then
    source net/Config.in
@@ -297,6 +482,21 @@ tristate 'Serial (SCI, SCIF) support' CONFIG_SH_SCI
 if [ "$CONFIG_SERIAL" = "y" -o "$CONFIG_SH_SCI" = "y" ]; then
    bool '  Support for console on serial port' CONFIG_SERIAL_CONSOLE
 fi
+
+dep_tristate 'SH3-DSP X/Y memory driver support' CONFIG_XYMEM $CONFIG_SH_DSP
+
+dep_tristate 'MS7760CP Touch Screen support' CONFIG_TS_MS7760CP $CONFIG_SH_7760_SOLUTION_ENGINE
+dep_tristate 'MS7760CP Front Light support' CONFIG_FLIGHT_MS7760CP $CONFIG_SH_7760_SOLUTION_ENGINE
+dep_tristate 'MS7760CP KEYSW support' CONFIG_KEYSW_MS7760CP $CONFIG_SH_7760_SOLUTION_ENGINE
+dep_tristate 'MS7760CP DIPSW support' CONFIG_DIPSW_MS7760CP $CONFIG_SH_7760_SOLUTION_ENGINE
+dep_tristate 'MS7760CP LED support' CONFIG_LED_MS7760CP $CONFIG_SH_7760_SOLUTION_ENGINE
+dep_tristate 'MS7760CP RTC support' CONFIG_RTC_MS7760CP $CONFIG_SH_7760_SOLUTION_ENGINE
+dep_tristate 'MS7760CP Serial EEPROM support' CONFIG_SERIAL_EEPROM_MS7760CP $CONFIG_SH_7760_SOLUTION_ENGINE
+dep_tristate 'MS7760CP H8/3048F-ONE support' CONFIG_H8_3048F_ONE_MS7760CP $CONFIG_SH_7760_SOLUTION_ENGINE
+dep_tristate 'MS7727RP touch screen support' CONFIG_TS_MS7727RP $CONFIG_SH_MS7727RP
+if [ "$CONFIG_SH_RTS7751R2D" = "y" ]; then
+   dep_tristate 'RTS7751R2D EPSON RTC-9701JE support' CONFIG_RTC_9701JE $CONFIG_SH_RTS7751R2D
+fi
 comment 'Unix 98 PTY support'
 bool 'Unix98 PTY support' CONFIG_UNIX98_PTYS
 if [ "$CONFIG_UNIX98_PTYS" = "y" ]; then
@@ -308,7 +508,10 @@ if [ "$CONFIG_SH_GENERIC" = "y" -o \
      "$CONFIG_SH_STB1_HARP" = "y" -o \
      "$CONFIG_SH_STB1_OVERDRIVE" = "y" -o \
      "$CONFIG_SH_BIGSUR" = "y" -o \
+     "$CONFIG_SH_RTS7751R2D" = "y" -o \
      "$CONFIG_SH_7751_SOLUTION_ENGINE" = "y" -o \
+     "$CONFIG_SH_7760_SOLUTION_ENGINE" = "y" -o \
+     "$CONFIG_SH_MS7710SE" = "y" -o \
      "$CONFIG_SH_SOLUTION_ENGINE" = "y" ]; then
    bool 'Heartbeat LED' CONFIG_HEARTBEAT
 fi
@@ -327,6 +530,8 @@ fi
 
 source drivers/char/joystick/Config.in
 
+source drivers/i2c/Config.in
+
 if [ "$CONFIG_PARPORT" != "n" ]; then
    dep_tristate 'Parallel printer support' CONFIG_PRINTER $CONFIG_PARPORT
    if [ "$CONFIG_PRINTER" != "n" ]; then
@@ -334,7 +539,8 @@ if [ "$CONFIG_PARPORT" != "n" ]; then
    fi
    dep_tristate 'Support for user-space parallel port device drivers' CONFIG_PPDEV $CONFIG_PARPORT
 fi
-bool 'PS/2 mouse (aka "auxiliary device") support' CONFIG_PSMOUSE
+bool 'Support for PC(PS/2) keyboard' CONFIG_PC_KEYB
+dep_bool '  PS/2 mouse (aka "auxiliary device") support' CONFIG_PSMOUSE $CONFIG_PC_KEYB
 
 mainmenu_option next_comment
 comment 'Watchdog Cards'
@@ -349,6 +555,7 @@ tristate 'Enhanced Real Time Clock Support' CONFIG_RTC
 if [ "$CONFIG_HOTPLUG" = "y" -a "$CONFIG_PCMCIA" != "n" ]; then
    source drivers/char/pcmcia/Config.in
 fi
+
 endmenu
 
 source fs/Config.in
@@ -367,15 +574,24 @@ if [ "$CONFIG_VT" = "y" ]; then
    endmenu
 fi
 
-
 mainmenu_option next_comment
 comment 'Sound'
 
 tristate 'Sound card support' CONFIG_SOUND
 if [ "$CONFIG_SOUND" != "n" ]; then
    source drivers/sound/Config.in
+   source drivers/sound/dmasound/Config.in
 fi
 endmenu
+
+#mainmenu_option next_comment
+#comment 'USB support'
+
+#tristate 'USB support' CONFIG_USB
+#if [ "$CONFIG_USB" != "n" ]; then
+   source drivers/usb/Config.in
+#fi
+#endmenu
 
 mainmenu_option next_comment
 comment 'Kernel hacking'
@@ -385,6 +601,35 @@ bool 'Use LinuxSH standard BIOS' CONFIG_SH_STANDARD_BIOS
 if [ "$CONFIG_SH_STANDARD_BIOS" = "y" ]; then
    bool 'Early printk support' CONFIG_SH_EARLY_PRINTK
 fi
+bool 'Use KGDB' CONFIG_SH_KGDB
+if [ "$CONFIG_SH_KGDB" = "y" ]; then
+   if [ "$CONFIG_SH_7760_SOLUTION_ENGINE" = "y" ]; then
+      define_bool CONFIG_REMOTE_DEBUG y
+   fi
+   if [ "$CONFIG_REMOTE_DEBUG" = "y" ]; then
+      bool ' Console messages through GDB' CONFIG_GDB_CONSOLE
+   else
+      bool ' Console messages through GDB' CONFIG_SH_KGDB_CONSOLE
+   fi
+   mainmenu_option next_comment
+   comment '     Default KGDB port setup'
+      if [ "$CONFIG_REMOTE_DEBUG" = "n" ]; then
+         int 'Port number (ttySCn)' CONFIG_KGDB_DEFPORT 1
+         int 'Baud rate' CONFIG_KGDB_DEFBAUD 115200
+         choice 'Parity' \
+            "None CONFIG_KGDB_DEFPARITY_N       \
+             Even CONFIG_KGDB_DEFPARITY_E       \
+             Odd  CONFIG_KGDB_DEFPARITY_O"      None
+         choice 'DataBits' \
+            "7 CONFIG_KGDB_DEFBITS_7    \
+             8 CONFIG_KGDB_DEFBITS_8"   8
+      else
+         int 'Port number (ttySn)' CONFIG_KGDB_DEFPORT 0
+         int 'Baud rate' CONFIG_KGDB_DEFBAUD 115200
+      fi
+   endmenu
+fi
+source arch/kmc_config.in
 endmenu
 
 source lib/Config.in

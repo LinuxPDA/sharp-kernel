@@ -15,7 +15,7 @@
     rights and limitations under the License.
 
     The initial developer of the original code is David A. Hinds
-    <dahinds@users.sourceforge.net>.  Portions created by David A. Hinds
+    <dhinds@pcmcia.sourceforge.org>.  Portions created by David A. Hinds
     are Copyright (C) 1999 David A. Hinds.  All Rights Reserved.
 
     Alternatively, the contents of this file may be used under the
@@ -65,6 +65,15 @@
 #include "vg468.h"
 #include "ricoh.h"
 #include "o2micro.h"
+
+#ifdef CONFIG_ARCH_EBSA110
+#define I365_MASK		(1 << 6)
+#define SOCKIRQ2REG(sock,irq)	((irq) ? ((sock) ? 3 : 4) : 0)
+#define REG2SOCKIRQ(sock,reg)	(6)
+#else
+#define SOCKIRQ2REG(sock,irq)	(irq)
+#define REG2SOCKIRQ(sock,reg)	(reg)
+#endif
 
 #ifdef PCMCIA_DEBUG
 static int pc_debug = PCMCIA_DEBUG;
@@ -180,13 +189,15 @@ typedef struct socket_info_t {
 } socket_info_t;
 
 /* Where we keep track of our sockets... */
-static int sockets = 0;
-static socket_info_t socket[8] = {
-    { 0, }, /* ... */
-};
+static int sockets /* = 0 */;
+static socket_info_t socket[8] /* = {
+    { 0, },
+} */;
 
 /* Default ISA interrupt mask */
+#ifndef I365_MASK
 #define I365_MASK	0xdeb8	/* irq 15,14,12,11,10,9,7,5,4,3 */
+#endif
 
 #ifdef CONFIG_ISA
 static int grab_irq;
@@ -555,7 +566,7 @@ static u_int __init test_irq(u_short sock, int irq)
     }
 
     /* Generate one interrupt */
-    i365_set(sock, I365_CSCINT, I365_CSC_DETECT | (irq << 4));
+    i365_set(sock, I365_CSCINT, I365_CSC_DETECT | (SOCKIRQ2REG(sock, irq) << 4));
     i365_bset(sock, I365_GENCTL, I365_CTL_SW_IRQ);
     udelay(1000);
 
@@ -1119,7 +1130,7 @@ static int i365_get_socket(u_short sock, socket_state_t *state)
     reg = i365_get(sock, I365_INTCTL);
     state->flags |= (reg & I365_PC_RESET) ? 0 : SS_RESET;
     if (reg & I365_PC_IOCARD) state->flags |= SS_IOCARD;
-    state->io_irq = reg & I365_IRQ_MASK;
+    state->io_irq = REG2SOCKIRQ(sock, reg & I365_IRQ_MASK);
     
     /* speaker control */
     if (t->flags & IS_CIRRUS) {
@@ -1160,7 +1171,7 @@ static int i365_set_socket(u_short sock, socket_state_t *state)
     
     /* IO card, RESET flag, IO interrupt */
     reg = t->intr;
-    if (state->io_irq != t->cap.pci_irq) reg |= state->io_irq;
+    if (state->io_irq != t->cap.pci_irq) reg |= SOCKIRQ2REG(sock, state->io_irq);
     reg |= (state->flags & SS_RESET) ? 0 : I365_PC_RESET;
     reg |= (state->flags & SS_IOCARD) ? I365_PC_IOCARD : 0;
     i365_set(sock, I365_INTCTL, reg);
@@ -1239,7 +1250,7 @@ static int i365_set_socket(u_short sock, socket_state_t *state)
     }
     
     /* Card status change interrupt mask */
-    reg = t->cs_irq << 4;
+    reg = SOCKIRQ2REG(sock, t->cs_irq) << 4;
     if (state->csc_mask & SS_DETECT) reg |= I365_CSC_DETECT;
     if (state->flags & SS_IOCARD) {
 	if (state->csc_mask & SS_STSCHG) reg |= I365_CSC_STSCHG;

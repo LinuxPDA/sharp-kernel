@@ -30,6 +30,8 @@
 #ifndef _LINUX_CS_H
 #define _LINUX_CS_H
 
+#include <linux/config.h>
+
 /* For AccessConfigurationRegister */
 typedef struct conf_reg_t {
     u_char	Function;
@@ -396,6 +398,12 @@ typedef struct mtd_bind_t {
 #define CS_BAD_TUPLE		0x40
 
 #ifdef __KERNEL__
+
+#ifdef CONFIG_PCMCIA_ADDRESS_SHIFT
+#define	PCMCIA_ADDRESS_SHIFT	1
+#else
+#define	PCMCIA_ADDRESS_SHIFT	0
+#endif
 
 /*
  *  The main Card Services entry point

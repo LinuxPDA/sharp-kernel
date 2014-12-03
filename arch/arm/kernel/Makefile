@@ -10,7 +10,7 @@ USE_STANDARD_AS_RULE := true
 HEAD_OBJ  = head-$(PROCESSOR).o
 ENTRY_OBJ = entry-$(PROCESSOR).o
 
-AFLAGS_head-armv.o := -DTEXTADDR=$(TEXTADDR)
+AFLAGS_head-armv.o := -DTEXTADDR=$(TEXTADDR) -DDATAADDR=$(DATAADDR)
 AFLAGS_head-armo.o := -DTEXTADDR=$(TEXTADDR)
 
 # This is depreciated.
@@ -18,6 +18,7 @@ O_OBJS_arc        = dma-arc.o oldlatches.o
 O_OBJS_rpc        = dma-rpc.o
 O_OBJS_footbridge = dma-footbridge.o isa.o
 O_OBJS_l7200      = fiq.o
+O_OBJS_riscstation = fiq.o dma-riscstation.o
 
 pci-ftvpci	  = plx90x0.o
 pci-footbridge	  = dec21285.o
@@ -43,7 +44,10 @@ export-objs	:= armksyms.o dma.o ecard.o fiq.o io.o oldlatches.o time.o
 no-irq-arch	:= $(CONFIG_ARCH_INTEGRATOR) $(CONFIG_ARCH_CLPS711X) \
 		   $(CONFIG_FOOTBRIDGE) $(CONFIG_ARCH_EBSA110) \
 		   $(CONFIG_ARCH_SA1100) $(CONFIG_ARCH_CAMELOT) \
-		   $(CONFIG_ARCH_MX1ADS)
+		   $(CONFIG_ARCH_MX1ADS) $(CONFIG_ARCH_OMAHA) \
+		   $(CONFIG_ARCH_AT91RM9200DK) $(CONFIG_ARCH_PXA) \
+		   $(CONFIG_ARCH_KATANA) $(CONFIG_ARCH_S1C38000) \
+		   $(CONFIG_ARCH_DBMX1)
 
 ifneq ($(findstring y,$(no-irq-arch)),y)
   obj-y		+= irq-arch.o
@@ -51,11 +55,14 @@ endif
 
 obj-$(CONFIG_ARCH_ACORN) += ecard.o fiq.o time-acorn.o
 obj-$(CONFIG_ARCH_CLPS7500) += time-acorn.o
+obj-$(CONFIG_ARCH_RISCSTATION) += time-acorn.o
 obj-$(CONFIG_DEBUG_LL)	+= debug-$(PROCESSOR).o
 obj-$(CONFIG_MODULES)	+= armksyms.o
 obj-$(CONFIG_ARTHUR)	+= arthur.o
 obj-$(CONFIG_ISA_DMA)	+= dma-isa.o
 obj-$(CONFIG_PCI)	+= bios32.o $(pci-$(MACHINE)) $(pci-y)
+obj-$(CONFIG_KGDB)      += arm32-stub.o
+obj-$(CONFIG_RTHAL)	+= rthal.o
 
 ifneq ($(MACHINE),ebsa110)
   obj-y		+= io.o

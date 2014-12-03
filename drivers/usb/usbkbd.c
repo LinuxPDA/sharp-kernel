@@ -7,6 +7,11 @@
  *
  *  Sponsored by SuSE
  */
+/*
+ * ChangeLog:
+ *      1-Nov-2003 Sharp Corporation   for Tosa
+ *
+ */
 
 /*
  * This program is free software; you can redistribute it and/or modify
@@ -46,6 +51,26 @@ MODULE_AUTHOR( DRIVER_AUTHOR );
 MODULE_DESCRIPTION( DRIVER_DESC );
 MODULE_LICENSE("GPL");
 
+#if defined(CONFIG_ARCH_PXA_TOSA) || defined(CONFIG_ARCH_SHARP_SL)
+static unsigned char usb_kbd_keycode[256] = {
+	  0,  0,  0,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12,
+	 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 41, 42,
+	 43, 44, 45, 46, 47, 48, 49, 50, 28, 34, 31, 65, 92, 51, 52, 55,
+	 54,  0, 97, 95, 96, 70, 98, 99,100, 60, 33, 58, 94, 39, 88, 89,
+	 90,110,117,120, 30, 40,115,  0,  0,  0,104,106, 81,105,107, 124,
+	121,123,122, 32, 82, 83, 85, 86, 87, 71, 72, 73, 74, 75, 76, 77,
+	 78, 79, 80, 93,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+	  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+	  0,  0,  0,  0,  0,  0,  0,101, 69, 53,  0,  0,  0,  0,  0,  0,
+	  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+	  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+	  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+	  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+	  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+	 56, 27, 57, 29,111,112,113,114,  0,  0,  0,  0,  0,  0,  0,  0,
+	  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+};
+#else
 static unsigned char usb_kbd_keycode[256] = {
 	  0,  0,  0,  0, 30, 48, 46, 32, 18, 33, 34, 35, 23, 36, 37, 38,
 	 50, 49, 24, 25, 16, 19, 31, 20, 22, 47, 17, 45, 21, 44,  2,  3,
@@ -64,6 +89,7 @@ static unsigned char usb_kbd_keycode[256] = {
 	 29, 42, 56,125, 97, 54,100,126,164,166,165,163,161,115,114,113,
 	150,158,159,128,136,177,178,176,142,152,173,140
 };
+#endif
 
 struct usb_kbd {
 	struct input_dev dev;
@@ -83,6 +109,12 @@ static void usb_kbd_irq(struct urb *urb)
 	int i;
 
 	if (urb->status) return;
+
+#if 0
+	printk("kbd_irq[%02x,%02x,%02x,%02x,%02x,%02x,%02x,%02x]\n",
+	       kbd->new[0],kbd->new[1],kbd->new[2],kbd->new[3],kbd->new[4],
+	       kbd->new[5],kbd->new[6],kbd->new[7],kbd->new[8]);
+#endif
 
 	for (i = 0; i < 8; i++)
 		input_report_key(&kbd->dev, usb_kbd_keycode[i + 224], (kbd->new[0] >> i) & 1);
@@ -200,7 +232,11 @@ static void *usb_kbd_probe(struct usb_device *dev, unsigned int ifnum,
 
 	kbd->usbdev = dev;
 
+#ifdef CONFIG_ARCH_SHARP_SL
+	kbd->dev.evbit[0] = BIT(EV_KEY) | BIT(EV_LED);
+#else
 	kbd->dev.evbit[0] = BIT(EV_KEY) | BIT(EV_LED) | BIT(EV_REP);
+#endif
 	kbd->dev.ledbit[0] = BIT(LED_NUML) | BIT(LED_CAPSL) | BIT(LED_SCROLLL) | BIT(LED_COMPOSE) | BIT(LED_KANA);
 
 	for (i = 0; i < 255; i++)

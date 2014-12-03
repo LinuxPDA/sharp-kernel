@@ -28,7 +28,8 @@
 #include <asm/semaphore.h>
 #include <asm/uaccess.h>
 
-#define DEBUG 
+#undef DEBUG 
+/* #define DEBUG */
 
 static char *                  tmp_buf; 
 static DECLARE_MUTEX(tmp_buf_sem);

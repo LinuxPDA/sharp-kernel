@@ -645,7 +645,7 @@ void __init ide_init_ali15x3 (ide_hwif_t *hwif)
 	byte irq_routing_table[] = { -1,  9, 3, 10, 4,  5, 7,  6,
 				      1, 11, 0, 12, 0, 14, 0, 15 };
 
-	hwif->irq = hwif->channel ? 15 : 14;
+	hwif->hw.irq = hwif->channel ? 15 : 14;
 
 	if (isa_dev) {
 		/*
@@ -663,14 +663,14 @@ void __init ide_init_ali15x3 (ide_hwif_t *hwif)
 			 */
 			pci_read_config_byte(isa_dev, 0x44, &inmir);
 			inmir = inmir & 0x0f;
-			hwif->irq = irq_routing_table[inmir];
+			hwif->hw.irq = irq_routing_table[inmir];
 		} else if (hwif->channel && !(ideic & 0x01)) {
 			/*
 			 * get SIRQ2 routing table
 			 */
 			pci_read_config_byte(isa_dev, 0x75, &inmir);
 			inmir = inmir & 0x0f;
-			hwif->irq = irq_routing_table[inmir];
+			hwif->hw.irq = irq_routing_table[inmir];
 		}
 	}
 #endif /* CONFIG_SPARC64 */

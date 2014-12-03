@@ -63,10 +63,9 @@ S: B-2610 Wilrijk-Antwerpen
 S: Belgium
 
 N: Anton Altaparmakov
-E: aia21@cus.cam.ac.uk
+E: aia21@cantab.net
 W: http://www-stu.christs.cam.ac.uk/~aia21/
-D: NTFS driver maintainer. NTFS fixes and cleanup.
-D: Tiny fixes in linear md device and emu10k1 driver.
+D: Author of new NTFS driver, various other kernel hacks.
 S: Christ's College
 S: Cambridge CB2 3BU
 S: United Kingdom
@@ -154,6 +153,14 @@ S: Department of Computer Science
 S: University of Calgary
 S: Calgary, Alberta
 S: Canada
+
+N: Miles Bader
+E: miles@gnu.org
+D: v850 port (uClinux)
+S: NEC Corporation
+S: 1753 Shimonumabe, Nakahara-ku
+S: Kawasaki 211-8666
+S: Japan
 
 N: Ralf Baechle
 E: ralf@gnu.org
@@ -1001,8 +1008,8 @@ S: Brazil
 
 N: Nigel Gamble
 E: nigel@nrg.org
-E: nigel@sgi.com
 D: Interrupt-driven printer driver
+D: Preemptible kernel
 S: 120 Alley Way
 S: Mountain View, California 94040
 S: USA

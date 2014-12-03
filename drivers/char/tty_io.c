@@ -90,6 +90,9 @@
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/smp_lock.h>
+#if defined(CONFIG_SH_KGDB_CONSOLE)
+#include <asm/kgdb.h>
+#endif
 
 #include <asm/uaccess.h>
 #include <asm/system.h>
@@ -148,6 +151,7 @@ extern long vme_scc_console_init(void);
 extern int serial167_init(void);
 extern long serial167_console_init(void);
 extern void console_8xx_init(void);
+extern void au1x00_serial_console_init(void);
 extern int rs_8xx_init(void);
 extern void mac_scc_console_init(void);
 extern void hwc_console_init(void);
@@ -158,12 +162,18 @@ extern void tub3270_con_init(void);
 extern void tub3270_init(void);
 extern void rs285_console_init(void);
 extern void sa1100_rs_console_init(void);
+extern void uart_console_init(void);
 extern void sgi_serial_console_init(void);
 extern void sci_console_init(void);
+extern void dec_serial_console_init(void);
 extern void tx3912_console_init(void);
 extern void tx3912_rs_init(void);
 extern void txx927_console_init(void);
 extern void sb1250_serial_console_init(void);
+extern void arc_console_init(void);
+extern void m68328_console_init(void);
+extern void mcfrs_console_init(void);
+extern void atmel_console_init(void);
 
 #ifndef MIN
 #define MIN(a,b)	((a) < (b) ? (a) : (b))
@@ -2208,8 +2218,11 @@ void __init console_init(void)
 #ifdef CONFIG_VT
 	con_init();
 #endif
-#ifdef CONFIG_AU1000_SERIAL_CONSOLE
-	au1000_serial_console_init();
+#if defined(CONFIG_SH_KGDB_CONSOLE)
+	kgdb_console_init();
+#endif
+#ifdef CONFIG_AU1X00_SERIAL_CONSOLE
+	au1x00_serial_console_init();
 #endif
 #ifdef CONFIG_SERIAL_CONSOLE
 #if (defined(CONFIG_8xx) || defined(CONFIG_8260))
@@ -2223,12 +2236,9 @@ void __init console_init(void)
  	mac_scc_console_init();
 #elif defined(CONFIG_PARISC)
 	pdc_console_init();
-#elif defined(CONFIG_SERIAL)
+#elif defined(CONFIG_SERIAL) && !defined(CONFIG_SH_RTS7751R2D)
 	serial_console_init();
 #endif /* CONFIG_8xx */
-#ifdef CONFIG_SGI_SERIAL
-	sgi_serial_console_init();
-#endif
 #if defined(CONFIG_MVME162_SCC) || defined(CONFIG_BVME6000_SCC) || defined(CONFIG_MVME147_SCC)
 	vme_scc_console_init();
 #endif
@@ -2238,6 +2248,9 @@ void __init console_init(void)
 #if defined(CONFIG_SH_SCI)
 	sci_console_init();
 #endif
+#endif
+#ifdef CONFIG_SERIAL_DEC_CONSOLE
+	dec_serial_console_init();
 #endif
 #ifdef CONFIG_TN3270_CONSOLE
 	tub3270_con_init();
@@ -2260,8 +2273,32 @@ void __init console_init(void)
 #ifdef CONFIG_ARC_CONSOLE
 	arc_console_init();
 #endif
-#ifdef CONFIG_SERIAL_AMBA_CONSOLE
-	ambauart_console_init();
+#ifdef CONFIG_SERIAL_CORE_CONSOLE
+	uart_console_init();
+#endif
+#ifdef CONFIG_68328_SERIAL
+	m68328_console_init();
+#endif
+#ifdef CONFIG_COLDFIRE_SERIAL
+	mcfrs_console_init();
+#endif
+#ifdef CONFIG_SERIAL_DSC21_CONSOLE
+	serial_dsc21_console_init();
+#endif
+#if defined (CONFIG_M68360_SMC_UART) || defined (CONFIG_M68360_SCC_UART)
+    rs_360_init();
+#endif
+#ifdef CONFIG_SERIAL_ATMEL_CONSOLE 
+	atmel_console_init();
+#endif
+#ifdef CONFIG_SERIAL_NETARM_CONSOLE
+	serial_netarm_console_init();
+#endif
+#ifdef CONFIG_SERIAL_SAMSUNG_CONSOLE
+	samsung_console_init();
+#endif
+#ifdef CONFIG_SREIAL_S3C4530_CONSOLE
+	s3c4530_console_init();
 #endif
 #ifdef CONFIG_SERIAL_TX3912_CONSOLE
 	tx3912_console_init();
@@ -2271,6 +2308,15 @@ void __init console_init(void)
 #endif
 #ifdef CONFIG_SIBYTE_SB1250_DUART_CONSOLE
 	sb1250_serial_console_init();
+#endif
+#ifdef CONFIG_IP22_SERIAL
+	sgi_serial_console_init();
+#endif
+#ifdef CONFIG_SERIAL_DBMX1_CONSOLE
+	dbmx1_serial_console_init();
+#endif
+#ifdef CONFIG_MX2_INT_UART_CONSOLE
+	mx2uart_console_init();
 #endif
 }
 

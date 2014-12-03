@@ -46,8 +46,12 @@ static void tx39h_flush_icache_all(void)
 	unsigned long flags, config;
 
 	/* disable icache (set ICE#) */
-	__save_and_cli(flags);
-	config = read_32bit_cp0_register(CP0_CONF);
+#if defined(CONFIG_RTHAL)
+	hard_save_flags_and_cli(flags);
+#else /* CONFIG_RTHAL */
+	local_irq_save(flags);
+#endif /* CONFIG_RTHAL */
+	config = read_c0_conf();
 
 	/* invalidate icache */
 	while (start < end) {
@@ -55,8 +59,12 @@ static void tx39h_flush_icache_all(void)
 		start += 0x200;
 	}
 
-	write_32bit_cp0_register(CP0_CONF, config);
-	__restore_flags(flags);
+	write_c0_conf(config);	
+#if defined(CONFIG_RTHAL)
+	hard_restore_flags(flags);
+#else /* CONFIG_RTHAL */
+	local_irq_restore(flags);
+#endif /* CONFIG_RTHAL */
 }
 
 static void tx39h_dma_cache_wback_inv(unsigned long addr, unsigned long size)
@@ -65,7 +73,7 @@ static void tx39h_dma_cache_wback_inv(unsigned long addr, unsigned long size)
 
 	iob();
 	a = addr & ~(dcache_lsize - 1);
-	end = (addr + size) & ~(dcache_lsize - 1);
+	end = (addr + size - 1) & ~(dcache_lsize - 1);
 	while (1) {
 		invalidate_dcache_line(a); /* Hit_Invalidate_D */
 		if (a == end) break;
@@ -79,14 +87,22 @@ static inline void tx39_flush_cache_all(void)
 {
 	unsigned long flags, config;
 
-	__save_and_cli(flags);
+#if defined(CONFIG_RTHAL)
+	hard_save_flags_and_cli(flags);
+#else /* CONFIG_RTHAL */
+	local_irq_save(flags);
+#endif /* CONFIG_RTHAL */
 	blast_dcache16_wayLSB();
 	/* disable icache (set ICE#) */
-	config = read_32bit_cp0_register(CP0_CONF);
-	write_32bit_cp0_register(CP0_CONF, config&~TX39_CONF_ICE);
+	config = read_c0_conf();
+	write_c0_conf(config & ~TX39_CONF_ICE);
 	blast_icache16_wayLSB();
-	write_32bit_cp0_register(CP0_CONF, config);
-	__restore_flags(flags);
+	write_c0_conf(config);
+#if defined(CONFIG_RTHAL)
+	hard_restore_flags(flags);
+#else /* CONFIG_RTHAL */
+	local_irq_restore(flags);
+#endif /* CONFIG_RTHAL */
 }
 
 static void tx39_flush_cache_mm(struct mm_struct *mm)
@@ -109,14 +125,22 @@ static void tx39_flush_cache_range(struct mm_struct *mm,
 #ifdef DEBUG_CACHE
 		printk("crange[%d,%08lx,%08lx]", (int)mm->context, start, end);
 #endif
-		__save_and_cli(flags);
+#if defined(CONFIG_RTHAL)
+		hard_save_flags_and_cli(flags);
+#else /* CONFIG_RTHAL */
+		local_irq_save(flags);
+#endif /* CONFIG_RTHAL */
 		blast_dcache16_wayLSB();
 		/* disable icache (set ICE#) */
-		config = read_32bit_cp0_register(CP0_CONF);
-		write_32bit_cp0_register(CP0_CONF, config&~TX39_CONF_ICE);
+		config = read_c0_conf();
+		write_c0_conf(config & ~TX39_CONF_ICE);
 		blast_icache16_wayLSB();
-		write_32bit_cp0_register(CP0_CONF, config);
-		__restore_flags(flags);
+		write_c0_conf(config);
+#if defined(CONFIG_RTHAL)
+		hard_restore_flags(flags);
+#else /* CONFIG_RTHAL */
+		local_irq_restore(flags);
+#endif /* CONFIG_RTHAL */
 	}
 }
 
@@ -139,7 +163,6 @@ static void tx39_flush_cache_page(struct vm_area_struct *vma,
 #ifdef DEBUG_CACHE
 	printk("cpage[%d,%08lx]", (int)mm->context, page);
 #endif
-	__save_and_cli(flags);
 	page &= PAGE_MASK;
 	pgdp = pgd_offset(mm, page);
 	pmdp = pmd_offset(pgdp, page);
@@ -150,7 +173,7 @@ static void tx39_flush_cache_page(struct vm_area_struct *vma,
 	 * in the cache.
 	 */
 	if(!(pte_val(*ptep) & _PAGE_PRESENT))
-		goto out;
+		return;
 
 	/*
 	 * Doing flushes for another ASID than the current one is
@@ -168,8 +191,6 @@ static void tx39_flush_cache_page(struct vm_area_struct *vma,
 		page = (KSEG0 + (page & (dcache_size - 1)));
 		blast_dcache16_page_indexed_wayLSB(page);
 	}
-out:
-	__restore_flags(flags);
 }
 
 static void tx39_flush_page_to_ram(struct page * page)
@@ -198,7 +219,7 @@ static void tx39_dma_cache_wback_inv(unsigned long addr, unsigned long size)
 		flush_cache_all();
 	} else {
 		a = addr & ~(dcache_lsize - 1);
-		end = (addr + size) & ~(dcache_lsize - 1);
+		end = (addr + size - 1) & ~(dcache_lsize - 1);
 		while (1) {
 			flush_dcache_line(a); /* Hit_Writeback_Inv_D */
 			if (a == end) break;
@@ -215,7 +236,7 @@ static void tx39_dma_cache_inv(unsigned long addr, unsigned long size)
 		flush_cache_all();
 	} else {
 		a = addr & ~(dcache_lsize - 1);
-		end = (addr + size) & ~(dcache_lsize - 1);
+		end = (addr + size - 1) & ~(dcache_lsize - 1);
 		while (1) {
 			invalidate_dcache_line(a); /* Hit_Invalidate_D */
 			if (a == end) break;
@@ -234,22 +255,30 @@ static void tx39_flush_cache_sigtramp(unsigned long addr)
 	unsigned long config;
 	unsigned int flags;
 
-	__save_and_cli(flags);
+#if defined(CONFIG_RTHAL)
+	hard_save_flags_and_cli(flags);
+#else /* CONFIG_RTHAL */
+	local_irq_save(flags);
+#endif /* CONFIG_RTHAL */
 	protected_writeback_dcache_line(addr & ~(dcache_lsize - 1));
 
 	/* disable icache (set ICE#) */
-	config = read_32bit_cp0_register(CP0_CONF);
-	write_32bit_cp0_register(CP0_CONF, config&~TX39_CONF_ICE);
+	config = read_c0_conf();
+	write_c0_conf(config & ~TX39_CONF_ICE);
 	protected_flush_icache_line(addr & ~(icache_lsize - 1));
-	write_32bit_cp0_register(CP0_CONF, config);
-	__restore_flags(flags);
+	write_c0_conf(config);
+#if defined(CONFIG_RTHAL)
+	hard_restore_flags(flags);
+#else /* CONFIG_RTHAL */
+	local_irq_restore(flags);
+#endif /* CONFIG_RTHAL */
 }
 
 static __init void tx39_probe_cache(void)
 {
 	unsigned long config;
 
-	config = read_32bit_cp0_register(CP0_CONF);
+	config = read_c0_conf();
 
 	icache_size = 1 << (10 + ((config >> 19) & 3));
 	dcache_size = 1 << (10 + ((config >> 16) & 3));
@@ -275,9 +304,9 @@ void __init ld_mmu_tx39(void)
 	_clear_page = r3k_clear_page;
 	_copy_page = r3k_copy_page;
 
-	config = read_32bit_cp0_register(CP0_CONF);
+	config = read_c0_conf();
 	config &= ~TX39_CONF_WBON;
-	write_32bit_cp0_register(CP0_CONF, config);
+	write_c0_conf(config);
 
 	tx39_probe_cache();
 
@@ -302,7 +331,7 @@ void __init ld_mmu_tx39(void)
 	default:
 		/* TX39/H2,H3 core (writeback 2way-set-associative cache) */
 		r3k_have_wired_reg = 1;
-		set_wired (0);	/* set 8 on reset... */
+		write_c0_wired(0);	/* set 8 on reset... */
 		/* board-dependent init code may set WBON */
 
 		_flush_cache_all = tx39_flush_cache_all;

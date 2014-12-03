@@ -460,30 +460,25 @@ static void ioc3_get_eaddr_sn(struct ioc3_private *ip)
  */
 static void ioc3_get_eaddr(struct ioc3_private *ip)
 {
-	void (*do_get_eaddr)(struct ioc3_private *ip) = NULL;
 	int i;
 
+
+#ifdef CONFIG_SGI_IP27
+	ioc3_get_eaddr_nic(ip);
+#elif defined(CONFIG_IA64_SGI_SN1) || defined(CONFIG_IA64_SGI_SN2)
 	/*
 	 * We should also use this code for PCI cards, no matter what host
 	 * machine but how to know that we're a PCI card?
 	 */
-#ifdef CONFIG_SGI_IP27
-	do_get_eaddr = ioc3_get_eaddr_nic;
+	ioc3_get_eaddr_sn(ip);
+#else 
+#error No clue how to read IOC3 MAC address for this configuration.
 #endif
-#if defined(CONFIG_IA64_SGI_SN1) || defined(CONFIG_IA64_SGI_SN2)
-	do_get_eaddr = ioc3_get_eaddr_sn;
-#endif
-
-	if (!do_get_eaddr) {
-		printk(KERN_ERR "Don't know how to read MAC address of this "
-		       "IOC3 NIC\n");
-		return;
-	}
 
 	printk("Ethernet address is ");
 	for (i = 0; i < 6; i++) {
 		printk("%02x", ip->dev->dev_addr[i]);
-		if (i < 7)
+		if (i < 5)
 			printk(":");
 	}
 	printk(".\n");
@@ -588,7 +583,7 @@ ioc3_rx(struct ioc3_private *ip)
 			ip->stats.rx_frame_errors++;
 next:
 		ip->rx_skbs[n_entry] = new_skb;
-		rxr[n_entry] = cpu_to_be32((0xa5UL << 56) |
+		rxr[n_entry] = cpu_to_be64((0xa5UL << 56) |
 		                         ((unsigned long) rxb & TO_PHYS_MASK));
 		rxb->w0 = 0;				/* Clear valid flag */
 		n_entry = (n_entry + 1) & 511;		/* Update erpir */
@@ -1622,10 +1617,10 @@ static struct pci_device_id ioc3_pci_tbl[] __devinitdata = {
 MODULE_DEVICE_TABLE(pci, ioc3_pci_tbl);
 
 static struct pci_driver ioc3_driver = {
-	name:		"ioc3-eth",
-	id_table:	ioc3_pci_tbl,
-	probe:		ioc3_probe,
-	remove:		__devexit_p(ioc3_remove_one),
+	.name		= "ioc3-eth",
+	.id_table	= ioc3_pci_tbl,
+	.probe		= ioc3_probe,
+	.remove		= __devexit_p(ioc3_remove_one),
 };
 
 static int __init ioc3_init_module(void)

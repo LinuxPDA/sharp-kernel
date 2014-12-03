@@ -53,8 +53,14 @@
 #include <asm/pb1500.h>
 #elif defined(CONFIG_MIPS_PB1100)
 #include <asm/pb1100.h>
+#elif defined(CONFIG_MIPS_DB1000)
+#include <asm/db1x00.h>
+#elif defined(CONFIG_MIPS_DB1100)
+#include <asm/db1x00.h>
+#elif defined(CONFIG_MIPS_DB1500)
+#include <asm/db1x00.h>
 #else
-#error unsupported alchemy board
+#error unsupported Alchemy board
 #endif
 
 #undef DEBUG_IRQ
@@ -97,6 +103,7 @@ extern void __init init_generic_irq(void);
 extern void counter0_irq(int irq, void *dev_id, struct pt_regs *regs);
 #endif
 
+static spinlock_t irq_lock = SPIN_LOCK_UNLOCKED;
 
 static void setup_local_irq(unsigned int irq_nr, int type, int int_req)
 {
@@ -296,8 +303,8 @@ unsigned long save_local_and_disable(int controller)
 {
 	int i;
 	unsigned long flags, mask;
-	save_and_cli(flags);
 
+	spin_lock_irqsave(&irq_lock, flags);
 	if (controller) {
 		mask = au_readl(IC1_MASKSET);
 		for (i=32; i<64; i++) {
@@ -310,7 +317,8 @@ unsigned long save_local_and_disable(int controller)
 			local_disable_irq(i);
 		}
 	}
-	restore_flags(flags);
+	spin_unlock_irqrestore(&irq_lock, flags);
+
 	return mask;
 }
 
@@ -318,8 +326,8 @@ void restore_local_and_enable(int controller, unsigned long mask)
 {
 	int i;
 	unsigned long flags, new_mask;
-	save_and_cli(flags);
 
+	spin_lock_irqsave(&irq_lock, flags);
 	for (i=0; i<32; i++) {
 		if (mask & (1<<i)) {
 			if (controller)
@@ -333,7 +341,7 @@ void restore_local_and_enable(int controller, unsigned long mask)
 	else
 		new_mask = au_readl(IC0_MASKSET);
 
-	restore_flags(flags);
+	spin_unlock_irqrestore(&irq_lock, flags);
 }
 
 
@@ -348,7 +356,7 @@ static struct hw_interrupt_type rise_edge_irq_type = {
 	NULL
 };
 
-
+/*
 static struct hw_interrupt_type fall_edge_irq_type = {
 	"Au1000 Fall Edge",
 	startup_irq,
@@ -359,7 +367,7 @@ static struct hw_interrupt_type fall_edge_irq_type = {
 	end_irq,
 	NULL
 };
-
+*/
 
 static struct hw_interrupt_type level_irq_type = {
 	"Au1000 Level",
@@ -384,9 +392,8 @@ void __init init_IRQ(void)
 {
 	int i;
 	unsigned long cp0_status;
-	extern char except_vec0_au1000;
 
-	cp0_status = read_32bit_cp0_register(CP0_STATUS);
+	cp0_status = read_c0_status();
 	memset(irq_desc, 0, sizeof(irq_desc));
 	set_except_vector(0, au1000_IRQ);
 
@@ -423,7 +430,7 @@ void __init init_IRQ(void)
 			case AU1000_IRDA_RX_INT:
 
 			case AU1000_MAC0_DMA_INT:
-#ifdef CONFIG_MIPS_PB1000
+#if defined(CONFIG_MIPS_PB1000) || defined(CONFIG_MIPS_DB1000) || defined(CONFIG_MIPS_DB1500)
 			case AU1000_MAC1_DMA_INT:
 #endif
 #ifdef CONFIG_MIPS_PB1500
@@ -458,6 +465,15 @@ void __init init_IRQ(void)
 			case AU1000_GPIO_13: // DC_IRQ#
 			case AU1000_GPIO_23: // 2-wire SCL
 #endif
+#if defined(CONFIG_MIPS_DB1000) || defined(CONFIG_MIPS_DB1100) || defined(CONFIG_MIPS_DB1500)
+			case AU1000_GPIO_0: // PCMCIA Card 0 Fully_Interted#
+			case AU1000_GPIO_1: // PCMCIA Card 0 STSCHG#
+			case AU1000_GPIO_2: // PCMCIA Card 0 IRQ#
+
+			case AU1000_GPIO_3: // PCMCIA Card 1 Fully_Interted#
+			case AU1000_GPIO_4: // PCMCIA Card 1 STSCHG#
+			case AU1000_GPIO_5: // PCMCIA Card 1 IRQ#
+#endif
 				setup_local_irq(i, INTC_INT_LOW_LEVEL, 0);
 				irq_desc[i].handler = &level_irq_type;
                                 break;
@@ -490,7 +506,7 @@ void __init init_IRQ(void)
 		}
 	}
 
-	set_cp0_status(ALLINTS);
+	set_c0_status(ALLINTS);
 #ifdef CONFIG_REMOTE_DEBUG
 	/* If local serial I/O used for debug port, enter kgdb at once */
 	puts("Waiting for kgdb to connect...");
@@ -575,8 +591,6 @@ void intc1_req0_irqdispatch(struct pt_regs *regs)
 {
 	int irq = 0, i;
 	static unsigned long intc1_req0 = 0;
-	volatile unsigned short levels, mdr;
-	unsigned char ide_status;
 
 	intc1_req0 |= au_readl(IC1_REQ0INT);
 

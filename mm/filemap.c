@@ -2169,6 +2169,9 @@ int filemap_sync(struct vm_area_struct * vma, unsigned long address,
 		dir++;
 	} while (address && (address < end));
 	flush_tlb_range(vma->vm_mm, end - size, end);
+#ifdef __arm__
+	memc_update_mm(vma->vm_mm);
+#endif
 
 	spin_unlock(&vma->vm_mm->page_table_lock);
 

@@ -49,7 +49,8 @@
  *  constructors and destructors are called without any locking.
  *  Several members in kmem_cache_t and slab_t never change, they
  *	are accessed without any locking.
- *  The per-cpu arrays are never accessed from the wrong cpu, no locking.
+ *  The per-cpu arrays are never accessed from the wrong cpu, no locking,
+ *  	and local interrupts are disabled so slab code is preempt-safe.
  *  The non-constant members are protected with a per-cache irq spinlock.
  *
  * Further notes from the original documentation:
@@ -66,6 +67,10 @@
  *
  *	At present, each engine can be growing a cache.  This should be blocked.
  *
+ * ChangLog:
+ *     19-Nov-2002 Lineo Japan, Inc.  get active page count
+ *     29-Sep-2004 Lineo Solutions, Inc.  /proc/slabinfo fix
+ *                                        (backport from 2.4.26)
  */
 
 #include	<linux/config.h>
@@ -1947,8 +1952,12 @@ static int s_show(struct seq_file *m, void *p)
 	name = cachep->name; 
 	{
 	char tmp; 
+	mm_segment_t	old_fs;
+	old_fs = get_fs();
+	set_fs(KERNEL_DS);
 	if (__get_user(tmp, name)) 
 		name = "broken"; 
+	set_fs(old_fs);
 	}       
 
 	seq_printf(m, "%-17s %6lu %6lu %6u %4lu %4lu %4u",
@@ -2067,5 +2076,56 @@ ssize_t slabinfo_write(struct file *file, const char *buffer,
 #else
 	return -EINVAL;
 #endif
+}
+#endif
+
+#if defined(CONFIG_ARCH_SHARP_SL)
+
+int kmem_cache_active_page(kmem_cache_t *cachep)
+{
+	struct list_head *q;
+	slab_t		*slabp;
+	unsigned long	active_slabs = 0;
+
+	spin_lock_irq(&cachep->spinlock);
+
+	list_for_each(q,&cachep->slabs_full) {
+		slabp = list_entry(q, slab_t, list);
+		active_slabs++;
+	}
+	list_for_each(q,&cachep->slabs_partial) {
+		slabp = list_entry(q, slab_t, list);
+		active_slabs++;
+	}
+
+	spin_unlock_irq(&cachep->spinlock);
+
+	return active_slabs*(1<<cachep->gfporder);
+}
+
+int _kmem_cache_active_page(const char *name)
+{
+	struct list_head *p;
+	kmem_cache_t	*cachep;
+	kmem_cache_t	*target_cachep = NULL;
+
+	down(&cache_chain_sem);
+
+	p = &cache_cache.next;
+	do {
+		cachep = list_entry(p, kmem_cache_t, next);
+		if (strcmp(cachep->name, name) == 0) {
+			target_cachep = cachep;
+			break;
+		}
+		p = cachep->next.next;
+	} while (p != &cache_cache.next);
+
+	up(&cache_chain_sem);
+
+	if (target_cachep)
+		return kmem_cache_active_page(target_cachep);
+
+	return -1;
 }
 #endif

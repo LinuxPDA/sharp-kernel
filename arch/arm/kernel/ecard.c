@@ -38,6 +38,8 @@
 #include <linux/slab.h>
 #include <linux/proc_fs.h>
 #include <linux/notifier.h>
+#include <linux/list.h>
+#include <linux/timer.h>
 #include <linux/init.h>
 
 #include <asm/dma.h>
@@ -420,7 +422,7 @@ static int ecard_reboot(struct notifier_block *me, unsigned long val, void *v)
 }
 
 static struct notifier_block ecard_reboot_notifier = {
-	notifier_call:	ecard_reboot,
+	.notifier_call	= ecard_reboot,
 };
 
 

@@ -7,6 +7,10 @@
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
+ * 
+ * Change Log
+ *  12-Nov-2001 Lineo Japan, Inc.
+ *  04-Apr-2003 Sharp for ARM FCSE
  */
 #include <stdarg.h>
 
@@ -24,17 +28,9 @@
 #include <linux/interrupt.h>
 #include <linux/init.h>
 
-#include <asm/leds.h>
 #include <asm/system.h>
+#include <asm/leds.h>
 #include <asm/uaccess.h>
-
-/*
- * Values for cpu_do_idle()
- */
-#define IDLE_WAIT_SLOW	0
-#define IDLE_WAIT_FAST	1
-#define IDLE_CLOCK_SLOW	2
-#define IDLE_CLOCK_FAST	3
 
 extern const char *processor_modes[];
 extern void setup_mm_for_reboot(char mode);
@@ -75,6 +71,18 @@ void (*pm_idle)(void);
 void (*pm_power_off)(void);
 
 /*
+ * This is our default idle handler.  We need to disable
+ * interrupts here to ensure we don't miss a wakeup call.
+ */
+void default_idle(void)
+{
+	local_irq_disable();
+	if (!current->need_resched && !hlt_counter)
+		arch_idle();
+	local_irq_enable();
+}
+
+/*
  * The idle thread.  We try to conserve power, while trying to keep
  * overall latency low.  The architecture specific idle is passed
  * a value to indicate the level of "idleness" of the system.
@@ -89,7 +97,7 @@ void cpu_idle(void)
 	while (1) {
 		void (*idle)(void) = pm_idle;
 		if (!idle)
-			idle = arch_idle;
+			idle = default_idle;
 		leds_event(led_idle_start);
 		while (!current->need_resched)
 			idle();
@@ -140,6 +148,9 @@ void machine_restart(char * __unused)
 	/*
 	 * Now call the architecture specific reboot code.
 	 */
+#if defined(CONFIG_ARCH_SHARP_SL)
+	udelay(1000);
+#endif
 	arch_reset(reboot_mode);
 
 	/*
@@ -176,22 +187,31 @@ void show_regs(struct pt_regs * regs)
 		flags & CC_Z_BIT ? 'Z' : 'z',
 		flags & CC_C_BIT ? 'C' : 'c',
 		flags & CC_V_BIT ? 'V' : 'v');
-	printk("  IRQs %s  FIQs %s  Mode %s%s  Segment %s\n",
-		interrupts_enabled(regs) ? "on" : "off",
-		fast_interrupts_enabled(regs) ? "on" : "off",
+	printk("  IRQs o%s  FIQs o%s  Mode %s%s  Segment %s\n",
+		interrupts_enabled(regs) ? "n" : "ff",
+		fast_interrupts_enabled(regs) ? "n" : "ff",
 		processor_modes[processor_mode(regs)],
 		thumb_mode(regs) ? " (T)" : "",
 		get_fs() == get_ds() ? "kernel" : "user");
 #if defined(CONFIG_CPU_32)
 	{
-		int ctrl, transbase, dac;
+		unsigned int ctrl, transbase, dac;
+#if defined(CONFIG_ARM_FCSE)
+		int pid;
+		__asm__("mrc p15, 0, %0, c13, c0" : "=r"(pid));
+#endif
 		  __asm__ (
 		"	mrc p15, 0, %0, c1, c0\n"
 		"	mrc p15, 0, %1, c2, c0\n"
 		"	mrc p15, 0, %2, c3, c0\n"
 		: "=r" (ctrl), "=r" (transbase), "=r" (dac));
+#if defined(CONFIG_ARM_FCSE)
+		printk("Control: %04X  Table: %08X  DAC: %08X  PID: %2d\n",
+		  	ctrl, transbase, dac, pid >> CPU_PID_SHIFT);
+#else
 		printk("Control: %04X  Table: %08X  DAC: %08X\n",
 		  	ctrl, transbase, dac);
+#endif
 	}
 #endif
 }
@@ -282,12 +302,22 @@ void exit_thread(void)
 {
 }
 
+static void default_fp_init(union fp_state *fp)
+{
+	memset(fp, 0, sizeof(union fp_state));
+}
+
+void (*fp_init)(union fp_state *) = default_fp_init;
+
 void flush_thread(void)
 {
-	memset(&current->thread.debug, 0, sizeof(struct debug_info));
-	memset(&current->thread.fpstate, 0, sizeof(union fp_state));
-	current->used_math = 0;
-	current->flags &= ~PF_USEDFPU;
+	struct task_struct *tsk = current;
+
+	tsk->flags &= ~PF_USEDFPU;
+	tsk->used_math = 0;
+
+	memset(&tsk->thread.debug, 0, sizeof(struct debug_info));
+	fp_init(&tsk->thread.fpstate);
 }
 
 void release_thread(struct task_struct *dead_task)
@@ -296,16 +326,16 @@ void release_thread(struct task_struct *dead_task)
 
 asmlinkage void ret_from_fork(void) __asm__("ret_from_fork");
 
-int copy_thread(int nr, unsigned long clone_flags, unsigned long esp,
-	unsigned long unused,
-	struct task_struct * p, struct pt_regs * regs)
+int
+copy_thread(int nr, unsigned long clone_flags, unsigned long esp,
+	    unsigned long unused, struct task_struct * p, struct pt_regs * regs)
 {
-	struct pt_regs * childregs;
+	struct pt_regs *childregs;
 	struct context_save_struct * save;
 
 	atomic_set(&p->thread.refcount, 1);
 
-	childregs = ((struct pt_regs *)((unsigned long)p + 8192)) - 1;
+	childregs = ((struct pt_regs *)((unsigned long)p + 8192 - 8)) - 1;
 	*childregs = *regs;
 	childregs->ARM_r0 = 0;
 	childregs->ARM_sp = esp;
@@ -324,10 +354,12 @@ int copy_thread(int nr, unsigned long clone_flags, unsigned long esp,
  */
 int dump_fpu (struct pt_regs *regs, struct user_fp *fp)
 {
-	if (current->used_math)
+	int used_math = current->used_math;
+
+	if (used_math)
 		memcpy(fp, &current->thread.fpstate.soft, sizeof (*fp));
 
-	return current->used_math;
+	return used_math;
 }
 
 /*
@@ -347,8 +379,8 @@ void dump_thread(struct pt_regs * regs, struct user * dump)
 
 	dump->u_debugreg[0] = tsk->thread.debug.bp[0].address;
 	dump->u_debugreg[1] = tsk->thread.debug.bp[1].address;
-	dump->u_debugreg[2] = tsk->thread.debug.bp[0].insn;
-	dump->u_debugreg[3] = tsk->thread.debug.bp[1].insn;
+	dump->u_debugreg[2] = tsk->thread.debug.bp[0].insn.arm;
+	dump->u_debugreg[3] = tsk->thread.debug.bp[1].insn.arm;
 	dump->u_debugreg[4] = tsk->thread.debug.nsaved;
 
 	if (dump->start_stack < 0x04000000)
@@ -366,23 +398,23 @@ void dump_thread(struct pt_regs * regs, struct user * dump)
  * a system call from a "real" process, but the process memory space will
  * not be free'd until both the parent and the child have exited.
  */
-pid_t kernel_thread(int (*fn)(void *), void *arg, unsigned long flags)
+pid_t arch_kernel_thread(int (*fn)(void *), void *arg, unsigned long flags)
 {
 	pid_t __ret;
 
 	__asm__ __volatile__(
-	"orr	r0, %1, %2	@ kernel_thread sys_clone
-	mov	r1, #0
-	"__syscall(clone)"
-	movs	%0, r0		@ if we are the child
-	bne	1f
-	mov	fp, #0		@ ensure that fp is zero
-	mov	r0, %4
-	mov	lr, pc
-	mov	pc, %3
-	b	sys_exit
+	"orr	r0, %1, %2	@ kernel_thread sys_clone	\n\
+	mov	r1, #0						\n\
+	"__syscall(clone)"					\n\
+	movs	%0, r0		@ if we are the child		\n\
+	bne	1f						\n\
+	mov	fp, #0		@ ensure that fp is zero	\n\
+	mov	r0, %4						\n\
+	mov	lr, pc						\n\
+	mov	pc, %3						\n\
+	b	sys_exit					\n\
 1:	"
-        : "=r" (__ret)
+        : "=&r" (__ret)
         : "Ir" (flags), "I" (CLONE_VM), "r" (fn), "r" (arg)
 	: "r0", "r1", "lr");
 	return __ret;
@@ -405,7 +437,7 @@ unsigned long get_wchan(struct task_struct *p)
 		return 0;
 
 	stack_page = 4096 + (unsigned long)p;
-	fp = get_css_fp(&p->thread);
+	fp = thread_saved_fp(&p->thread);
 	do {
 		if (fp < stack_page || fp > 4092+stack_page)
 			return 0;
@@ -416,3 +448,9 @@ unsigned long get_wchan(struct task_struct *p)
 	} while (count ++ < 16);
 	return 0;
 }
+
+#ifdef CONFIG_ARM_FCSE
+int prev_cpu_pid = CPU_PID_SPECIAL + 1;
+struct mm_struct *cpu_pid_table[CPU_PID_MAX_SIZE];
+pgd_t *pgd_shared_fcse_process = NULL;
+#endif

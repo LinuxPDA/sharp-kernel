@@ -13,15 +13,49 @@
 #
 
 ifdef CONFIG_CPU_LITTLE_ENDIAN
+ifdef CONFIG_CPU_SH3
+CROSS_COMPILE 	= sh3-linux-
+else
+CROSS_COMPILE 	= sh4-linux-
+endif
 CFLAGS		+= -ml
 AFLAGS		+= -ml
 # LINKFLAGS	+= -EL
 LDFLAGS		:= -EL
 else
+ifdef CONFIG_CPU_SH3
+CROSS_COMPILE 	= sh3eb-linux-
+else
+CROSS_COMPILE 	= sh4eb-linux-
+endif
 CFLAGS		+= -mb
 AFLAGS		+= -mb
 # LINKFLAGS	+= -EB
 LDFLAGS		:= -EB
+endif
+
+ifdef CONFIG_SH_KGDB
+CFLAGS :=$(CFLAGS:-fomit-frame-pointer=) -g
+AFLAGS += -g
+ifdef CONFIG_KGDB_MORE
+CFLAGS += $(shell echo $(CONFIG_KGDB_OPTIONS) | sed -e 's/"//g')
+endif
+endif
+
+ifdef CONFIG_DEBINFO_STAB
+CFLAGS += -gstab
+endif
+ifdef CONFIG_DEBINFO_STABP
+CFLAGS += -gstabs+
+endif
+ifdef CONFIG_DEBINFO_DWARF
+CFLAGS += -gdwarf
+endif
+ifdef CONFIG_DEBINFO_DWARFP
+CFLAGS += -gdwarf+
+endif
+ifdef CONFIG_DEBINFO_DWARF2
+CFLAGS += -gdwarf-2
 endif
 
 LD	=$(CROSS_COMPILE)ld $(LDFLAGS)
@@ -78,6 +112,24 @@ arch/sh/vmlinux.lds: arch/sh/vmlinux.lds.S FORCE
 
 FORCE: ;
 
+ifeq ($(CONFIG_XIP_KERNEL),y)
+xImage: vmlinux
+ifeq ($(CONFIG_SH_7760_SOLUTION_ENGINE),y)
+	$(CROSS_COMPILE)objcopy -S -O binary -j .xtext vmlinux vmlinux-text.bin
+	$(CROSS_COMPILE)objcopy -S -O binary -R .xtext vmlinux vmlinux-data.bin
+	cat vmlinux-text.bin vmlinux-data.bin > xImage.bin
+else
+	$(CROSS_COMPILE)objcopy -S -O binary -R .empty_zero_page -R .data -R .data.init_task -R .stack -R .data.init -R .data.page_aligned -R .data.cacheline_aligned -R .bss vmlinux vmlinux-text.bin
+	$(CROSS_COMPILE)objcopy -S -O binary -R .bss -R .text -R .text.lock -R .rodata -R .kstrtab -R .text.init -R .initcall.init -R .setup.init -R .machvec.init -R __ex_table -R __ksymtab -R __kallsyms vmlinux vmlinux-data.bin
+	cat vmlinux-text.bin vmlinux-data.bin > xImage.bin
+endif
+	$(CROSS_COMPILE)objcopy -I binary -O srec --adjust-vma=0x$(CONFIG_XIP_KERNEL_TEXTBASE) xImage.bin xImage.srec
+	chmod -x xImage.srec
+	rm -f vmlinux-text.bin
+	rm -f vmlinux-data.bin
+#	rm -f xImage.bin
+endif
+
 zImage: vmlinux
 	@$(MAKEBOOT) zImage
 
@@ -91,6 +143,8 @@ archclean:
 	$(MAKE) -C arch/$(ARCH)/kernel clean
 	$(MAKE) -C arch/$(ARCH)/stboards clean
 #	$(MAKE) -C arch/$(ARCH)/tools clean
+	rm -f xImage.bin
+	rm -f xImage.srec
 
 archmrproper:
 	rm -f arch/sh/vmlinux.lds

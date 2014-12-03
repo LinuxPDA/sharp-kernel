@@ -129,8 +129,20 @@
 #  include <asm/io_7751se.h>
 # elif defined(CONFIG_SH_ADX)
 #  include <asm/io_adx.h>
+# elif defined(CONFIG_SH_MS7727RP)
+#  include <asm/io_ms7727rp.h>
+# elif defined(CONFIG_SH_MS7290CP)
+#  include <asm/io_ms7290cp.h>
+# elif defined(CONFIG_SH_MS7710SE)
+#  include <asm/io_ms7710se.h>
+# elif defined(CONFIG_SH_MS7720RP)
+#  include <asm/io_ms7720rp.h>
 # elif defined(CONFIG_SH_UNKNOWN)
 #  include <asm/io_unknown.h>
+# elif defined(CONFIG_SH_RTS7751R2D)
+#  include <asm/io_rts7751r2d.h>
+# elif defined(CONFIG_SH_7760_SOLUTION_ENGINE)
+#  include <asm/io_ms7760cp.h>
 # else
 #  error "What system is this?"
 #endif

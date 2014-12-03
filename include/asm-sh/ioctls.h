@@ -9,6 +9,9 @@
 #define FIONBIO		_IOW('f', 126, int)
 #define FIONREAD	_IOR('f', 127, int)
 #define TIOCINQ		FIONREAD
+#ifdef CONFIG_REMOTE_DEBUG 
+#define TIOCGDB		_IO('f', 129)	/* enable GDB stub mode on this tty */ 
+#endif 
 
 #define TCGETS		0x5401
 #define TCSETS		0x5402

@@ -79,16 +79,16 @@ obj-$(CONFIG_IP_NF_MATCH_TCPMSS) += ipt_tcpmss.o
 # targets
 obj-$(CONFIG_IP_NF_TARGET_REJECT) += ipt_REJECT.o
 obj-$(CONFIG_IP_NF_TARGET_MIRROR) += ipt_MIRROR.o
-obj-$(CONFIG_IP_NF_TARGET_TOS) += ipt_TOS.o
-obj-$(CONFIG_IP_NF_TARGET_ECN) += ipt_ECN.o
-obj-$(CONFIG_IP_NF_TARGET_DSCP) += ipt_DSCP.o
-obj-$(CONFIG_IP_NF_TARGET_MARK) += ipt_MARK.o
+obj-$(CONFIG_IP_NF_TARGET_TOS) += ipt_TOS_target.o
+obj-$(CONFIG_IP_NF_TARGET_ECN) += ipt_ECN_target.o
+obj-$(CONFIG_IP_NF_TARGET_DSCP) += ipt_DSCP_target.o
+obj-$(CONFIG_IP_NF_TARGET_MARK) += ipt_MARK_target.o
 obj-$(CONFIG_IP_NF_TARGET_MASQUERADE) += ipt_MASQUERADE.o
 obj-$(CONFIG_IP_NF_TARGET_REDIRECT) += ipt_REDIRECT.o
 obj-$(CONFIG_IP_NF_NAT_SNMP_BASIC) += ip_nat_snmp_basic.o
 obj-$(CONFIG_IP_NF_TARGET_LOG) += ipt_LOG.o
 obj-$(CONFIG_IP_NF_TARGET_ULOG) += ipt_ULOG.o
-obj-$(CONFIG_IP_NF_TARGET_TCPMSS) += ipt_TCPMSS.o
+obj-$(CONFIG_IP_NF_TARGET_TCPMSS) += ipt_TCPMSS_target.o
 
 # generic ARP tables
 obj-$(CONFIG_IP_NF_ARPTABLES) += arp_tables.o

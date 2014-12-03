@@ -24,11 +24,11 @@
  * OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT, UPDATES, ENHANCEMENTS,
  * OR MODIFICATIONS.
  *
- * $Id: ppp-comp.h,v 1.6 1997/11/27 06:04:44 paulus Exp $
+ * $Id: ppp-comp.h,v 1.8 1999/07/23 06:53:40 paulus Exp $
  */
 
 /*
- *  ==FILEVERSION 980319==
+ *  ==FILEVERSION 990623==
  *
  *  NOTE TO MAINTAINERS:
  *     If you modify this file at all, please set the above date.
@@ -120,6 +120,7 @@ struct compressor {
  * Don't you just lurve software patents.
  */
 
+#define DECOMP_OK		0	/* no error occured */
 #define DECOMP_ERROR		-1	/* error detected before decomp. */
 #define DECOMP_FATALERROR	-2	/* error detected after decomp. */
 
@@ -138,7 +139,7 @@ struct compressor {
  * Max # bytes for a CCP option
  */
 
-#define CCP_MAX_OPTION_LENGTH	32
+#define CCP_MAX_OPTION_LENGTH	64
 
 /*
  * Parts of a CCP packet.
@@ -185,6 +186,20 @@ struct compressor {
 #define DEFLATE_MAKE_OPT(w)	((((w) - DEFLATE_MIN_SIZE) << 4) \
 				 + DEFLATE_METHOD_VAL)
 #define DEFLATE_CHK_SEQUENCE	0
+
+/*
+ * Definitions for MPPE.
+ */
+
+#define CI_MPPE			18	/* config. option for MPPE */
+#define CILEN_MPPE		6	/* length of config. option */
+
+/*
+ * Definitions for Stac LZS.
+ */
+
+#define CI_LZS			17	/* config option for Stac LZS */
+#define CILEN_LZS		5	/* length of config option */
 
 /*
  * Definitions for other, as yet unsupported, compression methods.

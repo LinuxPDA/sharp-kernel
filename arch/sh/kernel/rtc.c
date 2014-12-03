@@ -13,6 +13,8 @@
 #include <asm/io.h>
 #include <asm/rtc.h>
 
+#if !defined(CONFIG_CPU_SUBTYPE_SH7290) && !defined(CONFIG_CPU_SUBTYPE_SH7760)
+
 #ifndef BCD_TO_BIN
 #define BCD_TO_BIN(val) ((val)=((val)&15) + ((val)>>4)*10)
 #endif
@@ -35,7 +37,7 @@ void sh_rtc_gettimeofday(struct timeval *tv)
 		wk  = ctrl_inb(RWKCNT);
 		day = ctrl_inb(RDAYCNT);
 		mon = ctrl_inb(RMONCNT);
-#if defined(__SH4__)
+#if defined(__SH4__) || defined (CONFIG_CPU_SUBTYPE_SH7710) || defined (CONFIG_CPU_SUBTYPE_SH7720)
 		yr  = ctrl_inw(RYRCNT);
 		yr100 = (yr >> 8);
 		yr &= 0xff;
@@ -72,7 +74,7 @@ void sh_rtc_gettimeofday(struct timeval *tv)
 		ctrl_outb(6, RWKCNT);
 		ctrl_outb(1, RDAYCNT);
 		ctrl_outb(1, RMONCNT);
-#if defined(__SH4__)
+#if defined(__SH4__) || defined (CONFIG_CPU_SUBTYPE_SH7710) || defined (CONFIG_CPU_SUBTYPE_SH7720)
 		ctrl_outw(0x2000, RYRCNT);
 #else
 		ctrl_outb(0, RYRCNT);
@@ -129,3 +131,5 @@ int sh_rtc_settimeofday(const struct timeval *tv)
 
 	return retval;
 }
+
+#endif

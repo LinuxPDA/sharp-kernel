@@ -149,6 +149,9 @@ int __init parport_init (void)
 #ifdef CONFIG_PARPORT_PC
 	parport_pc_init(io, io_hi, irq, dma);
 #endif
+#ifdef CONFIG_PARPORT_DRAGONIX
+	parport_dragonix_init();
+#endif
 #ifdef CONFIG_PARPORT_AMIGA
 	parport_amiga_init();
 #endif

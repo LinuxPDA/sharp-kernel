@@ -148,7 +148,10 @@ inline int vmalloc_area_pages (unsigned long address, unsigned long size,
 	spin_lock(&init_mm.page_table_lock);
 	do {
 		pmd_t *pmd;
-		
+#if defined(CONFIG_X86) && defined(CONFIG_RTHAL)
+		pgd_t olddir = *dir;
+#endif
+
 		pmd = pmd_alloc(&init_mm, dir, address);
 		ret = -ENOMEM;
 		if (!pmd)
@@ -158,6 +161,10 @@ inline int vmalloc_area_pages (unsigned long address, unsigned long size,
 		if (alloc_area_pmd(pmd, address, end - address, gfp_mask, prot))
 			break;
 
+#if defined(CONFIG_X86) && defined(CONFIG_RTHAL)
+		if (pgd_val(olddir) != pgd_val(*dir))
+			set_pgdir(address, *dir);
+#endif
 		address = (address + PGDIR_SIZE) & PGDIR_MASK;
 		dir++;
 

@@ -99,7 +99,7 @@ static int console_may_schedule;
 /*
  *	Setup a list of consoles. Called from init/main.c
  */
-static int __init console_setup(char *str)
+int __init console_setup(char *str)
 {
 	struct console_cmdline *c;
 	char name[sizeof(c->name)];
@@ -148,6 +148,25 @@ static int __init console_setup(char *str)
 	c->index = idx;
 	return 1;
 }
+
+#ifdef CONFIG_UCLINUX
+/*
+ * DAVIDM - put this in so 2.0 and 2.4 NETtel images work with the
+ *          same boot args.
+ */
+
+static int __init CONSOLE_setup(char *str)
+{
+	/*
+	 *	2.4 does not want the /dev/ options on the front
+	 */
+	if (strncmp(str, "/dev/", 5) == 0)
+		return(console_setup(str + 5));
+	return(console_setup(str));
+}
+
+__setup("CONSOLE=", CONSOLE_setup);
+#endif
 
 __setup("console=", console_setup);
 

@@ -21,6 +21,10 @@
  */
 int ptrace_check_attach(struct task_struct *child, int kill)
 {
+	mb();
+	if (!is_dumpable(child))
+		return -EPERM;
+
 	if (!(child->ptrace & PT_PTRACED))
 		return -ESRCH;
 
@@ -70,7 +74,7 @@ int ptrace_attach(struct task_struct *task)
  	    (current->gid != task->gid)) && !capable(CAP_SYS_PTRACE))
 		goto bad;
 	rmb();
-	if (!task->mm->dumpable && !capable(CAP_SYS_PTRACE))
+	if (!is_dumpable(task) && !capable(CAP_SYS_PTRACE))
 		goto bad;
 	/* the same process cannot be attached many times */
 	if (task->ptrace & PT_PTRACED)
@@ -136,6 +140,8 @@ int access_process_vm(struct task_struct *tsk, unsigned long addr, void *buf, in
 	/* Worry about races with exit() */
 	task_lock(tsk);
 	mm = tsk->mm;
+	if (!is_dumpable(tsk) || (&init_mm == mm))
+		mm = NULL;
 	if (mm)
 		atomic_inc(&mm->mm_users);
 	task_unlock(tsk);
@@ -163,8 +169,10 @@ int access_process_vm(struct task_struct *tsk, unsigned long addr, void *buf, in
 		maddr = kmap(page);
 		if (write) {
 			memcpy(maddr + offset, buf, bytes);
+			flush_dcache_page(page);
 			flush_page_to_ram(page);
 			flush_icache_user_range(vma, page, addr, len);
+			set_page_dirty(page);
 		} else {
 			memcpy(buf, maddr + offset, bytes);
 			flush_page_to_ram(page);
@@ -230,3 +238,4 @@ int ptrace_writedata(struct task_struct *tsk, char * src, unsigned long dst, int
 	}
 	return copied;
 }
+

@@ -499,6 +499,7 @@ static void timer_interrupt(int irq, void *dev_id, struct pt_regs *regs)
 
 		rdtscl(last_tsc_low);
 
+#if !defined(CONFIG_RTHAL)
 		spin_lock(&i8253_lock);
 		outb_p(0x00, 0x43);     /* latch the count ASAP */
 
@@ -507,7 +508,8 @@ static void timer_interrupt(int irq, void *dev_id, struct pt_regs *regs)
 		spin_unlock(&i8253_lock);
 
 		count = ((LATCH-1) - count) * TICK_SIZE;
-		delay_at_last_interrupt = (count + LATCH/2) / LATCH;
+		delay_at_last_interrupt = (count + LATCH/2) / LATCH;	
+#endif
 	}
  
 	do_timer_interrupt(irq, NULL, regs);

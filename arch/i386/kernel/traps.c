@@ -48,7 +48,24 @@
 #endif
 
 #include <linux/irq.h>
+#ifdef CONFIG_REMOTE_DEBUG
+#include <linux/gdb.h>
+#endif
 #include <linux/module.h>
+
+#ifdef CONFIG_REMOTE_DEBUG
+gdb_debug_hook * linux_debug_hook;
+#define	CHK_REMOTE_DEBUG(trapnr,signr,error_code,regs,after)		\
+    {									\
+	if (linux_debug_hook != (gdb_debug_hook *) NULL && !user_mode(regs)) \
+	{								\
+		(*linux_debug_hook)(trapnr, signr, error_code, regs) ;	\
+		after;							\
+	}								\
+    }
+#else
+#define	CHK_REMOTE_DEBUG(trapnr,signr,error_code,regs,after)	
+#endif
 
 asmlinkage int system_call(void);
 asmlinkage void lcall7(void);
@@ -289,6 +306,7 @@ void die(const char * str, struct pt_regs * regs, long err)
 	bust_spinlocks(1);
 	handle_BUG(regs);
 	printk("%s: %04lx\n", str, err & 0xffff);
+	CHK_REMOTE_DEBUG(1,SIGTRAP,err,regs,)
 	show_registers(regs);
 	bust_spinlocks(0);
 	spin_unlock_irq(&die_lock);
@@ -353,6 +371,7 @@ static void inline do_trap(int trapnr, int signr, char *str, int vm86,
 #define DO_ERROR(trapnr, signr, str, name) \
 asmlinkage void do_##name(struct pt_regs * regs, long error_code) \
 { \
+	CHK_REMOTE_DEBUG(trapnr,signr,error_code,regs,)\
 	do_trap(trapnr, signr, str, 0, regs, error_code, NULL); \
 }
 
@@ -370,7 +389,10 @@ asmlinkage void do_##name(struct pt_regs * regs, long error_code) \
 #define DO_VM86_ERROR(trapnr, signr, str, name) \
 asmlinkage void do_##name(struct pt_regs * regs, long error_code) \
 { \
+	CHK_REMOTE_DEBUG(trapnr,signr,error_code,regs,goto skip_trap)\
 	do_trap(trapnr, signr, str, 1, regs, error_code, NULL); \
+skip_trap: \
+	return; \
 }
 
 #define DO_VM86_ERROR_INFO(trapnr, signr, str, name, sicode, siaddr) \
@@ -422,6 +444,7 @@ gp_in_kernel:
 			regs->eip = fixup;
 			return;
 		}
+		CHK_REMOTE_DEBUG(13,SIGSEGV,error_code,regs,)
 		die("general protection fault", regs, error_code);
 	}
 }
@@ -533,7 +556,11 @@ asmlinkage void do_debug(struct pt_regs * regs, long error_code)
 	__asm__ __volatile__("movl %%db6,%0" : "=r" (condition));
 
 	/* If the user set TF, it's simplest to clear it right away. */
+#if defined(CONFIG_REMOTE_DEBUG)
+	if ((eip >=PAGE_OFFSET) && (regs->eflags & TF_MASK) && !kgdb_step)
+#else
 	if ((eip >=PAGE_OFFSET) && (regs->eflags & TF_MASK))
+#endif
 		goto clear_TF;
 
 	/* Mask out spurious debug traps due to lazy DR7 setting */
@@ -549,7 +576,11 @@ asmlinkage void do_debug(struct pt_regs * regs, long error_code)
 	tsk->thread.debugreg[6] = condition;
 
 	/* Mask out spurious TF errors due to lazy TF clearing */
+#if defined(CONFIG_REMOTE_DEBUG)
+	if (condition & DR_STEP && !kgdb_step) {
+#else
 	if (condition & DR_STEP) {
+#endif
 		/*
 		 * The TF error should be masked out only if the current
 		 * process is not traced and if the TRAP flag has been set
@@ -572,11 +603,13 @@ asmlinkage void do_debug(struct pt_regs * regs, long error_code)
 	info.si_errno = 0;
 	info.si_code = TRAP_BRKPT;
 	
-	/* If this is a kernel mode trap, save the user PC on entry to 
-	 * the kernel, that's what the debugger can make sense of.
-	 */
-	info.si_addr = ((regs->xcs & 3) == 0) ? (void *)tsk->thread.eip : 
-	                                        (void *)regs->eip;
+
+	/* If this is a kernel mode trap, we need to reset db7 to allow us
+	 * to continue sanely */
+	if ((regs->xcs & 3) == 0)
+		goto clear_dr7;
+
+	info.si_addr = (void *)regs->eip;
 	force_sig_info(SIGTRAP, &info, tsk);
 
 	/* Disable additional traps. They'll be re-enabled when
@@ -586,6 +619,7 @@ clear_dr7:
 	__asm__("movl %0,%%db7"
 		: /* no output */
 		: "r" (0));
+	CHK_REMOTE_DEBUG(1,SIGTRAP,error_code,regs,)
 	return;
 
 debug_vm86:
@@ -751,6 +785,8 @@ asmlinkage void do_spurious_interrupt_bug(struct pt_regs * regs,
  *
  * Careful.. There are problems with IBM-designed IRQ13 behaviour.
  * Don't touch unless you *really* know how it works.
+ *
+ * Must be called with kernel preemption disabled.
  */
 asmlinkage void math_state_restore(struct pt_regs regs)
 {

@@ -37,6 +37,7 @@
 #include <linux/config.h>
 #include <linux/module.h>
 #include <linux/init.h>
+#include <linux/sched.h>
 #include <linux/slab.h>
 #include <linux/types.h>
 #include <linux/kernel.h>
@@ -264,12 +265,21 @@ int register_sound_special(struct file_operations *fops, int unit)
 	    case 9:
 		name = "dmmidi";
 		break;
+#if defined(CONFIG_SH_MS7720RP)
+	    case 10:
+		name = "txrx_play";
+		break;
+	    case 11:
+		name = "txrx_rec";
+		break;
+#else
 	    case 10:
 		name = "dmfm";
 		break;
 	    case 11:
 		name = "unknown11";
 		break;
+#endif
 	    case 12:
 		name = "adsp";
 		break;
@@ -350,6 +360,26 @@ int register_sound_dsp(struct file_operations *fops, int dev)
 }
 
 EXPORT_SYMBOL(register_sound_dsp);
+
+#if defined(CONFIG_SH_MS7720RP)
+
+int register_sound_txrx_play(struct file_operations *fops, int dev)
+{
+	return sound_insert_unit(&chains[10], fops, dev, 10, 138,
+				 "txrx_play", S_IWUSR | S_IRUSR);
+}
+
+EXPORT_SYMBOL(register_sound_txrx_play);
+
+int register_sound_txrx_rec(struct file_operations *fops, int dev)
+{
+	return sound_insert_unit(&chains[11], fops, dev, 11, 139,
+				 "txrx_rec", S_IWUSR | S_IRUSR);
+}
+
+EXPORT_SYMBOL(register_sound_txrx_rec);
+
+#endif
 
 /**
  *	register_sound_synth - register a synth device

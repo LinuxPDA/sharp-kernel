@@ -2,6 +2,9 @@
  *	linux/mm/mmap.c
  *
  * Written by obz.
+ *
+ * ChangeLog:
+ *     04-Apr-2003 Sharp for ARM FCSE
  */
 #include <linux/slab.h>
 #include <linux/shm.h>
@@ -17,6 +20,9 @@
 
 #include <asm/uaccess.h>
 #include <asm/pgalloc.h>
+#ifdef CONFIG_ARM_FCSE
+#include <asm/mmu_context.h>
+#endif
 
 /*
  * WARNING: the debugging will use recursive algorithms so never enable this
@@ -905,6 +911,8 @@ no_mmaps:
 	 * old method of shifting the VA >> by PGDIR_SHIFT doesn't work.
 	 */
 	start_index = pgd_index(first);
+	if (start_index < FIRST_USER_PGD_NR)
+		start_index = FIRST_USER_PGD_NR;
 	end_index = pgd_index(last);
 	if (end_index > start_index) {
 		clear_page_tables(mm, start_index, end_index - start_index);
@@ -1158,7 +1166,20 @@ void exit_mmap(struct mm_struct * mm)
 	if (mm->map_count)
 		BUG();
 
+#ifdef CONFIG_ARM_FCSE
+	if (mm->context.cpu_pid) {
+		clear_page_tables(mm,
+						  (mm->context.cpu_pid << (CPU_PID_SHIFT-PGDIR_SHIFT))
+						  + FIRST_USER_PGD_NR,
+						  ((CPU_PID_SIZE/PGDIR_SIZE) - FIRST_USER_PGD_NR));
+	}
+	else {
+		clear_page_tables(mm, FIRST_USER_PGD_NR,
+						  (((0xc0000000UL)/PGDIR_SIZE) - FIRST_USER_PGD_NR));
+	}
+#else
 	clear_page_tables(mm, FIRST_USER_PGD_NR, USER_PTRS_PER_PGD);
+#endif
 
 	flush_tlb_mm(mm);
 }

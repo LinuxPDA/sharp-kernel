@@ -14,20 +14,68 @@ comment 'PCMCIA/CardBus support'
 
 tristate 'PCMCIA/CardBus support' CONFIG_PCMCIA
 if [ "$CONFIG_PCMCIA" != "n" ]; then
+   # yes, I really mean the following...
+   if [ "$CONFIG_ISA" = "y" -o "$CONFIG_ARCH_SA1100" = "y" ]; then
+      define_bool CONFIG_PCMCIA_PROBE y
+   fi
    if [ "$CONFIG_PCI" != "n" ]; then
       bool '  CardBus support' CONFIG_CARDBUS
    fi
+   dep_bool '  i82092 compatible bridge support' CONFIG_I82092 $CONFIG_PCI
+   bool '  i82365 compatible bridge support' CONFIG_I82365
    bool '  Databook TCIC host bridge support' CONFIG_TCIC
    if [ "$CONFIG_HD64465" = "y" ]; then
       dep_tristate '  HD64465 host bridge support' CONFIG_HD64465_PCMCIA $CONFIG_PCMCIA
    fi
-   dep_bool '  i82092 compatible bridge support' CONFIG_I82092 $CONFIG_PCI
-   bool '  i82365 compatible bridge support' CONFIG_I82365
-   if [ "$CONFIG_ARCH_SA1100" = "y" ]; then
-      dep_tristate '  SA1100 support' CONFIG_PCMCIA_SA1100 $CONFIG_PCMCIA
-   fi
    if [ "$CONFIG_8xx" = "y" ]; then
       dep_tristate '  M8xx support' CONFIG_PCMCIA_M8XX $CONFIG_PCMCIA
    fi
+   if [ "$CONFIG_SH_SOLUTION_ENGINE" = "y" ]; then
+      tristate '  MR-SHPC-01 PCMCIA support' CONFIG_MRSHPC_PCMCIA
+   fi
+   if [ "$CONFIG_SH_7760_SOLUTION_ENGINE" = "y" ]; then
+      tristate '  MR-SHPC-01 PCMCIA support' CONFIG_MRSHPC_PCMCIA
+   fi
+   if [ "$CONFIG_SH_MS7727RP" = "y" ]; then
+      tristate '  MR-SHPC-01 PCMCIA support' CONFIG_MRSHPC_PCMCIA
+   fi
+   if [ "$CONFIG_SH_MS7710SE" = "y" ]; then
+      tristate '  MR-SHPC-01 PCMCIA support' CONFIG_MRSHPC_PCMCIA
+   fi
+   if [ "$CONFIG_SH_MS7720RP" = "y" ]; then
+      tristate '  MR-SHPC-01 PCMCIA support' CONFIG_MRSHPC_PCMCIA
+   fi
+   if [ "$CONFIG_CPU_AU1X00" = "y" ]; then
+      dep_tristate '  Au1x00 PCMCIA support' CONFIG_PCMCIA_AU1X00 $CONFIG_PCMCIA 
+      if [ "$CONFIG_PCMCIA_AU1X00" != "n" ]; then
+        bool '  Pb1x00 board support' CONFIG_PCMCIA_PB1X00
+        bool '  Db1x00 board support' CONFIG_PCMCIA_DB1X00
+      fi
+   fi
+   if [ "$CONFIG_ARCH_APLAT" = "y" ]; then
+      bool '  YDC A-PLAT support' CONFIG_APLAT_PCMCIA
+   fi
+   if [ "$CONFIG_APLAT_PCMCIA" = "y" -a \
+	"$CONFIG_S1C38000_TTE301" = "y" ]; then
+      define_bool CONFIG_PCMCIA_ADDRESS_SHIFT y
+   fi
+   if [ "$CONFIG_ARCH_DBMX2" = "y" ]; then
+      tristate '  Motrola DBMX21 support' CONFIG_PCMCIA_DBMX2
+   fi
+#@@@@@
+   if [ "$CONFIG_VR4181A" = "y" ]; then
+      dep_tristate '  VR4181A pcmcia support' CONFIG_PCMCIA_VR4181A $CONFIG_PCMCIA
+   fi
+#@@@@@
 fi
+
+if [ "$CONFIG_ARM" = "y" ]; then
+   dep_tristate '  CLPS6700 support' CONFIG_PCMCIA_CLPS6700 $CONFIG_ARCH_CLPS711X $CONFIG_PCMCIA
+   dep_tristate '  SA1100 support' CONFIG_PCMCIA_SA1100 $CONFIG_ARCH_SA1100 $CONFIG_PCMCIA
+   dep_tristate '  PXA250/210 support' CONFIG_PCMCIA_PXA $CONFIG_ARCH_PXA $CONFIG_PCMCIA
+   if [ "$CONFIG_PCMCIA_PXA" = "y" -a "$CONFIG_ARCH_SHARP_SL" = "y" ]; then
+      bool '    2slot support for Sharp SL series' CONFIG_PCMCIA_SHARP_SL_2SLOT
+   fi
+fi
+
 endmenu

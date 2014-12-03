@@ -88,6 +88,9 @@ static void change_protection(unsigned long start, unsigned long end, pgprot_t n
 	} while (start && (start < end));
 	spin_unlock(&current->mm->page_table_lock);
 	flush_tlb_range(current->mm, beg, end);
+#ifdef __arm__
+	memc_update_mm(current->mm);
+#endif
 	return;
 }
 

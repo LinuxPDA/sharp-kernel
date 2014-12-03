@@ -8,6 +8,7 @@
 #include <linux/sched.h>
 
 #include <asm/hardware.h>
+#include <asm/hardware/sa1111.h>
 
 #include "sa1100_generic.h"
 #include "sa1111_generic.h"
@@ -88,7 +89,7 @@ printk("%s(): config socket %d vcc %d vpp %d\n", __FUNCTION__,
 
     local_irq_save(flags);
     PA_DWR = (PA_DWR & ~pa_dwr_mask) | pa_dwr_set;
-    locla_irq_restore(flags);
+    local_irq_restore(flags);
   }
 
   return ret;

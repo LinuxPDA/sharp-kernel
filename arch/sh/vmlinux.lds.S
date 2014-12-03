@@ -12,12 +12,25 @@ OUTPUT_ARCH(sh)
 ENTRY(_start)
 SECTIONS
 {
+#ifdef CONFIG_XIP_KERNEL
+  . = CONFIG_XIP_KERNEL_TEXTBASE;
+#ifdef CONFIG_SH_7760_SOLUTION_ENGINE
+  .xtext : {
+        *(.xtext)
+        } = 0
+  _extext = .;
   . = 0x80000000 + CONFIG_MEMORY_START + 0x1000;
+#endif
+#else
+  . = 0x80000000 + CONFIG_MEMORY_START + 0x1000;
+#endif
   _text = .;			/* Text and read-only data */
   text = .;			/* Text and read-only data */
+#ifndef CONFIG_XIP_KERNEL
   .empty_zero_page : {
 	*(.empty_zero_page)
 	} = 0
+#endif
   .text : {
 	*(.text)
 	*(.fixup)
@@ -25,6 +38,22 @@ SECTIONS
 	} = 0x0009
   .rodata : { *(.rodata) *(.rodata.*) }
   .kstrtab : { *(.kstrtab) }
+  . = ALIGN(4096);
+
+  __init_begin = .;
+  .text.init : { *(.text.init) }
+  . = ALIGN(16);
+  __setup_start = .;
+  .setup.init : { *(.setup.init) }
+  __setup_end = .;
+  __initcall_start = .;
+  .initcall.init : { *(.initcall.init) }
+  __initcall_end = .;
+  __machvec_start = .;
+  .machvec.init : { *(.machvec.init) }
+  __machvec_end = .;
+  . = ALIGN(4096);
+  __init_end = .;
 
   . = ALIGN(16);		/* Exception table */
   __start___ex_table = .;
@@ -41,9 +70,21 @@ SECTIONS
 
   _etext = .;			/* End of text section */
 
+#ifdef CONFIG_XIP_KERNEL
+#ifndef CONFIG_SH_7760_SOLUTION_ENGINE
+  . = 0x80000000 + CONFIG_MEMORY_START + 0x1000;
+#endif
+
+  _data = .;			/* Start of data section */
+	
+  .empty_zero_page : {
+	*(.empty_zero_page)
+	} = 0
+#endif
   .data : {			/* Data */
 	*(.data)
 	CONSTRUCTORS
+	*(.got.plt) *(.got)
 	}
 
   _edata = .;			/* End of data section */
@@ -54,21 +95,7 @@ SECTIONS
   .stack : { stack = .;  _stack = .; }
 
   . = ALIGN(4096);		/* Init code and data */
-  __init_begin = .;
-  .text.init : { *(.text.init) }
   .data.init : { *(.data.init) }
-  . = ALIGN(16);
-  __setup_start = .;
-  .setup.init : { *(.setup.init) }
-  __setup_end = .;
-  __initcall_start = .;
-  .initcall.init : { *(.initcall.init) }
-  __initcall_end = .;
-  __machvec_start = .;
-  .machvec.init : { *(.machvec.init) }
-  __machvec_end = .;
-  . = ALIGN(4096);
-  __init_end = .;
 
   . = ALIGN(4096);
   .data.page_aligned : { *(.data.idt) }

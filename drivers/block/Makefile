@@ -22,6 +22,7 @@ obj-$(CONFIG_BLK_DEV_SWIM_IOP)	+= swim_iop.o
 obj-$(CONFIG_ATARI_ACSI)	+= acsi.o
 obj-$(CONFIG_ATARI_SLM)		+= acsi_slm.o
 obj-$(CONFIG_AMIGA_Z2RAM)	+= z2ram.o
+obj-$(CONFIG_BLK_DEV_BLKMEM)+= blkmem.o
 obj-$(CONFIG_BLK_DEV_RAM)	+= rd.o
 obj-$(CONFIG_BLK_DEV_LOOP)	+= loop.o
 obj-$(CONFIG_BLK_DEV_PS2)	+= ps2esdi.o
@@ -32,6 +33,20 @@ obj-$(CONFIG_BLK_DEV_DAC960)	+= DAC960.o
 obj-$(CONFIG_BLK_DEV_UMEM)	+= umem.o
 obj-$(CONFIG_BLK_DEV_NBD)	+= nbd.o
 
+ifeq ($(CONFIG_BLOCK_MMCSD),y)
+obj-y		+= mmcsd/mmcsd.o
+endif
+
 subdir-$(CONFIG_PARIDE) += paride
+ifeq ($(CONFIG_BLOCK_MMCSD),y)
+subdir-y += mmcsd
+subdir-m += mmcsd
+endif
+
+ifeq ($(CONFIG_ARCH_ACORN),y)
+mod-subdirs	+= ../acorn/block
+subdir-y	+= ../acorn/block
+obj-y		+= ../acorn/block/acorn-block.o
+endif
 
 include $(TOPDIR)/Rules.make

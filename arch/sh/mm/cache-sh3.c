@@ -23,6 +23,12 @@
 
 #define CCR		0xffffffec	/* Address of Cache Control Register */
 
+#if defined(CONFIG_CPU_SUBTYPE_SH7710) || defined(CONFIG_CPU_SUBTYPE_SH7720)
+#define CCR3		0xa40000b4	/* Address of Cache Control3 Register */
+#define CCR_CACHE_16K	0x00010000
+#define CCR_CACHE_32K	0x00020000
+#endif
+
 #define CCR_CACHE_CE	0x01	/* Cache Enable */
 #define CCR_CACHE_WT	0x02	/* Write-Through (for P0,U0,P3) (else writeback) */
 #define CCR_CACHE_CB	0x04	/* Write-Back (for P1) (else writethrough) */
@@ -87,7 +93,9 @@ static void __init
 detect_cpu_and_cache_system(void)
 {
 	unsigned long addr0, addr1, data0, data1, data2, data3;
-
+#if defined(CONFIG_CPU_SUBTYPE_SH7710) || defined(CONFIG_CPU_SUBTYPE_SH7720)
+	unsigned long ccr;
+#endif
 	jump_to_P2();
 	/*
 	 * Check if the entry shadows or not.
@@ -123,10 +131,25 @@ detect_cpu_and_cache_system(void)
 		cache_system_info.num_entries = 128;
 		cpu_data->type = CPU_SH7708;
 	} else {				/* 7709A or 7729  */
+#if defined(CONFIG_CPU_SUBTYPE_SH7710) || defined(CONFIG_CPU_SUBTYPE_SH7720)
+		ccr = ctrl_inl(CCR3);
+		if (ccr & CCR_CACHE_32K) {
+			cache_system_info.way_shift = 13;
+			cache_system_info.entry_mask = 0x1ff0;
+			cache_system_info.num_entries = 512;
+			cpu_data->type = CPU_SH7729;
+		} else {
+			cache_system_info.way_shift = 12;
+			cache_system_info.entry_mask = 0xff0;
+			cache_system_info.num_entries = 256;
+			cpu_data->type = CPU_SH7729;
+		}
+#else
 		cache_system_info.way_shift = 12;
 		cache_system_info.entry_mask = 0xff0;
 		cache_system_info.num_entries = 256;
 		cpu_data->type = CPU_SH7729;
+#endif
 	}
 }
 
@@ -138,13 +161,24 @@ void __init cache_init(void)
 
 	jump_to_P2();
 	ccr = ctrl_inl(CCR);
-	if (ccr & CCR_CACHE_CE)
+	if (ccr & CCR_CACHE_CE) {
 		/*
 		 * XXX: Should check RA here. 
 		 * If RA was 1, we only need to flush the half of the caches.
 		 */
 		cache_wback_all();
-
+#if 0
+#if defined(CONFIG_CPU_SUBTYPE_SH7710)
+		if (ctrl_inl(CCR3) & CCR_CACHE_16K) {
+			//ctrl_outl(ccr & ~CCR_CACHE_CE, CCR);/* off */
+			ctrl_outl(CCR_CACHE_32K, CCR3);
+			__flush_purge_region(16*1024,16*1024);
+			detect_cpu_and_cache_system();
+			//ctrl_outl(ccr | CCR_CACHE_CE, CCR);/* on */
+		}
+#endif
+#endif
+	}
 	ctrl_outl(CCR_CACHE_INIT, CCR);
 	back_to_P1();
 }
@@ -176,7 +210,11 @@ void __flush_wback_region(void *start, int size)
 			p = __pa(v);
 			addr = CACHE_OC_ADDRESS_ARRAY|(j<<CACHE_OC_WAY_SHIFT)|
 				(v&CACHE_OC_ENTRY_MASK);
+#if defined(CONFIG_RTHAL)
+			hard_save_flags_and_cli(flags);
+#else
 			save_and_cli(flags);
+#endif
 			data = ctrl_inl(addr);
 			
 			if ((data & CACHE_PHYSADDR_MASK) ==
@@ -186,7 +224,11 @@ void __flush_wback_region(void *start, int size)
 				restore_flags(flags);
 				break;
 			}
+#if defined(CONFIG_RTHAL)
+			hard_restore_flags(flags);
+#else
 			restore_flags(flags);
+#endif
 		}
 	}
 }

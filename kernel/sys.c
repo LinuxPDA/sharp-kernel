@@ -1,7 +1,12 @@
+/* $USAGI: sys.c,v 1.13 2002/08/04 02:57:45 yoshfuji Exp $ */
+
 /*
  *  linux/kernel/sys.c
  *
  *  Copyright (C) 1991, 1992  Linus Torvalds
+ *
+ * Change Log
+ *     12-Nov-2001 Lineo Japan, Inc.
  */
 
 #include <linux/module.h>
@@ -791,16 +796,23 @@ asmlinkage long sys_setfsgid(gid_t gid)
 
 asmlinkage long sys_times(struct tms * tbuf)
 {
+	struct tms temp;
+
 	/*
 	 *	In the SMP world we might just be unlucky and have one of
 	 *	the times increment as we use it. Since the value is an
 	 *	atomically safe type this is just fine. Conceptually its
 	 *	as if the syscall took an instant longer to occur.
 	 */
-	if (tbuf)
-		if (copy_to_user(tbuf, &current->times, sizeof(struct tms)))
+	if (tbuf) {
+		temp.tms_utime = hz_to_std(current->times.tms_utime);
+		temp.tms_stime = hz_to_std(current->times.tms_stime);
+		temp.tms_cutime = hz_to_std(current->times.tms_cutime);
+		temp.tms_cstime = hz_to_std(current->times.tms_cstime);
+		if (copy_to_user(tbuf, &temp, sizeof(struct tms)))
 			return -EFAULT;
-	return jiffies;
+	}
+	return hz_to_std(jiffies);
 }
 
 /*
@@ -1012,6 +1024,11 @@ int in_egroup_p(gid_t grp)
 
 DECLARE_RWSEM(uts_sem);
 
+#ifdef CONFIG_IPV6_NODEINFO
+DECLARE_RWSEM(icmpv6_sethostname_hook_sem);
+void (*icmpv6_sethostname_hook)(struct new_utsname *) = NULL;
+#endif
+
 asmlinkage long sys_newuname(struct new_utsname * name)
 {
 	int errno = 0;
@@ -1035,6 +1052,12 @@ asmlinkage long sys_sethostname(char *name, int len)
 	errno = -EFAULT;
 	if (!copy_from_user(system_utsname.nodename, name, len)) {
 		system_utsname.nodename[len] = 0;
+#ifdef CONFIG_IPV6_NODEINFO
+		down_read(&icmpv6_sethostname_hook_sem);
+		if (icmpv6_sethostname_hook)
+			icmpv6_sethostname_hook(&system_utsname);
+		up_read(&icmpv6_sethostname_hook_sem);
+#endif
 		errno = 0;
 	}
 	up_write(&uts_sem);
@@ -1200,6 +1223,8 @@ asmlinkage long sys_umask(int mask)
 	return mask;
 }
     
+#define SHRT_MAX ((short)(((unsigned short)(~0U))>>1))
+
 asmlinkage long sys_prctl(int option, unsigned long arg2, unsigned long arg3,
 			  unsigned long arg4, unsigned long arg5)
 {
@@ -1219,7 +1244,7 @@ asmlinkage long sys_prctl(int option, unsigned long arg2, unsigned long arg3,
 			error = put_user(current->pdeath_signal, (int *)arg2);
 			break;
 		case PR_GET_DUMPABLE:
-			if (current->mm->dumpable)
+			if (is_dumpable(current))
 				error = 1;
 			break;
 		case PR_SET_DUMPABLE:
@@ -1227,7 +1252,8 @@ asmlinkage long sys_prctl(int option, unsigned long arg2, unsigned long arg3,
 				error = -EINVAL;
 				break;
 			}
-			current->mm->dumpable = arg2;
+			if (is_dumpable(current))
+				current->mm->dumpable = arg2;
 			break;
 	        case PR_SET_UNALIGN:
 #ifdef SET_UNALIGN_CTL
@@ -1272,6 +1298,22 @@ asmlinkage long sys_prctl(int option, unsigned long arg2, unsigned long arg3,
 			}
 			current->keep_capabilities = arg2;
 			break;
+		case PR_GET_OOM_KILL_SURVIVAL_LEVEL:
+			error = put_user(is_oom_kill_survival_inherit(current), (int*)arg2);
+			error = put_user(oom_kill_survival_get(current), (int*)arg3);
+			break;
+		case PR_SET_OOM_KILL_SURVIVAL_LEVEL:
+			sig = arg3;
+			if (sig < 0 || sig > SHRT_MAX)
+				error = -EINVAL;
+			else if (capable(CAP_SYS_NICE) ||
+				 (is_oom_kill_survival_process(current) &&
+				  oom_kill_survival_get(current) <= sig) )
+				error = -oom_kill_survival_set(current, arg2, sig);
+			else
+				error = -EPERM;
+			break;
+		
 		default:
 			error = -EINVAL;
 			break;

@@ -160,9 +160,12 @@ static inline void send_IPI_mask_bitmask(int mask, int vector)
 	unsigned long cfg;
 	unsigned long flags;
 
+#if defined(CONFIG_RTHAL)
+	hard_save_flags_and_cli(flags);
+#else
 	__save_flags(flags);
 	__cli();
-
+#endif
 		
 	/*
 	 * Wait for idle.
@@ -185,7 +188,11 @@ static inline void send_IPI_mask_bitmask(int mask, int vector)
 	 */
 	apic_write_around(APIC_ICR, cfg);
 
+#if defined(CONFIG_RTHAL)
+	hard_restore_flags(flags);
+#else
 	__restore_flags(flags);
+#endif
 }
 
 static inline void send_IPI_mask_sequence(int mask, int vector)
@@ -199,8 +206,12 @@ static inline void send_IPI_mask_sequence(int mask, int vector)
 	 * should be modified to do 1 message per cluster ID - mbligh
 	 */ 
 
+#if defined(CONFIG_RTHAL)
+	hard_save_flags_and_cli(flags);
+#else
 	__save_flags(flags);
 	__cli();
+#endif
 
 	for (query_cpu = 0; query_cpu < NR_CPUS; ++query_cpu) {
 		query_mask = 1 << query_cpu;
@@ -228,7 +239,11 @@ static inline void send_IPI_mask_sequence(int mask, int vector)
 			apic_write_around(APIC_ICR, cfg);
 		}
 	}
+#if defined(CONFIG_RTHAL)
+	hard_restore_flags(flags);
+#else
 	__restore_flags(flags);
+#endif
 }
 
 static inline void send_IPI_mask(int mask, int vector)
@@ -357,10 +372,13 @@ static void inline leave_mm (unsigned long cpu)
 
 asmlinkage void smp_invalidate_interrupt (void)
 {
-	unsigned long cpu = smp_processor_id();
+	unsigned long cpu;
+        
+	preempt_disable();
 
+	cpu = smp_processor_id();
 	if (!test_bit(cpu, &flush_cpumask))
-		return;
+		goto out;
 		/* 
 		 * This was a BUG() but until someone can quote me the
 		 * line from the intel manual that guarantees an IPI to
@@ -381,6 +399,8 @@ asmlinkage void smp_invalidate_interrupt (void)
 	}
 	ack_APIC_irq();
 	clear_bit(cpu, &flush_cpumask);
+out:
+	preempt_enable();
 }
 
 static void flush_tlb_others (unsigned long cpumask, struct mm_struct *mm,
@@ -430,17 +450,22 @@ static void flush_tlb_others (unsigned long cpumask, struct mm_struct *mm,
 void flush_tlb_current_task(void)
 {
 	struct mm_struct *mm = current->mm;
-	unsigned long cpu_mask = mm->cpu_vm_mask & ~(1 << smp_processor_id());
+	unsigned long cpu_mask;
 
+        preempt_disable();
+        cpu_mask = mm->cpu_vm_mask & ~(1UL << smp_processor_id());
 	local_flush_tlb();
 	if (cpu_mask)
 		flush_tlb_others(cpu_mask, mm, FLUSH_ALL);
+        preempt_enable();
 }
 
 void flush_tlb_mm (struct mm_struct * mm)
 {
-	unsigned long cpu_mask = mm->cpu_vm_mask & ~(1 << smp_processor_id());
+	unsigned long cpu_mask;
 
+        preempt_disable();
+        cpu_mask = mm->cpu_vm_mask & ~(1UL << smp_processor_id());
 	if (current->active_mm == mm) {
 		if (current->mm)
 			local_flush_tlb();
@@ -449,13 +474,16 @@ void flush_tlb_mm (struct mm_struct * mm)
 	}
 	if (cpu_mask)
 		flush_tlb_others(cpu_mask, mm, FLUSH_ALL);
+        preempt_enable();
 }
 
 void flush_tlb_page(struct vm_area_struct * vma, unsigned long va)
 {
 	struct mm_struct *mm = vma->vm_mm;
-	unsigned long cpu_mask = mm->cpu_vm_mask & ~(1 << smp_processor_id());
+	unsigned long cpu_mask;
 
+        preempt_disable();
+        cpu_mask = mm->cpu_vm_mask & ~(1UL << smp_processor_id());
 	if (current->active_mm == mm) {
 		if(current->mm)
 			__flush_tlb_one(va);
@@ -465,6 +493,7 @@ void flush_tlb_page(struct vm_area_struct * vma, unsigned long va)
 
 	if (cpu_mask)
 		flush_tlb_others(cpu_mask, mm, va);
+        preempt_enable();
 }
 
 static inline void do_flush_tlb_all_local(void)
@@ -572,7 +601,11 @@ static void stop_this_cpu (void * dummy)
 	 * Remove this CPU:
 	 */
 	clear_bit(smp_processor_id(), &cpu_online_map);
+#if defined(CONFIG_RTHAL)
+	hard_cli();
+#else
 	__cli();
+#endif
 	disable_local_APIC();
 	if (cpu_data[smp_processor_id()].hlt_works_ok)
 		for(;;) __asm__("hlt");
@@ -588,9 +621,17 @@ void smp_send_stop(void)
 	smp_call_function(stop_this_cpu, NULL, 1, 0);
 	smp_num_cpus = 1;
 
+#if defined(CONFIG_RTHAL)
+	hard_cli();
+#else
 	__cli();
+#endif
 	disable_local_APIC();
+#if defined(CONFIG_RTHAL)
+	hard_sti();
+#else
 	__sti();
+#endif
 }
 
 /*

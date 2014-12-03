@@ -36,6 +36,8 @@
 /* Platform Specific Values */
 #define SH7751_VENDOR_ID             0x1054
 #define SH7751_DEVICE_ID             0x3505
+#define SH7751R_VENDOR_ID            0x1054
+#define SH7751R_DEVICE_ID            0x350E
 
 /* SH7751 Specific Values */
 #define SH7751_PCI_CONFIG_BASE	     0xFD000000  /* Config space base addr */
@@ -232,6 +234,7 @@
 #define SH7751_PCIWCR2             0x1EC         /* Wait Control 2 Register */
 #define SH7751_PCIWCR3             0x1F0         /* Wait Control 3 Register */
 #define SH7751_PCIMCR              0x1F4         /* Memory Control Register */
+#define SH7751_PCIBCR3             0x1F8         /* Memory BCR3 Register */
 #define SH7751_PCIPCTR             0x200         /* Port Control Register */
   #define SH7751_PCIPCTR_P2EN        0x000400000 /* Port 2 Enable */
   #define SH7751_PCIPCTR_P1EN        0x000200000 /* Port 1 Enable */
@@ -254,6 +257,8 @@
 /* Memory Control Registers */
 #define SH7751_BCR1                0xFF800000    /* Memory BCR1 Register */
 #define SH7751_BCR2                0xFF800004    /* Memory BCR2 Register */
+#define SH7751_BCR3                0xFF800050    /* Memory BCR3 Register */
+#define SH7751_BCR4                0xFE0A00F0    /* Memory BCR4 Register */
 #define SH7751_WCR1                0xFF800008    /* Wait Control 1 Register */
 #define SH7751_WCR2                0xFF80000C    /* Wait Control 2 Register */
 #define SH7751_WCR3                0xFF800010    /* Wait Control 3 Register */

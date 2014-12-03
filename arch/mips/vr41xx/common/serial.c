@@ -79,12 +79,43 @@
 #define DSIU_CLOCK		0x0802
 #define DSIU_IRQ		29
 
+#ifdef CONFIG_TOADKK_TCS8000 /*@@@@@*/
+#include <asm/vr41xx/toadkk-tcs8000.h>
+#define VR4181A_SIURB		INTCS(0x00c040)
+#define VR4181A_CMUCLKMSK0	INTCS(0x00b010)
+#define VR4181A_MSKSIU0		(1<<8)
+#define SIU2_CLOCK		0x8086
+static inline void vr41xx_clock_supply ( u16 mask )
+{
+	u16 d = readw ( VR4181A_CMUCLKMSK0 );
+	
+	switch ( mask ) {
+	case SIU_CLOCK:
+		d |= 1<<8;
+		break;
+	case DSIU_CLOCK:
+		d |= 1<<9;
+		break;
+	case SIU2_CLOCK:
+		d |= 1<<10;
+		break;
+	default:
+		break;
+	}
+	writew ( d, VR4181A_CMUCLKMSK0 );
+}
+#endif
+
 int vr41xx_serial_ports = 0;
 
 void vr41xx_siu_ifselect(int interface, int module)
 {
 	u16 val = USE_RS232C;	/* Select RS-232C */
 
+#ifdef CONFIG_TOADKK_TCS8000 /*@@@@@*/
+	/* FIXME */
+	return;
+#endif
 	/* Select IrDA */
 	if (interface == SIU_IRDA) {
 		switch (module) {
@@ -120,8 +151,12 @@ void __init vr41xx_siu_init(int interface, int module)
 {
 	struct serial_struct s;
 
+#ifndef CONFIG_TOADKK_TCS8000 /*@@@@@*/
+	/* FIXME */
 	vr41xx_siu_ifselect(interface, module);
 
+	writew( (1<<8)|readw(VR4181A_CMUCLKMSK0), VR4181A_CMUCLKMSK0 );
+#endif
 	memset(&s, 0, sizeof(s));
 
 	s.line = vr41xx_serial_ports;
@@ -137,6 +172,11 @@ void __init vr41xx_siu_init(int interface, int module)
 	case CPU_VR4131:
 		s.iomem_base = (unsigned char *)VR4122_SIURB;
 		break;
+#if 1 /*@@@@@*/
+	case CPU_VR4181A:
+		s.iomem_base = (unsigned char *)VR4181A_SIURB;
+		break;
+#endif
 	default:
 		panic("Unexpected CPU of NEC VR4100 series");
 		break;
@@ -155,6 +195,25 @@ void __init vr41xx_dsiu_init(void)
 {
 	struct serial_struct s;
 
+#ifdef CONFIG_TOADKK_TCS8000
+	memset(&s, 0, sizeof(s));
+
+	s.line = vr41xx_serial_ports;
+	s.baud_base = DSIU_BASE_BAUD;
+	s.irq = VR4181A_SIU1_INT;
+	s.flags = ASYNC_BOOT_AUTOCONF | ASYNC_SKIP_TEST;
+	s.iomem_base = (unsigned char *)VR4181A_SIU1_BASE;
+	s.iomem_reg_shift = 0;
+	s.io_type = SERIAL_IO_MEM;
+	if (early_serial_setup(&s) != 0)
+		printk(KERN_ERR "DSIU setup failed!\n");
+
+	vr41xx_clock_supply(DSIU_CLOCK);
+
+	writew ( readw (VR4181A_MSYSINT0REG)|(1<<13), VR4181A_MSYSINT0REG );
+
+	vr41xx_serial_ports++;
+#else
 	if (mips_cpu.cputype != CPU_VR4122 && mips_cpu.cputype != CPU_VR4131)
 		return;
 
@@ -175,4 +234,31 @@ void __init vr41xx_dsiu_init(void)
 	writew(INTDSIU, MDSIUINTREG);
 
 	vr41xx_serial_ports++;
+#endif
 }
+
+
+#ifdef CONFIG_TOADKK_TCS8000
+void __init vr41xx_siu2_init(void)
+{
+	struct serial_struct s;
+
+	memset(&s, 0, sizeof(s));
+
+	s.line = vr41xx_serial_ports;
+	s.baud_base = DSIU_BASE_BAUD;
+	s.irq = VR4181A_SIU2_INT;
+	s.flags = ASYNC_BOOT_AUTOCONF | ASYNC_SKIP_TEST;
+	s.iomem_base = (unsigned char *)VR4181A_SIU2_BASE;
+	s.iomem_reg_shift = 0;
+	s.io_type = SERIAL_IO_MEM;
+	if (early_serial_setup(&s) != 0)
+		printk(KERN_ERR "SIU2 setup failed!\n");
+
+	vr41xx_clock_supply(SIU2_CLOCK);
+
+	writew ( readw (VR4181A_MSYSINT0REG)|(1<<14), VR4181A_MSYSINT0REG );
+
+	vr41xx_serial_ports++;
+}
+#endif

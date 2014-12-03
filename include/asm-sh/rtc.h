@@ -9,6 +9,9 @@
 extern void sh_rtc_gettimeofday(struct timeval *tv);
 extern int sh_rtc_settimeofday(const struct timeval *tv);
 
+#if defined(CONFIG_CPU_SUBTYPE_SH7290) || defined(CONFIG_CPU_SUBTYPE_SH7760)
+/* */
+#else
 /* RCR1 Bits */
 #define RCR1_CF		0x80	/* Carry Flag             */
 #define RCR1_CIE	0x10	/* Carry Interrupt Enable */
@@ -25,6 +28,27 @@ extern int sh_rtc_settimeofday(const struct timeval *tv);
 
 #if defined(__sh3__)
 /* SH-3 RTC */
+#if defined(CONFIG_CPU_SUBTYPE_SH7710) || defined(CONFIG_CPU_SUBTYPE_SH7720)
+#define R64CNT		0xa413fec0
+#define RSECCNT		0xa413fec2
+#define RMINCNT		0xa413fec4
+#define RHRCNT		0xa413fec6
+#define RWKCNT		0xa413fec8
+#define RDAYCNT		0xa413feca
+#define RMONCNT		0xa413fecc
+#define RYRCNT		0xa413fece
+#define RSECAR		0xa413fed0
+#define RMINAR		0xa413fed2
+#define RHRAR		0xa413fed4
+#define RWKAR		0xa413fed6
+#define RDAYAR		0xa413fed8
+#define RMONAR		0xa413feda
+#define RCR1		0xa413fedc
+#define RCR2		0xa413fede
+#define RYRAR		0xa413fee0
+#define RCR3		0xa413fee4
+#define RTC_BIT_INVERTED	0x40    /* bug on SH7750, SH7750S */
+#else
 #define R64CNT  	0xfffffec0
 #define RSECCNT 	0xfffffec2
 #define RMINCNT 	0xfffffec4
@@ -43,6 +67,7 @@ extern int sh_rtc_settimeofday(const struct timeval *tv);
 #define RCR2    	0xfffffede
 
 #define RTC_BIT_INVERTED	0	/* No bug on SH7708, SH7709A */
+#endif
 #elif defined(__SH4__)
 /* SH-4 RTC */
 #define R64CNT  	0xffc80000
@@ -63,6 +88,8 @@ extern int sh_rtc_settimeofday(const struct timeval *tv);
 #define RCR2    	0xffc8003c
 
 #define RTC_BIT_INVERTED	0x40	/* bug on SH7750, SH7750S */
+#endif
+
 #endif
 
 #endif /* _ASM_RTC_H */

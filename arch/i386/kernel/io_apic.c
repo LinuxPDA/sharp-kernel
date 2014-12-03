@@ -1272,12 +1272,16 @@ static void end_level_ioapic_irq (unsigned int irq)
  * operation to prevent an edge-triggered interrupt escaping meanwhile.
  * The idea is from Manfred Spraul.  --macro
  */
+#if defined(CONFIG_RTHAL)
+	if (test_and_clear_bit(irq, &strange_level)) {
+#else
 	i = IO_APIC_VECTOR(irq);
 	v = apic_read(APIC_TMR + ((i & ~0x1f) >> 1));
 
 	ack_APIC_irq();
 
 	if (!(v & (1 << (i & 0x1f)))) {
+#endif
 #ifdef APIC_LOCKUP_DEBUG
 		struct irq_pin_list *entry;
 #endif
@@ -1305,9 +1309,36 @@ static void end_level_ioapic_irq (unsigned int irq)
 		__unmask_and_level_IO_APIC_irq(irq);
 		spin_unlock(&ioapic_lock);
 	}
+#if defined(CONFIG_RTHAL)
+	else {
+		spin_lock(&ioapic_lock);
+		__unmask_IO_APIC_irq(irq);
+		spin_unlock(&ioapic_lock);
+	}
+#endif
 }
 
+#if defined(CONFIG_RTHA)
+static void mask_and_ack_level_ioapic_irq (unsigned int irq)
+{
+	unsigned long i;
+
+	i = IO_APIC_VECTOR(irq);
+	if (!(apic_read(APIC_TMR + ((i & ~0x1f) >> 1)) & (1 << (i & 0x1f)))) {
+		test_and_set_bit(irq, &strange_level);
+		spin_lock(&ioapic_lock);
+		__mask_and_edge_IO_APIC_irq(irq);
+		spin_unlock(&ioapic_lock);
+	} else {
+		spin_lock(&ioapic_lock);
+		__mask_IO_APIC_irq(irq);
+		spin_unlock(&ioapic_lock);
+	}
+	ack_APIC_irq();
+}
+#else
 static void mask_and_ack_level_ioapic_irq (unsigned int irq) { /* nothing */ }
+#endif
 
 static void set_ioapic_affinity (unsigned int irq, unsigned long mask)
 {

@@ -16,6 +16,10 @@
  *  Wendling.
  * The list_for_each() macro wasn't appropriate for the sysctl loop.
  *  Removed it and replaced it with older style, 03/23/00, Bill Wendling
+ *
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
+ *	16-Jan-2003 SHARP add VM switch
  */
 
 #include <linux/config.h>
@@ -32,10 +36,13 @@
 #include <linux/highuid.h>
 
 #include <asm/uaccess.h>
+#include <asm/semaphore.h>
 
 #ifdef CONFIG_ROOT_NFS
 #include <linux/nfs_fs.h>
 #endif
+
+#include <linux/freepg_signal.h>
 
 #if defined(CONFIG_SYSCTL)
 
@@ -43,7 +50,9 @@
 extern int panic_timeout;
 extern int C_A_D;
 extern int bdf_prm[], bdflush_min[], bdflush_max[];
+#ifndef NO_MM
 extern int sysctl_overcommit_memory;
+#endif
 extern int max_threads;
 extern atomic_t nr_queued_signals;
 extern int max_queued_signals;
@@ -96,7 +105,9 @@ int proc_dol2crvec(ctl_table *table, int write, struct file *filp,
 extern int acct_parm[];
 #endif
 
+#ifndef NO_MM
 extern int pgt_cache_water[];
+#endif
 
 static int parse_table(int *, int, void *, size_t *, void *, size_t,
 		       ctl_table *, void **);
@@ -108,7 +119,9 @@ static struct ctl_table_header root_table_header =
 	{ root_table, LIST_HEAD_INIT(root_table_header.ctl_entry) };
 
 static ctl_table kern_table[];
+#ifndef NO_MM
 static ctl_table vm_table[];
+#endif
 #ifdef CONFIG_NET
 extern ctl_table net_table[];
 #endif
@@ -145,7 +158,9 @@ static void unregister_proc_table(ctl_table *, struct proc_dir_entry *);
 
 static ctl_table root_table[] = {
 	{CTL_KERN, "kernel", NULL, 0, 0555, kern_table},
+#ifndef NO_MM
 	{CTL_VM, "vm", NULL, 0, 0555, vm_table},
+#endif
 #ifdef CONFIG_NET
 	{CTL_NET, "net", NULL, 0, 0555, net_table},
 #endif
@@ -259,6 +274,7 @@ static ctl_table kern_table[] = {
 	{0}
 };
 
+#ifndef NO_MM
 static ctl_table vm_table[] = {
 	{VM_BDFLUSH, "bdflush", &bdf_prm, 9*sizeof(int), 0644, NULL,
 	 &proc_dointvec_minmax, &sysctl_intvec, NULL,
@@ -277,8 +293,17 @@ static ctl_table vm_table[] = {
 	&vm_max_readahead,sizeof(int), 0644, NULL, &proc_dointvec},
 	{VM_MAX_MAP_COUNT, "max_map_count",
 	 &max_map_count, sizeof(int), 0644, NULL, &proc_dointvec},
+#ifdef CONFIG_FREEPG_SIGNAL
+	{VM_FREEPG_SIGNAL_PROC, "freepg_signal_proc", freepg_signal_proc,
+	 sizeof freepg_signal_proc, 0644, NULL, &proc_dostring},
+#endif
+#ifdef CONFIG_ARCH_SHARP_SL
+	{VM_WITHOUT_SWAP, "vm-without-swap",
+	&vm_without_swap, sizeof(int), 0644, NULL, &proc_dointvec},
+#endif
 	{0}
 };
+#endif /* NO_MM */
 
 static ctl_table proc_table[] = {
 	{0}

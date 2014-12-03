@@ -10,11 +10,14 @@
 
 SYSTEM  =$(TOPDIR)/vmlinux
 
+ZIMAGE_OFFSET = $(shell printf "0x%8x" $$[0x80000000+0x$(CONFIG_MEMORY_START)+0x200000+0x10000])
+
 Image:	$(CONFIGURE) $(SYSTEM)
 	$(OBJCOPY) $(SYSTEM) Image
 
 zImage: $(CONFIGURE) compressed/vmlinux
 	$(OBJCOPY) compressed/vmlinux zImage
+	$(OBJCOPY) -I binary -O srec --adjust-vma=$(ZIMAGE_OFFSET) zImage zImage.srec
 
 compressed/vmlinux: $(TOPDIR)/vmlinux
 	$(MAKE) -C compressed vmlinux
@@ -29,6 +32,6 @@ dep:
 
 clean:
 	rm -f tools/build
-	rm -f setup bootsect zImage compressed/vmlinux.out
+	rm -f setup bootsect zImage zImage.srec compressed/vmlinux.out
 	rm -f bsetup bbootsect bzImage compressed/bvmlinux.out
 	@$(MAKE) -C compressed clean

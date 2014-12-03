@@ -1,0 +1,17 @@
+#
+# KMC Configure
+#
+mainmenu_option next_comment
+comment 'KMC PARTNER Debugging'
+	choice 'Debug information type'				\
+	"NONE		CONFIG_DEBINFO_NONE			\
+	STAB		CONFIG_DEBINFO_STAB			\
+	extendedSTAB	CONFIG_DEBINFO_STABP			\
+	DWARF-1		CONFIG_DEBINFO_DWARF			\
+	extenedDWARF-1	CONFIG_DEBINFO_DWARFP			\
+	DWARF-2		CONFIG_DEBINFO_DWARF2" extendedSTAB
+
+	bool 'PARTNER Virtual ICE Support' CONFIG_KMC_PARTNER_VIRTUAL_ICE
+	bool 'ICE AVAILABLE STATUS Support' CONFIG_KMC_PARTNER_AVAILABLE
+endmenu
+

@@ -4,7 +4,7 @@
  *	Authors:	Alan Cox <iiitac@pyr.swan.ac.uk>
  *			Florian La Roche <rzsfl@rz.uni-sb.de>
  *
- *	Version:	$Id: skbuff.c,v 1.90 2001/11/07 05:56:19 davem Exp $
+ *	Version:	$Id: skbuff.c,v 1.1 2004/08/21 02:23:13 namikosi Exp $
  *
  *	Fixes:	
  *		Alan Cox	:	Fixed the worst of the load balancer bugs.
@@ -111,33 +111,37 @@ void skb_under_panic(struct sk_buff *skb, int sz, void *here)
 
 static __inline__ struct sk_buff *skb_head_from_pool(void)
 {
-	struct sk_buff_head *list = &skb_head_pool[smp_processor_id()].list;
+	struct sk_buff_head *list;
+	struct sk_buff *skb = NULL;
+	unsigned long flags;
 
-	if (skb_queue_len(list)) {
-		struct sk_buff *skb;
-		unsigned long flags;
+	local_irq_save(flags);
 
-		local_irq_save(flags);
+	list = &skb_head_pool[smp_processor_id()].list;
+
+	if (skb_queue_len(list))
 		skb = __skb_dequeue(list);
-		local_irq_restore(flags);
-		return skb;
-	}
-	return NULL;
+
+	local_irq_restore(flags);
+	return skb;
 }
 
 static __inline__ void skb_head_to_pool(struct sk_buff *skb)
 {
-	struct sk_buff_head *list = &skb_head_pool[smp_processor_id()].list;
+	struct sk_buff_head *list;
+	unsigned long flags;
+
+	local_irq_save(flags);
+	list = &skb_head_pool[smp_processor_id()].list;
 
 	if (skb_queue_len(list) < sysctl_hot_list_len) {
-		unsigned long flags;
-
-		local_irq_save(flags);
 		__skb_queue_head(list, skb);
 		local_irq_restore(flags);
 
 		return;
 	}
+
+	local_irq_restore(flags);
 	kmem_cache_free(skbuff_head_cache, skb);
 }
 

@@ -27,6 +27,10 @@
 #include <asm/processor.h>
 #include <asm/mmu_context.h>
 
+#ifdef CONFIG_KMC_PARTNER_AVAILABLE
+	int	kmc_available_ice = 0;
+#endif
+
 /*
  * does not yet catch signals sent when the child dies.
  * in exit.c or in signal.c.
@@ -174,6 +178,12 @@ asmlinkage int sys_ptrace(long request, long pid, long addr, long data)
 		ret = 0;
 		goto out;
 	}
+#ifdef CONFIG_KMC_PARTNER_AVAILABLE
+	if (request == 0x4B4D4300) {
+		ret = kmc_available_ice;
+		goto out;
+	}
+#endif
 	ret = -ESRCH;
 	read_lock(&tasklist_lock);
 	child = find_task_by_pid(pid);
@@ -364,6 +374,37 @@ asmlinkage int sys_ptrace(long request, long pid, long addr, long data)
 		ret = 0;
 		break;
 	}
+
+#ifdef CONFIG_SH_DSP
+	case PTRACE_GETDSPREGS: {
+		unsigned long dp;
+
+		ret = -EIO;
+		dp = ((unsigned long) child) + THREAD_SIZE -
+			 sizeof(struct pt_dspregs);
+		if (*((int *) (dp - 4)) == 0x00001000) {
+			copy_to_user(addr, (void *) dp,
+				sizeof(struct pt_dspregs));
+			ret = 0;
+		}
+		break;
+	}
+
+	case PTRACE_SETDSPREGS: {
+		unsigned long dp;
+		int i;
+
+		ret = -EIO;
+		dp = ((unsigned long) child) + THREAD_SIZE -
+			 sizeof(struct pt_dspregs);
+		if (*((int *) (dp - 4)) == 0x00001000) {
+			copy_from_user((void *) dp, addr,
+				sizeof(struct pt_dspregs));
+			ret = 0;
+		}
+		break;
+	}
+#endif
 
 	default:
 		ret = -EIO;

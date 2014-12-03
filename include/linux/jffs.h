@@ -191,6 +191,7 @@ struct jffs_control
 	struct completion gc_thread_comp; /* GC thread exit mutex */
 	__u32 gc_minfree_threshold;	/* GC trigger thresholds */
 	__u32 gc_maxdirty_threshold;
+	__u16 gc_background;		/* GC currently running in background */
 };
 
 

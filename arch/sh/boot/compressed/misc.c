@@ -148,10 +148,110 @@ void puts(const char *s)
 	sh_bios_console_write(s, strlen(s));
 }
 #else
+#include <asm/io.h>
+#if defined(CONFIG_SH_7760_SOLUTION_ENGINE)
+#if defined(CONFIG_SH_7760_SOLUTION_ENGINE_NB)
+#define ST16_BASE 0xaa800000
+#else
+#define ST16_BASE 0xba800000
+#endif
+#define ST16_THR  (ST16_BASE + 0x0000)
+#define ST16_LSR  (ST16_BASE + 0x000a)
+void uart_putc(int ch)
+{
+        while((ctrl_inw(ST16_LSR) & 0x0060) != 0x0060) {}
+        ctrl_outw(ch, ST16_THR);
+}
 void puts(const char *s)
 {
-  /* This should be updated to use the sh-sci routines */
+        while (*s) {
+                if (*s == '\n') {
+                        uart_putc('\r');
+                }
+                uart_putc(*s++);
+        }
 }
+#elif defined(CONFIG_CPU_SUBTYPE_SH7710)
+#define SCFTDR2 0xA440000C
+#define SCFSR2  0xA4400010
+#define SCFSR2_TDFE  0x0020
+void scif_putc(int ch)
+{
+	while ((ctrl_inw(SCFSR2) & SCFSR2_TDFE) == 0) {}
+	ctrl_outb(ch, SCFTDR2);
+	ctrl_inw(SCFSR2);
+	ctrl_outw(~SCFSR2_TDFE, SCFSR2);
+}
+void puts(const char *s)
+{
+	while (*s) {
+		if (*s == '\n') {
+			scif_putc('\r');
+		}
+		scif_putc(*s++);
+	}
+}
+
+#elif defined(CONFIG_CPU_SUBTYPE_SH7290)
+#if 1
+#define SCSSR1	0xA4450014
+#define SCFTDR1	0xA4450020
+void scif_putc(int ch)
+{
+	while((ctrl_inw(SCSSR1) & 0x0060) ==0) {}
+	ctrl_outb(ch, SCFTDR1);
+	ctrl_outw(ctrl_inw(SCSSR1)&0x039F, SCSSR1);
+}
+#else
+#define SCSSR0	0xA4430014
+#define SCFTDR0	0xA4430020
+void scif_putc(int ch)
+{
+	while((ctrl_inw(SCSSR0) & 0x0060) ==0) {}
+	ctrl_outb(ch, SCFTDR0);
+	ctrl_outw(ctrl_inw(SCSSR0)&0x039F, SCSSR0);
+}
+#endif
+#elif defined(CONFIG_SH_SOLUTION_ENGINE)
+#if defined(__SH4__)
+#if defined(CONFIG_CPU_SUBTYPE_SH7760)
+#define SCFTDR2 0xFE61000C
+#define SCFSR2  0xFE610010
+#else
+#define SCFTDR2 0xFFE8000C
+#define SCFSR2  0xFFE80010
+#endif
+#elif defined(__sh3__)
+# if defined(CONFIG_CPU_SUBTYPE_SH7720)
+#  define SCFTDR2 0xA4430020
+#  define SCFSR2  0xA4430014
+# else
+#  define SCFTDR2 0xA4000156
+#  define SCFSR2  0xA4000158
+# endif
+#endif
+#define SCFSR2_TDFE  0x0020
+void scif_putc(int ch)
+{
+	while ((ctrl_inw(SCFSR2) & SCFSR2_TDFE) == 0) {}
+	ctrl_outb(ch, SCFTDR2);
+	ctrl_inw(SCFSR2);
+	ctrl_outw(~SCFSR2_TDFE, SCFSR2);
+}
+void puts(const char *s)
+{
+	while (*s) {
+		if (*s == '\n') {
+			scif_putc('\r');
+		}
+		scif_putc(*s++);
+	}
+}
+#else
+void puts(const char *s)
+{
+}
+#endif
 #endif
 
 void* memset(void* s, int c, size_t n)

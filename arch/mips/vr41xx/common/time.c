@@ -53,6 +53,10 @@
 
 #define VR4111_ETIMELREG	KSEG1ADDR(0x0b0000c0)
 #define VR4122_ETIMELREG	KSEG1ADDR(0x0f000100)
+#if 1 /*@@@@@*/
+#include <asm/vr41xx/toadkk-tcs8000.h>
+#define VR4181A_ETIMELREG	(VR4181A_INTCS_BASE+0x00b0c0)
+#endif
 
 u32 vr41xx_rtc_base = 0;
 
@@ -72,6 +76,11 @@ void vr41xx_time_init(void)
 	case CPU_VR4131:
                 vr41xx_rtc_base = VR4122_ETIMELREG;
                 break;
+#if 1 /*@@@@@*/
+	case CPU_VR4181A:
+		vr41xx_rtc_base = VR4181A_ETIMELREG;
+		break;
+#endif
         default:
                 panic("Unexpected CPU of NEC VR4100 series");
                 break;
@@ -89,6 +98,6 @@ void vr41xx_timer_setup(struct irqaction *irq)
 
 	setup_irq(MIPS_COUNTER_TIMER_IRQ, irq);
 
-	count = read_32bit_cp0_register(CP0_COUNT);
-	write_32bit_cp0_register (CP0_COMPARE, count + (mips_counter_frequency / HZ));
+	count = read_c0_count();
+	write_c0_compare(count + (mips_counter_frequency / HZ));
 }

@@ -204,7 +204,9 @@ extern struct pcmcia_low_level jornada720_pcmcia_ops;
 extern struct pcmcia_low_level flexanet_pcmcia_ops;
 extern struct pcmcia_low_level simpad_pcmcia_ops;
 extern struct pcmcia_low_level graphicsmaster_pcmcia_ops;
+extern struct pcmcia_low_level adsagc_pcmcia_ops;
 extern struct pcmcia_low_level adsbitsy_pcmcia_ops;
+extern struct pcmcia_low_level adsbitsyplus_pcmcia_ops;
 extern struct pcmcia_low_level stork_pcmcia_ops;
 extern struct pcmcia_low_level badge4_pcmcia_ops;
 

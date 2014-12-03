@@ -50,6 +50,7 @@ struct usb_hcd {	/* usb_bus.hcpriv points to this */
 	int			irq;		/* irq allocated */
 	void			*regs;		/* device memory/io */
 
+#if !defined(CONFIG_SH_RTS7751R2D)
 #ifdef	CONFIG_PCI
 	/* a few non-PCI controllers exist, mostly for OHCI */
 	struct pci_dev		*pdev;		/* pci is typical */
@@ -57,6 +58,7 @@ struct usb_hcd {	/* usb_bus.hcpriv points to this */
 	u32			pci_state [16];	/* for PM state save */
 	atomic_t		resume_count;	/* multiple resumes issue */
 #endif
+#endif // CONFIG_SH_RTS7751R2D
 
 	int			state;
 #	define	__ACTIVE		0x01
@@ -151,6 +153,8 @@ struct hc_driver {
 
 extern void usb_hcd_giveback_urb (struct usb_hcd *hcd, struct urb *urb);
 
+#if !defined(CONFIG_SH_RTS7751R2D)
+
 #ifdef CONFIG_PCI
 
 struct pci_device_id;
@@ -167,6 +171,8 @@ extern int usb_hcd_pci_resume (struct pci_dev *dev);
 #endif /* CONFIG_PM */
 
 #endif /* CONFIG_PCI */
+
+#endif // CONFIG_SH_RTS7751R2D
 
 /*-------------------------------------------------------------------------*/
 

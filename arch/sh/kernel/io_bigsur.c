@@ -32,7 +32,6 @@
 #define DIPRINTK(n, args...)
 #endif
 
-
 /* Low iomap maps port 0-1K to addresses in 8byte chunks */
 #define BIGSUR_IOMAP_LO_THRESH 0x400
 #define BIGSUR_IOMAP_LO_SHIFT	3
@@ -246,4 +245,3 @@ void bigsur_outsl(unsigned long port, const void *buffer, unsigned long count)
 	const unsigned long *buf=buffer;
 	while(count--) outl(*buf++, port);
 }
-

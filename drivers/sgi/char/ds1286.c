@@ -280,19 +280,19 @@ static unsigned int ds1286_poll(struct file *file, poll_table *wait)
  */
 
 static struct file_operations ds1286_fops = {
-	llseek:		no_llseek,
-	read:		ds1286_read,
-	poll:		ds1286_poll,
-	ioctl:		ds1286_ioctl,
-	open:		ds1286_open,
-	release:	ds1286_release,
+	.llseek		= no_llseek,
+	.read		= ds1286_read,
+	.poll		= ds1286_poll,
+	.ioctl		= ds1286_ioctl,
+	.open		= ds1286_open,
+	.release	= ds1286_release,
 };
 
 static struct miscdevice ds1286_dev=
 {
-	RTC_MINOR,
-	"rtc",
-	&ds1286_fops
+	.minor	= RTC_MINOR,
+	.name	= "rtc",
+	.fops	= &ds1286_fops,
 };
 
 int __init ds1286_init(void)

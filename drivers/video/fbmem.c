@@ -5,10 +5,21 @@
  *
  *	2001 - Documented with DocBook
  *	- Brad Douglas <brad@neruo.com>
- *
+ * changes for _NO_MM_ in fb_mmap by <uclinux@schoeldgen.de> Mar 2002
+ * included support for DragonBall (MC68EZ328) framebuffer initialization
  * This file is subject to the terms and conditions of the GNU General Public
  * License.  See the file COPYING in the main directory of this archive
  * for more details.
+ *
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
+ *      28-Aug-2002 SHARP
+ *             - Added support for ATI w100 on SHARP SL-C700
+ *      11-Sep-2002 SHARP
+ *             - Allocated frame buffer to cache memory on SHARP SL-B500/5600
+ *      24-Jul-2003 Lineo Solutions, Inc.
+ *             - Added support for TOSHIBA TC6393XB on SHARP SL-6
+ *	06-Aug-2004 Lineo Solutions, Inc.  for Spitz
  */
 
 #include <linux/config.h>
@@ -53,6 +64,8 @@ extern int amifb_init(void);
 extern int amifb_setup(char*);
 extern int atafb_init(void);
 extern int atafb_setup(char*);
+extern int m68328fb_init(void);
+extern void m68328fb_setup(char*);
 extern int macfb_init(void);
 extern int macfb_setup(char*);
 extern int cyberfb_init(void);
@@ -61,7 +74,9 @@ extern int pm2fb_init(void);
 extern int pm2fb_setup(char*);
 extern int pm3fb_init(void);
 extern int pm3fb_setup(char*);
+extern int clps711xfb_init(void);
 extern int cyber2000fb_init(void);
+extern int cyber2000fb_setup(char*);
 extern int retz3fb_init(void);
 extern int retz3fb_setup(char*);
 extern int clgenfb_init(void);
@@ -107,6 +122,11 @@ extern int valkyriefb_setup(char*);
 extern int chips_init(void);
 extern int g364fb_init(void);
 extern int sa1100fb_init(void);
+extern int pxafb_init(void);
+extern int katanafb_init(void);
+extern int dbmx1fb_init(void);
+extern int dbmx21fb_init(void);
+extern int dbmx21fb_setup(char *);
 extern int fm2fb_init(void);
 extern int fm2fb_setup(char*);
 extern int q40fb_init(void);
@@ -132,12 +152,39 @@ extern int radeonfb_init(void);
 extern int radeonfb_setup(char*);
 extern int e1355fb_init(void);
 extern int e1355fb_setup(char*);
+extern int e1356fb_init(void);
+extern int e1356fb_setup(char*);
 extern int au1100fb_init(void);
 extern int au1100fb_setup(char*);
 extern int pvr2fb_init(void);
 extern int pvr2fb_setup(char*);
 extern int sstfb_init(void);
 extern int sstfb_setup(char*);
+extern int anakinfb_init(void);
+extern int cotulla_fb_init(void);
+extern int w100fb_init(void);
+extern int w100fb_setup(char*); 
+extern int tc6393fb_init(void);
+extern int tc6393fb_setup(char*); 
+extern int sharpsl_pxafb_init(void);
+extern int sharpsl_pxafb_setup(char*); 
+extern int ms7290cpfb_init(void);
+extern int hd64413fb_init(void);
+extern int hd64413fb_setup(char*);
+extern void hd64413fb_polygon4a(void);
+extern int sh7727fb_init(void);
+extern int sh7720fb_init(void);
+extern int sh7760fb_init(void);
+
+#if defined(CONFIG_FB_VOYAGER_GX)
+extern int voyafb_init(void);
+extern int voyafb_init2(void);
+extern int voyafb_init3(void);
+extern int voyafb_init4(void);
+extern int voyafb_init5(void);
+extern int voyafb_init6(void);
+extern int voyafb_init7(void);
+#endif
 
 static struct {
 	const char *name;
@@ -163,11 +210,14 @@ static struct {
 #ifdef CONFIG_FB_AMIGA
 	{ "amifb", amifb_init, amifb_setup },
 #endif
+#ifdef CONFIG_FB_CLPS711X
+	{ "clps711xfb", clps711xfb_init, NULL },
+#endif
 #ifdef CONFIG_FB_CYBER
 	{ "cyber", cyberfb_init, cyberfb_setup },
 #endif
 #ifdef CONFIG_FB_CYBER2000
-	{ "cyber2000", cyber2000fb_init, NULL },
+	{ "cyber2000", cyber2000fb_init, cyber2000fb_setup },
 #endif
 #ifdef CONFIG_FB_PM2
 	{ "pm2fb", pm2fb_init, pm2fb_setup },
@@ -229,6 +279,39 @@ static struct {
 #ifdef CONFIG_FB_VOODOO1
 	{ "sst", sstfb_init, sstfb_setup },
 #endif
+#if defined(CONFIG_FB_COTULLA) || defined(CONFIG_FB_POODLE)
+	{ "cotulla_fb", cotulla_fb_init, NULL},
+#endif
+#ifdef CONFIG_FB_CORGI
+	{ "w100fb", w100fb_init, w100fb_setup },
+#endif
+#ifdef CONFIG_FB_TOSA
+	{ "tc6393fb", tc6393fb_init, NULL },
+#endif
+#ifdef CONFIG_FB_SHARPSL_PXA
+	{ "sharpsl_pxafb", sharpsl_pxafb_init, sharpsl_pxafb_setup },
+#endif
+#ifdef CONFIG_FB_HD64413
+	        { "hd64413fb", hd64413fb_init, hd64413fb_setup },
+#endif
+#ifdef CONFIG_FB_SH7727
+	{ "sh7727fb", sh7727fb_init, NULL },
+#endif
+#ifdef CONFIG_FB_SH7720
+        { "sh7720fb", sh7720fb_init, NULL },
+#endif
+#ifdef CONFIG_FB_SH7760
+        { "sh7760fb", sh7760fb_init, NULL },
+#endif
+#ifdef CONFIG_FB_VOYAGER_GX
+	{ "voyager_panal_fb", voyafb_init, NULL },
+	{ "voyager_video_fb", voyafb_init2, NULL },
+	{ "voyager_valpha_fb", voyafb_init3, NULL },
+	{ "voyager_alpha_fb", voyafb_init4, NULL },
+	{ "voyager_panalcsr_fb", voyafb_init5, NULL },
+	{ "voyager_crt_fb", voyafb_init6, NULL },
+	{ "voyager_crtcsr_fb", voyafb_init7, NULL },
+#endif
 
 	/*
 	 * Generic drivers that are used as fallbacks
@@ -237,7 +320,9 @@ static struct {
 	 * _after_ all other frame buffer devices that use resource
 	 * management!
 	 */
-
+#ifdef CONFIG_FB_M68328
+	{ "68328fb", m68328fb_init,m68328fb_setup },
+#endif
 #ifdef CONFIG_FB_OF
 	{ "offb", offb_init, NULL },
 #endif
@@ -288,6 +373,18 @@ static struct {
 #ifdef CONFIG_FB_SA1100
 	{ "sa1100", sa1100fb_init, NULL },
 #endif
+#ifdef CONFIG_FB_PXA
+	{ "pxa", pxafb_init, NULL },
+#endif
+#ifdef CONFIG_FB_KATANA
+	{ "katana", katanafb_init, NULL },
+#endif
+#ifdef CONFIG_FB_DBMX1
+	{ "dbmx1", dbmx1fb_init, NULL },
+#endif
+#ifdef CONFIG_FB_DBMX21
+	{ "dbmx21", dbmx21fb_init, dbmx21fb_setup },
+#endif
 #ifdef CONFIG_FB_SUN3
 	{ "sun3", sun3fb_init, sun3fb_setup },
 #endif
@@ -297,8 +394,14 @@ static struct {
 #ifdef CONFIG_FB_TX3912
 	{ "tx3912", tx3912fb_init, NULL },
 #endif
+#ifdef CONFIG_FB_ANAKIN
+	{ "anakinfb", anakinfb_init, NULL },
+#endif
 #ifdef CONFIG_FB_E1355
 	{ "e1355fb", e1355fb_init, e1355fb_setup },
+#endif
+#ifdef CONFIG_FB_E1356
+        { "e1356fb", e1356fb_init, e1356fb_setup },
 #endif
 #ifdef CONFIG_FB_PVR2
 	{ "pvr2", pvr2fb_init, pvr2fb_setup },
@@ -315,7 +418,9 @@ static struct {
 #ifdef CONFIG_FB_AU1100
 	{ "au1100fb", au1100fb_init, au1100fb_setup },
 #endif 
-
+#ifdef CONFIG_FB_MS7290CP
+	{ "ms7290cpfb", ms7290cpfb_init, NULL },
+#endif
 
 	/*
 	 * Generic drivers that don't use resource management (yet)
@@ -563,13 +668,18 @@ fb_mmap(struct file *file, struct vm_area_struct * vma)
 	int fbidx = GET_FB_IDX(file->f_dentry->d_inode->i_rdev);
 	struct fb_info *info = registered_fb[fbidx];
 	struct fb_ops *fb = info->fbops;
-	unsigned long off;
+	unsigned long off = 0;
 #if !defined(__sparc__) || defined(__sparc_v9__)
 	struct fb_fix_screeninfo fix;
 	struct fb_var_screeninfo var;
 	unsigned long start;
 	u32 len;
 #endif
+#ifdef NO_MM 
+	fb->fb_get_fix(&fix, PROC_CONSOLE(info), info);
+	vma->vm_start = fix.smem_start+ vma->vm_offset;
+	return (0);
+#else /* /NO_MM */   
 
 	if (vma->vm_pgoff > (~0UL >> PAGE_SHIFT))
 		return -EINVAL;
@@ -595,7 +705,6 @@ fb_mmap(struct file *file, struct vm_area_struct * vma)
 
 	lock_kernel();
 	fb->fb_get_fix(&fix, PROC_CONSOLE(info), info);
-
 	/* frame buffer memory */
 	start = fix.smem_start;
 	len = PAGE_ALIGN((start & ~PAGE_MASK)+fix.smem_len);
@@ -645,6 +754,9 @@ fb_mmap(struct file *file, struct vm_area_struct * vma)
 		pgprot_val(vma->vm_page_prot) |= _PAGE_PCD;
 #elif defined(__arm__) || defined(__mips__)
 	vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
+#if defined(CONFIG_POODLE_CONSISTENT_ALLOC) || defined(CONFIG_SHARPSL_PXA_CONSISTENT_ALLOC)
+	vma->vm_page_prot = __pgprot(pgprot_val(vma->vm_page_prot) | L_PTE_CACHEABLE);
+#endif
 #elif defined(__sh__)
 	pgprot_val(vma->vm_page_prot) &= ~_PAGE_CACHABLE;
 #elif defined(__ia64__)
@@ -657,9 +769,11 @@ fb_mmap(struct file *file, struct vm_area_struct * vma)
 	if (io_remap_page_range(vma->vm_start, off,
 			     vma->vm_end - vma->vm_start, vma->vm_page_prot))
 		return -EAGAIN;
+
 #endif /* !__sparc_v9__ */
 	return 0;
 #endif /* !sparc32 */
+#endif
 }
 
 #if 1 /* to go away in 2.5.0 */
@@ -719,6 +833,15 @@ fb_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
+#if defined CONFIG_FB_HD64413
+static int
+fb_fsync(struct file *file , struct dentry *dent, int datasync)
+{
+	hd64413fb_polygon4a();
+	return 0;
+}
+#endif
+
 static struct file_operations fb_fops = {
 	owner:		THIS_MODULE,
 	read:		fb_read,
@@ -727,6 +850,9 @@ static struct file_operations fb_fops = {
 	mmap:		fb_mmap,
 	open:		fb_open,
 	release:	fb_release,
+#if defined CONFIG_FB_HD64413
+	fsync:		fb_fsync,
+#endif
 #ifdef HAVE_ARCH_FB_UNMAPPED_AREA
 	get_unmapped_area: get_fb_unmapped_area,
 #endif

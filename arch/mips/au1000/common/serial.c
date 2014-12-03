@@ -1,7 +1,7 @@
 /*
  *
  * BRIEF MODULE DESCRIPTION
- *	Au1000 serial port driver.
+ *	Au1x00 serial port driver.
  *
  * Copyright 2001 MontaVista Software Inc.
  * Author: MontaVista Software, Inc.
@@ -56,14 +56,14 @@ static char *serial_revdate = "2001-02-08";
 #undef SERIAL_DEBUG_AUTOCONF
 
 #ifdef MODULE
-#undef CONFIG_AU1000_SERIAL_CONSOLE
+#undef CONFIG_AU1X00_SERIAL_CONSOLE
 #endif
 
 #define CONFIG_SERIAL_RSA
 
 #define RS_STROBE_TIME (10*HZ)
 #define RS_ISR_PASS_LIMIT 256
-
+  
 /*
  * End of serial driver configuration section.
  */
@@ -98,7 +98,7 @@ static char *serial_revdate = "2001-02-08";
 #include <linux/init.h>
 #include <asm/uaccess.h>
 #include <linux/delay.h>
-#ifdef CONFIG_AU1000_SERIAL_CONSOLE
+#ifdef CONFIG_AU1X00_SERIAL_CONSOLE
 #include <linux/console.h>
 #endif
 #ifdef CONFIG_MAGIC_SYSRQ
@@ -131,7 +131,7 @@ static int serial_refcount;
 
 static struct timer_list serial_timer;
 
-extern unsigned long get_au1000_uart_baud_base(void);
+extern unsigned long get_au1x00_uart_baud_base(void);
 
 /* serial subtype definitions */
 #ifndef SERIAL_TYPE_NORMAL
@@ -149,11 +149,11 @@ extern unsigned long get_au1000_uart_baud_base(void);
 
 static struct async_struct *IRQ_ports[NR_IRQS];
 static int IRQ_timeout[NR_IRQS];
-#ifdef CONFIG_AU1000_SERIAL_CONSOLE
+#ifdef CONFIG_AU1X00_SERIAL_CONSOLE
 static struct console sercons;
 static int lsr_break_flag;
 #endif
-#if defined(CONFIG_AU1000_SERIAL_CONSOLE) && defined(CONFIG_MAGIC_SYSRQ)
+#if defined(CONFIG_AU1X00_SERIAL_CONSOLE) && defined(CONFIG_MAGIC_SYSRQ)
 static unsigned long break_pressed; /* break, really ... */
 #endif
 
@@ -216,6 +216,7 @@ static DECLARE_MUTEX(tmp_buf_sem);
 static struct semaphore tmp_buf_sem = MUTEX;
 #endif
 
+static spinlock_t serial_lock = SPIN_LOCK_UNLOCKED;
 
 static inline int serial_paranoia_check(struct async_struct *info,
 					kdev_t device, const char *routine)
@@ -275,12 +276,12 @@ static void rs_stop(struct tty_struct *tty)
 	if (serial_paranoia_check(info, tty->device, "rs_stop"))
 		return;
 
-	save_flags(flags); cli();
+	spin_lock_irqsave(&serial_lock, flags);
 	if (info->IER & UART_IER_THRI) {
 		info->IER &= ~UART_IER_THRI;
 		serial_out(info, UART_IER, info->IER);
 	}
-	restore_flags(flags);
+	spin_unlock_irqrestore(&serial_lock, flags);
 }
 
 static void rs_start(struct tty_struct *tty)
@@ -291,14 +292,14 @@ static void rs_start(struct tty_struct *tty)
 	if (serial_paranoia_check(info, tty->device, "rs_start"))
 		return;
 
-	save_flags(flags); cli();
+	spin_lock_irqsave(&serial_lock, flags);
 	if (info->xmit.head != info->xmit.tail
 	    && info->xmit.buf
 	    && !(info->IER & UART_IER_THRI)) {
 		info->IER |= UART_IER_THRI;
 		serial_out(info, UART_IER, info->IER);
 	}
-	restore_flags(flags);
+	spin_unlock_irqrestore(&serial_lock, flags);
 }
 
 /*
@@ -368,7 +369,7 @@ static _INLINE_ void receive_chars(struct async_struct *info,
 				 * may get masked by ignore_status_mask
 				 * or read_status_mask.
 				 */
-#if defined(CONFIG_AU1000_SERIAL_CONSOLE) && defined(CONFIG_MAGIC_SYSRQ)
+#if defined(CONFIG_AU1X00_SERIAL_CONSOLE) && defined(CONFIG_MAGIC_SYSRQ)
 				if (info->line == sercons.index) {
 					if (!break_pressed) {
 						break_pressed = jiffies;
@@ -398,7 +399,7 @@ static _INLINE_ void receive_chars(struct async_struct *info,
 			}
 			*status &= info->read_status_mask;
 
-#ifdef CONFIG_AU1000_SERIAL_CONSOLE
+#ifdef CONFIG_AU1X00_SERIAL_CONSOLE
 			if (info->line == sercons.index) {
 				/* Recover the break flag from console xmit */
 				*status |= lsr_break_flag;
@@ -428,7 +429,7 @@ static _INLINE_ void receive_chars(struct async_struct *info,
 					goto ignore_char;
 			}
 		}
-#if defined(CONFIG_AU1000_SERIAL_CONSOLE) && defined(CONFIG_MAGIC_SYSRQ)
+#if defined(CONFIG_AU1X00_SERIAL_CONSOLE) && defined(CONFIG_MAGIC_SYSRQ)
 		if (break_pressed && info->line == sercons.index) {
 			if (ch != 0 &&
 			    time_before(jiffies, break_pressed + HZ*5)) {
@@ -664,9 +665,9 @@ static void rs_timer(unsigned long dummy)
 			info = IRQ_ports[i];
 			if (!info)
 				continue;
-			save_flags(flags); cli();
+			spin_lock_irqsave(&serial_lock, flags);
 				rs_interrupt_single(i, NULL, NULL);
-			restore_flags(flags);
+				spin_unlock_irqrestore(&serial_lock, flags);
 		}
 	}
 	last_strobe = jiffies;
@@ -674,9 +675,9 @@ static void rs_timer(unsigned long dummy)
 
 #if 0
 	if (IRQ_ports[0]) {
-		save_flags(flags); cli();
+		spin_lock_irqsave(&serial_lock, flags);
 		rs_interrupt_single(0, NULL, NULL);
-		restore_flags(flags);
+		spin_unlock_irqrestore(&serial_lock, flags);
 
 		mod_timer(&serial_timer, jiffies + IRQ_timeout[0]);
 	}
@@ -730,7 +731,7 @@ static int startup(struct async_struct * info)
 	if (!page)
 		return -ENOMEM;
 
-	save_flags(flags); cli();
+	spin_lock_irqsave(&serial_lock, flags);
 
 	if (info->flags & ASYNC_INITIALIZED) {
 		free_page(page);
@@ -890,11 +891,11 @@ static int startup(struct async_struct * info)
 	change_speed(info, 0);
 
 	info->flags |= ASYNC_INITIALIZED;
-	restore_flags(flags);
+	spin_unlock_irqrestore(&serial_lock, flags);
 	return 0;
 
 errout:
-	restore_flags(flags);
+	spin_unlock_irqrestore(&serial_lock, flags);
 	return retval;
 }
 
@@ -918,7 +919,7 @@ static void shutdown(struct async_struct * info)
 	       state->irq);
 #endif
 
-	save_flags(flags); cli(); /* Disable interrupts */
+	spin_lock_irqsave(&serial_lock, flags);
 
 	/*
 	 * clear delta_msr_wait queue to avoid mem leaks: we may free the irq
@@ -990,7 +991,7 @@ static void shutdown(struct async_struct * info)
 	au_writel(0, UART_MOD_CNTRL + state->port);
 	au_sync_delay(10);
 #endif
-	restore_flags(flags);
+	spin_unlock_irqrestore(&serial_lock, flags);
 }
 
 
@@ -1041,7 +1042,7 @@ static void change_speed(struct async_struct *info,
 	if (!baud) {
 		baud = 9600;	/* B0 transition handled in rs_set_termios */
 	}
-	baud_base = get_au1000_uart_baud_base();
+	baud_base = get_au1x00_uart_baud_base();
 
 	//if (baud == 38400 &&
 	if (((info->flags & ASYNC_SPD_MASK) == ASYNC_SPD_CUST)) {
@@ -1136,12 +1137,12 @@ static void change_speed(struct async_struct *info,
 	 */
 	if ((cflag & CREAD) == 0)
 		info->ignore_status_mask |= UART_LSR_DR;
-	save_flags(flags); cli();
+	spin_lock_irqsave(&serial_lock, flags);
 
 	serial_outp(info, UART_CLK, quot & 0xffff);
 	serial_outp(info, UART_LCR, cval);
 	info->LCR = cval;				/* Save LCR */
-	restore_flags(flags);
+	spin_unlock_irqrestore(&serial_lock, flags);
 }
 
 static void rs_put_char(struct tty_struct *tty, unsigned char ch)
@@ -1155,17 +1156,17 @@ static void rs_put_char(struct tty_struct *tty, unsigned char ch)
 	if (!tty || !info->xmit.buf)
 		return;
 
-	save_flags(flags); cli();
+	spin_lock_irqsave(&serial_lock, flags);
 	if (CIRC_SPACE(info->xmit.head,
 		       info->xmit.tail,
 		       SERIAL_XMIT_SIZE) == 0) {
-		restore_flags(flags);
+		spin_unlock_irqrestore(&serial_lock, flags);
 		return;
 	}
 
 	info->xmit.buf[info->xmit.head] = ch;
 	info->xmit.head = (info->xmit.head + 1) & (SERIAL_XMIT_SIZE-1);
-	restore_flags(flags);
+	spin_unlock_irqrestore(&serial_lock, flags);
 }
 
 static void rs_flush_chars(struct tty_struct *tty)
@@ -1182,10 +1183,10 @@ static void rs_flush_chars(struct tty_struct *tty)
 	    || !info->xmit.buf)
 		return;
 
-	save_flags(flags); cli();
+	spin_lock_irqsave(&serial_lock, flags);
 	info->IER |= UART_IER_THRI;
 	serial_out(info, UART_IER, info->IER);
-	restore_flags(flags);
+	spin_unlock_irqrestore(&serial_lock, flags);
 }
 
 static int rs_write(struct tty_struct * tty, int from_user,
@@ -1201,7 +1202,7 @@ static int rs_write(struct tty_struct * tty, int from_user,
 	if (!tty || !info->xmit.buf || !tmp_buf)
 		return 0;
 
-	save_flags(flags);
+	spin_lock_irqsave(&serial_lock, flags);
 	if (from_user) {
 		down(&tmp_buf_sem);
 		while (1) {
@@ -1229,7 +1230,7 @@ static int rs_write(struct tty_struct * tty, int from_user,
 			memcpy(info->xmit.buf + info->xmit.head, tmp_buf, c);
 			info->xmit.head = ((info->xmit.head + c) &
 					   (SERIAL_XMIT_SIZE-1));
-			restore_flags(flags);
+			spin_unlock_irqrestore(&serial_lock, flags);
 			buf += c;
 			count -= c;
 			ret += c;
@@ -1253,7 +1254,7 @@ static int rs_write(struct tty_struct * tty, int from_user,
 			count -= c;
 			ret += c;
 		}
-		restore_flags(flags);
+		spin_unlock_irqrestore(&serial_lock, flags);
 	}
 	if (info->xmit.head != info->xmit.tail
 	    && !tty->stopped
@@ -1290,9 +1291,9 @@ static void rs_flush_buffer(struct tty_struct *tty)
 
 	if (serial_paranoia_check(info, tty->device, "rs_flush_buffer"))
 		return;
-	save_flags(flags); cli();
+	spin_lock_irqsave(&serial_lock, flags);
 	info->xmit.head = info->xmit.tail = 0;
-	restore_flags(flags);
+	spin_unlock_irqrestore(&serial_lock, flags);
 	wake_up_interruptible(&tty->write_wait);
 #ifdef SERIAL_HAVE_POLL_WAIT
 	wake_up_interruptible(&tty->poll_wait);
@@ -1349,9 +1350,9 @@ static void rs_throttle(struct tty_struct * tty)
 	if (tty->termios->c_cflag & CRTSCTS)
 		info->MCR &= ~UART_MCR_RTS;
 
-	save_flags(flags); cli();
+	spin_lock_irqsave(&serial_lock, flags);
 	serial_out(info, UART_MCR, info->MCR);
-	restore_flags(flags);
+	spin_unlock_irqrestore(&serial_lock, flags);
 }
 
 static void rs_unthrottle(struct tty_struct * tty)
@@ -1376,9 +1377,9 @@ static void rs_unthrottle(struct tty_struct * tty)
 	}
 	if (tty->termios->c_cflag & CRTSCTS)
 		info->MCR |= UART_MCR_RTS;
-	save_flags(flags); cli();
+	spin_lock_irqsave(&serial_lock, flags);
 	serial_out(info, UART_MCR, info->MCR);
-	restore_flags(flags);
+	spin_unlock_irqrestore(&serial_lock, flags);
 }
 
 /*
@@ -1562,9 +1563,9 @@ static int get_lsr_info(struct async_struct * info, unsigned int *value)
 	unsigned int result;
 	unsigned long flags;
 
-	save_flags(flags); cli();
+	spin_lock_irqsave(&serial_lock, flags);
 	status = serial_in(info, UART_LSR);
-	restore_flags(flags);
+	spin_unlock_irqrestore(&serial_lock, flags);
 	result = ((status & UART_LSR_TEMT) ? TIOCSER_TEMT : 0);
 
 	/*
@@ -1592,9 +1593,9 @@ static int get_modem_info(struct async_struct * info, unsigned int *value)
 	unsigned long flags;
 
 	control = info->MCR;
-	save_flags(flags); cli();
+	spin_lock_irqsave(&serial_lock, flags);
 	status = serial_in(info, UART_MSR);
-	restore_flags(flags);
+	spin_unlock_irqrestore(&serial_lock, flags);
 	result =  ((control & UART_MCR_RTS) ? TIOCM_RTS : 0)
 		| ((control & UART_MCR_DTR) ? TIOCM_DTR : 0)
 #ifdef TIOCM_OUT1
@@ -1668,10 +1669,10 @@ static int set_modem_info(struct async_struct * info, unsigned int cmd,
 	default:
 		return -EINVAL;
 	}
-	save_flags(flags); cli();
+	spin_lock_irqsave(&serial_lock, flags);
 	info->MCR |= ALPHA_KLUDGE_MCR; 		/* Don't ask */
 	serial_out(info, UART_MCR, info->MCR);
-	restore_flags(flags);
+	spin_unlock_irqrestore(&serial_lock, flags);
 	return 0;
 }
 
@@ -1707,13 +1708,13 @@ static void rs_break(struct tty_struct *tty, int break_state)
 
 	if (!CONFIGURED_SERIAL_PORT(info))
 		return;
-	save_flags(flags); cli();
+	spin_lock_irqsave(&serial_lock, flags);
 	if (break_state == -1)
 		info->LCR |= UART_LCR_SBC;
 	else
 		info->LCR &= ~UART_LCR_SBC;
 	serial_out(info, UART_LCR, info->LCR);
-	restore_flags(flags);
+	spin_unlock_irqrestore(&serial_lock, flags);
 }
 
 
@@ -1768,10 +1769,10 @@ static int rs_ioctl(struct tty_struct *tty, struct file * file,
 		 * Caller should use TIOCGICOUNT to see which one it was
 		 */
 		case TIOCMIWAIT:
-			save_flags(flags); cli();
+			spin_lock_irqsave(&serial_lock, flags);
 			/* note the counters on entry */
 			cprev = info->state->icount;
-			restore_flags(flags);
+			spin_unlock_irqrestore(&serial_lock, flags);
 			/* Force modem status interrupts on */
 			info->IER |= UART_IER_MSI;
 			serial_out(info, UART_IER, info->IER);
@@ -1780,9 +1781,9 @@ static int rs_ioctl(struct tty_struct *tty, struct file * file,
 				/* see if a signal did it */
 				if (signal_pending(current))
 					return -ERESTARTSYS;
-				save_flags(flags); cli();
+				spin_lock_irqsave(&serial_lock, flags);
 				cnow = info->state->icount; /* atomic copy */
-				restore_flags(flags);
+				spin_unlock_irqrestore(&serial_lock, flags);
 				if (cnow.rng == cprev.rng && cnow.dsr == cprev.dsr &&
 				    cnow.dcd == cprev.dcd && cnow.cts == cprev.cts)
 					return -EIO; /* no change => error */
@@ -1803,9 +1804,9 @@ static int rs_ioctl(struct tty_struct *tty, struct file * file,
 		 *     RI where only 0->1 is counted.
 		 */
 		case TIOCGICOUNT:
-			save_flags(flags); cli();
+			spin_lock_irqsave(&serial_lock, flags);
 			cnow = info->state->icount;
-			restore_flags(flags);
+			spin_unlock_irqrestore(&serial_lock, flags);
 			icount.cts = cnow.cts;
 			icount.dsr = cnow.dsr;
 			icount.rng = cnow.rng;
@@ -1850,9 +1851,9 @@ static void rs_set_termios(struct tty_struct *tty, struct termios *old_termios)
 	if ((old_termios->c_cflag & CBAUD) &&
 	    !(cflag & CBAUD)) {
 		info->MCR &= ~(UART_MCR_DTR|UART_MCR_RTS);
-		save_flags(flags); cli();
+		spin_lock_irqsave(&serial_lock, flags);
 		serial_out(info, UART_MCR, info->MCR);
-		restore_flags(flags);
+		spin_unlock_irqrestore(&serial_lock, flags);
 	}
 
 	/* Handle transition away from B0 status */
@@ -1863,9 +1864,9 @@ static void rs_set_termios(struct tty_struct *tty, struct termios *old_termios)
 		    !test_bit(TTY_THROTTLED, &tty->flags)) {
 			info->MCR |= UART_MCR_RTS;
 		}
-		save_flags(flags); cli();
+		spin_lock_irqsave(&serial_lock, flags);
 		serial_out(info, UART_MCR, info->MCR);
-		restore_flags(flags);
+		spin_unlock_irqrestore(&serial_lock, flags);
 	}
 
 	/* Handle turning off CRTSCTS */
@@ -1897,12 +1898,12 @@ static void rs_close(struct tty_struct *tty, struct file * filp)
 
 	state = info->state;
 
-	save_flags(flags); cli();
+	spin_lock_irqsave(&serial_lock, flags);
 
 	if (tty_hung_up_p(filp)) {
 		DBG_CNT("before DEC-hung");
 		MOD_DEC_USE_COUNT;
-		restore_flags(flags);
+		spin_unlock_irqrestore(&serial_lock, flags);
 		return;
 	}
 
@@ -1929,11 +1930,11 @@ static void rs_close(struct tty_struct *tty, struct file * filp)
 	if (state->count) {
 		DBG_CNT("before DEC-2");
 		MOD_DEC_USE_COUNT;
-		restore_flags(flags);
+		spin_unlock_irqrestore(&serial_lock, flags);
 		return;
 	}
 	info->flags |= ASYNC_CLOSING;
-	restore_flags(flags);
+	spin_unlock_irqrestore(&serial_lock, flags);
 	/*
 	 * Save the termios structure, since this port may have
 	 * separate termios for callout and dialin.
@@ -2158,21 +2159,21 @@ static int block_til_ready(struct tty_struct *tty, struct file * filp,
 	printk("block_til_ready before block: ttys%d, count = %d\n",
 	       state->line, state->count);
 #endif
-	save_flags(flags); cli();
+	spin_lock_irqsave(&serial_lock, flags);
 	if (!tty_hung_up_p(filp)) {
 		extra_count = 1;
 		state->count--;
 	}
-	restore_flags(flags);
+	spin_unlock_irqrestore(&serial_lock, flags);
 	info->blocked_open++;
 	while (1) {
-		save_flags(flags); cli();
+		spin_lock_irqsave(&serial_lock, flags);
 		if (!(info->flags & ASYNC_CALLOUT_ACTIVE) &&
 		    (tty->termios->c_cflag & CBAUD))
 			serial_out(info, UART_MCR,
 				   serial_inp(info, UART_MCR) |
 				   (UART_MCR_DTR | UART_MCR_RTS));
-		restore_flags(flags);
+		spin_unlock_irqrestore(&serial_lock, flags);
 		set_current_state(TASK_INTERRUPTIBLE);
 		if (tty_hung_up_p(filp) ||
 		    !(info->flags & ASYNC_INITIALIZED)) {
@@ -2347,7 +2348,7 @@ static int rs_open(struct tty_struct *tty, struct file * filp)
 			*tty->termios = info->state->callout_termios;
 		change_speed(info, 0);
 	}
-#ifdef CONFIG_AU1000_SERIAL_CONSOLE
+#ifdef CONFIG_AU1X00_SERIAL_CONSOLE
 	if (sercons.cflag && sercons.index == line) {
 		tty->termios->c_cflag = sercons.cflag;
 		sercons.cflag = 0;
@@ -2395,10 +2396,10 @@ static inline int line_info(char *buf, struct serial_state *state)
 		info->quot = 0;
 		info->tty = 0;
 	}
-	save_flags(flags); cli();
+	spin_lock_irqsave(&serial_lock, flags);
 	status = serial_in(info, UART_MSR);
 	control = info != &scr_info ? info->MCR : serial_in(info, UART_MCR);
-	restore_flags(flags);
+	spin_unlock_irqrestore(&serial_lock, flags);
 
 	stat_buf[0] = 0;
 	stat_buf[1] = 0;
@@ -2531,7 +2532,7 @@ static void autoconfig(struct serial_state * state)
 	info->iomem_reg_shift = state->iomem_reg_shift;
 
 
-	save_flags(flags); cli();
+	spin_lock_irqsave(&serial_lock, flags);
 	state->xmit_fifo_size =	uart_config[state->type].dfl_xmit_fifo_size;
 
 	if (info->port) {
@@ -2547,7 +2548,7 @@ static void autoconfig(struct serial_state * state)
 	serial_outp(info, UART_FCR, 0);
 	(void)serial_in(info, UART_RX);
 	serial_outp(info, UART_IER, 0);
-	restore_flags(flags);
+	spin_unlock_irqrestore(&serial_lock, flags);
 }
 
 int register_serial(struct serial_struct *req);
@@ -2574,7 +2575,7 @@ static int __init rs_init(void)
 		IRQ_ports[i] = 0;
 		IRQ_timeout[i] = 0;
 	}
-#ifdef CONFIG_AU1000_SERIAL_CONSOLE
+#ifdef CONFIG_AU1X00_SERIAL_CONSOLE
 	/*
 	 *	The interrupt of the serial console port
 	 *	can't be shared.
@@ -2653,7 +2654,7 @@ static int __init rs_init(void)
 		panic("Couldn't register callout driver");
 
 	for (i = 0, state = rs_table; i < NR_PORTS; i++,state++) {
-		state->baud_base = get_au1000_uart_baud_base();
+		state->baud_base = get_au1x00_uart_baud_base();
 		state->magic = SSTATE_MAGIC;
 		state->line = i;
 		state->type = PORT_UNKNOWN;
@@ -2726,7 +2727,7 @@ int register_serial(struct serial_struct *req)
 	if (HIGH_BITS_OFFSET)
 		port += (unsigned long) req->port_high << HIGH_BITS_OFFSET;
 
-	save_flags(flags); cli();
+	spin_lock_irqsave(&serial_lock, flags);
 	for (i = 0; i < NR_PORTS; i++) {
 		if ((rs_table[i].port == port) &&
 		    (rs_table[i].iomem_base == req->iomem_base))
@@ -2739,12 +2740,12 @@ int register_serial(struct serial_struct *req)
 				break;
 	}
 	if (i == NR_PORTS) {
-		restore_flags(flags);
+		spin_unlock_irqrestore(&serial_lock, flags);
 		return -1;
 	}
 	state = &rs_table[i];
 	if (rs_table[i].count) {
-		restore_flags(flags);
+		spin_unlock_irqrestore(&serial_lock, flags);
 		printk("Couldn't configure serial #%d (port=%ld,irq=%d): "
 		       "device already open\n", i, port, req->irq);
 		return -1;
@@ -2766,11 +2767,11 @@ int register_serial(struct serial_struct *req)
 	}
 	autoconfig(state);
 	if (state->type == PORT_UNKNOWN) {
-		restore_flags(flags);
+		spin_unlock_irqrestore(&serial_lock, flags);
 		printk("register_serial(): autoconfig failed\n");
 		return -1;
 	}
-	restore_flags(flags);
+	spin_unlock_irqrestore(&serial_lock, flags);
 
        printk(KERN_INFO "ttyS%02d at %s 0x%04lx (irq = %d) is a %s\n",
 	      state->line + SERIAL_DEV_OFFSET,
@@ -2798,7 +2799,7 @@ void unregister_serial(int line)
 	unsigned long flags;
 	struct serial_state *state = &rs_table[line];
 
-	save_flags(flags); cli();
+	spin_lock_irqsave(&serial_lock, flags);
 	if (state->info && state->info->tty)
 		tty_hangup(state->info->tty);
 	state->type = PORT_UNKNOWN;
@@ -2810,7 +2811,7 @@ void unregister_serial(int line)
 			     serial_driver.minor_start + state->line);
 	tty_unregister_devfs(&callout_driver,
 			     callout_driver.minor_start + state->line);
-	restore_flags(flags);
+	spin_unlock_irqrestore(&serial_lock, flags);
 }
 
 static void __exit rs_fini(void)
@@ -2822,7 +2823,7 @@ static void __exit rs_fini(void)
 
 	/* printk("Unloading %s: version %s\n", serial_name, serial_version); */
 	del_timer_sync(&serial_timer);
-	save_flags(flags); cli();
+	spin_lock_irqsave(&serial_lock, flags);
         remove_bh(SERIAL_BH);
 	if ((e1 = tty_unregister_driver(&serial_driver)))
 		printk("serial: failed to unregister serial driver (%d)\n",
@@ -2830,7 +2831,7 @@ static void __exit rs_fini(void)
 	if ((e2 = tty_unregister_driver(&callout_driver)))
 		printk("serial: failed to unregister callout driver (%d)\n",
 		       e2);
-	restore_flags(flags);
+	spin_unlock_irqrestore(&serial_lock, flags);
 
 	for (i = 0; i < NR_PORTS; i++) {
 		if ((info = rs_table[i].info)) {
@@ -2850,7 +2851,7 @@ static void __exit rs_fini(void)
 
 module_init(rs_init);
 module_exit(rs_fini);
-MODULE_DESCRIPTION("Au1000 serial driver");
+MODULE_DESCRIPTION("Au1x00 serial driver");
 
 
 /*
@@ -2858,7 +2859,7 @@ MODULE_DESCRIPTION("Au1000 serial driver");
  * Serial console driver
  * ------------------------------------------------------------
  */
-#ifdef CONFIG_AU1000_SERIAL_CONSOLE
+#ifdef CONFIG_AU1X00_SERIAL_CONSOLE
 
 #define BOTH_EMPTY (UART_LSR_TEMT | UART_LSR_THRE)
 
@@ -2925,6 +2926,35 @@ static void serial_console_write(struct console *co, const char *s,
 	 */
 	wait_for_xmitr(info);
 	serial_out(info, UART_IER, ier);
+}
+
+/*
+ *	Receive character from the serial port
+ */
+static int serial_console_wait_key(struct console *co)
+{
+	static struct async_struct *info;
+	int ier, c;
+
+	info = &async_sercons;
+
+	/*
+	 *	First save the IER then disable the interrupts so
+	 *	that the real driver for the port does not get the
+	 *	character.
+	 */
+	ier = serial_in(info, UART_IER);
+	serial_out(info, UART_IER, 0x00);
+ 
+	while ((serial_in(info, UART_LSR) & UART_LSR_DR) == 0);
+	c = serial_in(info, UART_RX);
+
+	/*
+	 *	Restore the interrupts
+	 */
+	serial_out(info, UART_IER, ier);
+
+	return c;
 }
 
 static kdev_t serial_console_device(struct console *c)
@@ -3020,7 +3050,7 @@ static int __init serial_console_setup(struct console *co, char *options)
 	info->io_type = state->io_type;
 	info->iomem_base = state->iomem_base;
 	info->iomem_reg_shift = state->iomem_reg_shift;
-	state->baud_base = get_au1000_uart_baud_base();
+	state->baud_base = get_au1x00_uart_baud_base();
 	quot = state->baud_base / baud;
 
 	cval = cflag & (CSIZE | CSTOPB);
@@ -3048,18 +3078,18 @@ static int __init serial_console_setup(struct console *co, char *options)
 }
 
 static struct console sercons = {
-	name:		"ttyS",
-	write:		serial_console_write,
-	device:		serial_console_device,
-	setup:		serial_console_setup,
-	flags:		CON_PRINTBUFFER,
-	index:		-1,
+	.name		= "ttyS",
+	.write		= serial_console_write,
+	.device		= serial_console_device,
+	.setup		= serial_console_setup,
+	.flags		= CON_PRINTBUFFER,
+	.index		= -1,
 };
 
 /*
  *	Register console.
  */
-void __init au1000_serial_console_init(void)
+void __init au1x00_serial_console_init(void)
 {
 	register_console(&sercons);
 }

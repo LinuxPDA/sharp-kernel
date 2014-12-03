@@ -12,6 +12,11 @@
  *
  *  Note:  there is a StrongARM bug in the STMIA rn, {regs}^ instruction that causes
  *  it to save wrong values...  Be aware!
+ *
+ * Change Log
+ * 	31-Jul-2002 Lineo Japan, Inc.
+ *	01-Aug-2002 Lineo Japan, Inc.  for ARCH_PXA
+ *	14-May-2004 Lineo Solutions, Inc.  for PXA27x
  */
 #include <linux/config.h>
 #include "entry-header.S"
@@ -187,11 +192,10 @@ irq_prio_ld:	.byte	40,40,41,40,42,42,42,42,43,43,43,43,43,43,43,43
 
 		.macro	get_irqnr_and_base, irqnr, irqstat, base, tmp
 		mov	r4, #0xe0000000
-		orr	r4, r4, #0x20
 
 		mov	\irqstat, #0x0C
-		strb	\irqstat, [r4]			@outb(0x0C, 0x20) /* Poll command */
-		ldrb	\irqnr, [r4]			@irq = inb(0x20) & 7
+		strb	\irqstat, [r4, #0x20]		@outb(0x0C, 0x20) /* Poll command */
+		ldrb	\irqnr, [r4, #0x20]		@irq = inb(0x20) & 7
 		and	\irqstat, \irqnr, #0x80
 		teq	\irqstat, #0
 		beq	43f
@@ -199,8 +203,8 @@ irq_prio_ld:	.byte	40,40,41,40,42,42,42,42,43,43,43,43,43,43,43,43
 		teq	\irqnr, #2
 		bne	44f
 43:		mov	\irqstat, #0x0C
-		strb	\irqstat, [r4, #0x80]		@outb(0x0C, 0xA0) /* Poll command */
-		ldrb	\irqnr, [r4, #0x80]		@irq = (inb(0xA0) & 7) + 8
+		strb	\irqstat, [r4, #0xa0]		@outb(0x0C, 0xA0) /* Poll command */
+		ldrb	\irqnr, [r4, #0xa0]		@irq = (inb(0xA0) & 7) + 8
 		and	\irqstat, \irqnr, #0x80
 		teq	\irqstat, #0
 		beq	44f
@@ -381,6 +385,11 @@ ENTRY(soft_irq_mask)
 		ands	\irqstat, \irqstat, \irqnr
 		mov	\irqnr, #0
 		beq	1001f
+#ifdef CONFIG_RTHAL
+		tst	\irqstat, #0x04000000	@ check OSMR0 first
+		movne	\irqnr, #26
+		bne	1001f
+#endif
 		tst	\irqstat, #0xff
 		moveq	\irqstat, \irqstat, lsr #8
 		addeq	\irqnr, \irqnr, #8
@@ -399,6 +408,85 @@ ENTRY(soft_irq_mask)
 		tst	\irqstat, #0x01
 		addeqs	\irqnr, \irqnr, #1
 1001:
+		.endm
+
+		.macro	irq_prio_table
+		.endm
+
+#elif defined(CONFIG_ARCH_S1C38000)
+
+		.macro	disable_fiq
+		.endm
+
+		.macro	get_irqnr_and_base, irqnr, irqstat, base, tmp
+		ldr	\irqstat, =0xf8000200
+		ldr	\irqstat, [\irqstat]		@ get interrupts
+		ldr	\base, =soft_irq_mask
+		ldr	\base, [\base]
+		mov	\irqnr, #0
+		and	\irqstat, \irqstat, \base	@ mask out disabled ones
+1001:		tst	\irqstat, #1
+		addeq	\irqnr, \irqnr, #1
+		moveq	\irqstat, \irqstat, lsr #1
+		tsteq	\irqnr, #32
+		beq	1001b
+		teq	\irqnr, #32
+		.endm
+
+		.macro	irq_prio_table
+		.ltorg
+		.bss
+ENTRY(soft_irq_mask)
+		.word	0
+		.text
+		.endm
+
+
+#elif defined(CONFIG_ARCH_DBMX1)
+
+		.macro	disable_fiq
+		.endm
+#define AITC_NIVECSR   0x40
+		.macro	get_irqnr_and_base, irqnr, irqstat, base, tmp
+		ldr	\irqstat, =IO_ADDRESS(DBMX1_AITC_BASE)
+		@ Load offset & priority of the highest priority
+		@ interrupt pending.
+		ldr	\irqnr, [\irqstat, #AITC_NIVECSR]
+		@ Shift off the priority leaving the offset or
+		@ "interrupt number"
+		mov	\irqnr, \irqnr, lsr #16
+ 		ldr	\irqstat, =1	@ dummy compare
+		ldr	\base, =0xFFFF		// invalid interrupt
+		cmp	\irqnr, \base
+		bne	1001f
+		ldr	\irqstat, =0
+1001:
+		tst	\irqstat, #1	@ to make the condition code = TRUE
+		.endm
+
+		.macro	irq_prio_table
+		.endm
+
+#elif defined(CONFIG_ARCH_DBMX2)
+
+		.macro	disable_fiq
+		.endm
+#define AITC_NIVECSR   0x40
+		.macro	get_irqnr_and_base, irqnr, irqstat, base, tmp
+		ldr	\irqstat, =0xE4040000			@IO_ADDRESS(AITC_BASE_ADDR)
+		@ Load offset & priority of the highest priority
+		@ interrupt pending.
+		ldr	\irqnr, [\irqstat, #AITC_NIVECSR]
+		@ Shift off the priority leaving the offset or
+		@ "interrupt number"
+		mov	\irqnr, \irqnr, lsr #16
+ 		ldr	\irqstat, =1	@ dummy compare
+		ldr	\base, =0xFFFF		// invalid interrupt
+		cmp	\irqnr, \base
+		bne	1001f
+		ldr	\irqstat, =0
+1001:
+		tst	\irqstat, #1	@ to make the condition code = TRUE
 		.endm
 
 		.macro	irq_prio_table
@@ -453,7 +541,23 @@ ENTRY(soft_irq_mask)
 
 		.macro	irq_prio_table
 		.endm
+#elif defined(CONFIG_ARCH_AT91RM9200DK)
+#include <asm/arch/hardware.h>
 
+		.macro	disable_fiq
+		.endm
+
+		.macro	get_irqnr_and_base, irqnr, irqstat, base, tmp
+		ldr	\base, =AT91C_VA_BASE_AIC	@ IO Base add vir
+		ldr	\irqnr, [\base, #AIC_IVR]
+		ldr	\irqstat, [\base, #AIC_ISR]	@ read interrupt source number
+		str	\tmp, [\base, #AIC_EOICR]
+		teq	\irqstat, #0
+1001:
+		.endm
+
+		.macro	irq_prio_table
+		.endm
 #elif defined(CONFIG_ARCH_MX1ADS)
 
 		.macro	disable_fiq
@@ -478,6 +582,32 @@ ENTRY(soft_irq_mask)
 
 		.macro	irq_prio_table
 		.endm
+
+#elif defined(CONFIG_ARCH_OMAHA)
+
+		.macro	disable_fiq
+		.endm
+
+		.macro	get_irqnr_and_base, irqnr, irqstat, base, tmp
+		
+		/* Read all interrupts pending... */
+		ldr	\irqnr, =IO_ADDRESS(PLAT_PERIPHERAL_BASE) + OMAHA_INTPND
+		ldr	\irqstat, [\irqnr]		/* INTPND */
+
+		/* All pending irqs are now in \irqstat */
+		mov	\irqnr, #0
+1001:		tst	\irqstat, #1
+		bne	1002f
+		add	\irqnr, \irqnr, #1
+		mov	\irqstat, \irqstat, lsr #1
+		cmp	\irqnr, #MAXIRQNUM
+		bcc	1001b
+1002:		/* EQ will be set if we reach MAXIRQNUM */
+
+		.endm
+
+		.macro	irq_prio_table
+		.endm    
 
 #elif defined(CONFIG_ARCH_CLPS711X)
 
@@ -573,6 +703,54 @@ ENTRY(anakin_active_irqs)
 		.text
 		.endm
 
+#elif CONFIG_ARCH_PXA
+
+		.macro	disable_fiq
+		.endm
+
+		.macro	get_irqnr_and_base, irqnr, irqstat, base, tmp
+		mov	\base, #io_p2v(0x40000000)	@ IIR Ctl = 0x40d00000
+		add	\base, \base, #0x00d00000
+		ldr	\irqstat, [\base, #0]		@ ICIP
+		ldr	\irqnr, [\base, #4]		@ ICMR
+		ands	\irqstat, \irqstat, \irqnr
+		beq	1001f
+		rsb	\irqnr, \irqstat, #0
+		and	\irqstat, \irqstat, \irqnr
+		clz	\irqnr, \irqstat
+		rsb	\irqnr, \irqnr, #(31 - PXA_IRQ_SKIP)
+1001:
+		.endm
+
+		.macro	irq_prio_table
+		.endm
+
+#elif defined(CONFIG_ARCH_KATANA)
+
+		.macro	disable_fiq
+		.endm
+
+/* Our registers names are defined in include/asm/arch-katana/platform.h */
+		.macro	get_irqnr_and_base, irqnr, irqstat, base, tmp
+		ldr	\irqnr, =IN_IRQ_MASK_VREG
+		ldr	\irqstat, [\irqnr]		@ get masked status
+		ldr	\irqnr, =IN_RAW_STATUS_VREG
+		ldr	\irqnr, [\irqnr]
+		and	\irqstat, \irqstat, \irqnr
+
+		mov	\irqnr, #0
+1001:		tst	\irqstat, #1
+		bne	1002f
+		add	\irqnr, \irqnr, #1
+		mov	\irqstat, \irqstat, lsr #1
+		cmp	\irqnr, #NR_IRQS
+		bcc	1001b
+1002:		/* EQ will be set if we reach 27 */
+		.endm
+
+		.macro	irq_prio_table
+		.endm
+
 #else
 #error Unknown architecture
 #endif
@@ -611,16 +789,6 @@ __und_invalid:	sub	sp, sp, #S_FRAME_SIZE
 		and	r2, r6, #31			@ int mode
 		b	SYMBOL_NAME(bad_mode)
 
-#if defined CONFIG_FPE_NWFPE || defined CONFIG_FPE_FASTFPE
-		/* The FPE is always present */
-		.equ	fpe_not_present, 0
-#else
-wfs_mask_data:	.word	0x0e200110			@ WFS/RFS
-		.word	0x0fef0fff
-		.word	0x0d000100			@ LDF [sp]/STF [sp]
-		.word	0x0d000100			@ LDF [fp]/STF [fp]
-		.word	0x0f000f00
-
 /* We get here if an undefined instruction happens and the floating
  * point emulator is not present.  If the offending instruction was
  * a WFS, we just perform a normal return as if we had emulated the
@@ -628,30 +796,7 @@ wfs_mask_data:	.word	0x0e200110			@ WFS/RFS
  * to run so that the emulator module proper can be loaded. --philb
  */
 fpe_not_present:
-		adr	r10, wfs_mask_data
-		ldmia	r10, {r4, r5, r6, r7, r8}
-		ldr	r10, [sp, #S_PC]		@ Load PC
-		sub	r10, r10, #4
-		mask_pc	r10, r10
-		ldrt	r10, [r10]			@ get instruction
-		and	r5, r10, r5
-		teq	r5, r4				@ Is it WFS?
-		moveq	pc, r9
-		and	r5, r10, r8
-		teq	r5, r6				@ Is it LDF/STF on sp or fp?
-		teqne	r5, r7
-		movne	pc, lr
-		tst	r10, #0x00200000		@ Does it have WB
-		moveq	pc, r9
-		and	r4, r10, #255			@ get offset
-		and	r6, r10, #0x000f0000
-		tst	r10, #0x00800000		@ +/-
-		ldr	r5, [sp, r6, lsr #14]		@ Load reg
-		rsbeq	r4, r4, #0
-		add	r5, r5, r4, lsl #2
-		str	r5, [sp, r6, lsr #14]		@ Save reg
-		mov	pc, r9
-#endif
+		mov	pc, lr
 
 /*
  * SVC mode handlers
@@ -697,16 +842,53 @@ __irq_svc:	sub	sp, sp, #S_FRAME_SIZE
 		add	r4, sp, #S_SP
 		mov	r6, lr
 		stmia	r4, {r5, r6, r7, r8, r9}	@ save sp_SVC, lr_SVC, pc, cpsr, old_ro
+#ifdef CONFIG_PREEMPT
+		get_current_task r9
+		ldr	r8, [r9, #TSK_PREEMPT]
+		add	r8, r8, #1
+		str	r8, [r9, #TSK_PREEMPT]
+#endif
 1:		get_irqnr_and_base r0, r6, r5, lr
 		movne	r1, sp
 		@
 		@ routine called with r0 = irq number, r1 = struct pt_regs *
 		@
 		adrsvc	ne, lr, 1b
-		bne	do_IRQ
+#ifndef CONFIG_RTHAL
+		bne	asm_do_IRQ
+#else
+		ldrne	r7, .rthal			@ load pointer rthal
+		ldrne	pc, [r7, #0]			@ branch to rthal.do_IRQ
+#endif
+#ifdef CONFIG_PREEMPT
+2:		ldr	r8, [r9, #TSK_PREEMPT]
+		subs	r8, r8, #1
+		bne	3f
+#ifdef CONFIG_RTHAL
+		bl	SYMBOL_NAME(rthal_irqs_disabled)
+		teq	r0, #0
+		bne	3f
+#endif
+		ldr	r7, [r9, #TSK_NEED_RESCHED]
+		teq	r7, #0
+		beq	3f
+		ldr	r6, .LCirqstat
+		ldr	r0, [r6, #IRQSTAT_BH_COUNT]
+		teq	r0, #0
+		bne	3f
+		mov	r0, #MODE_SVC
+		msr	cpsr_c, r0		@ enable interrupts
+		bl	SYMBOL_NAME(preempt_schedule)
+		mov	r0, #I_BIT | MODE_SVC
+		msr	cpsr_c, r0              @ disable interrupts
+		b	2b
+3:		str	r8, [r9, #TSK_PREEMPT]
+#endif
 		ldr	r0, [sp, #S_PSR]		@ irqs are already disabled
 		msr	spsr, r0
 		ldmia	sp, {r0 - pc}^			@ load r0 - pc, cpsr
+
+		.ltorg
 
 		.align	5
 __und_svc:	sub	sp, sp, #S_FRAME_SIZE
@@ -717,10 +899,23 @@ __und_svc:	sub	sp, sp, #S_FRAME_SIZE
 		add	r5, sp, #S_FRAME_SIZE
 		add	r4, sp, #S_SP
 		stmia	r4, {r5 - r9}			@ save sp_SVC, lr_SVC, pc, cpsr, old_ro
-
+#ifdef CONFIG_RTHAL
+		ldr	r7, .rthal			@ load pointer rthal
+		ldr	r7, [r7, #8]			@ load pointer rthal.do_TRAP
+		cmp	r7, #0
+		beq	2f
+		mov	r0, #4				@ SIGILL
+		mov	r1, sp				@ struct pt_regs *regs
+		mov	lr, pc
+		mov	pc, r7				@ check, if this is a relevant code
+		cmp	r0, #0				@ check return value
+		beq	1f				@ else let linux do what it has to do
+2:		
+#endif
+#ifndef CONFIG_KGDB
 		adrsvc	al, r9, 1f			@ r9  = normal FP return
 		bl	call_fpe			@ lr  = undefined instr return
-
+#endif
 		mov	r0, r5				@ unsigned long pc
 		mov	r1, sp				@ struct pt_regs *regs
 		bl	SYMBOL_NAME(do_undefinstr)
@@ -760,7 +955,13 @@ __pabt_svc:	sub	sp, sp, #S_FRAME_SIZE
 #ifdef MULTI_CPU
 .LCprocfns:	.word	SYMBOL_NAME(processor)
 #endif
+#ifdef CONFIG_RTHAL
+.rthal:		.word	SYMBOL_NAME(rthal)
+#endif
 .LCfp:		.word	SYMBOL_NAME(fp_enter)
+#ifdef CONFIG_PREEMPT
+.LCirqstat:	.word	SYMBOL_NAME(irq_stat)
+#endif
 
 		irq_prio_table
 
@@ -801,16 +1002,33 @@ __irq_usr:	sub	sp, sp, #S_FRAME_SIZE
 		stmdb	r8, {sp, lr}^
 		alignment_trap r4, r7, __temp_irq
 		zero_fp
+		get_current_task tsk
+#ifdef CONFIG_PREEMPT
+		ldr	r0, [tsk, #TSK_PREEMPT]
+		add	r0, r0, #1
+		str	r0, [tsk, #TSK_PREEMPT]
+#endif
 1:		get_irqnr_and_base r0, r6, r5, lr
 		movne	r1, sp
 		adrsvc	ne, lr, 1b
 		@
 		@ routine called with r0 = irq number, r1 = struct pt_regs *
 		@
-		bne	do_IRQ
+#ifndef CONFIG_RTHAL
+		bne	asm_do_IRQ
+#else
+		ldrne	r7, .rthal			@ load pointer rthal
+		ldrne	pc, [r7, #0]			@ branch to rthal.do_IRQ
+#endif
+#ifdef CONFIG_PREEMPT
+		ldr	r0, [tsk, #TSK_PREEMPT]
+		sub	r0, r0, #1
+		str	r0, [tsk, #TSK_PREEMPT]
+#endif
 		mov	why, #0
-		get_current_task tsk
 		b	ret_to_user
+
+		.ltorg
 
 		.align	5
 __und_usr:	sub	sp, sp, #S_FRAME_SIZE		@ Allocate frame size in one go
@@ -822,6 +1040,8 @@ __und_usr:	sub	sp, sp, #S_FRAME_SIZE		@ Allocate frame size in one go
 		stmdb	r8, {sp, lr}^			@ Save user sp, lr
 		alignment_trap r4, r7, __temp_und
 		zero_fp
+		tst	r6, #T_BIT			@ Thumb mode
+		bne	fpundefinstr
 		adrsvc	al, r9, ret_from_exception	@ r9  = normal FP return
 		adrsvc	al, lr, fpundefinstr		@ lr  = undefined instr return
 
@@ -859,8 +1079,9 @@ __pabt_usr:	sub	sp, sp, #S_FRAME_SIZE		@ Allocate frame size in one go
  * This is the return code to user mode for abort handlers
  */
 ENTRY(ret_from_exception)
-		get_current_task tsk
+		disable_irq r1
 		mov	why, #0
+		get_current_task tsk
 		b	ret_to_user
 
 		.data
@@ -876,9 +1097,17 @@ ENTRY(__switch_to)
 		stmfd	sp!, {r4 - sl, fp, lr}		@ Store most regs on stack
 		mrs	ip, cpsr
 		str	ip, [sp, #-4]!			@ Save cpsr_SVC
+#if defined(CONFIG_CPU_XSCALE) && !defined(CONFIG_ARCH_SHARP_SL)
+		mra	r4, r5, acc0
+		stmfd	sp!, {r4, r5}
+#endif
 		str	sp, [r0, #TSS_SAVE]		@ Save sp_SVC
 		ldr	sp, [r1, #TSS_SAVE]		@ Get saved sp_SVC
 		ldr	r2, [r1, #TSS_DOMAIN]
+#if defined(CONFIG_CPU_XSCALE) && !defined(CONFIG_ARCH_SHARP_SL)
+		ldmfd	sp!, {r4, r5}
+		mar	acc0, r4, r5
+#endif
 		ldr	ip, [sp], #4
 		mcr	p15, 0, r2, c3, c0		@ Set domain register
 		msr	spsr, ip			@ Save tasks CPSR into SPSR for this return
@@ -909,7 +1138,9 @@ vector_IRQ:	@
 		@
 		@ now branch to the relevent MODE handling routine
 		@
-		mov	r13, #I_BIT | MODE_SVC
+		mrs	r13, cpsr
+		bic	r13, r13, #MODE_MASK
+		orr	r13, r13, #I_BIT | MODE_SVC
 		msr	spsr_c, r13			@ switch to SVC_32 mode
 
 		and	lr, lr, #15
@@ -950,7 +1181,9 @@ vector_data:	@
 		@
 		@ now branch to the relevent MODE handling routine
 		@
-		mov	r13, #I_BIT | MODE_SVC
+		mrs	r13, cpsr
+		bic	r13, r13, #MODE_MASK
+		orr	r13, r13, #I_BIT | MODE_SVC
 		msr	spsr_c, r13			@ switch to SVC_32 mode
 
 		and	lr, lr, #15
@@ -992,7 +1225,9 @@ vector_prefetch:
 		@
 		@ now branch to the relevent MODE handling routine
 		@
-		mov	r13, #I_BIT | MODE_SVC
+		mrs	r13, cpsr
+		bic	r13, r13, #MODE_MASK
+		orr	r13, r13, #I_BIT | MODE_SVC
 		msr	spsr_c, r13			@ switch to SVC_32 mode
 
 		ands	lr, lr, #15
@@ -1033,7 +1268,9 @@ vector_undefinstr:
 		@
 		@ now branch to the relevent MODE handling routine
 		@
-		mov	r13, #I_BIT | MODE_SVC
+		mrs	r13, cpsr
+		bic	r13, r13, #MODE_MASK
+		orr	r13, r13, #I_BIT | MODE_SVC
 		msr	spsr_c, r13			@ switch to SVC_32 mode
 
 		and	lr, lr, #15
@@ -1145,3 +1382,32 @@ SYMBOL_NAME(cr_alignment):
 		.space	4
 SYMBOL_NAME(cr_no_alignment):
 		.space	4
+
+#if defined(CONFIG_RTSCHED)
+		.text
+ENTRY(rthal_sw_thread)
+	stmfd	sp!, {r0 - sl, fp, lr}
+	mrs	ip, cpsr
+	str	ip, [sp, #-4]!
+#ifdef CONFIG_CPU_XSCALE
+	mra	r4, r5, acc0
+	stmfd	sp!, {r4, r5}
+#endif
+	mrc	p15, 0, r2, c3, c0
+	str	r2, [sp, #-4]!	
+
+	ldr	r2, [r0]
+	str	sp, [r2]
+	str	r1, [r0]
+	ldr	sp, [r1]
+
+	ldr	r2, [sp], #4
+#ifdef CONFIG_CPU_XSCALE
+	ldmfd	sp!, {r4, r5}
+	mar	acc0, r4, r5
+#endif
+	ldr	ip, [sp], #4
+	mcr	p15, 0, r2, c3, c0
+	msr	spsr, ip
+	ldmfd	sp!, {r0 - sl, fp, pc}^
+#endif

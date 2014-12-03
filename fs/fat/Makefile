@@ -11,7 +11,8 @@ O_TARGET := fat.o
 
 export-objs := fatfs_syms.o
 
-obj-y    := buffer.o cache.o dir.o file.o inode.o misc.o cvf.o fatfs_syms.o
+obj-y    := buffer.o cache.o dir.o file.o inode.o misc.o cvf.o fatfs_syms.o \
+	    symlink.o
 obj-m    := $(O_TARGET)
 
 include $(TOPDIR)/Rules.make

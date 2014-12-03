@@ -1,0 +1,34 @@
+# David Bryson <mutex@mac.com> Thu, Mar 21, 2002
+# Config.help descriptions for CryptoAPI digest functions
+
+MD5 digest
+CONFIG_DIGEST_MD5
+  If you answer yes to this option, the MD5(Message Digest 5) digest 
+  will be compiled into your kernel.  MD5 is an improved version of MD4
+  designed by Ron Rivest, it produces a 128-bit "hash value" from an in-
+  put of arbitrary length.
+  There are no restrictions on the use of the MD5 algorithm.  The Crypto-
+  API implementation of MD5 is released under the GPL.
+
+  See also <http://www.faqs.org/rfcs/rfc1321.html>
+
+  This driver is also available as a module ( = code which can be
+  inserted in and removed from the running kernel whenever you want).
+  The module will be called digest-md5.o. If you want to compile it as a
+  module, say M here and read <file:Documentation/modules.txt>.
+
+SHA1 digest
+CONFIG_DIGEST_SHA1
+  If you answer yes to this option the SHA1(Secure Hash Algorithm 1) will
+  be compiled into your kernel.  SHA1 was designed with NIST and the NSA
+  for use with the Digital Signature Standard.  It produces a 160-bit 
+  hash value from an input or arbitrary length.
+  There are no restrictions on the use of the SHA1 algorithm.  The 
+  CryptoAPI implementation of SHA1 is released under the GPL.
+
+  See also <http://www.w3.org/PICS/DSig/SHA1_1_0.html>
+
+  This driver is also available as a module ( = code which can be
+  inserted in and removed from the running kernel whenever you want).
+  The module will be called digest-sha1.o. If you want to compile it as a
+  module, say M here and read <file:Documentation/modules.txt>.

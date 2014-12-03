@@ -14,7 +14,6 @@
 #include <linux/linkage.h>
 #include <linux/config.h>
 
-
 /*
  * Define this to turn on compatibility with the previous
  * system call ABI.  This feature is not properly maintained.
@@ -60,11 +59,19 @@
 /*
  * These are offsets into the task-struct.
  */
+preempt_count	=  4
 flags		=  4
 sigpending	=  8
 need_resched	= 20
 tsk_ptrace	= 24
 
+/*
+ * These offsets are into irq_stat.
+ * (Find irq_cpustat_t in asm-sh/hardirq.h)
+ */
+local_irq_count =  8
+local_bh_count  = 12
+	
 PT_TRACESYS  = 0x00000002
 PF_USEDFPU   = 0x00100000
 
@@ -74,7 +81,12 @@ EINVAL = 22
 #if defined(__sh3__)
 TRA     = 0xffffffd0
 EXPEVT  = 0xffffffd4
-#if defined(CONFIG_CPU_SUBTYPE_SH7707) || defined(CONFIG_CPU_SUBTYPE_SH7709)
+#if defined(CONFIG_CPU_SUBTYPE_SH7707) || \
+    defined(CONFIG_CPU_SUBTYPE_SH7709) || \
+    defined(CONFIG_CPU_SUBTYPE_SH7710) || \
+    defined(CONFIG_CPU_SUBTYPE_SH7720) || \
+    defined(CONFIG_CPU_SUBTYPE_SH7727) || \
+    defined(CONFIG_CPU_SUBTYPE_SH7290)
 INTEVT  = 0xa4000000		! INTEVTE2(0xa4000000)
 #else
 INTEVT  = 0xffffffd8
@@ -138,12 +150,58 @@ SYSCALL_NR =  (16*4+6*4)
 ! Although this could be written in assembly language (and it'd be faster),
 ! this first version depends *much* on C implementation.
 !
+#if defined(CONFIG_RTHAL)
+#define SAVE_REG()			\
+	mov.l	r14, @-r15;		\
+	mov.l	r13, @-r15;		\
+	mov.l	r12, @-r15;		\
+	mov.l	r11, @-r15;		\
+	mov.l	r10, @-r15;		\
+	mov.l	r9, @-r15;		\
+	mov.l	r8, @-r15;		\
+	mov.l	r7, @-r15;		\
+	mov.l	r6, @-r15;		\
+	mov.l	r5, @-r15;		\
+	mov.l	r4, @-r15;		\
+	mov.l	r3, @-r15;		\
+	mov.l	r2, @-r15;		\
+	nop
+	
+#define RESTORE_REG()			\
+	mov.l	@r15+, r2;		\
+	mov.l	@r15+, r3;		\
+	mov.l	@r15+, r4;		\
+	mov.l	@r15+, r5;		\
+	mov.l	@r15+, r6;		\
+	mov.l	@r15+, r7;		\
+	mov.l	@r15+, r8;		\
+	mov.l	@r15+, r9;		\
+	mov.l	@r15+, r10;		\
+	mov.l	@r15+, r11;		\
+	mov.l	@r15+, r12;		\
+	mov.l	@r15+, r13;		\
+	mov.l	@r15+, r14;		\
+	nop
+	
+	
+#define SOFT_STI()				\
+	mov.l	__INV_IMASK, r11;	\
+	stc	sr, r10;		\
+	and	r11, r10;		\
+	stc	k_g_imask, r11;		\
+	or	r11, r10;		\
+	ldc	r10, sr
+        mov.l   __rthal_sti_flag,r0; 	\
+        mov.l   @r0, r1;		\
+        jsr     @r1; 			\
+        nop 
+#endif
 
 #define STI()				\
 	mov.l	__INV_IMASK, r11;	\
 	stc	sr, r10;		\
 	and	r11, r10;		\
-	stc	k_g_imask, r11;	\
+	stc	k_g_imask, r11;		\
 	or	r11, r10;		\
 	ldc	r10, sr
 
@@ -220,10 +278,36 @@ call_dae:
 1:	.long	MMU_TEA
 2:	.long   SYMBOL_NAME(do_address_error)
 
+#if defined(CONFIG_SH_STANDARD_BIOS) || defined(CONFIG_SH_KGDB)
+! Handle kernel debug if either kgdb (SW) or gdb-stub (FW) is present.
+! If both are configured, handle the debug traps (breakpoints) in SW,
+! but still allow BIOS traps to FW.
+
+	.align	2
+debug_kernel:
+#if defined(CONFIG_SH_STANDARD_BIOS) && defined(CONFIG_SH_KGDB)
+	/* Force BIOS call to FW (debug_trap put TRA in r8) */
+	mov	r8,r0
+	shlr2	r0
+	cmp/eq	#0x3f,r0
+	bt	debug_kernel_fw
+#endif /* CONFIG_SH_STANDARD_BIOS && CONFIG_SH_KGDB */
+
+debug_enter:		
+#if defined(CONFIG_SH_KGDB)
+	/* Jump to kgdb, pass stacked regs as arg */
+debug_kernel_sw:
+	mov.l	3f, r0
+	jmp	@r0
+	 mov	r15, r4
+	.align	2
+3:	.long	SYMBOL_NAME(kgdb_handle_exception)
+#endif /* CONFIG_SH_KGDB */
+
 #if defined(CONFIG_SH_STANDARD_BIOS)
 	.align	2
 	/* Unwind the stack and jmp to the debug entry */
-debug_kernel:
+debug_kernel_fw:
 	mov.l	@r15+, r0
 	mov.l	@r15+, r1
 	mov.l	@r15+, r2
@@ -259,11 +343,12 @@ debug_kernel:
 	.align	2
 1:	.long	0x300000f0
 2:	.long	SYMBOL_NAME(gdb_vbr_vector)
-#endif
+#endif /* CONFIG_SH_STANDARD_BIOS */
+#endif /* CONFIG_SH_STANDARD_BIOS || CONFIG_SH_KGDB */
 
 	.align	2
 debug_trap:	
-#if defined(CONFIG_SH_STANDARD_BIOS)
+#if defined(CONFIG_SH_STANDARD_BIOS) || defined(CONFIG_SH_KGDB)
 	mov	#OFF_SR, r0
 	mov.l	@(r0,r15), r0		! get status register
 	shll	r0
@@ -276,23 +361,44 @@ debug_trap:
 	 nop
 
 	.align	2
-1:	.long	SYMBOL_NAME(break_point_trap_software)
-
-	.align	2
 error:	
 	!
 	STI()
-	mov.l	1f, r0
+	mov.l	2f, r0
 	jmp	@r0
 	 nop
 	.align	2
-1:	.long	SYMBOL_NAME(do_exception_error)
+1:	.long	SYMBOL_NAME(break_point_trap_software)
+2:	.long	SYMBOL_NAME(do_exception_error)
 
+
+#ifdef CONFIG_SH_DSP
+/*
+ *      Return if this processor has the DSP unit present
+ */
+ENTRY(sh3_dsp)
+	stc	sr, r0			! Get current SR
+	mov	r0, r1			! Keep copy of SR to restore
+	mov.l	1f, r2			! Get DSP bit mask
+	or	r2, r0			! Turn on DSP bit
+	ldc	r0, sr			! Write SR with DSP bit set
+	nop
+	stc	sr, r0			! Get SR again
+	ldc	r1, sr			! Restore SR to original
+	rts
+	and	r2, r0			! Return if DSP bit still set
+
+1:	.long	0x00001000		! DSP bit set
+
+#endif
 
 !
 !
 !
 ENTRY(ret_from_fork)
+#if defined(CONFIG_RTHAL)
+	STI()
+#endif
 	mov.l	@r15+,r0
 	! Call schedule_tail
 	mov.l	1f, r1
@@ -304,8 +410,13 @@ ENTRY(ret_from_fork)
 	mov.l	@(tsk_ptrace,r0), r0	! Is current PTRACE_SYSCALL'd?
 	mov	#PT_TRACESYS, r1
 	tst	r1, r0
+#if 1
+	bf	syscall_ret_trace
+	bra	ret_from_syscall
+#else
 	bt	ret_from_syscall
 	bra	syscall_ret_trace
+#endif
 	 nop	 
 
 	.align	2
@@ -505,8 +616,6 @@ __syscall_ret_trace:
 	.long	syscall_ret_trace
 __syscall_ret:
 	.long	syscall_ret
-__INV_IMASK:
-	.long	0xffffff0f	! ~(IMASK)
 
 
 	.align	2
@@ -518,7 +627,84 @@ reschedule:
 	.align	2
 1:	.long	SYMBOL_NAME(schedule)
 
+#ifdef CONFIG_PREEMPT	
+	!
+	! Returning from interrupt during kernel mode: check if
+	! preempt_schedule should be called. If need_resched flag
+	! is set, preempt_count is zero, and we're not currently
+	! in an interrupt handler (local irq or bottom half) then
+	! call preempt_schedule. 
+	!
+	! Increment preempt_count to prevent a nested interrupt
+	! from reentering preempt_schedule, then decrement after
+	! and drop through to regular interrupt return which will
+	! jump back and check again in case such an interrupt did
+	! come in (and didn't preempt due to preempt_count).
+	!
+	! NOTE:	because we just checked that preempt_count was
+	! zero before getting to the call, can't we use immediate
+	! values (1 and 0) rather than inc/dec? Also, rather than
+	! drop through to ret_from_irq, we already know this thread
+	! is kernel mode, can't we go direct to ret_from_kirq? In
+	! fact, with proper interrupt nesting and so forth could
+	! the loop simply be on the need_resched w/o checking the
+	! other stuff again? Optimize later...
+	!
+	.align	2
+ret_from_kirq:
+	! Nonzero preempt_count prevents scheduling
+	stc	k_current, r1
+	mov.l	@(preempt_count,r1), r0
+	cmp/eq	#0, r0
+	bf	restore_all
+	! Zero need_resched prevents scheduling
+	mov.l	@(need_resched,r1), r0
+	cmp/eq	#0, r0
+	bt	restore_all
+	! If in_interrupt(), don't schedule
+	mov.l	__irq_stat, r1
+	mov.l	@(local_irq_count,r1), r0
+	mov.l	@(local_bh_count,r1), r1
+	or	r1, r0
+	cmp/eq	#0, r0
+	bf	restore_all
+	! Allow scheduling using preempt_schedule
+	! Adjust preempt_count and SR as needed.
+	stc	k_current, r1
+	mov.l	@(preempt_count,r1), r0	! Could replace this ...
+	add	#1, r0			! ... and this w/mov #1?
+	mov.l	r0, @(preempt_count,r1)
+	STI()
+	mov.l	__preempt_schedule, r0
+	jsr	@r0
+	 nop	
+	/* CLI */
+	stc	sr, r0
+	or	#0xf0, r0
+	ldc	r0, sr
+	!
+	stc	k_current, r1
+	mov.l	@(preempt_count,r1), r0	! Could replace this ...
+	add	#-1, r0			! ... and this w/mov #0?
+	mov.l	r0, @(preempt_count,r1)
+	! Maybe should bra ret_from_kirq, or loop over need_resched?
+	! For now, fall through to ret_from_irq again...
+#endif /* CONFIG_PREEMPT */
+	
 ret_from_irq:
+	mov	#OFF_SR, r0
+	mov.l	@(r0,r15), r0	! get status register
+	shll	r0
+	shll	r0		! kernel space?
+#ifndef CONFIG_PREEMPT
+	bt	restore_all	! Yes, it's from kernel, go back soon
+#else /* CONFIG_PREEMPT */
+	bt	ret_from_kirq	! From kernel: maybe preempt_schedule
+#endif /* CONFIG_PREEMPT */
+	!
+	bra	ret_from_syscall
+	 nop
+
 ret_from_exception:
 	mov	#OFF_SR, r0
 	mov.l	@(r0,r15), r0	! get status register
@@ -540,19 +726,34 @@ syscall_ret:
 	/* fall through */
 
 ENTRY(ret_from_syscall)
+#if !defined(CONFIG_RTHAL)
 	/* CLI */
 	stc	sr, r0
 	or	#0xf0, r0
 	ldc	r0, sr
 	!
+#else
+	STI()
+#endif
 	stc	k_current, r1
 	mov.l	@(need_resched,r1), r0
 	tst	r0, r0
 	bf	reschedule
 	mov.l	@(sigpending,r1), r0
 	tst	r0, r0
+#if defined(CONFIG_RTHAL)
+	bf	signal_return
+	SOFT_STI()
+	bra	restore_all
+	nop
+#else
 	bt	restore_all
+#endif
+
 signal_return:
+#if defined(CONFIG_RTHAL)
+	SOFT_STI()
+#endif
 	mov	r15, r4
 	mov	#0, r5
 	mov.l	__do_signal, r1
@@ -564,6 +765,12 @@ __do_signal:
 	.long	SYMBOL_NAME(do_signal)
 __irq_stat:
 	.long	SYMBOL_NAME(irq_stat)
+#ifdef CONFIG_PREEMPT
+__preempt_schedule:
+	.long	SYMBOL_NAME(preempt_schedule)
+#endif /* CONFIG_PREEMPT */
+__INV_IMASK:
+	.long	0xffffff0f	! ~(IMASK)
 
 	.align 2
 restore_all:
@@ -602,6 +809,41 @@ restore_all:
 	lds.l	@r15+, mach
 	lds.l	@r15+, macl
 	add	#4, r15	! Skip syscall number
+
+#ifdef CONFIG_SH_DSP
+	mov.l	@r15+, k0	! DSP mode marker
+	mov.l	4f, k1
+	cmp/eq	k0, k1		! Do we have a DSP stack frame?
+	bf	10f
+
+	stc	sr, k0		! Enable CPU DSP mode
+	or	k1, k0		! (within kernel it may be disabled)
+	ldc	k0, sr
+	mov	r2, k0		! Backup r2
+
+	! Restore DSP registers from stack
+	mov	r15, r2
+	movs.l	@r2+, a1
+	movs.l	@r2+, a0g
+	movs.l	@r2+, a1g
+	movs.l	@r2+, m0
+	movs.l	@r2+, m1
+	mov	r2, r15
+
+	lds.l	@r15+, a0
+	lds.l	@r15+, x0
+	lds.l	@r15+, x1
+	lds.l	@r15+, y0
+	lds.l	@r15+, y1
+	lds.l	@r15+, dsr
+	ldc.l	@r15+, rs
+	ldc.l	@r15+, re
+	ldc.l	@r15+, mod
+
+	mov     k0, r2		! Restore r2
+10:
+#endif
+
 	!
 	! Calculate new SR value
 	mov	k3, k2	! original SR value
@@ -686,6 +928,15 @@ __PF_USEDFPU:
 1:	.long	0x00008000	! FD
 2:	.long	0xffff7f0f	! ~(IMASK+FD)
 3:	.long	0x00080000	! SZ=0, PR=1
+#ifdef CONFIG_SH_DSP
+4:	.long   0x00001000	! DSP bit set
+#endif
+#if defined(CONFIG_RTHAL)
+__rthal_sti_flag:
+	.long   SYMBOL_NAME(_rthal_sti_flag)
+__rthal_cli:
+	.long   SYMBOL_NAME(_rthal_cli)
+#endif
 
 ! Exception Vector Base
 !
@@ -715,6 +966,28 @@ tlb_miss:
 !
 	.balign 	512,0,512
 interrupt:
+#if defined(CONFIG_RT_DEBUG)
+	mov.l	8f, k2
+	mov.l	@k2, k3
+	mov.l	9f, k2
+	mov.l	k3, @k2
+#endif
+/*
+#if defined(CONFIG_CPU_SUBTYPE_SH7727) && defined(CONFIG_APM)
+	mov.l	5f,r3
+	mov.w	@r3,r2
+	mov	r2,r0
+	and	#2,r0
+	tst	r0,r0
+	bt	auto_ref
+	nop
+	mov.w	6f,r1
+	and	r2,r1
+	mov.w	r1,@r3
+auto_ref:
+#endif
+*/
+
 	mov.l	2f, k2
 	mov.l	3f, k3
 	bra	handle_exception
@@ -725,6 +998,20 @@ interrupt:
 2:	.long	INTEVT
 3:	.long	ret_from_irq
 4:	.long	ret_from_exception
+/*
+#if defined(CONFIG_CPU_SUBTYPE_SH7727) && defined(CONFIG_APM)
+5:     .long   0xffffff68
+6:     .word   0xff7c
+#endif
+*/
+#if defined(CONFIG_RT_DEBUG)
+#if defined(__sh3__)
+8:	.long	0xfffffeb0	/* TMU2_TCNT */
+#elif defined(__SH4__)
+8:	.long	0xffd80024	/* TMU2_TCNT */
+#endif
+9:	.long	rthal_interrupt_time0
+#endif
 
 !
 !
@@ -783,7 +1070,46 @@ handle_exception:
 	mov	k1, r15		! change to kernel stack
 	!
 	mov.l	4f, k1			! let kernel release FPU
-9:	! Save the user registers on the stack.
+9:
+
+#ifdef CONFIG_SH_DSP
+	mov.l	r2, @-r15	! Save r2, we need another reg
+	stc	sr, k4
+	mov.l	7f, r2
+	tst	r2, k4		! Check if in DSP mode
+	mov.l	@r15+, r2	! Restore r2 now
+	bt/s	10f
+	mov	#0, k4		! Set marker for no stack frame
+
+	mov	r2, k4		! Backup r2 (in k4) for later
+
+	! Save DSP registers on stack
+	stc.l	mod, @-r15
+	stc.l	re, @-r15
+	stc.l	rs, @-r15
+	sts.l	dsr, @-r15
+	sts.l	y1, @-r15
+	sts.l	y0, @-r15
+	sts.l	x1, @-r15
+	sts.l	x0, @-r15
+	sts.l	a0, @-r15
+
+	! GAS is broken, does not generate correct "movs.l Ds,@-As" instr.
+	mov	r15, r2
+	.word	0xf653		! movs.l	a1, @-r2
+	.word	0xf6f3		! movs.l	a0g, @-r2
+	.word	0xf6d3		! movs.l	a1g, @-r2
+	.word	0xf6c3		! movs.l	m0, @-r2
+	.word	0xf6e3		! movs.l	m1, @-r2
+	mov	r2, r15
+
+	mov	k4, r2		! Restore r2
+	mov.l	7f, k4		! Force DSP stack frame
+10:
+	mov.l	k4, @-r15	! Push DSP mode marker onto stack
+#endif
+
+	! Save the user registers on the stack.
 	! At this point, k1 should have been set to the new SR value
   	mov	#-1, k4
 	mov.l	k4, @-r15		! syscall_nr (default: -1)
@@ -836,6 +1162,178 @@ handle_exception:
 4:	.long	0x000080f0	! FD=1, IMASK=15
 5:	.long	0xcfffffff	! RB=0, BL=0
 6:	.long	0x00080000	! SZ=0, PR=1
+#ifdef CONFIG_SH_DSP
+7:	.long   0x00001000	! DSP bit set
+#endif
+
+#if defined(CONFIG_RTSCHED)
+ENTRY(rthal_sw_thread)
+	sts.l	macl,  @-r15
+	sts.l   mach,  @-r15
+	stc.l   gbr,   @-r15
+	stc.l	sr,    @-r15
+	sts.l	pr,    @-r15
+	stc.l	spc,   @-r15
+	mov.l	r0,    @-r15
+	mov.l	r1,    @-r15
+	mov.l	r2,    @-r15
+	mov.l	r3,    @-r15
+	mov.l	r4,    @-r15
+	mov.l	r5,    @-r15
+	mov.l	r6,    @-r15
+	mov.l	r7,    @-r15
+	mov.l	r8,    @-r15
+	mov.l	r9,    @-r15
+	mov.l	r10,   @-r15
+	mov.l	r11,   @-r15
+	mov.l	r12,   @-r15
+	mov.l	r13,   @-r15
+	mov.l	r14,   @-r15	! 21
+
+#if defined(__SH4__)
+! save fpu 
+       sts     fpscr, r3       ! keep original fpscr
+
+       sts.l   fpul, 	@-r15
+       sts.l   fpscr, 	@-r15
+
+       mov.l   FPSCR_INIT, r2
+       lds     r2, fpscr       ! initialize fpscr
+
+       fmov.s  fr15, @-r15	! 24
+       fmov.s  fr14, @-r15
+       fmov.s  fr13, @-r15
+       fmov.s  fr12, @-r15
+       fmov.s  fr11, @-r15
+       fmov.s  fr10, @-r15
+       fmov.s  fr9, @-r15
+       fmov.s  fr8, @-r15
+       fmov.s  fr7, @-r15
+       fmov.s  fr6, @-r15
+       fmov.s  fr5, @-r15
+       fmov.s  fr4, @-r15
+       fmov.s  fr3, @-r15
+       fmov.s  fr2, @-r15
+       fmov.s  fr1, @-r15
+       fmov.s  fr0, @-r15	! 39
+#if 0
+       frchg                   ! change to bank 1
+
+       fmov.s  fr15, @-r15	! 40
+       fmov.s  fr14, @-r15
+       fmov.s  fr13, @-r15
+       fmov.s  fr12, @-r15
+       fmov.s  fr11, @-r15
+       fmov.s  fr10, @-r15
+       fmov.s  fr9, @-r15
+       fmov.s  fr8, @-r15
+       fmov.s  fr7, @-r15
+       fmov.s  fr6, @-r15
+       fmov.s  fr5, @-r15	! 50
+       fmov.s  fr4, @-r15
+       fmov.s  fr3, @-r15
+       fmov.s  fr2, @-r15
+       fmov.s  fr1, @-r15
+       fmov.s  fr0, @-r15	! 55
+
+       frchg                   ! change to bank 0
+#endif
+#endif
+
+	mov.l	@r4,   r1	! get address
+	mov.l	r15,   @r1	! update
+	mov.l	r5,    @r4
+
+	mov.l	@r5,   r15	! change stack area
+
+#if defined(__SH4__)
+! restore fpu
+       fmov.s  @r15+, fr0
+       fmov.s  @r15+, fr1
+       fmov.s  @r15+, fr2
+       fmov.s  @r15+, fr3
+       fmov.s  @r15+, fr4
+       fmov.s  @r15+, fr5
+       fmov.s  @r15+, fr6
+       fmov.s  @r15+, fr7
+       fmov.s  @r15+, fr8
+       fmov.s  @r15+, fr9
+       fmov.s  @r15+, fr10
+       fmov.s  @r15+, fr11
+       fmov.s  @r15+, fr12
+       fmov.s  @r15+, fr13
+       fmov.s  @r15+, fr14
+       fmov.s  @r15+, fr15
+
+#if 0
+       frchg                   ! change to bank 1
+
+       fmov.s  @r15+, fr0
+       fmov.s  @r15+, fr1
+       fmov.s  @r15+, fr2
+       fmov.s  @r15+, fr3
+       fmov.s  @r15+, fr4
+       fmov.s  @r15+, fr5
+       fmov.s  @r15+, fr6
+       fmov.s  @r15+, fr7
+       fmov.s  @r15+, fr8
+       fmov.s  @r15+, fr9
+       fmov.s  @r15+, fr10
+       fmov.s  @r15+, fr11
+       fmov.s  @r15+, fr12
+       fmov.s  @r15+, fr13
+       fmov.s  @r15+, fr14
+       fmov.s  @r15+, fr15
+
+       frchg                   ! change to bank 0
+#endif
+       lds.l   @r15+, fpscr
+       lds.l   @r15+, fpul
+
+       lds     r3, fpscr       ! restore fpscr
+#endif
+
+	mov.l	@r15+, r14
+	mov.l	@r15+, r13
+	mov.l	@r15+, r12
+	mov.l	@r15+, r11
+	mov.l	@r15+, r10
+	mov.l	@r15+, r9
+	mov.l	@r15+, r8
+	mov.l	@r15+, r7
+	mov.l	@r15+, r6
+	mov.l	@r15+, r5
+	mov.l	@r15+, r4
+	mov.l	@r15+, r3
+	mov.l	@r15+, r2
+	mov.l	@r15+, r1
+	mov.l	@r15+, r0
+	ldc.l	@r15+, spc
+	lds.l	@r15+, pr
+	ldc.l	@r15+, sr
+	ldc.l	@r15+, gbr
+	lds.l	@r15+, mach
+	rts
+	lds.l	@r15+, macl
+	 nop
+
+#if defined(__SH4__)
+       .align 2
+FPSCR_INIT:
+       .long 0x00080000        ! FR = 0, SZ = 0, PR = 1, DN = 0
+#endif
+
+#endif /* CONFIG_RTSCHED */
+do_nmi:
+	mov.l	1f, r4
+	stc	spc, r5
+	mov.l	2f, r0
+	jmp	@r0
+	nop
+	.align	2
+1:	.long	.L3
+2:	.long	SYMBOL_NAME(panic)
+.L3:	.string	"\nNMI: SPC=0x%08x\n"
 
 none:
 	rts
@@ -862,7 +1360,7 @@ ENTRY(exception_handling_table)
 	.long	error	! reserved_instruction      (filled by trap_init)
 	.long	error	! illegal_slot_instruction  (filled by trap_init)
 ENTRY(nmi_slot)
-	.long	none				! Not implemented yet
+	.long	do_nmi				! nmi
 ENTRY(user_break_point_trap)
 	.long	break_point_trap
 ENTRY(interrupt_table)
@@ -883,11 +1381,302 @@ ENTRY(interrupt_table)
 	.long	SYMBOL_NAME(do_IRQ)	! 1101
 	.long	SYMBOL_NAME(do_IRQ)	! 1110
 	.long	error
+#if defined(CONFIG_CPU_SUBTYPE_SH7290)
+	! Internal hardware
+	.long	SYMBOL_NAME(do_IRQ)	! 16 (400) TMU0  tuni0
+	.long	SYMBOL_NAME(do_IRQ)	! 17 (420) TMU1  tuni1
+	.long	SYMBOL_NAME(do_IRQ)	! 18 (440) TMU2  tuni2
+	.long	SYMBOL_NAME(do_IRQ)	! 19 (460)       ticpi2
+	.long	SYMBOL_NAME(do_IRQ)	! 20 (480)
+	.long	SYMBOL_NAME(do_IRQ)	! 21 (4A0)
+	.long	SYMBOL_NAME(do_IRQ)	! 22 (4C0)
+	.long	SYMBOL_NAME(do_IRQ)	! 23 (4E0) SMI   eri
+	.long	SYMBOL_NAME(do_IRQ)	! 24 (500)       rxi
+	.long	SYMBOL_NAME(do_IRQ)	! 25 (520)       txi
+	.long	SYMBOL_NAME(do_IRQ)	! 26 (540)       tend
+	.long	SYMBOL_NAME(do_IRQ)	! 27 (560) WDT   iti
+	.long	SYMBOL_NAME(do_IRQ)	! 28 (580)
+	.long	SYMBOL_NAME(do_IRQ)	! 29 (5A0)
+	.long	SYMBOL_NAME(do_IRQ)	! 30 (5C0)
+	.long	SYMBOL_NAME(do_IRQ)	! 31 (5E0)
+	.long	SYMBOL_NAME(do_IRQ)	! 32 (600) IRQ   irq0
+	.long	SYMBOL_NAME(do_IRQ)	! 33 (620)       irq1
+	.long	SYMBOL_NAME(do_IRQ)	! 34 (640)       irq2
+	.long	SYMBOL_NAME(do_IRQ)	! 35 (660)       irq3
+	.long	SYMBOL_NAME(do_IRQ)	! 36 (680)       irq4
+	.long	SYMBOL_NAME(do_IRQ)	! 37 (6A0)       irq5
+	.long	SYMBOL_NAME(do_IRQ)	! 38 (6C0)       irq6
+	.long	SYMBOL_NAME(do_IRQ)	! 39 (6E0)       irq7
+	.long	SYMBOL_NAME(do_IRQ)	! 40 (700)
+	.long	SYMBOL_NAME(do_IRQ)	! 41 (720)
+	.long	SYMBOL_NAME(do_IRQ)	! 42 (740)
+	.long	SYMBOL_NAME(do_IRQ)	! 43 (760)
+	.long	SYMBOL_NAME(do_IRQ)	! 44 (780)
+	.long	SYMBOL_NAME(do_IRQ)	! 45 (7A0)
+	.long	SYMBOL_NAME(do_IRQ)	! 46 (7C0)
+	.long	SYMBOL_NAME(do_IRQ)	! 47 (7E0)
+	.long	SYMBOL_NAME(do_IRQ)	! 48 (800) DMAC1 dei0
+	.long	SYMBOL_NAME(do_IRQ)	! 49 (820)       dei1
+	.long	SYMBOL_NAME(do_IRQ)	! 50 (840)       dei2
+	.long	SYMBOL_NAME(do_IRQ)	! 51 (860)       dei3
+	.long	SYMBOL_NAME(do_IRQ)	! 52 (880) VIO   vsyci
+	.long	SYMBOL_NAME(do_IRQ)	! 53 (8A0)       convi
+	.long	SYMBOL_NAME(do_IRQ)	! 54 (8C0)       yfuli
+	.long	SYMBOL_NAME(do_IRQ)	! 55 (8E0)       cfuli
+	.long	SYMBOL_NAME(do_IRQ)	! 56 (900) MFI   mfi
+	.long	SYMBOL_NAME(do_IRQ)	! 57 (920)
+	.long	SYMBOL_NAME(do_IRQ)	! 58 (940)
+	.long	SYMBOL_NAME(do_IRQ)	! 59 (960)
+	.long	SYMBOL_NAME(do_IRQ)	! 60 (980) ADC   adi
+	.long   SYMBOL_NAME(do_IRQ)	! 61 (9A0)
+	.long   SYMBOL_NAME(do_IRQ)	! 62 (9C0)
+	.long   SYMBOL_NAME(do_IRQ)	! 63 (9E0)
+	.long	SYMBOL_NAME(do_IRQ)	! 64 (A00)
+	.long   SYMBOL_NAME(do_IRQ)	! 65 (A20) USB   usi0
+	.long   SYMBOL_NAME(do_IRQ)	! 66 (A40)       usi1
+	.long   SYMBOL_NAME(do_IRQ)	! 67 (A60)
+	.long	SYMBOL_NAME(do_IRQ)	! 68 (A80)
+	.long   SYMBOL_NAME(do_IRQ)	! 69 (AA0)
+	.long   SYMBOL_NAME(do_IRQ)	! 70 (AC0)
+	.long   SYMBOL_NAME(do_IRQ)	! 71 (AE0)
+	.long   SYMBOL_NAME(do_IRQ)	! 72 (B00)
+	.long   SYMBOL_NAME(do_IRQ)	! 73 (B20)
+	.long	SYMBOL_NAME(do_IRQ)	! 74 (B40)
+	.long   SYMBOL_NAME(do_IRQ)	! 75 (B60)
+	.long   SYMBOL_NAME(do_IRQ)	! 76 (B80) DMAC2 dei4
+	.long   SYMBOL_NAME(do_IRQ)	! 77 (BA0)       dei5
+	.long	SYMBOL_NAME(do_IRQ)	! 78 (BC0)
+	.long   SYMBOL_NAME(do_IRQ)	! 79 (BE0) KEY   keyi
+	.long   SYMBOL_NAME(do_IRQ)	! 80 (C00) SCIF0 scifi0
+	.long   SYMBOL_NAME(do_IRQ)	! 81 (C20) SCIF1 scifi1
+	.long   SYMBOL_NAME(do_IRQ)	! 82 (C40)
+	.long   SYMBOL_NAME(do_IRQ)	! 83 (C60)
+	.long	SYMBOL_NAME(do_IRQ)	! 84 (C80) SIOF0 siofi0
+	.long   SYMBOL_NAME(do_IRQ)	! 85 (CA0) SIOF1 siofi1
+	.long   SYMBOL_NAME(do_IRQ)	! 86 (CC0)
+	.long   SYMBOL_NAME(do_IRQ)	! 87 (CE0)
+	.long   SYMBOL_NAME(do_IRQ)	! 88 (D00) SIO0  sioi0
+	.long   SYMBOL_NAME(do_IRQ)	! 89 (D20) SIO1  sioi1
+	.long   SYMBOL_NAME(do_IRQ)	! 90 (D40)
+	.long   SYMBOL_NAME(do_IRQ)	! 91 (D60)
+	.long	SYMBOL_NAME(do_IRQ)	! 92 (D80) FLCTL flste
+	.long   SYMBOL_NAME(do_IRQ)	! 93 (DA0)       fltend
+	.long   SYMBOL_NAME(do_IRQ)	! 94 (DC0)       fltrq0
+	.long   SYMBOL_NAME(do_IRQ)	! 95 (DE0)       fltrq1
+	.long   SYMBOL_NAME(do_IRQ)	! 96 (E00) I2C   ali
+	.long   SYMBOL_NAME(do_IRQ)	! 97 (E20)       tacki
+	.long   SYMBOL_NAME(do_IRQ)	! 98 (E40)       waiti
+	.long   SYMBOL_NAME(do_IRQ)	! 99 (E60)       dtei
+	.long	SYMBOL_NAME(do_IRQ)	! 100(E80) MMC   mmci0
+	.long   SYMBOL_NAME(do_IRQ)	! 101(EA0)       mmci1
+	.long   SYMBOL_NAME(do_IRQ)	! 102(EC0)       mmci2
+	.long   SYMBOL_NAME(do_IRQ)	! 103(EE0)       mmci3
+	.long   SYMBOL_NAME(do_IRQ)	! 104(F00) CMT   cmi
+#elif defined(CONFIG_CPU_SUBTYPE_SH7710)
+	! Internal hardware
+	.long	SYMBOL_NAME(do_IRQ)	! 16 (400) TMU0  tuni0
+	.long	SYMBOL_NAME(do_IRQ)	! 17 (420) TMU1  tuni1
+	.long	SYMBOL_NAME(do_IRQ)	! 18 (440) TMU2  tuni2
+	.long	SYMBOL_NAME(do_IRQ)	! 19 (460)
+	.long	SYMBOL_NAME(do_IRQ)	! 20 (480) RTC   ati
+	.long	SYMBOL_NAME(do_IRQ)	! 21 (4A0)       pri
+	.long	SYMBOL_NAME(do_IRQ)	! 22 (4C0)       cui
+	.long	SYMBOL_NAME(do_IRQ)	! 23 (4E0)
+	.long	SYMBOL_NAME(do_IRQ)	! 24 (500)
+	.long	SYMBOL_NAME(do_IRQ)	! 25 (520)
+	.long	SYMBOL_NAME(do_IRQ)	! 26 (540)
+	.long	SYMBOL_NAME(do_IRQ)	! 27 (560) WDT   iti
+	.long	SYMBOL_NAME(do_IRQ)	! 28 (580) REF
+	.long	SYMBOL_NAME(do_IRQ)	! 29 (5A0)
+	.long	SYMBOL_NAME(do_IRQ)	! 30 (5C0)
+	.long	SYMBOL_NAME(do_IRQ)	! 31 (5E0) H-UDI
+	.long	SYMBOL_NAME(do_IRQ)	! 32 (600) IRQ   irq0
+	.long	SYMBOL_NAME(do_IRQ)	! 33 (620)       irq1
+	.long	SYMBOL_NAME(do_IRQ)	! 34 (640)       irq2
+	.long	SYMBOL_NAME(do_IRQ)	! 35 (660)       irq3
+	.long	SYMBOL_NAME(do_IRQ)	! 36 (680)       irq4
+	.long	SYMBOL_NAME(do_IRQ)	! 37 (6A0)       irq5
+	.long	SYMBOL_NAME(do_IRQ)	! 38 (6C0)       irq6
+	.long	SYMBOL_NAME(do_IRQ)	! 39 (6E0)       irq7
+	.long	SYMBOL_NAME(do_IRQ)	! 40 (700)
+	.long	SYMBOL_NAME(do_IRQ)	! 41 (720)
+	.long	SYMBOL_NAME(do_IRQ)	! 42 (740)
+	.long	SYMBOL_NAME(do_IRQ)	! 43 (760)
+	.long	SYMBOL_NAME(do_IRQ)	! 44 (780)
+	.long	SYMBOL_NAME(do_IRQ)	! 45 (7A0)
+	.long	SYMBOL_NAME(do_IRQ)	! 46 (7C0)
+	.long	SYMBOL_NAME(do_IRQ)	! 47 (7E0)
+	.long	SYMBOL_NAME(do_IRQ)	! 48 (800) DMAC1 dei0
+	.long	SYMBOL_NAME(do_IRQ)	! 49 (820)       dei1
+	.long	SYMBOL_NAME(do_IRQ)	! 50 (840)       dei2
+	.long	SYMBOL_NAME(do_IRQ)	! 51 (860)       dei3
+	.long	SYMBOL_NAME(do_IRQ)	! 52 (880) SCIF0 erio
+	.long	SYMBOL_NAME(do_IRQ)	! 53 (8A0)       rxio
+	.long	SYMBOL_NAME(do_IRQ)	! 54 (8C0)       brio
+	.long	SYMBOL_NAME(do_IRQ)	! 55 (8E0)       txio
+	.long	SYMBOL_NAME(do_IRQ)	! 56 (900) SCIF1 erio
+	.long	SYMBOL_NAME(do_IRQ)	! 57 (920)       rxio
+	.long	SYMBOL_NAME(do_IRQ)	! 58 (940)       brio
+	.long	SYMBOL_NAME(do_IRQ)	! 59 (960)       txio
+	.long	SYMBOL_NAME(do_IRQ)	! 60 (980)
+	.long	SYMBOL_NAME(do_IRQ)	! 61 (9A0)
+	.long	SYMBOL_NAME(do_IRQ)	! 62 (9C0)
+	.long	SYMBOL_NAME(do_IRQ)	! 63 (9E0)
+	.long	SYMBOL_NAME(do_IRQ)	! 64 (A00)
+	.long	SYMBOL_NAME(do_IRQ)	! 65 (A20)
+	.long	SYMBOL_NAME(do_IRQ)	! 66 (A40)
+	.long	SYMBOL_NAME(do_IRQ)	! 67 (A60)
+	.long	SYMBOL_NAME(do_IRQ)	! 68 (A80)
+	.long	SYMBOL_NAME(do_IRQ)	! 69 (AA0)
+	.long	SYMBOL_NAME(do_IRQ)	! 70 (AC0)
+	.long	SYMBOL_NAME(do_IRQ)	! 71 (AE0)
+	.long	SYMBOL_NAME(do_IRQ)	! 72 (B00)
+	.long	SYMBOL_NAME(do_IRQ)	! 73 (B20)
+	.long	SYMBOL_NAME(do_IRQ)	! 74 (B40)
+	.long	SYMBOL_NAME(do_IRQ)	! 75 (B60)
+	.long	SYMBOL_NAME(do_IRQ)	! 76 (B80) DMAC2 dei4
+	.long	SYMBOL_NAME(do_IRQ)	! 77 (BA0)       dei5
+	.long	SYMBOL_NAME(do_IRQ)	! 78 (BC0)
+	.long	SYMBOL_NAME(do_IRQ)	! 79 (BE0) IPSEC
+	.long	SYMBOL_NAME(do_IRQ)	! 80 (C00) E-DMAC eint0
+	.long	SYMBOL_NAME(do_IRQ)	! 81 (C20)        eint1
+	.long	SYMBOL_NAME(do_IRQ)	! 82 (C40)        eint2
+	.long	SYMBOL_NAME(do_IRQ)	! 83 (C60)
+	.long	SYMBOL_NAME(do_IRQ)	! 84 (C80)
+	.long	SYMBOL_NAME(do_IRQ)	! 85 (CA0)
+	.long	SYMBOL_NAME(do_IRQ)	! 86 (CC0)
+	.long	SYMBOL_NAME(do_IRQ)	! 87 (CE0)
+	.long	SYMBOL_NAME(do_IRQ)	! 88 (D00)
+	.long	SYMBOL_NAME(do_IRQ)	! 89 (D20)
+	.long	SYMBOL_NAME(do_IRQ)	! 90 (D40)
+	.long	SYMBOL_NAME(do_IRQ)	! 91 (D60)
+	.long	SYMBOL_NAME(do_IRQ)	! 92 (D80)
+	.long	SYMBOL_NAME(do_IRQ)	! 93 (DA0)
+	.long	SYMBOL_NAME(do_IRQ)	! 94 (DC0)
+	.long	SYMBOL_NAME(do_IRQ)	! 95 (DE0)
+	.long	SYMBOL_NAME(do_IRQ)	! 96 (E00) SIOF0 eri0
+	.long	SYMBOL_NAME(do_IRQ)	! 97 (E20)       txi0
+	.long	SYMBOL_NAME(do_IRQ)	! 98 (E40)       rxi0
+	.long	SYMBOL_NAME(do_IRQ)	! 99 (E60)       cci0
+	.long	SYMBOL_NAME(do_IRQ)	! 100(E80) SIOF1 eri1
+	.long	SYMBOL_NAME(do_IRQ)	! 101(EA0)       txi1
+	.long	SYMBOL_NAME(do_IRQ)	! 102(EC0)       rxi1
+	.long	SYMBOL_NAME(do_IRQ)	! 103(EE0)       cci1
+	.long	SYMBOL_NAME(do_IRQ)	! 104(F00)
+#elif defined(CONFIG_CPU_SUBTYPE_SH7720)
+	! Internal hardware
+	.long	SYMBOL_NAME(do_IRQ)	! 16 (400) TMU0  tuni0
+	.long	SYMBOL_NAME(do_IRQ)	! 17 (420) TMU1  tuni1
+	.long	SYMBOL_NAME(do_IRQ)	! 18 (440) TMU2  tuni2
+	.long	SYMBOL_NAME(do_IRQ)	! 19 (460)
+	.long	SYMBOL_NAME(do_IRQ)	! 20 (480) RTC   ati
+	.long	SYMBOL_NAME(do_IRQ)	! 21 (4A0)       pri
+	.long	SYMBOL_NAME(do_IRQ)	! 22 (4C0)       cui
+	.long	SYMBOL_NAME(do_IRQ)	! 23 (4E0) SMI   eri
+	.long	SYMBOL_NAME(do_IRQ)	! 24 (500)       rxi
+	.long	SYMBOL_NAME(do_IRQ)	! 25 (520)       txi 
+	.long	SYMBOL_NAME(do_IRQ)	! 26 (540)       tend
+	.long	SYMBOL_NAME(do_IRQ)	! 27 (560) WDT   iti
+	.long	SYMBOL_NAME(do_IRQ)	! 28 (580) REF   rcmi
+	.long	SYMBOL_NAME(do_IRQ)	! 29 (5A0)
+	.long	SYMBOL_NAME(do_IRQ)	! 30 (5C0)
+	.long	SYMBOL_NAME(do_IRQ)	! 31 (5E0) H-UDI
+	.long	SYMBOL_NAME(do_IRQ)	! 32 (600) IRQ   irq0
+	.long	SYMBOL_NAME(do_IRQ)	! 33 (620)       irq1
+	.long	SYMBOL_NAME(do_IRQ)	! 34 (640)       irq2
+	.long	SYMBOL_NAME(do_IRQ)	! 35 (660)       irq3
+	.long	SYMBOL_NAME(do_IRQ)	! 36 (680)       irq4
+	.long	SYMBOL_NAME(do_IRQ)	! 37 (6A0)       irq5
+	.long	SYMBOL_NAME(do_IRQ)	! 38 (6C0) TMU   tmu_suni
+	.long	SYMBOL_NAME(do_IRQ)	! 39 (6E0) USBF  usbf_spd
+	.long	SYMBOL_NAME(do_IRQ)	! 40 (700)
+	.long	SYMBOL_NAME(do_IRQ)	! 41 (720)
+	.long	SYMBOL_NAME(do_IRQ)	! 42 (740)
+	.long	SYMBOL_NAME(do_IRQ)	! 43 (760)
+	.long	SYMBOL_NAME(do_IRQ)	! 44 (780)
+	.long	SYMBOL_NAME(do_IRQ)	! 45 (7A0)
+	.long	SYMBOL_NAME(do_IRQ)	! 46 (7C0)
+	.long	SYMBOL_NAME(do_IRQ)	! 47 (7E0)
+	.long	SYMBOL_NAME(do_IRQ)	! 48 (800) DMAC1 dei0
+	.long	SYMBOL_NAME(do_IRQ)	! 49 (820)       dei1
+	.long	SYMBOL_NAME(do_IRQ)	! 50 (840)       dei2
+	.long	SYMBOL_NAME(do_IRQ)	! 51 (860)       dei3
+	.long	SYMBOL_NAME(do_IRQ)	! 52 (880)
+	.long	SYMBOL_NAME(do_IRQ)	! 53 (8A0)
+	.long	SYMBOL_NAME(do_IRQ)	! 54 (8C0)
+	.long	SYMBOL_NAME(do_IRQ)	! 55 (8E0)
+	.long	SYMBOL_NAME(do_IRQ)	! 56 (900) LCDC  lcdci
+	.long	SYMBOL_NAME(do_IRQ)	! 57 (920)
+	.long	SYMBOL_NAME(do_IRQ)	! 58 (940)
+	.long	SYMBOL_NAME(do_IRQ)	! 59 (960)
+	.long	SYMBOL_NAME(do_IRQ)	! 60 (980) SSL   ssli
+	.long   SYMBOL_NAME(do_IRQ)	! 61 (9A0)
+	.long   SYMBOL_NAME(do_IRQ)	! 62 (9C0)
+	.long   SYMBOL_NAME(do_IRQ)	! 63 (9E0)
+	.long	SYMBOL_NAME(do_IRQ)	! 64 (A00)
+	.long   SYMBOL_NAME(do_IRQ)	! 65 (A20) USBF  usbfi0
+	.long   SYMBOL_NAME(do_IRQ)	! 66 (A40)       usbfi1	
+	.long   SYMBOL_NAME(do_IRQ)	! 67 (A60) USBH  usbhi
+	.long	SYMBOL_NAME(do_IRQ)	! 68 (A80)
+	.long   SYMBOL_NAME(do_IRQ)	! 69 (AA0)
+	.long   SYMBOL_NAME(do_IRQ)	! 70 (AC0)
+	.long   SYMBOL_NAME(do_IRQ)	! 71 (AE0)
+	.long   SYMBOL_NAME(do_IRQ)	! 72 (B00)
+	.long   SYMBOL_NAME(do_IRQ)	! 73 (B20)
+	.long	SYMBOL_NAME(do_IRQ)	! 74 (B40)
+	.long   SYMBOL_NAME(do_IRQ)	! 75 (B60)
+	.long   SYMBOL_NAME(do_IRQ)	! 76 (B80) DMAC2 dei4
+	.long   SYMBOL_NAME(do_IRQ)	! 77 (BA0)       dei5
+	.long	SYMBOL_NAME(do_IRQ)	! 78 (BC0)
+	.long   SYMBOL_NAME(do_IRQ)	! 79 (BE0) ADC   adci
+	.long   SYMBOL_NAME(do_IRQ)	! 80 (C00) SCIF0 scifi0
+	.long   SYMBOL_NAME(do_IRQ)	! 81 (C20) SCIF1 scifi1
+	.long   SYMBOL_NAME(do_IRQ)	! 82 (C40)
+	.long   SYMBOL_NAME(do_IRQ)	! 83 (C60)
+	.long	SYMBOL_NAME(do_IRQ)	! 84 (C80) PINT  pinta
+	.long   SYMBOL_NAME(do_IRQ)	! 85 (CA0)       pintb	
+	.long   SYMBOL_NAME(do_IRQ)	! 86 (CC0)
+	.long   SYMBOL_NAME(do_IRQ)	! 87 (CE0)
+	.long   SYMBOL_NAME(do_IRQ)	! 88 (D00) SIOF0 siofi0
+	.long   SYMBOL_NAME(do_IRQ)	! 89 (D20) SIOF1 siofi1
+	.long   SYMBOL_NAME(do_IRQ)	! 90 (D40)
+	.long   SYMBOL_NAME(do_IRQ)	! 91 (D60)
+	.long	SYMBOL_NAME(do_IRQ)	! 92 (D80) TPU   tpi0
+	.long   SYMBOL_NAME(do_IRQ)	! 93 (DA0)       tpi1	
+	.long   SYMBOL_NAME(do_IRQ)	! 94 (DC0)       tpi2
+	.long   SYMBOL_NAME(do_IRQ)	! 95 (DE0)       tpi3
+	.long   SYMBOL_NAME(do_IRQ)	! 96 (E00) IIC   iici
+	.long   SYMBOL_NAME(do_IRQ)	! 97 (E20)
+	.long   SYMBOL_NAME(do_IRQ)	! 98 (E40)
+	.long   SYMBOL_NAME(do_IRQ)	! 99 (E60)
+	.long	SYMBOL_NAME(do_IRQ)	! 100(E80) MMC   mmci0
+	.long   SYMBOL_NAME(do_IRQ)	! 101(EA0)       mmci1
+	.long   SYMBOL_NAME(do_IRQ)	! 102(EC0)       mmci2
+	.long   SYMBOL_NAME(do_IRQ)	! 103(EE0)       mmci3
+	.long   SYMBOL_NAME(do_IRQ)	! 104(F00) CMT   cmi
+	.long	SYMBOL_NAME(do_IRQ)	! 105(F20)
+	.long   SYMBOL_NAME(do_IRQ)	! 106(F40)
+	.long   SYMBOL_NAME(do_IRQ)	! 107(F60) PCC   pcci
+	.long   SYMBOL_NAME(do_IRQ)	! 108(F80)
+	.long   SYMBOL_NAME(do_IRQ)	! 109(FA0)
+	.long   SYMBOL_NAME(do_IRQ)	! 110(FC0)
+	.long   SYMBOL_NAME(do_IRQ)	! 111(FE0) AFEC  aceci
+#else
 	! Internal hardware
 	.long	SYMBOL_NAME(do_IRQ)	! TMU0 tuni0
 	.long	SYMBOL_NAME(do_IRQ)	! TMU1 tuni1
 	.long	SYMBOL_NAME(do_IRQ)	! TMU2 tuni2
 	.long	SYMBOL_NAME(do_IRQ)	!      ticpi2
+#if defined(CONFIG_CPU_SUBTYPE_SH7760)
+	.long	SYMBOL_NAME(do_IRQ)	! 20
+	.long	SYMBOL_NAME(do_IRQ)	! 21
+	.long	SYMBOL_NAME(do_IRQ)	! 22
+	.long	SYMBOL_NAME(do_IRQ)	! 23
+	.long	SYMBOL_NAME(do_IRQ)	! 24
+	.long	SYMBOL_NAME(do_IRQ)	! 25
+	.long	SYMBOL_NAME(do_IRQ)	! 26
+        .long   SYMBOL_NAME(do_IRQ)     ! 27
+#else
 	.long	SYMBOL_NAME(do_IRQ)	! RTC  ati
 	.long	SYMBOL_NAME(do_IRQ)	!      pri
 	.long	SYMBOL_NAME(do_IRQ)	!      cui
@@ -896,11 +1685,14 @@ ENTRY(interrupt_table)
 	.long	SYMBOL_NAME(do_IRQ)	!      txi
 	.long	SYMBOL_NAME(do_IRQ)	!      tei
 	.long	SYMBOL_NAME(do_IRQ)	! WDT  iti
+#endif
 	.long	SYMBOL_NAME(do_IRQ)	! REF  rcmi
 	.long	SYMBOL_NAME(do_IRQ)	!      rovi
 	.long	SYMBOL_NAME(do_IRQ)
 	.long	SYMBOL_NAME(do_IRQ)
-#if  defined(CONFIG_CPU_SUBTYPE_SH7707) || defined(CONFIG_CPU_SUBTYPE_SH7709)
+#if  defined(CONFIG_CPU_SUBTYPE_SH7707) || \
+     defined(CONFIG_CPU_SUBTYPE_SH7709) || \
+     defined(CONFIG_CPU_SUBTYPE_SH7727)
 	.long	SYMBOL_NAME(do_IRQ)	! 32 IRQ  irq0
 	.long	SYMBOL_NAME(do_IRQ)	! 33      irq1
 	.long	SYMBOL_NAME(do_IRQ)	! 34      irq2
@@ -934,10 +1726,31 @@ ENTRY(interrupt_table)
 	.long   SYMBOL_NAME(do_IRQ)	! 61 LCDC lcdi
 	.long   SYMBOL_NAME(do_IRQ)	! 62 PCC  pcc0i
 	.long   SYMBOL_NAME(do_IRQ)	! 63      pcc1i
+#elif defined(CONFIG_CPU_SUBTYPE_SH7727)
+	.long   SYMBOL_NAME(do_IRQ)	! 61 LCDC lcdi
+	.long   SYMBOL_NAME(do_IRQ)	! 62 PCC0
+	.long   SYMBOL_NAME(do_IRQ)	! 63
+	.long   SYMBOL_NAME(do_IRQ)	! 64 USBH usbhi
+	.long   SYMBOL_NAME(do_IRQ)	! 65 USBF usbfi0
+	.long   SYMBOL_NAME(do_IRQ)	! 66      usbfi1
+	.long   SYMBOL_NAME(do_IRQ)	! 67 AFEIF afeifi
+	.long   SYMBOL_NAME(do_IRQ)	! 68
+	.long   SYMBOL_NAME(do_IRQ)	! 69 
+	.long   SYMBOL_NAME(do_IRQ)	! 70
+	.long   SYMBOL_NAME(do_IRQ)	! 71
+	.long   SYMBOL_NAME(do_IRQ)	! 72 SIOF siferi
+	.long   SYMBOL_NAME(do_IRQ)	! 73      siftxi
+	.long   SYMBOL_NAME(do_IRQ)	! 74      sifrxi
+	.long   SYMBOL_NAME(do_IRQ)	! 75      sifcci
 #endif
 #elif defined(__SH4__)
+#if defined(CONFIG_CPU_SUBTYPE_SH7760)
+	.long	SYMBOL_NAME(do_IRQ)	! 32
+	.long	SYMBOL_NAME(do_IRQ)	! 33
+#else
 	.long	SYMBOL_NAME(do_IRQ)	! 32 Hitachi UDI
 	.long	SYMBOL_NAME(do_IRQ)	! 33 GPIO
+#endif
 	.long	SYMBOL_NAME(do_IRQ)	! 34 DMAC dmte0
 	.long	SYMBOL_NAME(do_IRQ)	! 35      dmte1
 	.long	SYMBOL_NAME(do_IRQ)	! 36      dmte2
@@ -948,6 +1761,16 @@ ENTRY(interrupt_table)
 	.long	SYMBOL_NAME(do_IRQ)	! 41      rxi
 	.long	SYMBOL_NAME(do_IRQ)	! 42      bri
 	.long	SYMBOL_NAME(do_IRQ)	! 43      txi
+#if defined(CONFIG_CPU_SUBTYPE_SH7760)
+	.long	SYMBOL_NAME(do_IRQ)	! 44 DMAC dmte4
+	.long	SYMBOL_NAME(do_IRQ)	! 45      dmte5
+	.long	SYMBOL_NAME(do_IRQ)	! 46      dmte6
+	.long	SYMBOL_NAME(do_IRQ)	! 47      dmte7
+ 	.long	SYMBOL_NAME(do_fpu_state_restore)	! 48
+ 	.long	SYMBOL_NAME(do_fpu_state_restore)	! 49
+	.long	SYMBOL_NAME(do_IRQ)	! 50 IRQ6
+	.long	SYMBOL_NAME(do_IRQ)	! 51 IRQ7
+#else
 	.long	error			! 44
 	.long	error			! 45
 	.long	error			! 46
@@ -955,7 +1778,8 @@ ENTRY(interrupt_table)
 	.long	SYMBOL_NAME(do_fpu_state_restore)	! 48
 	.long	SYMBOL_NAME(do_fpu_state_restore)	! 49
 #endif
-#if defined(CONFIG_CPU_SUBTYPE_SH7751)
+#endif
+#if defined(CONFIG_CPU_SUBTYPE_SH7751) || defined(CONFIG_CPU_SUBTYPE_SH7751R)
 	.long	error
 	.long	error
 	.long	error
@@ -978,6 +1802,65 @@ ENTRY(interrupt_table)
 	.long	SYMBOL_NAME(do_IRQ)	!     pwon
 	.long	SYMBOL_NAME(do_IRQ)	!     pwdwn
 	.long	SYMBOL_NAME(do_IRQ)	!     err
+#elif defined(CONFIG_CPU_SUBTYPE_SH7760)
+	.long	error			!  52 0x880
+	.long	error			!  53 0x8a0
+	.long	error			!  54 0x8c0
+	.long	error			!  55 0x8e0
+	.long	SYMBOL_NAME(do_IRQ)	!  56 0x900 HCAN2 CANI0
+	.long	SYMBOL_NAME(do_IRQ)	!  56 0x920 HCAN2 CANI1
+	.long	SYMBOL_NAME(do_IRQ)	!  58 0x940 SSI SSI0
+	.long	SYMBOL_NAME(do_IRQ)	!  59 0x960     SSI1
+	.long	SYMBOL_NAME(do_IRQ)	!  60 0x980 AC97 AC97I0
+	.long	SYMBOL_NAME(do_IRQ)	!  61 0x9a0      AC97I1
+	.long	SYMBOL_NAME(do_IRQ)	!  62 0x9c0 IIC IICI0
+	.long	SYMBOL_NAME(do_IRQ)	!  63 0x9e0     IICI1
+	.long	SYMBOL_NAME(do_IRQ)	!  64 0xa00 USB USBI
+	.long	SYMBOL_NAME(do_IRQ)	!  65 0xa20 LCDC VINT
+	.long	error			!  66 0xa40
+	.long	error			!  67 0xa60
+	.long	SYMBOL_NAME(do_IRQ)	!  68 0xa80 DMABRG DMABRGI0
+	.long	SYMBOL_NAME(do_IRQ)	!  69 0xaa0        DMABRGI1
+	.long	SYMBOL_NAME(do_IRQ)	!  70 0xac0        DMABRGI2
+	.long	error			!  71 0xae0
+	.long	SYMBOL_NAME(do_IRQ)	!  72 0xb00 SCIF ERI1
+	.long	SYMBOL_NAME(do_IRQ)	!  73 0xb20      RXI1
+	.long	SYMBOL_NAME(do_IRQ)	!  74 0xb40      BRI1
+	.long	SYMBOL_NAME(do_IRQ)	!  75 0xb60      TXI1
+	.long	SYMBOL_NAME(do_IRQ)	!  76 0xb80      ERI2
+	.long	SYMBOL_NAME(do_IRQ)	!  77 0xba0      RXI2
+	.long	SYMBOL_NAME(do_IRQ)	!  78 0xbc0      BRI2
+	.long	SYMBOL_NAME(do_IRQ)	!  79 0xbe0      TXI2
+	.long	SYMBOL_NAME(do_IRQ)	!  80 0xc00 SIM ERI
+	.long	SYMBOL_NAME(do_IRQ)	!  81 0xc20     RXI
+	.long	SYMBOL_NAME(do_IRQ)	!  82 0xc40     TXI
+	.long	SYMBOL_NAME(do_IRQ)	!  83 0xc60     TEI
+	.long	SYMBOL_NAME(do_IRQ)	!  84 0xc80 HSPI SPII
+	.long	error			!  85 0xca0
+	.long	error			!  86 0xcc0
+	.long	error			!  87 0xce0
+	.long	SYMBOL_NAME(do_IRQ)	!  88 0xd00 MMCIF MMCI0
+	.long	SYMBOL_NAME(do_IRQ)	!  89 0xd20       MMCI1
+	.long	SYMBOL_NAME(do_IRQ)	!  90 0xd40       MMCI2
+	.long	SYMBOL_NAME(do_IRQ)	!  91 0xd60       MMCI3
+	.long	error			!  92 0xd80
+	.long	error			!  93 0xda0
+	.long	error			!  94 0xdc0
+	.long	error			!  95 0xde0
+	.long	error			!  96 0xe00
+	.long	error			!  97 0xe20
+	.long	error			!  98 0xe40
+	.long	error			!  99 0xe60
+	.long	SYMBOL_NAME(do_IRQ)	! 100 0xe80 MFI MFI
+	.long	error			! 101 0xea0
+	.long	error			! 102 0xec0
+	.long	error			! 103 0xee0
+	.long	SYMBOL_NAME(do_IRQ)	! 104 0xf00 NANDF FLSTE
+	.long	SYMBOL_NAME(do_IRQ)	! 105 0xf20       FLTEND
+	.long	SYMBOL_NAME(do_IRQ)	! 106 0xf40       FLTRQ0
+	.long	SYMBOL_NAME(do_IRQ)	! 107 0xf60       FLTRQ1
+	.long	SYMBOL_NAME(do_IRQ)	! 108 0xf80 ADC ADI
+	.long	SYMBOL_NAME(do_IRQ)	! 109 0xfa0 CMT CMT1
 #elif defined(CONFIG_CPU_SUBTYPE_ST40STB1)
 	.long	error			!  50 0x840
 	.long	error			!  51 0x860
@@ -1073,6 +1956,7 @@ ENTRY(interrupt_table)
 	.long	error			! 141 0x13a0
 	.long	error			! 142 0x13c0
 	.long	error			! 143 0x13e0
+#endif
 #endif
 
 ENTRY(sys_call_table)

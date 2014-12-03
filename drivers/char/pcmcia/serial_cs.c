@@ -29,6 +29,9 @@
     the provisions above, a recipient may use your version of this
     file under either the MPL or the GPL.
     
+    Change Log
+	07-Feb-2003 Sharp Corporation
+
 ======================================================================*/
 
 #include <linux/module.h>
@@ -245,7 +248,13 @@ static int setup_serial(serial_info_t *info, ioaddr_t port, int irq)
     int line;
     
     memset(&serial, 0, sizeof(serial));
+#ifdef CONFIG_PCMCIA_ADDRESS_SHIFT
+    serial.io_type = SERIAL_IO_MEM;
+    serial.iomem_base = port;
+    serial.iomem_reg_shift = PCMCIA_ADDRESS_SHIFT;
+#else
     serial.port = port;
+#endif
     serial.irq = irq;
     serial.flags = ASYNC_SKIP_TEST | ASYNC_SHARE_IRQ;
     line = register_serial(&serial);
@@ -487,7 +496,7 @@ void serial_config(dev_link_t *link)
     int i, last_ret, last_fn;
 
     DEBUG(0, "serial_config(0x%p)\n", link);
-    
+	
     tuple.TupleData = (cisdata_t *)buf;
     tuple.TupleOffset = 0; tuple.TupleDataMax = 255;
     tuple.Attributes = 0;
@@ -495,8 +504,30 @@ void serial_config(dev_link_t *link)
     tuple.DesiredTuple = CISTPL_CONFIG;
     last_ret = first_tuple(handle, &tuple, &parse);
     if (last_ret != CS_SUCCESS) {
+#ifdef CONFIG_ARCH_SHARP_SL
+	/* Retry for 1 sec. */
+	for( i=0; i<20; i++ ){
+	    /* Report error (clear cis cache) */
+	    cs_error(link->handle, ParseTuple, last_ret);
+	    current->state = TASK_INTERRUPTIBLE;
+	    schedule_timeout((5 * HZ)/100);
+
+	    tuple.TupleData = (cisdata_t *)buf;
+	    tuple.TupleOffset = 0; tuple.TupleDataMax = 255;
+	    tuple.Attributes = 0;
+	    /* Get configuration register information */
+	    tuple.DesiredTuple = CISTPL_CONFIG;
+	    last_ret = first_tuple(handle, &tuple, &parse);
+	    if (last_ret == CS_SUCCESS) break;
+	}
+	if (last_ret != CS_SUCCESS) {
+	    last_fn = ParseTuple;
+	    goto cs_failed;
+	}
+#else
 	last_fn = ParseTuple;
 	goto cs_failed;
+#endif
     }
     link->conf.ConfigBase = parse.config.base;
     link->conf.Present = parse.config.rmask[0];
@@ -529,6 +560,32 @@ void serial_config(dev_link_t *link)
 	 (parse.funcid.func == CISTPL_FUNCID_MULTI) ||
 	 (parse.funcid.func == CISTPL_FUNCID_SERIAL))) {
 	tuple.DesiredTuple = CISTPL_CFTABLE_ENTRY;
+#ifdef CONFIG_ARCH_SHARP_SL
+	{
+	    int ret;
+
+	    ret = first_tuple(handle, &tuple, &parse);
+	    if(ret == CS_BAD_TUPLE){
+		/* Retry for 3 times */
+		for( i=0; i<3; i++ ){
+		    /* Report error (clear cis cache) */
+		    cs_error(link->handle, ParseTuple, ret);
+		    current->state = TASK_INTERRUPTIBLE;
+		    schedule_timeout((5 * HZ)/100);
+
+		    ret = first_tuple(handle, &tuple, &parse);
+		    if(ret != CS_BAD_TUPLE) break;
+		}
+	    }
+	    if (ret == CS_SUCCESS) {
+		if ((cf->io.nwin == 1) && (cf->io.win[0].len % 8 == 0))
+		    info->multi = cf->io.win[0].len >> 3;
+		if ((cf->io.nwin == 2) && (cf->io.win[0].len == 8) &&
+		    (cf->io.win[1].len == 8))
+		    info->multi = 2;
+	    }
+	}
+#else
 	if (first_tuple(handle, &tuple, &parse) == CS_SUCCESS) {
 	    if ((cf->io.nwin == 1) && (cf->io.win[0].len % 8 == 0))
 		info->multi = cf->io.win[0].len >> 3;
@@ -536,6 +593,7 @@ void serial_config(dev_link_t *link)
 		(cf->io.win[1].len == 8))
 		info->multi = 2;
 	}
+#endif
     }
     
     if (info->multi > 1)
@@ -620,7 +678,13 @@ static int serial_event(event_t event, int priority,
 	break;
     case CS_EVENT_CARD_INSERTION:
 	link->state |= DEV_PRESENT | DEV_CONFIG_PENDING;
+#ifdef CONFIG_RTHAL
+	hard_cli();
+#endif
 	serial_config(link);
+#ifdef CONFIG_RTHAL
+	hard_sti();
+#endif
 	break;
     case CS_EVENT_PM_SUSPEND:
 	link->state |= DEV_SUSPEND;

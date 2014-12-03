@@ -1,3 +1,8 @@
+/*
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
+ */
+
 #ifndef _LINUX_FB_H
 #define _LINUX_FB_H
 
@@ -32,6 +37,8 @@
 #define FBIOPUT_MODEINFO        0x4617
 #define FBIOGET_DISPINFO        0x4618
 
+#define FBIO_CMD_EXEC_AUTO      0x4700  // polygon4a auto exec
+#define FBIO_CMD_EXEC_MANUAL    0x4701  // polygon4a manual exec
 
 #define FB_TYPE_PACKED_PIXELS		0	/* Packed Pixels	*/
 #define FB_TYPE_PLANES			1	/* Non interleaved planes */
@@ -95,6 +102,8 @@
 #define FB_ACCEL_SIS_GLAMOUR    36	/* SiS 300/630/540              */
 #define FB_ACCEL_3DLABS_PERMEDIA3 37	/* 3Dlabs Permedia 3		*/
 #define FB_ACCEL_ATI_RADEON	38	/* ATI Radeon family		*/
+#define FB_ACCEL_EPSON_SED1356  39      /* Epson SED1356                */
+#define FB_ACCEL_HITACHI_HD64413 40     /* Hitachi HD64413              */
 
 
 #define FB_ACCEL_NEOMAGIC_NM2070 90	/* NeoMagic NM2070              */
@@ -118,6 +127,9 @@ struct fb_fix_screeninfo {
 	__u32 visual;			/* see FB_VISUAL_*		*/ 
 	__u16 xpanstep;			/* zero if no hardware panning  */
 	__u16 ypanstep;			/* zero if no hardware panning  */
+#if defined(CONFIG_FBCON_ROTATE_R) || defined(CONFIG_FBCON_ROTATE_L)
+	__u16 xwrapstep;		/* zero if no hardware xwrap    */
+#endif
 	__u16 ywrapstep;		/* zero if no hardware ywrap    */
 	__u32 line_length;		/* length of a line in bytes    */
 	unsigned long mmio_start;	/* Start of Memory Mapped I/O   */
@@ -167,7 +179,11 @@ struct fb_bitfield {
 #define FB_VMODE_DOUBLE		2	/* double scan */
 #define FB_VMODE_MASK		255
 
+#if defined(CONFIG_FBCON_ROTATE_R) || defined(CONFIG_FBCON_ROTATE_L)
+#define FB_VMODE_XWRAP		256	/* ywrap instead of panning     */
+#else
 #define FB_VMODE_YWRAP		256	/* ywrap instead of panning     */
+#endif
 #define FB_VMODE_SMOOTH_XPAN	512	/* smooth xpan possible (internally used) */
 #define FB_VMODE_CONUPDATE	512	/* don't update x/yoffset	*/
 

@@ -58,6 +58,9 @@ shifted_port(unsigned long port)
 
 unsigned char se_inb(unsigned long port)
 {
+	if ((port >= 0xb8400000)&&(port < 0xb8400000 + 0x00400000))
+		return *(volatile unsigned char*)(port + 0x00040000); 
+
 	if (sh_pcic_io_start <= port && port <= sh_pcic_io_stop)
 		return *(__u8 *) (sh_pcic_io_wbase + 0x40000 + port); 
 	else if (shifted_port(port))
@@ -68,9 +71,11 @@ unsigned char se_inb(unsigned long port)
 
 unsigned char se_inb_p(unsigned long port)
 {
-	unsigned long v;
+	unsigned char v;
 
-	if (sh_pcic_io_start <= port && port <= sh_pcic_io_stop)
+	if ((port >= 0xb8400000)&&(port < 0xb8400000 + 0x00400000))
+		v = *(volatile unsigned char*)(port + 0x00040000); 
+	else if (sh_pcic_io_start <= port && port <= sh_pcic_io_stop)
 		v = *(__u8 *) (sh_pcic_io_wbase + 0x40000 + port); 
 	else if (shifted_port(port))
 		v = (*port2adr(port) >> 8); 
@@ -82,6 +87,8 @@ unsigned char se_inb_p(unsigned long port)
 
 unsigned short se_inw(unsigned long port)
 {
+	if ((port >= 0xb8400000)&&(port < 0xb8400000 + 0x00400000))
+		return *(volatile unsigned short*)port; 
 	if (port >= 0x2000 ||
 	    (sh_pcic_io_start <= port && port <= sh_pcic_io_stop))
 		return *port2adr(port);
@@ -98,7 +105,9 @@ unsigned int se_inl(unsigned long port)
 
 void se_outb(unsigned char value, unsigned long port)
 {
-	if (sh_pcic_io_start <= port && port <= sh_pcic_io_stop)
+	if ((port >= 0xb8400000)&&(port < 0xb8400000 + 0x00400000))
+		*(volatile unsigned char*)port = value;
+	else if (sh_pcic_io_start <= port && port <= sh_pcic_io_stop)
 		*(__u8 *)(sh_pcic_io_wbase + port) = value; 
 	else if (shifted_port(port))
 		*(port2adr(port)) = value << 8;
@@ -108,7 +117,9 @@ void se_outb(unsigned char value, unsigned long port)
 
 void se_outb_p(unsigned char value, unsigned long port)
 {
-	if (sh_pcic_io_start <= port && port <= sh_pcic_io_stop)
+	if ((port >= 0xb8400000)&&(port < 0xb8400000 + 0x00400000))
+		*(volatile unsigned char*)port = value;
+	else if (sh_pcic_io_start <= port && port <= sh_pcic_io_stop)
 		*(__u8 *)(sh_pcic_io_wbase + port) = value; 
 	else if (shifted_port(port))
 		*(port2adr(port)) = value << 8;
@@ -119,7 +130,9 @@ void se_outb_p(unsigned char value, unsigned long port)
 
 void se_outw(unsigned short value, unsigned long port)
 {
-	if (port >= 0x2000 ||
+	if ((port >= 0xb8400000)&&(port < 0xb8400000 + 0x00400000))
+		*(volatile unsigned short*)port = value;
+	else if (port >= 0x2000 ||
 	    (sh_pcic_io_start <= port && port <= sh_pcic_io_stop))
 		*port2adr(port) = value;
 	else
@@ -133,26 +146,20 @@ void se_outl(unsigned int value, unsigned long port)
 
 void se_insb(unsigned long port, void *addr, unsigned long count)
 {
-	volatile __u16 *p = port2adr(port);
+	unsigned char* p = (unsigned char*)addr;
 
-	if (sh_pcic_io_start <= port && port <= sh_pcic_io_stop) {
-		volatile __u8 *bp = (__u8 *) (sh_pcic_io_wbase + 0x40000 + port); 
-		while (count--)
-			*((__u8 *) addr)++ = *bp;
-	} else if (shifted_port(port)) {
-		while (count--)
-			*((__u8 *) addr)++ = *p >> 8;
-	} else {
-		while (count--)
-			*((__u8 *) addr)++ = *p;
+	while(count--) {
+		*p++ = inb(port);
 	}
 }
 
 void se_insw(unsigned long port, void *addr, unsigned long count)
 {
-	volatile __u16 *p = port2adr(port);
-	while (count--)
-		*((__u16 *) addr)++ = *p;
+	unsigned short* p = (unsigned short*)addr;
+
+	while(count--) {
+		*p++ = inw(port);
+	}
 }
 
 void se_insl(unsigned long port, void *addr, unsigned long count)
@@ -164,7 +171,11 @@ void se_outsb(unsigned long port, const void *addr, unsigned long count)
 {
 	volatile __u16 *p = port2adr(port);
 
-	if (sh_pcic_io_start <= port && port <= sh_pcic_io_stop) {
+	if ((port >= 0xb8400000)&&(port < 0xb8400000 + 0x00400000)) {
+		while (count--)
+			*(volatile unsigned char*)port = *((__u8 *) addr)++;
+	}
+	else if (sh_pcic_io_start <= port && port <= sh_pcic_io_stop) {
 		volatile __u8 *bp = (__u8 *) (sh_pcic_io_wbase + port); 
 		while (count--)
 			*bp = *((__u8 *) addr)++;
@@ -179,9 +190,15 @@ void se_outsb(unsigned long port, const void *addr, unsigned long count)
 
 void se_outsw(unsigned long port, const void *addr, unsigned long count)
 {
-	volatile __u16 *p = port2adr(port);
-	while (count--)
-		*p = *((__u16 *) addr)++;
+	if ((port >= 0xb8400000)&&(port < 0xb8400000 + 0x00400000)) {
+		while (count--)
+			*(volatile unsigned short*)port = *((__u16 *) addr)++;
+	}
+	else {
+		volatile __u16 *p = port2adr(port);
+		while (count--)
+			*p = *((__u16 *) addr)++;
+	}
 }
 
 void se_outsl(unsigned long port, const void *addr, unsigned long count)
@@ -191,6 +208,9 @@ void se_outsl(unsigned long port, const void *addr, unsigned long count)
 
 unsigned char se_readb(unsigned long addr)
 {
+	if ((addr >= 0xb8400000)&&(addr < 0xb8400000 + 0x00400000))
+		return *(volatile unsigned char*)(addr + 0x00040000); 
+
 	return *(volatile unsigned char*)addr;
 }
 

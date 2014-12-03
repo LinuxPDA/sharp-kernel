@@ -14,6 +14,8 @@
 #include <asm/serial-ec3104.h>
 #elif defined (CONFIG_SH_BIGSUR)
 #include <asm/serial-bigsur.h>
+#elif defined(CONFIG_SH_7760_SOLUTION_ENGINE)
+#include <asm/serial-ms7760cp.h>
 #else
 /*
  * This assumes you have a 1.8432 MHz clock for your UART.
@@ -37,12 +39,22 @@
 
 #else
 
-#define RS_TABLE_SIZE  2
-
+#if defined(CONFIG_SH_MS7727RP) || defined(CONFIG_SH_MS7290CP) || \
+    defined(CONFIG_SH_MS7710SE) || defined(CONFIG_SH_MS7720RP)
+#define RS_TABLE_SIZE 2
+#define STD_SERIAL_PORT_DEFNS			\
+	/* UART CLK   PORT IRQ     FLAGS        */			\
+	{ 0, BASE_BAUD,	0,     0, STD_COM_FLAGS }, \
+	{ 0, BASE_BAUD,	0,     0, STD_COM_FLAGS }
+#else
+#define RS_TABLE_SIZE 4
 #define STD_SERIAL_PORT_DEFNS			\
 	/* UART CLK   PORT IRQ     FLAGS        */			\
 	{ 0, BASE_BAUD, 0x3F8, 4, STD_COM_FLAGS },	/* ttyS0 */	\
-	{ 0, BASE_BAUD, 0x2F8, 3, STD_COM_FLAGS }	/* ttyS1 */
+	{ 0, BASE_BAUD, 0x2F8, 3, STD_COM_FLAGS },	/* ttyS1 */     \
+	{ 0, BASE_BAUD,	0,     0, STD_COM_FLAGS }, \
+	{ 0, BASE_BAUD,	0,     0, STD_COM_FLAGS }
+#endif
 
 #endif
 

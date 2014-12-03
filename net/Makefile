@@ -1,3 +1,4 @@
+# $USAGI: Makefile,v 1.13.4.2 2002/09/03 11:11:19 mk Exp $
 #
 # Makefile for the linux networking.
 #
@@ -26,6 +27,16 @@ subdir-$(CONFIG_NETFILTER)	+= ipv6/netfilter
 endif
 endif
 
+ifeq ($(CONFIG_IPV6),y)
+subdir-$(CONFIG_IPV6_IPV6_TUNNEL)	+= ipv6
+endif
+
+ifeq ($(CONFIG_IPV6),y)
+subdir-$(CONFIG_IPSEC)          += key
+else
+subdir-$(CONFIG_IPSEC)          += ipsec
+endif
+
 subdir-$(CONFIG_KHTTPD)		+= khttpd
 subdir-$(CONFIG_PACKET)		+= packet
 subdir-$(CONFIG_NET_SCHED)	+= sched
@@ -44,8 +55,7 @@ subdir-$(CONFIG_SUNRPC)		+= sunrpc
 subdir-$(CONFIG_ATM)		+= atm
 subdir-$(CONFIG_DECNET)		+= decnet
 subdir-$(CONFIG_ECONET)		+= econet
-subdir-$(CONFIG_VLAN_8021Q)           += 8021q
-
+subdir-$(CONFIG_VLAN_8021Q)     += 8021q
 
 obj-y	:= socket.o $(join $(subdir-y), $(patsubst %,/%.o,$(notdir $(subdir-y))))
 ifeq ($(CONFIG_NET),y)

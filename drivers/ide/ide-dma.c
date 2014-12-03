@@ -875,9 +875,15 @@ second_chance_to_dma:
 		hwif->dma_extra = extra;
 
 		switch(dev->device) {
+			/*
+			 * This is buggy.  Device numbers are not unique
+			 * between vendors.  We should be checking
+			 * both dev->vendor and dev->device
+			 */
 			case PCI_DEVICE_ID_AL_M5219:
 			case PCI_DEVICE_ID_AMD_VIPER_7409:
 			case PCI_DEVICE_ID_CMD_643:
+			case PCI_DEVICE_ID_WINBOND_82C105:
 				outb(inb(dma_base+2) & 0x60, dma_base+2);
 				if (inb(dma_base+2) & 0x80) {
 					printk("%s: simplex device: DMA forced\n", name);

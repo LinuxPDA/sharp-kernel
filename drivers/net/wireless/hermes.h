@@ -290,9 +290,16 @@ typedef struct hermes_response {
 #define hermes_read_reg(hw, off) ((hw)->io_space ? \
 	inw((hw)->iobase + ( (off) << (hw)->reg_spacing )) : \
 	readw((hw)->iobase + ( (off) << (hw)->reg_spacing )))
+#if CONFIG_TOADKK_TCS8000
+static inline void hermes_write_reg(hermes_t *hw, u32 off, u16 val)
+{
+	writew(val, hw->iobase + off);
+}
+#else
 #define hermes_write_reg(hw, off, val) ((hw)->io_space ? \
 	outw_p((val), (hw)->iobase + ( (off) << (hw)->reg_spacing )) : \
 	writew((val), (hw)->iobase + ( (off) << (hw)->reg_spacing )))
+#endif
 
 #define hermes_read_regn(hw, name) (hermes_read_reg((hw), HERMES_##name))
 #define hermes_write_regn(hw, name, val) (hermes_write_reg((hw), HERMES_##name, (val)))

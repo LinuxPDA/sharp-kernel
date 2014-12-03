@@ -3,11 +3,14 @@
  *
  * Author: Jonas Holmberg <jonas.holmberg@axis.com>
  *
- * $Id: amd_flash.c,v 1.17 2002/03/05 17:00:37 jonashg Exp $
+ * $Id: amd_flash.c,v 1.18 2002/08/06 05:27:32 gerg Exp $
  *
  * Copyright (c) 2001 Axis Communications AB
  *
  * This file is under GPL.
+ *
+ * Changelog:
+ *	14-02-2003: LINEO Japan, Inc.
  *
  */
 
@@ -23,6 +26,7 @@
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/flashchip.h>
 
+
 /* There's no limit. It exists only to avoid realloc. */
 #define MAX_AMD_CHIPS 8
 
@@ -33,10 +37,14 @@
 /* Addresses */
 #define ADDR_MANUFACTURER		0x0000
 #define ADDR_DEVICE_ID			0x0001
-#define ADDR_SECTOR_LOCK		0x0002
+#define ADDR_DEVICE_ID1(n)		(0x0002 >> n)
+#define ADDR_DEVICE_ID2(n)		(0x001C >> n)
+#define ADDR_DEVICE_ID3(n)		(0x001E >> n)
+//#define ADDR_SECTOR_LOCK		0x0002
+#define ADDR_SECTOR_LOCK		0x0004
 #define ADDR_HANDSHAKE			0x0003
-#define ADDR_UNLOCK_1			0x0555
-#define ADDR_UNLOCK_2			0x02AA
+#define ADDR_UNLOCK_1(m)		(m == DEVICE_TYPE_X8 ? 0x0AAA : 0x0555)
+#define ADDR_UNLOCK_2(m)		(m == DEVICE_TYPE_X8 ? 0x0555 : 0x02AA)
 
 /* Commands */
 #define CMD_UNLOCK_DATA_1		0x00AA
@@ -67,6 +75,7 @@
 #define AM29LV160DB	0x2249
 #define AM29BDS323D     0x22D1
 #define AM29BDS643D	0x227E
+#define AM29LV640ML	0x7E0C01
 
 /* Atmel */
 #define AT49xV16x	0x00C0
@@ -75,6 +84,8 @@
 /* Fujitsu */
 #define MBM29LV160TE	0x22C4
 #define MBM29LV160BE	0x2249
+#define MBM29LV800BB	0x225B
+#define MBM29DL640E	0x227E
 
 /* ST - www.st.com */
 #define M29W800T	0x00D7
@@ -102,7 +113,8 @@ struct amd_flash_private {
 
 struct amd_flash_info {
 	const __u16 mfr_id;
-	const __u16 dev_id;
+	//const __u16 dev_id;
+	const __u32 dev_id;
 	const char *name;
 	const u_long size;
 	const int numeraseregions;
@@ -173,17 +185,19 @@ static inline __u32 make_cmd(struct map_info *map, __u32 cmd)
 
 static inline void send_unlock(struct map_info *map, unsigned long base)
 {
+	int mode = ((struct amd_flash_private *)map->fldrv_priv)->device_type;
 	wide_write(map, (CMD_UNLOCK_DATA_1 << 16) | CMD_UNLOCK_DATA_1,
-		   base + (map->buswidth * ADDR_UNLOCK_1));
+		   base + (map->buswidth * ADDR_UNLOCK_1(mode)));
 	wide_write(map, (CMD_UNLOCK_DATA_2 << 16) | CMD_UNLOCK_DATA_2,
-		   base + (map->buswidth * ADDR_UNLOCK_2));
+		   base + (map->buswidth * ADDR_UNLOCK_2(mode)));
 }
 
 static inline void send_cmd(struct map_info *map, unsigned long base, __u32 cmd)
 {
+	int mode = ((struct amd_flash_private *)map->fldrv_priv)->device_type;
 	send_unlock(map, base);
 	wide_write(map, make_cmd(map, cmd),
-		   base + (map->buswidth * ADDR_UNLOCK_1));
+		   base + (map->buswidth * ADDR_UNLOCK_1(mode)));
 }
 
 static inline void send_cmd_to_addr(struct map_info *map, unsigned long base,
@@ -240,7 +254,7 @@ static inline int is_sector_locked(struct map_info *map,
 	/* status is 0x0000 for unlocked and 0x0001 for locked */
 	status = wide_read(map, sect_addr + (map->buswidth * ADDR_SECTOR_LOCK));
 	wide_write(map, CMD_RESET_DATA, 0);
-	return status;
+	return (status & 0xff);
 }
 
 static int amd_flash_do_unlock(struct mtd_info *mtd, loff_t ofs, size_t len,
@@ -264,7 +278,7 @@ static int amd_flash_do_unlock(struct mtd_info *mtd, loff_t ofs, size_t len,
 		erasesize = merip->erasesize;
 		eraseblocks = merip->numblocks;
 
-		if (ofs > eraseoffset + erasesize)
+		if (ofs > eraseoffset + (erasesize * eraseblocks))
 			continue;
 
 		while (eraseblocks > 0) {
@@ -314,9 +328,17 @@ static int probe_new_chip(struct mtd_info *mtd, __u32 base,
 	__u32 dev_id;
 	struct map_info *map = mtd->priv;
 	struct amd_flash_private temp;
-	int i;
+	int i, n = 1;
 
+#ifdef CONFIG_ARCH_KATANA
+	if (map->buswidth == 1) {
+		temp.device_type = DEVICE_TYPE_X8;
+		n = 0;
+	} else
+		temp.device_type = DEVICE_TYPE_X16;
+#else
 	temp.device_type = DEVICE_TYPE_X16;	// Assume X16 (FIXME)
+#endif
 	temp.interleave = 2;
 	map->fldrv_priv = &temp;
 
@@ -324,8 +346,15 @@ static int probe_new_chip(struct mtd_info *mtd, __u32 base,
 	send_cmd(map, base, CMD_RESET_DATA);
 	send_cmd(map, base, CMD_MANUFACTURER_UNLOCK_DATA);
 
+#ifdef CONFIG_ARCH_KATANA
+	mfr_id = wide_read(map, base + (map->buswidth * ADDR_MANUFACTURER)) & 0xff;
+	dev_id = (wide_read(map, base + (map->buswidth * ADDR_DEVICE_ID1(n))) << 16) & 0xff0000;
+	dev_id |= (wide_read(map, base + (map->buswidth * ADDR_DEVICE_ID2(n))) << 8) & 0xff00;
+	dev_id |= wide_read(map, base + (map->buswidth * ADDR_DEVICE_ID3(n))) & 0xff;
+#else
 	mfr_id = wide_read(map, base + (map->buswidth * ADDR_MANUFACTURER));
 	dev_id = wide_read(map, base + (map->buswidth * ADDR_DEVICE_ID));
+#endif
 
 	if ((map->buswidth == 4) && ((mfr_id >> 16) == (mfr_id & 0xffff)) &&
 	    ((dev_id >> 16) == (dev_id & 0xffff))) {
@@ -364,6 +393,7 @@ static int probe_new_chip(struct mtd_info *mtd, __u32 base,
 					}
 					if ((mfr_id_other == mfr_id) &&
 					    (dev_id_other == dev_id)) {
+
 
 						/* Exit autoselect mode. */
 						send_cmd(map, base,
@@ -560,6 +590,29 @@ static struct mtd_info *amd_flash_probe(struct map_info *map)
 			{ offset: 0x0FC000, erasesize: 0x04000, numblocks:  1 }
 		}
 	}, {
+		mfr_id: MANUFACTURER_FUJITSU,
+		dev_id: MBM29LV800BB,
+		name: "Fujitsu MBM29LV800BB",
+		size: 0x00100000,
+		numeraseregions: 4,
+		regions: {
+			{ offset: 0x000000, erasesize: 0x04000, numblocks:  1 },
+			{ offset: 0x004000, erasesize: 0x02000, numblocks:  2 },
+			{ offset: 0x008000, erasesize: 0x08000, numblocks:  1 },
+			{ offset: 0x010000, erasesize: 0x10000, numblocks: 15 }
+		}
+	}, {
+		mfr_id: MANUFACTURER_FUJITSU,
+		dev_id: MBM29DL640E,
+		name: "Fujitsu MBM29DL640E",
+		size: 0x00800000,
+		numeraseregions: 3,
+		regions: {
+			{ offset: 0x000000, erasesize: 0x10000, numblocks: 96 },
+			{ offset: 0x600000, erasesize: 0x10000, numblocks: 31 },
+			{ offset: 0x7f0000, erasesize: 0x02000, numblocks:  8 },
+		}
+	}, {
 		mfr_id: MANUFACTURER_ST,
 		dev_id: M29W800T,
 		name: "ST M29W800T",
@@ -636,6 +689,15 @@ static struct mtd_info *amd_flash_probe(struct map_info *map)
 		regions: {
 			{ offset: 0x000000, erasesize: 0x10000, numblocks: 31 },
 			{ offset: 0x1F0000, erasesize: 0x02000, numblocks:  8 }
+		}
+	}, {
+		mfr_id: MANUFACTURER_AMD,
+		dev_id: AM29LV640ML,
+		name: "AMD AM29LV640ML",
+		size: 0x00800000,
+		numeraseregions: 1,
+		regions: {
+			{ offset: 0x000000, erasesize: 0x10000, numblocks: 127 }
 		}
 	} 
 	};
@@ -818,7 +880,6 @@ retry:
 }
 
 
-
 static int amd_flash_read(struct mtd_info *mtd, loff_t from, size_t len,
 			  size_t *retlen, u_char *buf)
 {
@@ -872,7 +933,6 @@ static int amd_flash_read(struct mtd_info *mtd, loff_t from, size_t len,
 }
 
 
-
 static int write_one_word(struct map_info *map, struct flchip *chip,
 			  unsigned long adr, __u32 datum)
 {
@@ -881,7 +941,9 @@ static int write_one_word(struct map_info *map, struct flchip *chip,
 	DECLARE_WAITQUEUE(wait, current);
 	int ret = 0;
 	int times_left;
-
+#ifdef CONFIG_ARCH_KATANA
+	__u32 verify;
+#endif
 retry:
 	spin_lock_bh(chip->mutex);
 
@@ -920,6 +982,7 @@ retry:
 		}
 	}
 
+#ifndef CONFIG_ARCH_KATANA
 	if (!times_left) {
 		printk(KERN_WARNING "%s: write to 0x%lx timed out!\n",
 		       map->name, adr);
@@ -933,7 +996,26 @@ retry:
 			ret = -EIO;
 		}
 	}
+#else
+	if (!times_left) {
+		printk(KERN_WARNING "%s: write to 0x%lx timed out!\n",
+		       map->name, adr);
+		ret = -EIO;
+		goto end;
+	}
 
+	timeo = jiffies + (HZ * 20);
+	while ((verify = wide_read(map, adr)) != datum) {
+		if (time_after(jiffies, timeo)) {
+			printk(KERN_WARNING "%s: write to 0x%lx failed. "
+			       "datum = %x, verify = %x\n",
+			       map->name, adr, datum, verify);
+			ret = -EIO;
+			break;
+		}
+	}
+#endif
+end:
 	DISABLE_VPP(map);
 	chip->state = FL_READY;
 	wake_up(&chip->wq);
@@ -941,7 +1023,6 @@ retry:
 
 	return ret;
 }
-
 
 
 static int amd_flash_write(struct mtd_info *mtd, loff_t to , size_t len,
@@ -1072,12 +1153,12 @@ static int amd_flash_write(struct mtd_info *mtd, loff_t to , size_t len,
 }
 
 
-
 static inline int erase_one_block(struct map_info *map, struct flchip *chip,
 				  unsigned long adr, u_long size)
 {
 	unsigned long timeo = jiffies + HZ;
 	struct amd_flash_private *private = map->fldrv_priv;
+	unsigned int mask = 0xffffffff >> (32 - (map->buswidth * 8));
 	DECLARE_WAITQUEUE(wait, current);
 
 retry:
@@ -1114,7 +1195,8 @@ retry:
 	schedule_timeout(HZ);
 	spin_lock_bh(chip->mutex);
 	
-	while (flash_is_busy(map, adr, private->interleave)) {
+	while (flash_is_busy(map, adr, private->interleave) ||
+	       (wide_read(map, adr) != mask)) {
 
 		if (chip->state != FL_ERASING) {
 			/* Someone's suspended the erase. Sleep */
@@ -1167,7 +1249,6 @@ retry:
 		for (address = adr; address < (adr + size); address++) {
 			if ((verify = map->read8(map, address)) != 0xFF) {
 				error = 1;
-				break;
 			}
 		}
 		if (error) {
@@ -1367,15 +1448,21 @@ static void amd_flash_sync(struct mtd_info *mtd)
 
 static int amd_flash_suspend(struct mtd_info *mtd)
 {
+#if 0
 printk("amd_flash_suspend(): not implemented!\n");
 	return -EINVAL;
+#else
+	return 0;
+#endif
 }
 
 
 
 static void amd_flash_resume(struct mtd_info *mtd)
 {
+#if 0
 printk("amd_flash_resume(): not implemented!\n");
+#endif
 }
 
 

@@ -536,12 +536,6 @@ static void clear_entropy_store(struct entropy_store *r)
 	memset(r->pool, 0, r->poolinfo.POOLBYTES);
 }
 
-static void free_entropy_store(struct entropy_store *r)
-{
-	if (r->pool)
-		kfree(r->pool);
-	kfree(r);
-}
 
 /*
  * This function adds a byte into the entropy "pool".  It does not
@@ -715,6 +709,17 @@ static struct timer_rand_state mouse_timer_state;
 static struct timer_rand_state extract_timer_state;
 static struct timer_rand_state *irq_timer_state[NR_IRQS];
 static struct timer_rand_state *blkdev_timer_state[MAX_BLKDEV];
+
+/*
+ * This function adds entropy to the pool from an external source.
+ *
+ * This is normally used by other drivers who have some strong random
+ * number source (for example true random number generator hardware).
+ */
+void random_add_entropy(__u32 x, __u32 y)
+{
+	batch_entropy_store(x, y, 32);
+}
 
 /*
  * This function adds entropy to the entropy "pool" by using timing
@@ -1732,6 +1737,13 @@ static int min_read_thresh, max_read_thresh;
 static int min_write_thresh, max_write_thresh;
 static char sysctl_bootid[16];
 
+static void free_entropy_store(struct entropy_store *r)
+{
+	if (r->pool)
+		kfree(r->pool);
+	kfree(r);
+}
+
 /*
  * This function handles a request from the user to change the pool size 
  * of the primary entropy store.
@@ -2277,6 +2289,7 @@ __u32 check_tcp_syn_cookie(__u32 cookie, __u32 saddr, __u32 daddr, __u16 sport,
 
 
 
+EXPORT_SYMBOL(random_add_entropy);
 EXPORT_SYMBOL(add_keyboard_randomness);
 EXPORT_SYMBOL(add_mouse_randomness);
 EXPORT_SYMBOL(add_interrupt_randomness);
