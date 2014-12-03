@@ -12,6 +12,7 @@
  *
  * ChangeLog:
  *  28-Feb-2005 Sharp Corporation for Akita
+ *  05-Apr-2005 Sharp Corporation for Borzoi
  */
 #include <linux/module.h>
 #include <linux/mtd/nand.h>
@@ -36,7 +37,7 @@ struct nand_flash_dev nand_flash_ids[] = {
 	{"NAND 64MB 3,3V", 0x76, 26, 0x4000, 0}, // 64Mb 3,3V
 	{"NAND 64MB 3,3V",  0x36, 26, 0x4000, 0}, // 128Mb 3,3V
 	{"NAND 128MB 3,3V", 0x79, 27, 0x4000, 0}, // 128Mb 3,3V
-#if defined (CONFIG_ARCH_PXA_AKITA)
+#if defined (CONFIG_ARCH_PXA_AKITA) || defined (CONFIG_ARCH_PXA_BORZOI)
 	{"NAND 128MB 3,3V", 0xf1, 27, 0x20000, 0}, // 128Mb 3,3V
 #endif
 	{NULL,}

@@ -219,7 +219,6 @@ int get_remocon_raw(void)
 
 }
 
-#if defined(CONFIG_ARCH_PXA_AKITA)
 static DECLARE_WAIT_QUEUE_HEAD(rc_scan);
 static DECLARE_WAIT_QUEUE_HEAD(rc_enirq);
 static int remocon_scan_thread(void* unused)
@@ -230,7 +229,15 @@ static int remocon_scan_thread(void* unused)
   while(1) {
     interruptible_sleep_on(&rc_scan);
 
+#if defined(CONFIG_ARCH_PXA_SPITZ)
+#if defined(CONFIG_ARCH_PXA_AKITA)
     reset_port_ioexp(IOEXP_AKIN_PULLUP);
+#else
+    reset_scoop2_gpio(SCP2_AKIN_PULLUP);
+#endif
+#else
+    reset_scoop_gpio(SCP_AKIN_PULLUP);
+#endif
     //printk("akin is low\n");
 
     read_first = get_remocon_raw();
@@ -250,14 +257,21 @@ static int remocon_enable_irq_thread(void* unused)
   while(1) {
     interruptible_sleep_on(&rc_enirq);
 
+#if defined(CONFIG_ARCH_PXA_SPITZ)
+#if defined(CONFIG_ARCH_PXA_AKITA)
     set_port_ioexp(IOEXP_AKIN_PULLUP);
+#else
+    set_scoop2_gpio(SCP2_AKIN_PULLUP);
+#endif
+#else
+    set_scoop_gpio(SCP_AKIN_PULLUP);
+#endif
     //printk("akin is high\n");
 
     is_disabled_irq = 0;
     enable_irq(IRQ_GPIO_AK_INT);
   }
 }
-#endif
 
 
 static void remocon_interrupt(int irq, void *dev_id, struct pt_regs *regs)
@@ -283,22 +297,7 @@ static void remocon_interrupt(int irq, void *dev_id, struct pt_regs *regs)
 #endif
 	disable_irq(irq);
 	is_disabled_irq = 1;
-#if defined(CONFIG_ARCH_PXA_AKITA)
 	wake_up(&rc_scan);
-#else
-#if defined(CONFIG_ARCH_PXA_SPITZ)
-	reset_scoop2_gpio(SCP2_AKIN_PULLUP);
-#else
-	reset_scoop_gpio(SCP_AKIN_PULLUP);
-#endif
-	read_first = get_remocon_raw();
-	remocon_scan_state = 0;
-	remocon_noise_count = 0;
-	last_key = read_first;
-	remocon_timers.function = remocon_timer;
-	remocon_timers.expires = jiffies + RC_POLL_TIMER;
-	add_timer(&remocon_timers);
-#endif
 }
 
 static void remocon_timer(unsigned long dummy)
@@ -460,13 +459,6 @@ static void remocon_timer(unsigned long dummy)
 		is_suspend_timer = 0;
 #endif
 		remocon_scan_state = 8;
-#if defined(CONFIG_ARCH_PXA_SPITZ) 
-#if !defined(CONFIG_ARCH_PXA_AKITA)
-		set_scoop2_gpio(SCP2_AKIN_PULLUP);
-#endif
-#else
-		set_scoop_gpio(SCP_AKIN_PULLUP);
-#endif
 		is_irqen = 1;
 		break;
 	default:
@@ -475,12 +467,7 @@ static void remocon_timer(unsigned long dummy)
 	}
 
 	if( is_irqen ){
-#if defined(CONFIG_ARCH_PXA_AKITA)
 	  	wake_up(&rc_enirq);
-#else
-		is_disabled_irq = 0;
-		enable_irq(IRQ_GPIO_AK_INT);
-#endif
 	}else{
 		if( interval != 0 ){
 			remocon_timers.function = remocon_timer;
@@ -541,7 +528,7 @@ static int __init remocon_init(void)
 {
 #if defined(CONFIG_ARCH_PXA_SPITZ)
 #if defined(CONFIG_ARCH_PXA_AKITA)
-	printk("xxxx remote controller\n");
+	printk("akita remote controller\n");
 	set_port_ioexp(IOEXP_AKIN_PULLUP);
 	set_output_ioexp(IOEXP_AKIN_PULLUP);
 #else
@@ -569,13 +556,10 @@ static int __init remocon_init(void)
 #ifdef CONFIG_PM
 	remocon_pm_dev = pm_register(PM_SYS_DEV, 0, remocon_pm_callback);
 #endif
-
-#if defined(CONFIG_ARCH_PXA_AKITA)
 	kernel_thread(remocon_scan_thread, NULL, 
 		      CLONE_FS | CLONE_FILES | CLONE_SIGHAND | SIGCHLD);
 	kernel_thread(remocon_enable_irq_thread, NULL, 
 		      CLONE_FS | CLONE_FILES | CLONE_SIGHAND | SIGCHLD);
-#endif
 	return 0;
 }
 

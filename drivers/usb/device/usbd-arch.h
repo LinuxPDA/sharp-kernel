@@ -28,6 +28,7 @@
  *      28-Apr-2003 Sharp Corporation  modified ID
  *      26-Feb-2004 Lineo Solutions, Inc.  for Tosa
  *      28-Feb-2005 Sharp Corporation for Akita
+ *      05-Apr-2005 Sharp Corporation for Borzoi
  *
  */
 
@@ -462,6 +463,12 @@
 	#undef CONFIG_USBD_PRODUCT_NAME
 	#define CONFIG_USBD_PRODUCT_NAME	"SL-C1000"
 #endif
+
+#ifdef CONFIG_ARCH_PXA_BORZOI
+	#undef CONFIG_USBD_PRODUCT_NAME
+	#define CONFIG_USBD_PRODUCT_NAME	"SL-C3100"
+#endif
+
 	#undef CONFIG_USBD_NET_CDC
 	#undef CONFIG_USBD_NET_MDLM
 	#undef CONFIG_USBD_NET_SAFE

@@ -31,6 +31,7 @@
  *     01-Jun-2004 Lineo Solutions, Inc.  for Spitz
  *     26-Aug-2004 Sharp cancel write-protect at resume
  *     28-Feb-2005 Sharp Corporation for Akita
+ *     05-Apr-2005 Sharp Corporation for Borzoi
  */
 
 #include <linux/slab.h>
@@ -62,7 +63,7 @@
 #define FAILURECOUNTER_POS NAND_BADBLOCK_POS
 #endif
 
-#if defined (CONFIG_ARCH_PXA_AKITA)
+#if defined (CONFIG_ARCH_PXA_AKITA) || defined (CONFIG_ARCH_PXA_BORZOI)
 #define FAST_READ  
 #endif
 
@@ -83,7 +84,7 @@ static int (*orig_write_oob)(struct mtd_info*, loff_t, size_t, size_t*, const u_
 /*
  * out of band configuration for different filesystems
  */
-#if defined (CONFIG_ARCH_PXA_AKITA)
+#if defined (CONFIG_ARCH_PXA_AKITA) || defined (CONFIG_ARCH_PXA_BORZOI)
 static int oobconfigs[][24] = {
 	{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
 	{ NAND_JFFS2_OOB_ECCPOS0, NAND_JFFS2_OOB_ECCPOS1, NAND_JFFS2_OOB_ECCPOS2,
@@ -212,7 +213,7 @@ sharp_sl_nand_command_1(struct mtd_info* mtd,
      * Write out the command to the device.
      */
     if (command != NAND_CMD_SEQIN) {
-#if defined (CONFIG_ARCH_PXA_AKITA)
+#if defined (CONFIG_ARCH_PXA_AKITA) || defined (CONFIG_ARCH_PXA_BORZOI)
       if ((command == NAND_CMD_READOOB) || (command == NAND_CMD_READ0)) {
         writeb (NAND_CMD_READ0, NAND_IO_ADDR);
       }
@@ -223,7 +224,7 @@ sharp_sl_nand_command_1(struct mtd_info* mtd,
 #endif
     }
     else {
-#if defined (CONFIG_ARCH_PXA_AKITA)
+#if defined (CONFIG_ARCH_PXA_AKITA) || defined (CONFIG_ARCH_PXA_BORZOI)
         writeb (NAND_CMD_SEQIN, NAND_IO_ADDR);
 #else
 	if (mtd->oobblock == 256 && column >= 256) {
@@ -254,7 +255,7 @@ sharp_sl_nand_command_1(struct mtd_info* mtd,
 	this->hwcontrol (NAND_CTL_SETALE);
 
 	/* Serially input address */
-#if defined (CONFIG_ARCH_PXA_AKITA)
+#if defined (CONFIG_ARCH_PXA_AKITA) || defined (CONFIG_ARCH_PXA_BORZOI)
 	if (command == NAND_CMD_READOOB) {
 	    if (column >= 0 && column < 64) writeb (column, NAND_IO_ADDR);
 	    else writeb (0, NAND_IO_ADDR);
@@ -282,7 +283,7 @@ sharp_sl_nand_command_1(struct mtd_info* mtd,
 	/* Latch in address */
 	this->hwcontrol (NAND_CTL_CLRALE);
 
-#if defined (CONFIG_ARCH_PXA_AKITA)
+#if defined (CONFIG_ARCH_PXA_AKITA) || defined (CONFIG_ARCH_PXA_BORZOI)
 	if ((command == NAND_CMD_READOOB) || (command == NAND_CMD_READ0)) {
 	    /* Begin command latch cycle */
 	    this->hwcontrol (NAND_CTL_SETCLE);
@@ -397,7 +398,7 @@ sharp_sl_nand_read_page(struct mtd_info* mtd,
     int j = 0;
 
     START_MEASUREMENT(nand_read_page);
-#if defined (CONFIG_ARCH_PXA_AKITA)
+#if defined (CONFIG_ARCH_PXA_AKITA) || defined (CONFIG_ARCH_PXA_BORZOI)
     {
         int i,j;
 	for (i=0; i<8; i++) { 
@@ -666,7 +667,7 @@ sharp_sl_nand_read_ecc(struct mtd_info* mtd,
     ecc_failed = 0;
     ret = 0;
 
-#if !defined (CONFIG_ARCH_PXA_AKITA)
+#if !defined (CONFIG_ARCH_PXA_AKITA) && !defined (CONFIG_ARCH_PXA_BORZOI)
     /* Send the read command */
     if (this->cmdfunc (mtd, NAND_CMD_READ0, 0x00, page)) {
       	printk(KERN_WARNING "%s: Failed in NAND_CMD_READ0 command, page 0x%08x\n", __func__, page);
@@ -680,7 +681,7 @@ sharp_sl_nand_read_ecc(struct mtd_info* mtd,
 	int j;
 	int ecc_status;
 	int ecc_retry_counter = 0;
-#if defined (CONFIG_ARCH_PXA_AKITA)
+#if defined (CONFIG_ARCH_PXA_AKITA) || defined (CONFIG_ARCH_PXA_BORZOI)
 	u_char ecc_calc[24];
 	u_char ecc_code[24];
 #else
@@ -688,7 +689,7 @@ sharp_sl_nand_read_ecc(struct mtd_info* mtd,
 	u_char ecc_code[6];
 #endif
 
-#if defined (CONFIG_ARCH_PXA_AKITA)
+#if defined (CONFIG_ARCH_PXA_AKITA) || defined (CONFIG_ARCH_PXA_BORZOI)
 	/* Send the read command */
 	if (this->cmdfunc (mtd, NAND_CMD_READ0, 0x00, page)) {
 	  printk(KERN_WARNING "%s: Failed in NAND_CMD_READ0 command, page 0x%08x\n",
@@ -725,7 +726,7 @@ sharp_sl_nand_read_ecc(struct mtd_info* mtd,
       ecc_retry:
 	sharp_sl_nand_read_page(mtd, this, data_poi, oob_data, ecc_calc, ecc, end);
 
-#if defined (CONFIG_ARCH_PXA_AKITA)
+#if defined (CONFIG_ARCH_PXA_AKITA) || defined (CONFIG_ARCH_PXA_BORZOI)
 	/* Pick the ECC bytes out of the oob data */
 	for (j = 0; j < 24; j++)
 	    ecc_code[j] = oob_data[oob_config[j]];
@@ -744,7 +745,7 @@ sharp_sl_nand_read_ecc(struct mtd_info* mtd,
 	    goto nand_read_ecc_exit;
 	}
 
-#if defined (CONFIG_ARCH_PXA_AKITA)
+#if defined (CONFIG_ARCH_PXA_AKITA) || defined (CONFIG_ARCH_PXA_BORZOI)
 	/* correct data, if neccecary */
 	{
 	    int i;
@@ -1328,7 +1329,7 @@ sharp_sl_nand_init (void)
     }
 
 
-#if defined (CONFIG_ARCH_PXA_AKITA)
+#if defined (CONFIG_ARCH_PXA_AKITA) || defined (CONFIG_ARCH_PXA_BORZOI)
     if (this->eccmode == NAND_ECC_HW3_256 && sharp_sl_mtd->oobblock == 2048) {
 #else
     if (this->eccmode == NAND_ECC_HW3_256 && sharp_sl_mtd->oobblock == 512) {

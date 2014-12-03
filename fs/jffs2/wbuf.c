@@ -18,6 +18,7 @@
  *       into consideration
  *     17-Sep-2002 Lineo Japan, Inc.  add code for post-badblock 
  *     28-Feb-2005 Sharp Corporation for Akita
+ *     05-Apr-2005 Sharp Corporation for Borzoi
  *
  */
 
@@ -677,7 +678,7 @@ out:
 int jffs2_check_nand_cleanmarker (struct jffs2_sb_info *c, struct jffs2_eraseblock *jeb)
 {
 	struct jffs2_unknown_node n;
-#if defined (CONFIG_ARCH_PXA_AKITA)
+#if defined (CONFIG_ARCH_PXA_AKITA) || defined (CONFIG_ARCH_PXA_BORZOI)
 	unsigned char buf[32*4];
 #else
 	unsigned char buf[32];
@@ -792,7 +793,7 @@ int jffs2_write_nand_cleanmarker(struct jffs2_sb_info *c, struct jffs2_erasebloc
  */
 int jffs2_nand_read_failcnt(struct jffs2_sb_info *c, struct jffs2_eraseblock *jeb)
 {
-#if defined (CONFIG_ARCH_PXA_AKITA)
+#if defined (CONFIG_ARCH_PXA_AKITA) || defined (CONFIG_ARCH_PXA_BORZOI)
 	signed char buf[16*4];
 #else
 	signed char buf[16];

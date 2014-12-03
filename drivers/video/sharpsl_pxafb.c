@@ -966,8 +966,12 @@ static void sharpsl_pxafb_clear_screen(u32 mode,void *pfbuf)
   }else if(mode == LCD_SHARP_QVGA){
     numPix = 320*240;
   }
+#if 1
+    memset(pVram,0x0000,numPix*2);
+#else
   for(i=0;i<numPix;i++)
     pVram[i] = 0xffff;
+#endif
 }
 
 #define SHARPSL_PXA_VSYNC_TIMEOUT 30000 // timeout = 30[ms] > 16.8[ms]

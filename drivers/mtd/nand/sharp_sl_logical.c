@@ -16,6 +16,7 @@
  * Change Log
  *
  *  28-Feb-2005 Sharp Corporation for Akita
+ *  05-Apr-2005 Sharp Corporation for Borzoi
  */
 
 #include <linux/slab.h>
@@ -209,14 +210,14 @@ static void sharp_sl_nand_set_logical_no(u_int log_no, unsigned char *oob)
 
 static u_char sharp_sl_nand_is_ecc_ff(unsigned char *oob)
 {
-#if defined (CONFIG_ARCH_PXA_AKITA)
+#if defined (CONFIG_ARCH_PXA_AKITA) || defined (CONFIG_ARCH_PXA_BORZOI)
     unsigned char ecc[24];
     int i;
 #else
     unsigned char ecc0, ecc1, ecc2, ecc3, ecc6, ecc7;
 #endif
 
-#if defined (CONFIG_ARCH_PXA_AKITA)
+#if defined (CONFIG_ARCH_PXA_AKITA) || defined (CONFIG_ARCH_PXA_BORZOI)
     ecc[0] = sharp_sl_nand_round_block_status(oob[NAND_NOOB_ECCPOS0]);
     ecc[1] = sharp_sl_nand_round_block_status(oob[NAND_NOOB_ECCPOS1]);
     ecc[2] = sharp_sl_nand_round_block_status(oob[NAND_NOOB_ECCPOS2]);
@@ -328,7 +329,7 @@ static int sharp_sl_nand_init_logical(struct mtd_info *mtd, u_int32_t partition_
     loff_t block_adr;
     u_int log_no;
     int unusable = 0;
-#if defined (CONFIG_ARCH_PXA_AKITA)
+#if defined (CONFIG_ARCH_PXA_AKITA) || defined (CONFIG_ARCH_PXA_BORZOI)
     unsigned char oob[64];
 #else
     unsigned char oob[16];
@@ -343,7 +344,8 @@ static int sharp_sl_nand_init_logical(struct mtd_info *mtd, u_int32_t partition_
 	printk("Illegal partition size. (%x)\n", partition_size);
 	return -EINVAL;
     }
-#if defined (CONFIG_ARCH_PXA_AKITA)
+
+#if defined (CONFIG_ARCH_PXA_AKITA) || defined (CONFIG_ARCH_PXA_BORZOI)
     if(mtd->oobblock != 2048 || mtd->oobsize != 64){
 	printk("Unkknown oobblock/oobsize in sharp_sl_nand_logical_init()\n");
 	return -EINVAL;
@@ -368,7 +370,7 @@ static int sharp_sl_nand_init_logical(struct mtd_info *mtd, u_int32_t partition_
     logical->index = mtd->index;
     logical->phymax = (partition_size / mtd->erasesize);
 
-#if defined (CONFIG_ARCH_PXA_AKITA)
+#if defined (CONFIG_ARCH_PXA_AKITA) || defined (CONFIG_ARCH_PXA_BORZOI)
     logical->logmax = (logical->phymax > 4) ? (logical->phymax - 4) : 1;
 #else
     logical->logmax = (logical->phymax > 24) ? (logical->phymax - 24) : 1;
@@ -483,7 +485,8 @@ static int sharp_sl_nand_init_logical(struct mtd_info *mtd, u_int32_t partition_
 	    continue;
 	}
     }
-#if defined (CONFIG_ARCH_PXA_AKITA)
+
+#if defined (CONFIG_ARCH_PXA_AKITA) || defined (CONFIG_ARCH_PXA_BORZOI)
     if(unusable > 4){
 #else
     if(unusable > 24){
@@ -615,7 +618,8 @@ sharp_sl_nand_write_laddr(struct mtd_info* mtd,	// mtd is slave.
     u_char *block, *oobs;
     u_char *blockv, *oobv;
     int ret;
-#if defined (CONFIG_ARCH_PXA_AKITA)
+
+#if defined (CONFIG_ARCH_PXA_AKITA) || defined (CONFIG_ARCH_PXA_BORZOI)
     dma_addr_t	oobs_phys, oobv_phys;   
 #endif
 
@@ -661,7 +665,8 @@ sharp_sl_nand_write_laddr(struct mtd_info* mtd,	// mtd is slave.
 	block = buf;
     }
     else{
-#if defined (CONFIG_ARCH_PXA_AKITA)
+
+#if defined (CONFIG_ARCH_PXA_AKITA) || defined (CONFIG_ARCH_PXA_BORZOI)
 	oobs = consistent_alloc(GFP_KERNEL, mtd->oobsize * page_num + mtd->erasesize,&oobs_phys );
 #else
 	oobs = kmalloc(mtd->oobsize * page_num + mtd->erasesize, GFP_KERNEL);
@@ -675,14 +680,14 @@ sharp_sl_nand_write_laddr(struct mtd_info* mtd,	// mtd is slave.
     }
 
     // alloc buffer for verifying
-#if defined (CONFIG_ARCH_PXA_AKITA)
+#if defined (CONFIG_ARCH_PXA_AKITA) || defined (CONFIG_ARCH_PXA_BORZOI)
     oobv = consistent_alloc(GFP_KERNEL, mtd->oobsize + mtd->erasesize, &oobv_phys );
 #else
     oobv = kmalloc(mtd->oobsize + mtd->erasesize, GFP_KERNEL);
 #endif
     if(oobv == NULL){
 	printk("Unable to allocate for oobv.\n");
-#if defined (CONFIG_ARCH_PXA_AKITA)
+#if defined (CONFIG_ARCH_PXA_AKITA) || defined (CONFIG_ARCH_PXA_BORZOI)
 	if (is_all) kfree(oobs);
 	else consistent_free(oobs, mtd->oobsize * page_num + mtd->erasesize, oobs_phys );
 #else
@@ -705,7 +710,7 @@ sharp_sl_nand_write_laddr(struct mtd_info* mtd,	// mtd is slave.
 	    ret = (mtd->read)(mtd, block_adr_read, mtd->erasesize, &retlen, block);
 	    if(ret != 0){
 		printk("mtd->read failed in sharp_sl_nand_write_laddr()\n");
-#if defined (CONFIG_ARCH_PXA_AKITA)
+#if defined (CONFIG_ARCH_PXA_AKITA) || defined (CONFIG_ARCH_PXA_BORZOI)
 		consistent_free(oobv, mtd->oobsize + mtd->erasesize, oobv_phys );
 		if (is_all) kfree(oobs);
 		else consistent_free(oobs, mtd->oobsize * page_num + mtd->erasesize, oobs_phys );
@@ -717,7 +722,7 @@ sharp_sl_nand_write_laddr(struct mtd_info* mtd,	// mtd is slave.
 	    }
 	    if(mtd->erasesize != retlen){
 		printk("mtd->read cannot read full-size.\n");
-#if defined (CONFIG_ARCH_PXA_AKITA)
+#if defined (CONFIG_ARCH_PXA_AKITA) || defined (CONFIG_ARCH_PXA_BORZOI)
 		consistent_free(oobv, mtd->oobsize + mtd->erasesize, oobv_phys );
 		if (is_all) kfree(oobs);
 		else consistent_free(oobs, mtd->oobsize * page_num + mtd->erasesize,oobs_phys );
@@ -746,7 +751,7 @@ sharp_sl_nand_write_laddr(struct mtd_info* mtd,	// mtd is slave.
 	block_adr = block_no * mtd->erasesize;
 	if(block_no == (u_int)-1){
 	    printk("No usable block in sharp_sl_nand_write_laddr().\n");
-#if defined (CONFIG_ARCH_PXA_AKITA)
+#if defined (CONFIG_ARCH_PXA_AKITA) || defined (CONFIG_ARCH_PXA_BORZOI)
 	    consistent_free(oobv, mtd->oobsize + mtd->erasesize, oobv_phys );
 	    if (is_all) kfree(oobs);
 	    else consistent_free(oobs, mtd->oobsize * page_num + mtd->erasesize, oobs_phys );
@@ -839,7 +844,7 @@ sharp_sl_nand_write_laddr(struct mtd_info* mtd,	// mtd is slave.
 	ret = eraseproc(mtd, block_adr_read);
 	if(ret != 0){
 	    printk("Can not erase the old block. adr=(%x)\n", (u_int32_t)block_adr_read);
-#if defined (CONFIG_ARCH_PXA_AKITA)
+#if defined (CONFIG_ARCH_PXA_AKITA) || defined (CONFIG_ARCH_PXA_BORZOI)
 	    consistent_free(oobv, mtd->oobsize + mtd->erasesize, oobv_phys );
 	    if (is_all) kfree(oobs);
 	    else consistent_free(oobs, mtd->oobsize * page_num + mtd->erasesize, oobs_phys );
@@ -850,7 +855,7 @@ sharp_sl_nand_write_laddr(struct mtd_info* mtd,	// mtd is slave.
 	    return ret;
 	}
     }
-#if defined (CONFIG_ARCH_PXA_AKITA)
+#if defined (CONFIG_ARCH_PXA_AKITA) || defined (CONFIG_ARCH_PXA_BORZOI)
     consistent_free(oobv, mtd->oobsize + mtd->erasesize, oobv_phys );
     if (is_all) kfree(oobs);
     else consistent_free(oobs, mtd->oobsize * page_num + mtd->erasesize,oobs_phys );

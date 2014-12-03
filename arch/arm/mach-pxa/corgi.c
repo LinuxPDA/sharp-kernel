@@ -23,6 +23,7 @@
  *  01-Apr-2003 Sharp for Shepherd
  *  29-Sep-2004 Lineo Solutions, Inc.  for Spitz
  *  28-Feb-2005 Sharp Corporation for Akita
+ *  05-Apr-2005 Sharp Corporation for Borzoi
  *
  */
 #include <linux/init.h>
@@ -565,7 +566,9 @@ static void __init corgi_map_io(void)
 	PCFR |= PCFR_OPDE;
 }
 
-#if defined(CONFIG_ARCH_PXA_AKITA)
+#if defined(CONFIG_ARCH_PXA_BORZOI)
+MACHINE_START(CORGI, "SHARP Borzoi")
+#elif defined(CONFIG_ARCH_PXA_AKITA)
 MACHINE_START(CORGI, "SHARP Akita")
 #elif defined(CONFIG_ARCH_PXA_SPITZ)
 MACHINE_START(CORGI, "SHARP Spitz")

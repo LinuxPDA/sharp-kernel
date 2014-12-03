@@ -53,6 +53,7 @@
  *     17-Sep-2002 Lineo Japan, Inc.  add NAND_POSTBADBLOCK_POS
  *
  *     28-Feb-2005 Sharp Corporation for Akita
+ *     05-Apr-2005 Sharp Corporation for Borzoi
  */
 #ifndef __LINUX_MTD_NAND_H
 #define __LINUX_MTD_NAND_H
@@ -88,7 +89,7 @@ extern int nand_scan (struct mtd_info *mtd);
 #define NAND_CMD_READID		0x90
 #define NAND_CMD_ERASE2		0xd0
 #define NAND_CMD_RESET		0xff
-#if defined (CONFIG_ARCH_PXA_AKITA)
+#if defined (CONFIG_ARCH_PXA_AKITA) || defined (CONFIG_ARCH_PXA_BORZOI)
 #define NAND_CMD_READ30		0x30
 #endif
 
@@ -252,7 +253,7 @@ extern struct nand_manufacturers nand_manuf_ids[];
 * Constants for oob configuration
 */
 #ifndef CONFIG_MTD_NAND_KATANA
-#if defined (CONFIG_ARCH_PXA_AKITA)
+#if defined (CONFIG_ARCH_PXA_AKITA) || defined (CONFIG_ARCH_PXA_BORZOI)
 # define NAND_BADBLOCK_POS		0
 #else 
 # define NAND_BADBLOCK_POS		5
@@ -275,7 +276,7 @@ extern struct nand_manufacturers nand_manuf_ids[];
 #define NAND_JFFS2_OOB			1
 #define NAND_YAFFS_OOB			2
 
-#if defined (CONFIG_ARCH_PXA_AKITA)
+#if defined (CONFIG_ARCH_PXA_AKITA) || defined (CONFIG_ARCH_PXA_BORZOI)
 #define NAND_NOOB_ECCPOS0		5
 #define NAND_NOOB_ECCPOS1		1
 #define NAND_NOOB_ECCPOS2		2
