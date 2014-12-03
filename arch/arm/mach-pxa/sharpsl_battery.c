@@ -373,7 +373,11 @@ static struct miscdevice battery_device = {
 
 
 int charge_status = 0;			/* charge status  1 : charge  0: not charge */
+#if defined(CONFIG_ARCH_PXA_SHEPHERD) && !defined(CONFIG_ARCH_SHARP_SL_J)
+int sharpsl_off_charge = 1;		/* 0: on , 1 : off */
+#else
 int sharpsl_off_charge = 0;		/* 0: on , 1 : off */
+#endif
 
 unsigned int APOCnt = SHARPSL_APO_DEFAULT;
 unsigned int APOCntWk = 0;
@@ -611,7 +615,7 @@ static int sharpsl_battery_thread(void* unused)
 	while(1) {
 		interruptible_sleep_on_timeout((wait_queue_head_t*)&battery_queue, sharpsl_check_time );
 
-#if !defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_SHARP_SL_J)
+#if (!defined(CONFIG_ARCH_PXA_POODLE) && !defined(CONFIG_ARCH_PXA_SHEPHERD)) || defined(CONFIG_ARCH_SHARP_SL_J)
 		// AC adapter is inserted , but charging not start.
 		// SW can not confirm inserted AC adapter, so kick !
 		if ( ( charge_status == 0 ) && ( sharpsl_ac_status == APM_AC_ONLINE )) {
@@ -644,7 +648,9 @@ static int sharpsl_battery_thread(void* unused)
 void sharpsl_charge_start(void)
 {
 #if !defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_SHARP_SL_J)
+#if !defined(CONFIG_ARCH_PXA_SHEPHERD) || defined(CONFIG_ARCH_SHARP_SL_J)
 		sharpsl_charge_on_time = jiffies;
+#endif
 #endif
 
 		if ( sharpsl_check_battery(1) ) {
@@ -654,7 +660,9 @@ void sharpsl_charge_start(void)
 		  /* charge status flag reset */
 		  charge_status = 0;
 #if !defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_SHARP_SL_J)
+#if !defined(CONFIG_ARCH_PXA_SHEPHERD) || defined(CONFIG_ARCH_SHARP_SL_J)
 		  sharpsl_charge_on_time = 0;
+#endif
 #endif
 		} else {
 		  /* led on */
@@ -725,7 +733,9 @@ static int sharpsl_charge_off(void* unused)
 		DPRINTK("charge off mode = %d\n",charge_off_mode);
 
 #if !defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_SHARP_SL_J)
+#if !defined(CONFIG_ARCH_PXA_SHEPHERD) || defined(CONFIG_ARCH_SHARP_SL_J)
 		sharpsl_charge_on_time = 0;
+#endif
 #endif
 
 		/* Charge OFF */
@@ -799,7 +809,7 @@ static void Sharpsl_ac_interrupt(int irq, void *dummy, struct pt_regs *fp)
 
 static void Sharpsl_co_interrupt(int irq, void *dummy, struct pt_regs *fp)
 {
-#if defined(CONFIG_ARCH_PXA_POODLE) && !defined(CONFIG_ARCH_SHARP_SL_J)
+#if (defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_SHEPHERD)) && !defined(CONFIG_ARCH_SHARP_SL_J)
   // SL-5600
 
   if ((GPLR(GPIO_AC_IN) & GPIO_bit(GPIO_AC_IN))==0) {
@@ -1307,7 +1317,7 @@ static int Sharpsl_battery_pm_callback(struct pm_dev *pm_dev, pm_request_t req, 
 
 	  sharpsl_charge_state = CHARGE_STEP1;
 	  battery_off_flag = 1;
-#if !defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_SHARP_SL_J)
+#if (!defined(CONFIG_ARCH_PXA_POODLE) && !defined(CONFIG_ARCH_PXA_SHEPHERD)) || defined(CONFIG_ARCH_SHARP_SL_J)
 	  /* Charge OFF */
 	  CHARGE_OFF();
 	  CHARGE_LED_OFF();
@@ -1783,7 +1793,7 @@ void battery_init(void)
 
 	/* Set transition detect */
 	set_GPIO_IRQ_edge( GPIO_AC_IN  , GPIO_BOTH_EDGES ); /* AC IN */
-#if defined(CONFIG_ARCH_PXA_POODLE) && !defined(CONFIG_ARCH_SHARP_SL_J)
+#if (defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_SHEPHERD)) && !defined(CONFIG_ARCH_SHARP_SL_J)
 	set_GPIO_IRQ_edge( GPIO_CO     , GPIO_RISING_EDGE ); /* CHRG FULL */
 #endif
 
@@ -1795,7 +1805,7 @@ void battery_init(void)
 	}
 
 
-#if defined(CONFIG_ARCH_PXA_POODLE) && !defined(CONFIG_ARCH_SHARP_SL_J)
+#if (defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_SHEPHERD)) && !defined(CONFIG_ARCH_SHARP_SL_J)
 	/* Register interrupt handler. */
 	if ((err = request_irq(IRQ_GPIO_CO, Sharpsl_co_interrupt, SA_INTERRUPT,
 			 "CO", Sharpsl_co_interrupt))) {
@@ -1931,7 +1941,7 @@ int __init Sharpsl_battery_init(void)
 	proc_batt = proc_mkdir("driver/battery", NULL);
 	if (proc_batt == NULL) {
 	  free_irq(IRQ_GPIO_AC_IN, Sharpsl_ac_interrupt);
-#if defined(CONFIG_ARCH_PXA_POODLE) && !defined(CONFIG_ARCH_SHARP_SL_J)
+#if (defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_SHEPHERD)) && !defined(CONFIG_ARCH_SHARP_SL_J)
 	  free_irq(IRQ_GPIO_CO, Sharpsl_co_interrupt);
 #endif
 	  misc_deregister(&battery_device);
@@ -1954,7 +1964,7 @@ int __init Sharpsl_battery_init(void)
 			remove_proc_entry("driver/battery", &proc_root);
 			proc_batt = 0;
 			free_irq(IRQ_GPIO_AC_IN, Sharpsl_ac_interrupt);
-#if defined(CONFIG_ARCH_PXA_POODLE) && !defined(CONFIG_ARCH_SHARP_SL_J)
+#if (defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_SHEPHERD)) && !defined(CONFIG_ARCH_SHARP_SL_J)
 			free_irq(IRQ_GPIO_CO, Sharpsl_co_interrupt);
 #endif
 			misc_deregister(&battery_device);
@@ -1983,7 +1993,7 @@ int init_module(void)
 void cleanup_module(void)
 {
 	free_irq(IRQ_GPIO_AC_IN, Sharpsl_ac_interrupt);
-#if defined(CONFIG_ARCH_PXA_POODLE) && !defined(CONFIG_ARCH_SHARP_SL_J)
+#if (defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_SHEPHERD)) && !defined(CONFIG_ARCH_SHARP_SL_J)
 	free_irq(IRQ_GPIO_CO, Sharpsl_co_interrupt);
 #endif
 

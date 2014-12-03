@@ -34,6 +34,7 @@
  *      12-Dec-2002 Sharp Corporation for Poodle and Corgi
  *	16-Jan-2003 SHARP sleep_on -> interruptible_sleep_on
  *	09-Apr-2003 SHARP for Shaphard (software reset)
+ *	October-2003 SHARP for boxer
  *
  */
 
@@ -738,7 +739,12 @@ DO_SUSPEND:
 		/* GPIO Sleep Register */
 		PGSR2 = (PGSR2 & ~GPIO_ALL_STROBE_BIT) | GPIO_STROBE_BIT(0);
 
+//#if defined(CONFIG_ARCH_PXA_SHEPHERD) && !defined(CONFIG_ARCH_SHARP_SL_J)
+#if (defined(CONFIG_ARCH_PXA_SHEPHERD) && !defined(CONFIG_ARCH_SHARP_SL_J)) || defined(CONFIG_ARCH_PXA_BOXER)
+		GPDR0 = 0xD3F83040; /* GPIO15 input mode */
+#else
 		GPDR0 = 0xD3F8B040;
+#endif
 		GPDR1 = 0x00FFAFC3;
 		GPDR2 = 0x0001C004;
 #endif
@@ -901,10 +907,12 @@ DO_SUSPEND:
 #endif
 	cccr_reg = CCCR;
 	printk("FCS : CCCR = %x\n",cccr_reg);
-
+#if defined(CONFIG_ARCH_PXA_SHEPHERD) && !defined(CONFIG_ARCH_SHARP_SL_J)
+	sharpsl_off_charge = 1;
+#else
 	sharpsl_off_charge = 0;
 #endif
-
+#endif
 
 #if 1 // ensure that OS Timer irq occurs
     OSMR0 = sys_ctx.oscr + LATCH;
@@ -1157,7 +1165,11 @@ DO_SUSPEND:
 		/* GPIO Sleep Register */
 		PGSR2 = (PGSR2 & ~GPIO_ALL_STROBE_BIT) | GPIO_STROBE_BIT(0);
 
+#if defined(CONFIG_ARCH_PXA_SHEPHERD) && !defined(CONFIG_ARCH_SHARP_SL_J)
+		GPDR0 = 0xD3F83040; /* GPIO15 input mode */
+#else
 		GPDR0 = 0xD3F8B040;
+#endif
 		GPDR1 = 0x00FFAFC3;
 		GPDR2 = 0x0001C004;
 #endif

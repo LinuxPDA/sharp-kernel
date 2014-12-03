@@ -21,6 +21,10 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  *
+ * Change Log
+ *      28-Nov-2003 Lineo Solutions, Inc.   Add module parameter. 'shortpacket'
+ *                                          and 'recvpacket'.
+ *
  */
 
 
@@ -82,6 +86,15 @@ USBD_MODULE_INFO ("pxa_bi 0.1-alpha");
 #include "usbd-bi.h"
 
 #include "pxa.h"
+
+
+#if 1   /* kabata add start 2003/10/08 */
+static int  shortpacket = 0;
+MODULE_PARM(shortpacket, "i");
+
+static int  recvpacket = 5;
+MODULE_PARM(recvpacket, "i");
+#endif  /* kabata add end   2003/10/08 */
 
 
 #undef USE_DMA_OUT
@@ -471,6 +484,11 @@ static void pxa_out_flush(int ep) {
 static __inline__ void pxa_out_n(int ep, struct usb_endpoint_instance *endpoint)
 {
         if (UDCCSN(ep) & UDCCS_BO_RPC) {
+#if 1   /* kabata add start 2003/10/08 */
+                // clear RPC and interrupt
+                UDCCSN(ep) = UDCCS_BO_RPC;
+                pxa_ep_reset_irs(ep);
+#endif  /* kabata add end   2003/10/08 */
 
                 if (endpoint) {
                         if (!endpoint->rcv_urb) {
@@ -501,9 +519,16 @@ static __inline__ void pxa_out_n(int ep, struct usb_endpoint_instance *endpoint)
                         }
                 }
         }
+#if 1   /* kabata chg start 2003/10/08 */
+        else {
+                // clear interrupt
+                pxa_ep_reset_irs(ep);
+        }
+#else
         // clear RPC and interrupt
         UDCCSN(ep) = UDCCS_BO_RPC;
         pxa_ep_reset_irs(ep);
+#endif  /* kabata chg end   2003/10/08 */
 }
 #else /* !defined(USE_DMA_OUT) */
 
@@ -581,8 +606,13 @@ static void __inline__ pxa_start_n (unsigned int ep, struct usb_endpoint_instanc
                                 UDDRN(ep) = *cp++;
                         }
 
+#if 0   /* kabata chg start 2003/10/08 */
                         if (( last < endpoint->tx_packetSize ) ||
                                         ( (endpoint->tx_urb->actual_length - endpoint->sent ) == last )) 
+#else
+                        if (( last < endpoint->tx_packetSize ) ||
+                            ( shortpacket == 0 && (endpoint->tx_urb->actual_length - endpoint->sent ) == last )) 
+#endif  /* kabata chg end   2003/10/08 */
                         {
                                 UDCCSN(ep) = UDCCS_BI_TSP;
                         }
@@ -1165,7 +1195,11 @@ void udc_setup_ep (struct usb_device_instance *device, unsigned int ep,
 		else if (endpoint->endpoint_address) {
 
 
+#if 0   /* kabata chg start 2003/10/08 */
 			usbd_fill_rcv (device, endpoint, 5);
+#else
+			usbd_fill_rcv (device, endpoint, recvpacket);
+#endif  /* kabata chg end   2003/10/08 */
 			endpoint->rcv_urb = first_urb_detached (&endpoint->rdy);
 #ifdef USE_DMA_OUT
                         //printk(KERN_INFO"udc_setup_ep: OUT alloc urbs ep: %d addr: %d num: %d size: %d dma_ch: %d\n",

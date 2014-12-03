@@ -20,6 +20,7 @@ subdir- 	:=
 
 subdir-$(CONFIG_USBD_NET) += net_fd
 subdir-$(CONFIG_USBD_SERIAL) += serial_fd
+subdir-$(CONFIG_USBD_STORAGE) += storage_fd
 
 #subdir-$(CONFIG_USBD_GENERIC_BUS) += gen_bi
 #subdir-$(CONFIG_USBD_L7205_BUS) += l7205_bi
