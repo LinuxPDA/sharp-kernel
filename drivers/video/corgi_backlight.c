@@ -33,6 +33,7 @@
  *   01-Apr-2003 Sharp   for SL-C750
  *   20-Aug-2004 Lineo Solutions, Inc.  for Spitz
  *   08-Sep-2004 Sharp Corporation for Spitz
+ *   28-Feb-2005 Sharp Corporation for Akita
  */
 
 #include <linux/config.h>
@@ -132,8 +133,31 @@ static duty_vr_t corgibl_duty_table[CORGI_LIGHT_SETTING] = {
 
 #if defined(CONFIG_ARCH_PXA_SPITZ)
 #define SetBacklightDuty(a)	ssp_put_dac_val(0x40 | ((a) & 0x1f), CS_LZ9JG18);
+#if defined(CONFIG_ARCH_PXA_AKITA)
+static void SetBacklightVR(int a)
+{
+  unsigned char now = get_port_ioexp() & IOEXP_BACKLIGHT_CONT;
+
+  if (a) {
+    if (now != 0) reset_port_ioexp(IOEXP_BACKLIGHT_CONT);
+  } else {
+    if (now == 0) set_port_ioexp(IOEXP_BACKLIGHT_CONT);
+  }
+}
+static void SetBacklightOn(int a)
+{
+  unsigned char now = get_port_ioexp() & IOEXP_BACKLIGHT_ON;
+  
+  if (a) {
+    if (now == 0) set_port_ioexp(IOEXP_BACKLIGHT_ON);
+  } else {
+    if (now != 0) reset_port_ioexp(IOEXP_BACKLIGHT_ON);
+  }
+}
+#else
 #define SetBacklightVR(a)	if (a) {reset_scoop2_gpio(SCP2_BACKLIGHT_CONT);} else {set_scoop2_gpio(SCP2_BACKLIGHT_CONT);}
 #define SetBacklightOn(a)	if (a) {set_scoop2_gpio(SCP2_BACKLIGHT_ON);} else {reset_scoop2_gpio(SCP2_BACKLIGHT_ON);}
+#endif
 #else
 #define SetBacklightDuty(a)	ssp_put_dac_val(0x40 | ((a) & 0x1f), CS_LZ9JG18);
 #define SetBacklightVR(a)	if (a) {set_scoop_gpio(SCP_BACKLIGHT_CONT);} else {reset_scoop_gpio(SCP_BACKLIGHT_CONT);}

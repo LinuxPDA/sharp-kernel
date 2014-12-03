@@ -39,6 +39,7 @@
  *      28-Nov-2003 Sharp Corporation for Tosa
  *      26-Feb-2004 Lineo Solutions, Inc.  for Tosa
  *      20-Aug-2004 Sharp Corporation for Spitz
+ *      28-Feb-2005 Sharp Corporation for Akita
  *
  */
 
@@ -101,8 +102,11 @@ static struct {
 
 	/* Scoop registers */
         u32 scp_gpwr;
+#if defined(CONFIG_ARCH_PXA_AKITA)
+        u8 ioexp_port;
+#else
         u32 scp2_gpwr;
-
+#endif
         u16 pstsa,pstsb,pstsc,pstsd;
 } sys_ctx;
 
@@ -224,10 +228,12 @@ static void sharpsl_check_scoop_reg(void)
        printk("SCP[MCR] = %x->101\n",SCP_REG_MCR);
        SCP_REG_MCR = 0x0101;
      }
+#if !defined(CONFIG_ARCH_PXA_AKITA)
      if((SCP2_REG_MCR & 0x100) == 0){
        printk("SCP2[MCR] = %x->101\n",SCP2_REG_MCR);
        SCP2_REG_MCR = 0x0101;
      }
+#endif
 }
 
 #if defined(PXA27X_SUSPEND)
@@ -539,6 +545,15 @@ DO_SUSPEND:
 
 	wakeup_ready_to_suspend();
 
+#if defined(CONFIG_ARCH_PXA_AKITA)
+	sys_ctx.ioexp_port = get_port_ioexp();
+	reset_port_ioexp(IOEXP_RESERVED_0 | IOEXP_RESERVED_1 | 
+			 IOEXP_RESERVED_7 | IOEXP_BACKLIGHT_CONT | 
+			 IOEXP_BACKLIGHT_ON | IOEXP_MIC_BIAS);
+	set_port_ioexp(IOEXP_IR_ON);
+	set_output_ioexp(IOEXP_ALL);
+#endif
+
 #if defined(PXA27X_SUSPEND)
 	cpu_xscale_runmode();
 	cpu_xscale_sl_disable_fastbus_mode();
@@ -571,11 +586,13 @@ DO_SUSPEND:
 	/* SCP2_BACKLIGHT_CONT(PA17) Low  */
 	/* SCP2_BACKLIGHT_ON(PA18)   Low  */
 	/* SCP2_MIC_BIAS(PA19)       Low  */
+#if !defined(CONFIG_ARCH_PXA_AKITA)
 	sys_ctx.scp2_gpwr = SCP2_REG_GPWR;
 	SCP2_REG_GPWR &= ~(SCP2_RESERVED_2 | SCP2_RESERVED_3 | 
 			   SCP2_RESERVED_4 | SCP2_BACKLIGHT_CONT |
 			   SCP2_BACKLIGHT_ON | SCP2_MIC_BIAS);
 	SCP2_REG_GPWR |= (SCP2_IR_ON | SCP2_RESERVED_1);
+#endif
 
 	DPRINTK("PWER - %08x\n",PWER);
 	DPRINTK("PRER - %08x\n",PRER);
@@ -657,8 +674,13 @@ DO_SUSPEND:
 	/* GPIO Sleep Register */
 	PGSR0 = 0x00144018;
 	PGSR1 = 0x00EF0000;
+#if defined(CONFIG_ARCH_PXA_AKITA)
+	PGSR2 = 0x2121C000;
+	PGSR3 = 0x00600400;
+#else
 	PGSR2 = 0x0121C000;
 	PGSR3 = 0x00600000;
+#endif
 	PGSR0 &= ~GPIO_G0_STROBE_BIT;
 	PGSR1 &= ~GPIO_G1_STROBE_BIT;
 	PGSR2 &= ~GPIO_G2_STROBE_BIT;
@@ -669,8 +691,13 @@ DO_SUSPEND:
 	set_GPIO_mode(GPIO18_RDY|GPIO_OUT);
 	GPDR0 = 0xD01C4418;
 	GPDR1 = 0xFCEFBD21;
+#if defined(CONFIG_ARCH_PXA_AKITA)
+	GPDR2 = 0x33A5FFFF;
+	GPDR3 = 0x01E3E50C;
+#else
 	GPDR2 = 0x13A5FFFF;
 	GPDR3 = 0x01E3E10C;
+#endif
 
 	/* set resume return address */
 #ifdef CONFIG_XIP_ROM
@@ -760,7 +787,9 @@ DO_SUSPEND:
 	sharpsl_check_scoop_reg();
 
 	SCP_REG_GPWR = sys_ctx.scp_gpwr;
+#if !defined(CONFIG_ARCH_PXA_AKITA)
 	SCP2_REG_GPWR = sys_ctx.scp2_gpwr;
+#endif
 
 #if defined(PXA27X_SUSPEND)
 	cpu_xscale_voltage_high();
@@ -768,6 +797,13 @@ DO_SUSPEND:
 	udelay(1);
 	cpu_xscale_sl_enable_fastbus_mode();
 	/* cpu_xscale_turbomode(); */
+#endif
+
+#if defined(CONFIG_ARCH_PXA_AKITA)
+        i2c_init();
+	set_port_ioexp(sys_ctx.ioexp_port);
+	reset_port_ioexp(~sys_ctx.ioexp_port);
+	set_output_ioexp(IOEXP_ALL);
 #endif
 
 	pxa_ssp_init();

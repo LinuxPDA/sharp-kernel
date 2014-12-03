@@ -79,6 +79,7 @@
  *	31-Jul-2002 Lineo Japan, Inc.  for ARCH_PXA
  *      12-Dec-2002 Sharp Corporation  for Poodle and Corgi
  *      26-Feb-2004 Lineo Solutions, Inc.  for Tosa
+ *      20-Dec-2004 Sharp Corporation  for Spitz
  */
 
 static char *serial_version = "5.05c";
@@ -355,6 +356,10 @@ static void rs_wait_until_sent(struct tty_struct *tty, int timeout);
 static void voyagergx_uart_init(void);
 #endif
 
+#if defined(CONFIG_ARCH_PXA_SPITZ)
+extern int sharpsl_serial_out_wait;
+#endif
+
 /*
  * Here we define the default xmit fifo size used for each type of
  * UART
@@ -547,6 +552,9 @@ static _INLINE_ void serial_out(struct async_struct *info, int offset,
 	default:
 		outb(value, info->port+offset);
 	}
+#if defined(CONFIG_ARCH_PXA_SPITZ)
+	if (sharpsl_serial_out_wait) udelay(1);
+#endif
 }
 #endif
 
@@ -818,7 +826,7 @@ static _INLINE_ void transmit_chars(struct async_struct *info, int *intr_done)
 		if (info->xmit.head == info->xmit.tail)
 			break;
 	} while (--count > 0);
-	
+
 	if (CIRC_CNT(info->xmit.head,
 		     info->xmit.tail,
 		     SERIAL_XMIT_SIZE) < WAKEUP_CHARS)

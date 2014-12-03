@@ -22,6 +22,7 @@
  *  12-Dec-2002 Sharp Corporation for Corgi
  *  01-Apr-2003 Sharp for Shepherd
  *  29-Sep-2004 Lineo Solutions, Inc.  for Spitz
+ *  28-Feb-2005 Sharp Corporation for Akita
  *
  */
 #include <linux/init.h>
@@ -55,6 +56,7 @@ extern void sharpsl_charge_start(void);
 extern unsigned short chkFatalBatt(void);
 extern int pxa_suspend(void);
 extern void pxa_ssp_init(void);
+extern void sharpsl_get_param(void);
 
 static void __init scoop_init(void)
 {
@@ -112,8 +114,135 @@ unsigned short reset_scoop_gpio(unsigned short bit)
 	return gpio_bit;
 }
 
-#if defined(CONFIG_ARCH_PXA_SPITZ)
+#if defined(CONFIG_ARCH_PXA_AKITA)
+#include <asm/arch/poodle_i2sc.h>
 
+static unsigned char ioexp_output_value = 0;
+static unsigned char ioexp_config_value = IOEXP_ALL;
+
+/*
+ I/O-0
+ I/O-1
+ I/O-2 PA19 MICON
+ I/O-3 PA18 BL_ON
+ I/O-4 PA17 BLCONT
+ I/O-5 PA12 AKENB
+ I/O-6 PA11 IR_ON_B
+ I/O-7
+*/
+#define I2C_OPEN_WAIT 10
+static int i2c_open_retry(unsigned char address)
+{
+  int err = 0,cnt = 0;
+  int start_time;
+
+  if ( in_interrupt() ) {
+    err = i2c_open( address );
+    printk("%s: call from interrupt!(%d)\n",__func__,err);
+    return err;
+  }
+
+  while(1) {
+    err = i2c_open( address );
+    if ( !err ) break;
+    start_time = jiffies;
+    printk("%s: schedule!\n",__func__);
+    while (1) {
+      schedule();
+      if ( start_time - jiffies > 2 ) break;
+    }
+    cnt++;
+    if ( cnt > I2C_OPEN_WAIT ) {
+      printk("%s: schedule timeout(%d)!\n",__func__,err);
+      return err;
+    }
+  }
+  //printk("%s: success(%d)!\n",__func__,err);
+  return err;
+}
+
+static void __init ioexp_init(void)
+{
+  ioexp_output_value = IOEXP_IO_OUT;
+  ioexp_config_value = IOEXP_IO_DIR;
+
+  i2c_open( IOEXP_DEVICE_ADR );
+  i2c_byte_write( IOEXP_DEVICE_ADR, IOEXP_POLINV_REG_ADR, 0 );
+  i2c_byte_write( IOEXP_DEVICE_ADR, IOEXP_OUTPUT_REG_ADR, ioexp_output_value );
+  i2c_byte_write( IOEXP_DEVICE_ADR, IOEXP_CONFIG_REG_ADR, ioexp_config_value );
+  i2c_close( IOEXP_DEVICE_ADR );
+}
+
+unsigned char set_port_ioexp(unsigned char bit)
+{
+  if(i2c_open_retry( IOEXP_DEVICE_ADR )){
+    printk("%s: i2c open error!\n",__func__);
+    return ioexp_output_value;
+  }
+
+  ioexp_output_value |= bit;
+  if(i2c_byte_write( IOEXP_DEVICE_ADR, 
+		     IOEXP_OUTPUT_REG_ADR, ioexp_output_value))
+    printk("%s: i2c write error!\n",__func__);
+
+  i2c_close( IOEXP_DEVICE_ADR );
+  return ioexp_output_value;
+}
+
+unsigned char reset_port_ioexp(unsigned char bit)
+{
+  if(i2c_open_retry( IOEXP_DEVICE_ADR )){
+    printk("%s: i2c open error!\n",__func__);
+    return ioexp_output_value;
+  }
+
+  ioexp_output_value &= ~bit;
+  if(i2c_byte_write( IOEXP_DEVICE_ADR, 
+		     IOEXP_OUTPUT_REG_ADR, ioexp_output_value))
+    printk("%s: i2c write error!\n",__func__);
+
+  i2c_close( IOEXP_DEVICE_ADR );
+  return ioexp_output_value;
+}
+
+unsigned char get_port_ioexp(void)
+{
+  return ioexp_output_value;
+}
+
+unsigned char set_input_ioexp(unsigned char bit)
+{
+  if(i2c_open_retry( IOEXP_DEVICE_ADR )){
+    printk("%s: i2c open error!\n",__func__);
+    return ioexp_config_value;
+  }
+
+  ioexp_config_value |= bit;
+  if(i2c_byte_write( IOEXP_DEVICE_ADR, 
+		     IOEXP_CONFIG_REG_ADR, ioexp_config_value))
+    printk("%s: i2c write error!\n",__func__);
+
+  i2c_close( IOEXP_DEVICE_ADR );
+  return ioexp_config_value;
+}
+
+unsigned char set_output_ioexp(unsigned char bit)
+{
+  if(i2c_open_retry( IOEXP_DEVICE_ADR )){
+    printk("%s: i2c open error!\n",__func__);
+    return ioexp_config_value;
+  }
+
+  ioexp_config_value &= ~bit;
+  if(i2c_byte_write( IOEXP_DEVICE_ADR, 
+		     IOEXP_CONFIG_REG_ADR, ioexp_config_value))
+    printk("%s: i2c write error!\n",__func__);
+
+  i2c_close( IOEXP_DEVICE_ADR );
+  return ioexp_config_value;
+}
+
+#elif defined(CONFIG_ARCH_PXA_SPITZ)
 static void __init scoop2_init(void)
 {
   static const unsigned long scp2_init[] =
@@ -263,12 +392,30 @@ static int __init corgi_hw_init(void)
 
 #endif
 
+#if 0 // for debug
+	printk("GAFR0_L=%x\n",GAFR0_L);
+	printk("GAFR0_U=%x\n",GAFR0_U);
+	printk("GAFR1_L=%x\n",GAFR1_L);
+	printk("GAFR1_U=%x\n",GAFR1_U);
+	printk("GAFR2_L=%x\n",GAFR2_L);
+	printk("GAFR2_U=%x\n",GAFR2_U);
+	printk("GAFR3_L=%x\n",GAFR3_L);
+	printk("GAFR3_U=%x\n",GAFR3_U);
+
+	printk("GPDR0=%x\n",GPDR0);
+	printk("GPDR1=%x\n",GPDR1);
+	printk("GPDR2=%x\n",GPDR2);
+	printk("GPDR3=%x\n",GPDR3);
+#endif
+
   /* i2c initialize */
         i2c_init();
 
   /* scoop initialize */
 	scoop_init();
-#if defined(CONFIG_ARCH_PXA_SPITZ)
+#if defined(CONFIG_ARCH_PXA_AKITA)
+	ioexp_init();
+#elif defined(CONFIG_ARCH_PXA_SPITZ)
 	scoop2_init();
 #endif
 
@@ -418,7 +565,9 @@ static void __init corgi_map_io(void)
 	PCFR |= PCFR_OPDE;
 }
 
-#if defined(CONFIG_ARCH_PXA_SPITZ)
+#if defined(CONFIG_ARCH_PXA_AKITA)
+MACHINE_START(CORGI, "SHARP Akita")
+#elif defined(CONFIG_ARCH_PXA_SPITZ)
 MACHINE_START(CORGI, "SHARP Spitz")
 #elif defined(CONFIG_ARCH_PXA_BOXER)
 MACHINE_START(CORGI, "SHARP Boxer")

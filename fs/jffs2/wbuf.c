@@ -17,6 +17,7 @@
  *     25-Sep-2002 Lineo Japan, Inc.  take hamming distance for oob value
  *       into consideration
  *     17-Sep-2002 Lineo Japan, Inc.  add code for post-badblock 
+ *     28-Feb-2005 Sharp Corporation for Akita
  *
  */
 
@@ -676,7 +677,11 @@ out:
 int jffs2_check_nand_cleanmarker (struct jffs2_sb_info *c, struct jffs2_eraseblock *jeb)
 {
 	struct jffs2_unknown_node n;
+#if defined (CONFIG_ARCH_PXA_AKITA)
+	unsigned char buf[32*4];
+#else
 	unsigned char buf[32];
+#endif
 	unsigned char *p;
 	int ret, i, cnt, retval = 0;
 	size_t retlen, offset;
@@ -787,8 +792,11 @@ int jffs2_write_nand_cleanmarker(struct jffs2_sb_info *c, struct jffs2_erasebloc
  */
 int jffs2_nand_read_failcnt(struct jffs2_sb_info *c, struct jffs2_eraseblock *jeb)
 {
-
+#if defined (CONFIG_ARCH_PXA_AKITA)
+	signed char buf[16*4];
+#else
 	signed char buf[16];
+#endif
 	int	ret;
 	size_t 	retlen;
 	int	oob_size, badblock_pos;

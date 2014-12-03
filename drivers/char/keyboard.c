@@ -21,6 +21,10 @@
  *
  * 27-05-97: Added support for the Magic SysRq Key (Martin Mares)
  * 30-07-98: Dead keys redone, aeb@cwi.nl.
+ *
+ * 04-04-1998: Added keyboard autorepeat support (some keyboards don't
+ *   autorepeat, and some keyboard changers interfere with keyboard
+ *   autorepeat settings).     - Russell King (rmk@arm.linux.org.uk)
  */
 
 #include <linux/config.h>
@@ -30,6 +34,7 @@
 #include <linux/tty_flip.h>
 #include <linux/mm.h>
 #include <linux/string.h>
+#include <linux/timer.h>
 #include <linux/random.h>
 #include <linux/init.h>
 
@@ -61,6 +66,14 @@
 #define KBD_DEFLOCK 0
 #endif
 
+/*
+ * Default autorepeat settings.
+ *  DEFAULT_REPEAT_TIMEOUT is the timeout from the keypress to the first repeat
+ *  DEFAULT_REPEAT_INTERVAL is the timeout between successive repeats
+ */
+#define DEFAULT_REPEAT_TIMEOUT	HZ*300/1000
+#define DEFAULT_REPEAT_INTERVAL	HZ*30/1000
+
 void (*kbd_ledfunc)(unsigned int led);
 EXPORT_SYMBOL(handle_scancode);
 EXPORT_SYMBOL(kbd_ledfunc);
@@ -90,11 +103,15 @@ int shift_state;
 static int npadch = -1;			/* -1 or number assembled on pad */
 static unsigned char diacr;
 static char rep;			/* flag telling character repeat */
+static int kbd_repeatkeycode= -1;
+static int kbd_repeattimeout = DEFAULT_REPEAT_TIMEOUT;
+static int kbd_repeatinterval= DEFAULT_REPEAT_INTERVAL;
 struct kbd_struct kbd_table[MAX_NR_CONSOLES];
 static struct tty_struct **ttytab;
 static struct kbd_struct * kbd = kbd_table;
 static struct tty_struct * tty;
 
+static void kbd_processkeycode(unsigned char scancode, char up_flag, int autorepeat);
 void compute_shiftstate(void);
 
 typedef void (*k_hand)(unsigned char value, char up_flag);
@@ -161,7 +178,8 @@ static struct pm_dev *pm_kbd;
  * string, and in both cases we might assume that it is
  * in utf-8 already.
  */
-void to_utf8(ushort c) {
+void to_utf8(ushort c)
+{
     if (c < 0x80)
 	put_queue(c);			/*  0*******  */
     else if (c < 0x800) {
@@ -180,16 +198,22 @@ void to_utf8(ushort c) {
  * Translation of escaped scancodes to keycodes.
  * This is now user-settable (for machines were it makes sense).
  */
-
 int setkeycode(unsigned int scancode, unsigned int keycode)
 {
-    return kbd_setkeycode(scancode, keycode);
+	return kbd_setkeycode(scancode, keycode);
 }
 
 int getkeycode(unsigned int scancode)
 {
-    return kbd_getkeycode(scancode);
+	return kbd_getkeycode(scancode);
 }
+
+static void key_callback(unsigned long nr);
+
+static struct timer_list key_autorepeat_timer =
+{
+	function: key_callback
+};
 
 void handle_scancode(unsigned char scancode, int down)
 {
@@ -198,6 +222,7 @@ void handle_scancode(unsigned char scancode, int down)
 	char raw_mode;
 
 	pm_access(pm_kbd);
+
 	add_keyboard_randomness(scancode | up_flag);
 
 	tty = ttytab? ttytab[fg_console]: NULL;
@@ -232,12 +257,35 @@ void handle_scancode(unsigned char scancode, int down)
 	 * return the keycode if in MEDIUMRAW mode.
 	 */
 
+	kbd_processkeycode(keycode, up_flag, 0);
+
+out:
+	do_poke_blanked_console = 1;
+	schedule_console_callback();
+}
+
+static void
+kbd_processkeycode(unsigned char keycode, char up_flag, int autorepeat)
+{
+	char raw_mode = (kbd->kbdmode == VC_RAW);
+
 	if (up_flag) {
 		rep = 0;
 		if(!test_and_clear_bit(keycode, key_down))
 		    up_flag = kbd_unexpected_up(keycode);
-	} else
+	} else {
 		rep = test_and_set_bit(keycode, key_down);
+		/* If the keyboard autorepeated for us, ignore it.
+		 * We do our own autorepeat processing.
+		 */
+		if (rep && !autorepeat)
+			return;
+	}
+
+	if (kbd_repeatkeycode == keycode || !up_flag || raw_mode) {
+		kbd_repeatkeycode = -1;
+		del_timer(&key_autorepeat_timer);
+	}
 
 #ifdef CONFIG_MAGIC_SYSRQ		/* Handle the SysRq Hack */
 	if (keycode == SYSRQ_KEY) {
@@ -250,6 +298,23 @@ void handle_scancode(unsigned char scancode, int down)
 		}
 	}
 #endif
+
+	/*
+	 * Calculate the next time when we have to do some autorepeat
+	 * processing.  Note that we do not do autorepeat processing
+	 * while in raw mode but we do do autorepeat processing in
+	 * medium raw mode.
+	 */
+	if (!up_flag && !raw_mode) {
+		kbd_repeatkeycode = keycode;
+		if (vc_kbd_mode(kbd, VC_REPEAT)) {
+			if (rep)
+				key_autorepeat_timer.expires = jiffies + kbd_repeatinterval;
+			else
+				key_autorepeat_timer.expires = jiffies + kbd_repeattimeout;
+			add_timer(&key_autorepeat_timer);
+		}
+	}
 
 	if (kbd->kbdmode == VC_MEDIUMRAW) {
 		/* soon keycodes will require more than one byte */
@@ -319,9 +384,24 @@ void handle_scancode(unsigned char scancode, int down)
 #endif
 		}
 	}
+	rep = 0;
 out:
-	do_poke_blanked_console = 1;
-	schedule_console_callback();
+}
+
+/*
+ * This clears the key down arrays when the keyboard is reset.  On
+ * keyboard reset, this must be called before any keycodes are
+ * received.
+ */
+void kbd_reset_kdown(void)
+{
+	int i;
+
+	for (i = 0; i < NR_SHIFT; i++)
+		k_down[i] = 0;
+	for (i = 0; i < SIZE(key_down); i++)
+		key_down[i] = 0;
+	shift_state = 0;
 }
 
 #ifdef CONFIG_FORWARD_KEYBOARD
@@ -523,7 +603,7 @@ static void do_ignore(unsigned char value, char up_flag)
 {
 }
 
-static void do_null()
+static void do_null(void)
 {
 	compute_shiftstate();
 }
@@ -638,8 +718,8 @@ static void do_fn(unsigned char value, char up_flag)
 
 static void do_pad(unsigned char value, char up_flag)
 {
-	static const char *pad_chars = "0123456789+-*/\015,.?()";
-	static const char *app_map = "pqrstuvwxylSRQMnnmPQ";
+	static const char *pad_chars = "0123456789+-*/\015,.?()#";
+	static const char *app_map = "pqrstuvwxylSRQMnnmPQS";
 
 	if (up_flag)
 		return;		/* no action, if this is a key release */
@@ -740,9 +820,10 @@ static void do_shift(unsigned char value, char up_flag)
 	}
 }
 
-/* called after returning from RAW mode or when changing consoles -
-   recompute k_down[] and shift_state from key_down[] */
-/* maybe called when keymap is undefined, so that shiftkey release is seen */
+/* Called after returning from RAW mode or when changing consoles -
+ * recompute k_down[] and shift_state from key_down[]
+ * Maybe called when keymap is undefined so that shift key release is seen
+ */
 void compute_shiftstate(void)
 {
 	int i, j, k, sym, val;
@@ -821,19 +902,22 @@ static void do_slock(unsigned char value, char up_flag)
 }
 
 /*
- * The leds display either (i) the status of NumLock, CapsLock, ScrollLock,
- * or (ii) whatever pattern of lights people want to show using KDSETLED,
- * or (iii) specified bits of specified words in kernel memory.
+ * The leds display either
+ * (i)   the status of NumLock, CapsLock, ScrollLock, or
+ * (ii)  whatever pattern of lights people want to show using KDSETLED, or
+ * (iii) specified bits of specified words in kernel memory.
  */
 
 static unsigned char ledstate = 0xff; /* undefined */
 static unsigned char ledioctl;
 
-unsigned char getledstate(void) {
+unsigned char getledstate(void)
+{
     return ledstate;
 }
 
-void setledstate(struct kbd_struct *kbd, unsigned int led) {
+void setledstate(struct kbd_struct *kbd, unsigned int led)
+{
     if (!(led & ~7)) {
 	ledioctl = led;
 	kbd->ledmode = LED_SHOW_IOCTL;
@@ -849,7 +933,8 @@ static struct ledptr {
 } ledptrs[3];
 
 void register_leds(int console, unsigned int led,
-		   unsigned int *addr, unsigned int mask) {
+		   unsigned int *addr, unsigned int mask)
+{
     struct kbd_struct *kbd = kbd_table + console;
     if (led < 3) {
 	ledptrs[led].addr = addr;
@@ -860,7 +945,8 @@ void register_leds(int console, unsigned int led,
 	kbd->ledmode = LED_SHOW_FLAGS;
 }
 
-static inline unsigned char getleds(void){
+static inline unsigned char getleds(void)
+{
     struct kbd_struct *kbd = kbd_table + fg_console;
     unsigned char leds;
 
@@ -907,6 +993,19 @@ static void kbd_bh(unsigned long dummy)
 {
 	unsigned char leds = getleds();
 
+	if (rep && kbd_repeatkeycode != -1) {
+		tty = ttytab? ttytab[fg_console]: NULL;
+		kbd = kbd_table + fg_console;
+
+		/* This prevents the kbd_key routine from being called
+		 * twice, once by this BH, and once by the interrupt
+		 * routine.
+		 */
+		kbd_disable_irq();
+		kbd_processkeycode(kbd_repeatkeycode, 0, 1);
+		kbd_enable_irq();
+	}
+
 	if (leds != ledstate) {
 		ledstate = leds;
 		kbd_leds(leds);
@@ -916,6 +1015,12 @@ static void kbd_bh(unsigned long dummy)
 
 EXPORT_SYMBOL(keyboard_tasklet);
 DECLARE_TASKLET_DISABLED(keyboard_tasklet, kbd_bh, 0);
+
+static void key_callback(unsigned long nr)
+{
+	rep = 1;
+	tasklet_schedule(&keyboard_tasklet);
+}
 
 typedef void (pm_kbd_func) (void);
 
@@ -943,7 +1048,7 @@ int __init kbd_init(void)
 
 	tasklet_enable(&keyboard_tasklet);
 	tasklet_schedule(&keyboard_tasklet);
-	
+
 	pm_kbd = pm_register(PM_SYS_DEV, PM_SYS_KBC, pm_kbd_request_override);
 
 	return 0;

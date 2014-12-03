@@ -9,6 +9,7 @@
  * ChangeLog:
  *      1-Nov-2003 Sharp Corporation   for Tosa
  *	12-Aug-2004 Lineo Solutions, Inc.  for Spitz
+ *      28-Feb-2005 Sharp Corporation for Akita
  */
 /****************************************************************************
 
@@ -79,7 +80,7 @@ much.
 #define	USE_LOCOMO
 #elif defined(CONFIG_ARCH_PXA_CORGI)
 #define	USE_SCOOP
-#if defined(CONFIG_ARCH_PXA_SPITZ)
+#if defined(CONFIG_ARCH_PXA_SPITZ) && !defined(CONFIG_ARCH_PXA_AKITA)
 #define USE_SCOOP2
 #endif
 #elif defined(CONFIG_ARCH_PXA_TOSA)

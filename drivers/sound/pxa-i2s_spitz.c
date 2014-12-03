@@ -23,6 +23,7 @@
  * Change Log
  *	16-Jan-2003 SHARP sleep_on -> interruptible_sleep_on
  *	14-Apr-2003 SHARP modify resume process & buzzer device
+ *      28-Feb-2005 Sharp Corporation for Akita
  *
  */
 #include <linux/init.h>
@@ -1654,8 +1655,11 @@ static int audio_release(struct inode *inode, struct file *file)
 
 	//  HP & sounder & mic off
 	set_scoop_gpio( SCP_MUTE_L | SCP_MUTE_R );
+#if defined(CONFIG_ARCH_PXA_AKITA)
+	reset_port_ioexp( IOEXP_MIC_BIAS );
+#else
 	reset_scoop2_gpio( SCP2_MIC_BIAS );
-
+#endif
 
 	if (file->f_mode & FMODE_READ) {
 		audio_clear_buf(state->input_stream);
@@ -2107,12 +2111,20 @@ static void corgi_hp_mode(int mode)
 		set_scoop_gpio( SCP_MUTE_L | SCP_MUTE_R );	//  All on
 		break;
 	case CORGI_HP_MIC:
+#if defined(CONFIG_ARCH_PXA_AKITA)
+		set_port_ioexp( IOEXP_MIC_BIAS );	//  MIC bias on
+#else
 		set_scoop2_gpio( SCP2_MIC_BIAS );	//  MIC bias on
+#endif
 		reset_scoop_gpio( SCP_MUTE_L | SCP_MUTE_R );
 		break;
 	case CORGI_HP_HEADSET:
 		set_scoop_gpio( SCP_MUTE_R );
+#if defined(CONFIG_ARCH_PXA_AKITA)
+		set_port_ioexp( IOEXP_MIC_BIAS );	//  MIC bias on
+#else
 		set_scoop2_gpio( SCP2_MIC_BIAS );	//  MIC bias on
+#endif
 		reset_scoop_gpio( SCP_MUTE_L );
 		break;
 	case CORGI_HP_AUDIO:
@@ -2148,7 +2160,11 @@ static void corgi_hp_thread(void)
 	if ( audio_state->wr_ref || audio_state->rd_ref ){
 	  // sound is playing
 	  reset_scoop_gpio( SCP_MUTE_L | SCP_MUTE_R /* | SCP_APM_ON */ );
+#if defined(CONFIG_ARCH_PXA_AKITA)
+	  reset_port_ioexp( IOEXP_MIC_BIAS );	//  HP, Speaker & Mic off
+#else
 	  reset_scoop2_gpio( SCP2_MIC_BIAS );	//  HP, Speaker & Mic off
+#endif
 
 	  // volume zero
 	  CorgiVolumeMuteTemp();
@@ -2176,13 +2192,21 @@ static void corgi_hp_thread(void)
 			if (!(GPLR(GPIO_AK_INT) & GPIO_bit(GPIO_AK_INT))) {
 			  sharp_HPstatus = HPJACK_STATE_REMOCON;
 			} else {
+#if defined(CONFIG_ARCH_PXA_AKITA)
+			  reset_port_ioexp(IOEXP_AKIN_PULLUP);
+#else
 			  reset_scoop2_gpio(SCP2_AKIN_PULLUP);
+#endif
 			  if (get_remocon_raw()==REMOTE_CONTROL_PHONE) { // follow up
 			    sharp_HPstatus = HPJACK_STATE_HEADPHONE;
 			  } else {
 			    sharp_HPstatus = HPJACK_STATE_REMOCON;
 			  }
+#if defined(CONFIG_ARCH_PXA_AKITA)
+			  reset_port_ioexp(IOEXP_AKIN_PULLUP);
+#else
 			  reset_scoop2_gpio(SCP2_AKIN_PULLUP);
+#endif
 			}
 		} else {	// Not Insert HP
 	  		PXAI2S_DBGPRINT(DBG_LEVEL1, "Not Insert HP\n");
@@ -2269,7 +2293,11 @@ static void CorgiInit(void)
 
   // MUTE
   reset_scoop_gpio( SCP_MUTE_L | SCP_MUTE_R /* | SCP_APM_ON */ );
+#if defined(CONFIG_ARCH_PXA_AKITA)
+  reset_port_ioexp( IOEXP_MIC_BIAS );
+#else
   reset_scoop2_gpio( SCP2_MIC_BIAS );
+#endif
 
   if ( WM87XX_init() ) {
     PXAI2S_DBGPRINT(DBG_ALWAYS, "Fail Init\n");
@@ -3024,13 +3052,21 @@ static int CorgiPMCallBack(struct pm_dev *pm_dev,pm_request_t req, void *data)
 		    if (!(GPLR(GPIO_AK_INT) & GPIO_bit(GPIO_AK_INT))) {
 			  sharp_HPstatus = HPJACK_STATE_REMOCON;
 		    } else {
+#if defined(CONFIG_ARCH_PXA_AKITA)
+			  reset_port_ioexp(SCP2_AKIN_PULLUP);
+#else
 			  reset_scoop2_gpio(SCP2_AKIN_PULLUP);
+#endif
 			  if (get_remocon_raw()==REMOTE_CONTROL_PHONE) { // follow up
 			    sharp_HPstatus = HPJACK_STATE_HEADPHONE;
 			  } else {
 			    sharp_HPstatus = HPJACK_STATE_REMOCON;
 			  }
+#if defined(CONFIG_ARCH_PXA_AKITA)
+			  set_port_ioexp(SCP2_AKIN_PULLUP);
+#else
 			  set_scoop2_gpio(SCP2_AKIN_PULLUP);
+#endif
 		    }
 		  }else{
 		    sharp_HPstatus = HPJACK_STATE_NONE;

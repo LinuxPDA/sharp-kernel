@@ -1,5 +1,5 @@
 /*
- * drivers/mtd/nand/sharp_sl.c
+ * Drivers/mtd/nand/sharp_sl.c
  *
  *  Copyright (C) 2002 Lineo Japan, Inc.
  *
@@ -30,6 +30,7 @@
  *     14-Mar-2003 Sharp wait for ready
  *     01-Jun-2004 Lineo Solutions, Inc.  for Spitz
  *     26-Aug-2004 Sharp cancel write-protect at resume
+ *     28-Feb-2005 Sharp Corporation for Akita
  */
 
 #include <linux/slab.h>
@@ -61,6 +62,10 @@
 #define FAILURECOUNTER_POS NAND_BADBLOCK_POS
 #endif
 
+#if defined (CONFIG_ARCH_PXA_AKITA)
+#define FAST_READ  
+#endif
+
 /*
  * MTD structure for Poodle
  */
@@ -78,6 +83,22 @@ static int (*orig_write_oob)(struct mtd_info*, loff_t, size_t, size_t*, const u_
 /*
  * out of band configuration for different filesystems
  */
+#if defined (CONFIG_ARCH_PXA_AKITA)
+static int oobconfigs[][24] = {
+	{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+	{ NAND_JFFS2_OOB_ECCPOS0, NAND_JFFS2_OOB_ECCPOS1, NAND_JFFS2_OOB_ECCPOS2,
+	NAND_JFFS2_OOB_ECCPOS3, NAND_JFFS2_OOB_ECCPOS4, NAND_JFFS2_OOB_ECCPOS5,
+	NAND_JFFS2_OOB_ECCPOS6, NAND_JFFS2_OOB_ECCPOS7, NAND_JFFS2_OOB_ECCPOS8,
+	NAND_JFFS2_OOB_ECCPOS9, NAND_JFFS2_OOB_ECCPOS10, NAND_JFFS2_OOB_ECCPOS11,
+	NAND_JFFS2_OOB_ECCPOS12, NAND_JFFS2_OOB_ECCPOS13, NAND_JFFS2_OOB_ECCPOS14,
+	NAND_JFFS2_OOB_ECCPOS15, NAND_JFFS2_OOB_ECCPOS16, NAND_JFFS2_OOB_ECCPOS17,
+	NAND_JFFS2_OOB_ECCPOS18, NAND_JFFS2_OOB_ECCPOS19, NAND_JFFS2_OOB_ECCPOS20,
+	NAND_JFFS2_OOB_ECCPOS21, NAND_JFFS2_OOB_ECCPOS22, NAND_JFFS2_OOB_ECCPOS23},
+	{ NAND_YAFFS_OOB_ECCPOS0, NAND_YAFFS_OOB_ECCPOS1, NAND_YAFFS_OOB_ECCPOS2,
+	NAND_YAFFS_OOB_ECCPOS3, NAND_YAFFS_OOB_ECCPOS4, NAND_YAFFS_OOB_ECCPOS5,
+	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}	
+};
+#else
 static int oobconfigs[][6] = {
 	{ 0,0,0,0,0,0},
 
@@ -87,6 +108,7 @@ static int oobconfigs[][6] = {
 	{ NAND_YAFFS_OOB_ECCPOS0, NAND_YAFFS_OOB_ECCPOS1, NAND_YAFFS_OOB_ECCPOS2,
 	NAND_YAFFS_OOB_ECCPOS3, NAND_YAFFS_OOB_ECCPOS4, NAND_YAFFS_OOB_ECCPOS5 }	
 };
+#endif
 
 /*
  * Macros for low-level register control
@@ -189,9 +211,21 @@ sharp_sl_nand_command_1(struct mtd_info* mtd,
     /*
      * Write out the command to the device.
      */
-    if (command != NAND_CMD_SEQIN)
+    if (command != NAND_CMD_SEQIN) {
+#if defined (CONFIG_ARCH_PXA_AKITA)
+      if ((command == NAND_CMD_READOOB) || (command == NAND_CMD_READ0)) {
+        writeb (NAND_CMD_READ0, NAND_IO_ADDR);
+      }
+      else
 	writeb (command, NAND_IO_ADDR);
+#else
+	writeb (command, NAND_IO_ADDR);
+#endif
+    }
     else {
+#if defined (CONFIG_ARCH_PXA_AKITA)
+        writeb (NAND_CMD_SEQIN, NAND_IO_ADDR);
+#else
 	if (mtd->oobblock == 256 && column >= 256) {
 	    column -= 256;
 	    writeb (NAND_CMD_READOOB, NAND_IO_ADDR);
@@ -210,6 +244,7 @@ sharp_sl_nand_command_1(struct mtd_info* mtd,
 	    writeb (NAND_CMD_READ0, NAND_IO_ADDR);
 	    writeb (NAND_CMD_SEQIN, NAND_IO_ADDR);
 	}
+#endif
     }
 
     /* Set ALE and clear CLE to start address cycle */
@@ -219,6 +254,21 @@ sharp_sl_nand_command_1(struct mtd_info* mtd,
 	this->hwcontrol (NAND_CTL_SETALE);
 
 	/* Serially input address */
+#if defined (CONFIG_ARCH_PXA_AKITA)
+	if (command == NAND_CMD_READOOB) {
+	    if (column >= 0 && column < 64) writeb (column, NAND_IO_ADDR);
+	    else writeb (0, NAND_IO_ADDR);
+	    writeb (0x08, NAND_IO_ADDR);
+	}
+	else if (column != -1) {
+	    writeb ((unsigned char)(column & 0xff), NAND_IO_ADDR);
+	    writeb ((unsigned char)(column >> 8), NAND_IO_ADDR);
+	}
+	if (page_addr != -1) {
+	    writeb ((unsigned char) (page_addr & 0xff), NAND_IO_ADDR);
+	    writeb ((unsigned char) ((page_addr >> 8) & 0xff), NAND_IO_ADDR);
+	}
+#else
 	if (column != -1)
 	    writeb (column, NAND_IO_ADDR);
 	if (page_addr != -1) {
@@ -228,8 +278,21 @@ sharp_sl_nand_command_1(struct mtd_info* mtd,
 	    if (mtd->size & 0x0c000000) 
 		writeb ((unsigned char) ((page_addr >> 16) & 0x0f), NAND_IO_ADDR);
 	}
+#endif
 	/* Latch in address */
 	this->hwcontrol (NAND_CTL_CLRALE);
+
+#if defined (CONFIG_ARCH_PXA_AKITA)
+	if ((command == NAND_CMD_READOOB) || (command == NAND_CMD_READ0)) {
+	    /* Begin command latch cycle */
+	    this->hwcontrol (NAND_CTL_SETCLE);
+	    writeb (NAND_CMD_READ30, NAND_IO_ADDR);
+	    /* Set ALE and clear CLE to start address cycle */
+	    this->hwcontrol (NAND_CTL_CLRCLE);
+	}
+#endif
+
+
     }
 	
     /* 
@@ -246,12 +309,14 @@ sharp_sl_nand_command_1(struct mtd_info* mtd,
 
     case NAND_CMD_RESET:
 	break;
+
     }
 	
     /* wait until command is processed */
     for (i = 0; i < NAND_BUSY_TIMEOUT; i++)
 	if (this->dev_ready())
 	    return 0;
+
     return -EIO;
 }
 
@@ -332,7 +397,17 @@ sharp_sl_nand_read_page(struct mtd_info* mtd,
     int j = 0;
 
     START_MEASUREMENT(nand_read_page);
-
+#if defined (CONFIG_ARCH_PXA_AKITA)
+    {
+        int i,j;
+	for (i=0; i<8; i++) { 
+	    this->enable_hwecc (NAND_ECC_READ);	
+	    for (j=i*ecc; j < (i+1)*ecc; j++)
+	        data_poi[j] = readb (this->IO_ADDR_R);
+	    this->calculate_ecc (&data_poi[ecc*i], &ecc_calc[3*i]);	/* read from hardware */
+	}
+    }
+#else
     this->enable_hwecc (NAND_ECC_READ);	
     while (j < ecc)
 	data_poi[j++] = readb (this->IO_ADDR_R);
@@ -343,6 +418,7 @@ sharp_sl_nand_read_page(struct mtd_info* mtd,
 	data_poi[j++] = readb (this->IO_ADDR_R);
     this->calculate_ecc (&data_poi[256], &ecc_calc[3]); /* read from hardware */
 
+#endif
     /* read oobdata */
     for (j = 0; j <  mtd->oobsize; j++) 
 	oob_data[j] = readb (this->IO_ADDR_R);
@@ -351,6 +427,191 @@ sharp_sl_nand_read_page(struct mtd_info* mtd,
     COUNTER_INC(nand_read_nr_pages);
 }
 
+#ifdef FAST_READ
+static inline int
+sharp_sl_nand_read_page_fast(struct mtd_info* mtd,
+			struct nand_chip* this,
+			u_char* data_poi,
+			u_char* oob_data,
+			u_char* ecc_calc,
+			int ecc,
+			int from,
+			int end,
+			int page)
+{
+    int j = 0;
+
+    START_MEASUREMENT(nand_read_page);
+    {
+        int len = end - from;
+        int i,j;
+	for (i =0 ; i < len/ecc; i++) { 
+	    this->enable_hwecc (NAND_ECC_READ);	
+	    for (j=i*ecc; j < (i+1)*ecc; j++)
+	        data_poi[j] = readb (this->IO_ADDR_R);
+	    this->calculate_ecc (&data_poi[ecc*i], &ecc_calc[3*i]);	/* read from hardware */
+	}
+    }
+
+    for (j = 0; j < NAND_BUSY_TIMEOUT; j++)
+      if (this->dev_ready()) break;
+    if (j == NAND_BUSY_TIMEOUT) {
+          printk("%s : time out \n",__func__);
+	  return -EIO;
+    }
+
+    /* Send the read command */
+    if (this->cmdfunc (mtd, NAND_CMD_READOOB, 0, page)) {
+          printk(KERN_WARNING "%s: Failed in NAND_CMD_READOOB command, page 0x%08x\n",
+		 __func__, page);
+	  return -EIO;
+    }
+
+    /* read oobdata */
+    for (j = 0; j <  mtd->oobsize; j++) 
+	oob_data[j] = readb (this->IO_ADDR_R);
+
+    ACCUMULATE_ELAPSED_TIME(nand_read_page);
+    COUNTER_INC(nand_read_nr_pages);
+
+    return 0;
+}
+/*
+ * this function is registered only if eccmode == NAND_ECC_HW3_256 &&
+ * oobblock == 2048
+ */
+static int
+sharp_sl_nand_read_ecc_fast(struct mtd_info* mtd,
+		       loff_t from,
+		       size_t len,
+		       size_t* retlen,
+		       u_char* buf,
+		       u_char* oob_buf,
+		       int oobsel)
+{
+    int col, page, end, ecc;
+    int read, ecc_failed, ret;
+    struct nand_chip *this;
+    u_char *oob_data;
+    int *oob_config;
+    u_char* data_poi = 0;
+
+    DEBUG(MTD_DEBUG_LEVEL3, "%s: from = 0x%08x, len = %i\n",
+	   __func__, (unsigned int) from, (int) len);
+
+    /* Grab the lock and see if the device is available */
+    this = mtd->priv;
+    nand_get_chip (this, mtd ,FL_READING);
+
+    /* Select the NAND device */
+    nand_select ();
+
+    oob_config = oobconfigs[oobsel];
+    page = from >> this->page_shift;
+    col = from & (mtd->oobblock - 1);
+    end = col + len;
+    ecc = mtd->eccsize;
+    oob_data = &this->data_buf[mtd->oobblock];
+    read = 0;
+    ecc_failed = 0;
+    ret = 0;
+
+	
+    /* Loop until all data read */
+    {
+	int j;
+	int ecc_status;
+	int ecc_retry_counter = 0;
+	u_char ecc_calc[24];
+	u_char ecc_code[24];
+	int col256 = col/ecc*ecc;
+
+	/* Send the read command */
+	if (this->cmdfunc (mtd, NAND_CMD_READ0, col256, page)) {
+	  printk(KERN_WARNING "%s: Failed in NAND_CMD_READ0 command, page 0x%08x\n",
+		 __func__, page);
+	  ret = -EIO;
+	  goto nand_read_ecc_exit;
+	}
+	/* 
+	 * If the read is not page aligned, we have to read into data buffer
+	 * due to ecc, else we read into return buffer direct
+	 */
+	data_poi = this->data_buf;
+
+      ecc_retry:
+	ret = sharp_sl_nand_read_page_fast(mtd, this, &data_poi[col256], oob_data, &ecc_calc[col/ecc*3], ecc, col256,(end+ecc-1)/ecc*ecc, page);
+	if (ret == -EIO) goto nand_read_ecc_exit;
+
+	/* If we have consequent page reads, apply delay or wait for ready/busy pin */
+	for (j = 0; j < NAND_BUSY_TIMEOUT; j++)
+	    if (this->dev_ready())
+		break;
+	if (j == NAND_BUSY_TIMEOUT) {
+	    ret = -EIO;
+	    goto nand_read_ecc_exit;
+	}
+
+	/* Pick the ECC bytes out of the oob data */
+	for (j = 0; j < 24; j++)
+	    ecc_code[j] = oob_data[oob_config[j]];
+
+	/* correct data, if neccecary */
+	{
+	    int i;
+	    i = col/ecc;
+	    for ( ; i< (end+ecc-1)/ecc; i++) {
+	        ecc_status = this->correct_data (&data_poi[i*ecc], &ecc_code[i*3], &ecc_calc[i*3]);
+		if (ecc_status == -1) {
+		    if (ecc_retry_counter++ < MAX_ECC_RETRY) {
+		        this->cmdfunc (mtd, NAND_CMD_RESET, -1, -1);
+			if (this->cmdfunc (mtd, NAND_CMD_READ0, col256, page)) {
+			    printk(KERN_WARNING
+				   "%s: Failed in NAND_CMD_READ0 command, page 0x%08x\n",
+			   __func__, page);
+			    ret = -EIO;
+			    goto nand_read_ecc_exit;
+			}
+			goto ecc_retry;
+		    }
+		    else {
+		        printk (KERN_WARNING "%s: Failed ECC read, page 0x%08x i=%d \n",
+			__func__, page,i);
+			ecc_failed++;
+		    }
+		}
+	    }
+	}	
+	
+	
+	for (j = col; j < end && read < len; j++)
+		buf[read++] = data_poi[j];
+    }
+
+  nand_read_ecc_exit:
+    ret = (ret == 0) ? (ecc_failed ? -EIO : 0) : ret;
+    if (ret == -EIO)
+	this->cmdfunc(mtd, NAND_CMD_RESET, -1, -1);
+
+    /* De-select the NAND device */
+    nand_deselect ();
+
+    /* Wake up anyone waiting on the device */
+    spin_lock_bh (&this->chip_lock);
+    this->state = FL_READY;
+    wake_up (&this->wq);
+    spin_unlock_bh (&this->chip_lock);
+
+    /*
+     * Return success, if no ECC failures, else -EIO
+     * fs driver will take care of that, because
+     * retlen == desired len and result == -EIO
+     */
+    *retlen = read;
+    return ret;
+}
+
+#endif /* FAST_READ */
 
 /*
  * this function is registered only if eccmode == NAND_ECC_HW3_256 &&
@@ -374,16 +635,19 @@ sharp_sl_nand_read_ecc(struct mtd_info* mtd,
 
     if (oob_buf || ! oobsel)
 	return orig_read_ecc(mtd, from, len, retlen, buf, oob_buf, oobsel);
-
-    DEBUG (MTD_DEBUG_LEVEL3, "%s: from = 0x%08x, len = %i\n",
+    DEBUG(MTD_DEBUG_LEVEL3, "%s: from = 0x%08x, len = %i\n",
 	   __func__, (unsigned int) from, (int) len);
-
     /* Do not allow reads past end of device */
     if ((from + len) > mtd->size) {
 	DEBUG (MTD_DEBUG_LEVEL0, "%s: Attempt read beyond end of device\n", __func__);
 	*retlen = 0;
 	return -EINVAL;
     }
+
+#ifdef FAST_READ
+    if (((from & (mtd->oobblock - 1))+ len) < mtd->oobblock)
+	return sharp_sl_nand_read_ecc_fast(mtd, from, len, retlen, buf, oob_buf, oobsel);
+#endif
 
     /* Grab the lock and see if the device is available */
     this = mtd->priv;
@@ -402,21 +666,37 @@ sharp_sl_nand_read_ecc(struct mtd_info* mtd,
     ecc_failed = 0;
     ret = 0;
 
+#if !defined (CONFIG_ARCH_PXA_AKITA)
     /* Send the read command */
     if (this->cmdfunc (mtd, NAND_CMD_READ0, 0x00, page)) {
-	printk(KERN_WARNING "%s: Failed in NAND_CMD_READ0 command, page 0x%08x\n",
-	       __func__, page);
+      	printk(KERN_WARNING "%s: Failed in NAND_CMD_READ0 command, page 0x%08x\n", __func__, page);
 	ret = -EIO;
 	goto nand_read_ecc_exit;
     }
+#endif
 	
     /* Loop until all data read */
     while (read < len) {
 	int j;
 	int ecc_status;
 	int ecc_retry_counter = 0;
+#if defined (CONFIG_ARCH_PXA_AKITA)
+	u_char ecc_calc[24];
+	u_char ecc_code[24];
+#else
 	u_char ecc_calc[6];
 	u_char ecc_code[6];
+#endif
+
+#if defined (CONFIG_ARCH_PXA_AKITA)
+	/* Send the read command */
+	if (this->cmdfunc (mtd, NAND_CMD_READ0, 0x00, page)) {
+	  printk(KERN_WARNING "%s: Failed in NAND_CMD_READ0 command, page 0x%08x\n",
+		 __func__, page);
+	  ret = -EIO;
+	  goto nand_read_ecc_exit;
+	}
+#endif
 
 	/* 
 	 * If the read is not page aligned, we have to read into data buffer
@@ -445,9 +725,15 @@ sharp_sl_nand_read_ecc(struct mtd_info* mtd,
       ecc_retry:
 	sharp_sl_nand_read_page(mtd, this, data_poi, oob_data, ecc_calc, ecc, end);
 
+#if defined (CONFIG_ARCH_PXA_AKITA)
+	/* Pick the ECC bytes out of the oob data */
+	for (j = 0; j < 24; j++)
+	    ecc_code[j] = oob_data[oob_config[j]];
+#else
 	/* Pick the ECC bytes out of the oob data */
 	for (j = 0; j < 6; j++)
 	    ecc_code[j] = oob_data[oob_config[j]];
+#endif
 
 	/* If we have consequent page reads, apply delay or wait for ready/busy pin */
 	for (j = 0; j < NAND_BUSY_TIMEOUT; j++)
@@ -458,6 +744,33 @@ sharp_sl_nand_read_ecc(struct mtd_info* mtd,
 	    goto nand_read_ecc_exit;
 	}
 
+#if defined (CONFIG_ARCH_PXA_AKITA)
+	/* correct data, if neccecary */
+	{
+	    int i;
+	    for (i=0; i<8; i++) {
+	        ecc_status = this->correct_data (&data_poi[i*256], &ecc_code[i*3], &ecc_calc[i*3]);
+		if (ecc_status == -1) {
+		    if (ecc_retry_counter++ < MAX_ECC_RETRY) {
+		        this->cmdfunc (mtd, NAND_CMD_RESET, -1, -1);
+			if (this->cmdfunc (mtd, NAND_CMD_READ0, 0x00, page)) {
+			    printk(KERN_WARNING
+				   "%s: Failed in NAND_CMD_READ0 command, page 0x%08x\n",
+			   __func__, page);
+			    ret = -EIO;
+			    goto nand_read_ecc_exit;
+			}
+			goto ecc_retry;
+		    }
+		    else {
+		        printk (KERN_WARNING "%s: Failed ECC read, page 0x%08x i=%d \n",
+			__func__, page,i);
+			ecc_failed++;
+		    }
+		}
+	    }
+	}	
+#else
 	/* correct data, if neccecary */
 	ecc_status = this->correct_data (&data_poi[0], &ecc_code[0], &ecc_calc[0]);
 	if (ecc_status == -1) {
@@ -498,6 +811,7 @@ sharp_sl_nand_read_ecc(struct mtd_info* mtd,
 		ecc_failed++;
 	    }
 	}
+#endif
 
 #ifdef CONFIG_MTD_NAND_PAGE_CACHE
       loop_next:
@@ -511,6 +825,8 @@ sharp_sl_nand_read_ecc(struct mtd_info* mtd,
 	col = 0;
 	/* Increment page address */
 	page++;
+
+
     }
 
   nand_read_ecc_exit:
@@ -760,6 +1076,7 @@ sharp_sl_nand_write_ecc(struct mtd_info* mtd,
 	if (ret)
 	    return ret;
     }
+
     return -EIO;
 }
 
@@ -796,6 +1113,7 @@ sharp_sl_nand_writev_ecc(struct mtd_info* mtd,
 	if (ret)
 	    return ret;
     }
+
     return -EIO;
 }
 
@@ -1009,7 +1327,12 @@ sharp_sl_nand_init (void)
 	return -ENXIO;
     }
 
+
+#if defined (CONFIG_ARCH_PXA_AKITA)
+    if (this->eccmode == NAND_ECC_HW3_256 && sharp_sl_mtd->oobblock == 2048) {
+#else
     if (this->eccmode == NAND_ECC_HW3_256 && sharp_sl_mtd->oobblock == 512) {
+#endif
 	orig_read_ecc = sharp_sl_mtd->read_ecc;
 	sharp_sl_mtd->read = sharp_sl_nand_read;
 	sharp_sl_mtd->read_ecc = sharp_sl_nand_read_ecc;

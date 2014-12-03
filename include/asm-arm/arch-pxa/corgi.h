@@ -21,6 +21,7 @@
  *   04-06-2001 Lineo Japan, Inc.
  *   04-16-2001 SHARP Corporation
  *   24-Sep-2004 Lineo Solutions, Inc.  for Spitz
+ *   28-Feb-2005 Sharp Corporation for Akita
  */
 #ifndef __ASM_ARCH_CORGI_H
 #define __ASM_ARCH_CORGI_H  1
@@ -139,6 +140,30 @@
  *      14800000        f2200000
  */
 
+#if defined(CONFIG_ARCH_PXA_AKITA)
+
+#define IOEXP_DEVICE_ADR       0x18 /* Slave Address of I/O Expander */
+#define IOEXP_INPUT_REG_ADR    0x00 /* Status (read-only) */
+#define IOEXP_OUTPUT_REG_ADR   0x01 /* Output Level (1: High, 0:Low) */
+#define IOEXP_POLINV_REG_ADR   0x02 /* Polarity Invert */
+#define IOEXP_CONFIG_REG_ADR   0x03 /* Direction (1: Input 0: Output) */
+#define IOEXP_TIMEOUT_REG_ADR  0x04
+
+#define IOEXP_RESERVED_7	(1 << 7)
+#define IOEXP_IR_ON		(1 << 6)
+#define IOEXP_AKIN_PULLUP	(1 << 5)
+#define IOEXP_BACKLIGHT_CONT	(1 << 4)
+#define IOEXP_BACKLIGHT_ON	(1 << 3)
+#define IOEXP_MIC_BIAS		(1 << 2)
+#define IOEXP_RESERVED_1	(1 << 1)
+#define IOEXP_RESERVED_0	(1 << 0)
+#define IOEXP_ALL		0xFF
+
+/* Direction   0 : outpu mode / 1:input mode */
+#define IOEXP_IO_DIR	0
+#define IOEXP_IO_OUT	(IOEXP_IR_ON | IOEXP_AKIN_PULLUP)
+#else
+
 #define CF2_BUF_CTRL_BASE 0xF2200040
 #define SCP2_REG(adr) (*(volatile unsigned short*)(CF2_BUF_CTRL_BASE+(adr)))
 	
@@ -179,6 +204,7 @@
 #define SCP2_IO_OUT	( SCP2_IR_ON | SCP2_AKIN_PULLUP | \
                           SCP2_RESERVED_1 )
 
+#endif /* CONFIG_ARCH_PXA_AKITA */
 
 /*
  * Flash Memory mappings
@@ -242,9 +268,13 @@
 #define GPIO_HP_IN		(116)
 #define GPIO_CF_IRQ		(105)
 //#define GPIO_CF_PRDY		(105)
+#if !defined(CONFIG_ARCH_PXA_AKITA)
 #define GPIO_CF2_IRQ		(106)	/* CF slot1 Ready */
+#endif /* CONFIG_ARCH_PXA_AKITA */
 #define GPIO_CF_CD		(94)
+#if !defined(CONFIG_ARCH_PXA_AKITA)
 #define GPIO_CF2_CD		(93)
+#endif /* CONFIG_ARCH_PXA_AKITA */
 //#define GPIO_SD_PWR		(33)
 #define GPIO_nSD_CLK            (32)
 #define GPIO_nSD_WP		(81)

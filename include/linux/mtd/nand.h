@@ -52,6 +52,7 @@
  *     19-Sep-2002 Lineo Japan, Inc.  modify return type of struct nand_chip#cmdfunc
  *     17-Sep-2002 Lineo Japan, Inc.  add NAND_POSTBADBLOCK_POS
  *
+ *     28-Feb-2005 Sharp Corporation for Akita
  */
 #ifndef __LINUX_MTD_NAND_H
 #define __LINUX_MTD_NAND_H
@@ -87,6 +88,9 @@ extern int nand_scan (struct mtd_info *mtd);
 #define NAND_CMD_READID		0x90
 #define NAND_CMD_ERASE2		0xd0
 #define NAND_CMD_RESET		0xff
+#if defined (CONFIG_ARCH_PXA_AKITA)
+#define NAND_CMD_READ30		0x30
+#endif
 
 /* 
  * Constants for ECC_MODES
@@ -248,8 +252,11 @@ extern struct nand_manufacturers nand_manuf_ids[];
 * Constants for oob configuration
 */
 #ifndef CONFIG_MTD_NAND_KATANA
-
+#if defined (CONFIG_ARCH_PXA_AKITA)
+# define NAND_BADBLOCK_POS		0
+#else 
 # define NAND_BADBLOCK_POS		5
+#endif
 # ifdef CONFIG_MTD_NAND_POST_BADBLOCK
 #  define NAND_POSTBADBLOCK_POS		4
 # endif
@@ -268,6 +275,58 @@ extern struct nand_manufacturers nand_manuf_ids[];
 #define NAND_JFFS2_OOB			1
 #define NAND_YAFFS_OOB			2
 
+#if defined (CONFIG_ARCH_PXA_AKITA)
+#define NAND_NOOB_ECCPOS0		5
+#define NAND_NOOB_ECCPOS1		1
+#define NAND_NOOB_ECCPOS2		2
+#define NAND_NOOB_ECCPOS3		3
+#define NAND_NOOB_ECCPOS4		6
+#define NAND_NOOB_ECCPOS5		7
+#define NAND_NOOB_ECCPOS6               0x15
+#define NAND_NOOB_ECCPOS7		0x11
+#define NAND_NOOB_ECCPOS8		0x12
+#define NAND_NOOB_ECCPOS9		0x13
+#define NAND_NOOB_ECCPOS10		0x16
+#define NAND_NOOB_ECCPOS11		0x17
+#define NAND_NOOB_ECCPOS12		0x25
+#define NAND_NOOB_ECCPOS13		0x21
+#define NAND_NOOB_ECCPOS14		0x22
+#define NAND_NOOB_ECCPOS15		0x23
+#define NAND_NOOB_ECCPOS16		0x26
+#define NAND_NOOB_ECCPOS17		0x27
+#define NAND_NOOB_ECCPOS18              0x35
+#define NAND_NOOB_ECCPOS19		0x31
+#define NAND_NOOB_ECCPOS20		0x32
+#define NAND_NOOB_ECCPOS21		0x33
+#define NAND_NOOB_ECCPOS22		0x36
+#define NAND_NOOB_ECCPOS23		0x37
+
+#define NAND_JFFS2_OOB_ECCPOS0		5
+#define NAND_JFFS2_OOB_ECCPOS1		1
+#define NAND_JFFS2_OOB_ECCPOS2		2
+#define NAND_JFFS2_OOB_ECCPOS3		3
+#define NAND_JFFS2_OOB_ECCPOS4		6
+#define NAND_JFFS2_OOB_ECCPOS5		7
+#define NAND_JFFS2_OOB_ECCPOS6		0x15
+#define NAND_JFFS2_OOB_ECCPOS7		0x11
+#define NAND_JFFS2_OOB_ECCPOS8		0x12
+#define NAND_JFFS2_OOB_ECCPOS9		0x13
+#define NAND_JFFS2_OOB_ECCPOS10		0x16
+#define NAND_JFFS2_OOB_ECCPOS11		0x17
+#define NAND_JFFS2_OOB_ECCPOS12		0x25
+#define NAND_JFFS2_OOB_ECCPOS13		0x21
+#define NAND_JFFS2_OOB_ECCPOS14		0x22
+#define NAND_JFFS2_OOB_ECCPOS15		0x23
+#define NAND_JFFS2_OOB_ECCPOS16		0x26
+#define NAND_JFFS2_OOB_ECCPOS17		0x27
+#define NAND_JFFS2_OOB_ECCPOS18		0x35
+#define NAND_JFFS2_OOB_ECCPOS19		0x31
+#define NAND_JFFS2_OOB_ECCPOS20		0x32
+#define NAND_JFFS2_OOB_ECCPOS21		0x33
+#define NAND_JFFS2_OOB_ECCPOS22		0x36
+#define NAND_JFFS2_OOB_ECCPOS23		0x37
+
+#else  /* non SL-N1 */
 #define NAND_NOOB_ECCPOS0		0
 #define NAND_NOOB_ECCPOS1		1
 #define NAND_NOOB_ECCPOS2		2
@@ -281,6 +340,8 @@ extern struct nand_manufacturers nand_manuf_ids[];
 #define NAND_JFFS2_OOB_ECCPOS3		3
 #define NAND_JFFS2_OOB_ECCPOS4		6
 #define NAND_JFFS2_OOB_ECCPOS5		7
+#endif
+
 
 #define NAND_YAFFS_OOB_ECCPOS0		8
 #define NAND_YAFFS_OOB_ECCPOS1		9

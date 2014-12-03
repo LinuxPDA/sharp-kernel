@@ -62,6 +62,7 @@
  *      1-Nov-2003 Sharp Corporation   for Tosa
  *      26-Feb-2004 Lineo Solutions, Inc.  for Tosa
  *	14-Jul-2004 Lineo Solutions, Inc.  for Spitz
+ *      28-Feb-2005 Sharp Corporation for Akita
  */
 
 static char *serial_version = "5.05c";
@@ -452,6 +453,8 @@ static void clr_discovery_irda(u8 x){
 	reset_scoop_gpio(SCP_IR_POWERDWN);
 	set_GPIO_mode(GPIO47_STTXD|GPIO_OUT);
 	GPCR(GPIO47_STTXD) = GPIO_bit(GPIO47_STTXD);
+#elif defined(CONFIG_ARCH_PXA_AKITA)
+	set_port_ioexp(IOEXP_IR_ON);
 #elif defined(CONFIG_ARCH_PXA_SPITZ)
 	set_scoop2_gpio(SCP2_IR_ON);
 #elif defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
@@ -465,6 +468,8 @@ static void set_discovery_irda(u8 x){
 #elif defined(CONFIG_ARCH_PXA_TOSA)
 	set_GPIO_mode(GPIO47_STTXD_MD);
 	set_scoop_gpio(SCP_IR_POWERDWN);
+#elif defined(CONFIG_ARCH_PXA_AKITA)
+	reset_port_ioexp(IOEXP_IR_ON);
 #elif defined(CONFIG_ARCH_PXA_SPITZ)
 	reset_scoop2_gpio(SCP2_IR_ON);
 #elif defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
@@ -3794,7 +3799,9 @@ static void rs_close(struct tty_struct *tty, struct file * filp)
 #ifdef CONFIG_PM
 	xpa210_discovery_serial_power_off();
 	if (xpa2X0_is_ff_uart(info->iomem_base)) {
+#ifndef CONFIG_SERIAL_CONSOLE
 		CKEN &= ~CKEN6_FFUART;
+#endif
 		change_power_mode(LOCK_FCS_FFUART, 0);
 	}
 #endif	/* CONFIG_PM */

@@ -115,7 +115,7 @@ extern void spitz_kbd_activate_all(void);
                    JUST_RELEASED - just released (throw key up)
 */
 #define CHECK_CHUTTER (2)	/* * 10ms */
-#define CHECK_BOUNCE (4)	/* * 10ms */
+#define CHECK_BOUNCE (2)	/* * 10ms */
 #define NOTPRESSED (0)
 #define PRESSING1 (1)
 #define JUST_PRESSED (CHECK_CHUTTER+1)
@@ -1269,6 +1269,32 @@ static void sharppda_kbd_release_repeat( int code )
   for (i=0; i<JUST_RELEASED-PRESSED; i++) sharppda_kbd_release(code);
 }
 
+static int num_of_pressedkey()
+{
+    unsigned long flags;
+    int row, col, rowd, real_col, i, j, k, press_num = 0;
+
+    WAIT_CHATTERING_DELAY;
+    spin_lock_irqsave(&kbd_spinlock,flags);
+    CHARGE_ALL;
+    for (col = 0; col < KB_COLS; col++) {
+      real_col = (GET_REAL_COL_FROM_COL(col));
+      DISCHARGE_ALL;
+      WAIT_DISCHARGE_DELAY;
+      ACTIVATE_COL(real_col);
+      WAIT_ACTIVATE_DELAY;
+      rowd = GET_ROWS_STATUS(real_col);
+      for (row = 0; row < KB_ROWS; row++) {
+	if (rowd & KB_ROWMASK(row)) {
+	  press_num++;
+	}
+	RESET_COL(real_col);
+      }
+    }
+    //    printk("pressed key=%d\n",press_num);
+    return press_num;
+}
+
 u32 sharppda_kbd_is_wakeup(void)
 {
   unsigned long flags;
@@ -1287,6 +1313,11 @@ u32 sharppda_kbd_is_wakeup(void)
     cur_portkey = read_port_key_status_raw();
 
     if (!view_mode) { // active only input mode
+      if (num_of_pressedkey()>=4 ) { // avoid rollover
+	count = 0;
+	err++;
+	continue;
+      }
       // read Strobe0(Address,Calendar,Mail,Home) key
       spin_lock_irqsave(&kbd_spinlock,flags);
       DISCHARGE_ALL;

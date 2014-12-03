@@ -272,7 +272,6 @@ int i2c_byte_write(unsigned char DeviceAdr,unsigned char RegisterAdr,unsigned ch
 	// Send Third Byte
 	//
 	I2C_IDBR = Data;		// set data
-
 	I2C_ICR |= I2C_ICR_ALDIE;
 	I2C_ICR &= ~I2C_ICR_START;	// second data, start = off, stop = on
 	I2C_ICR |= I2C_ICR_STOP;
@@ -291,6 +290,7 @@ int i2c_byte_write(unsigned char DeviceAdr,unsigned char RegisterAdr,unsigned ch
 	    break;
 	  }
 	}
+	udelay(5);
 	I2C_ISR = I2C_ISR_ITE;		// clear interrupt
 
 

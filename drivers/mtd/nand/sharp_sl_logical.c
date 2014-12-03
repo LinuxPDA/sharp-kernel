@@ -15,6 +15,7 @@
  *
  * Change Log
  *
+ *  28-Feb-2005 Sharp Corporation for Akita
  */
 
 #include <linux/slab.h>
@@ -208,14 +209,52 @@ static void sharp_sl_nand_set_logical_no(u_int log_no, unsigned char *oob)
 
 static u_char sharp_sl_nand_is_ecc_ff(unsigned char *oob)
 {
+#if defined (CONFIG_ARCH_PXA_AKITA)
+    unsigned char ecc[24];
+    int i;
+#else
     unsigned char ecc0, ecc1, ecc2, ecc3, ecc6, ecc7;
+#endif
 
+#if defined (CONFIG_ARCH_PXA_AKITA)
+    ecc[0] = sharp_sl_nand_round_block_status(oob[NAND_NOOB_ECCPOS0]);
+    ecc[1] = sharp_sl_nand_round_block_status(oob[NAND_NOOB_ECCPOS1]);
+    ecc[2] = sharp_sl_nand_round_block_status(oob[NAND_NOOB_ECCPOS2]);
+    ecc[3] = sharp_sl_nand_round_block_status(oob[NAND_NOOB_ECCPOS3]);
+    ecc[4] = sharp_sl_nand_round_block_status(oob[NAND_NOOB_ECCPOS4]);
+    ecc[5] = sharp_sl_nand_round_block_status(oob[NAND_NOOB_ECCPOS5]);
+    ecc[6] = sharp_sl_nand_round_block_status(oob[NAND_NOOB_ECCPOS6]);
+    ecc[7] = sharp_sl_nand_round_block_status(oob[NAND_NOOB_ECCPOS7]);
+    ecc[8] = sharp_sl_nand_round_block_status(oob[NAND_NOOB_ECCPOS8]);
+    ecc[9] = sharp_sl_nand_round_block_status(oob[NAND_NOOB_ECCPOS9]);
+    ecc[10] = sharp_sl_nand_round_block_status(oob[NAND_NOOB_ECCPOS10]);
+    ecc[11] = sharp_sl_nand_round_block_status(oob[NAND_NOOB_ECCPOS11]);
+    ecc[12] = sharp_sl_nand_round_block_status(oob[NAND_NOOB_ECCPOS12]);
+    ecc[13] = sharp_sl_nand_round_block_status(oob[NAND_NOOB_ECCPOS13]);
+    ecc[14] = sharp_sl_nand_round_block_status(oob[NAND_NOOB_ECCPOS14]);
+    ecc[15] = sharp_sl_nand_round_block_status(oob[NAND_NOOB_ECCPOS15]);
+    ecc[16] = sharp_sl_nand_round_block_status(oob[NAND_NOOB_ECCPOS16]);
+    ecc[17] = sharp_sl_nand_round_block_status(oob[NAND_NOOB_ECCPOS17]);
+    ecc[18] = sharp_sl_nand_round_block_status(oob[NAND_NOOB_ECCPOS18]);
+    ecc[19] = sharp_sl_nand_round_block_status(oob[NAND_NOOB_ECCPOS19]);
+    ecc[20] = sharp_sl_nand_round_block_status(oob[NAND_NOOB_ECCPOS20]);
+    ecc[21] = sharp_sl_nand_round_block_status(oob[NAND_NOOB_ECCPOS21]);
+    ecc[22] = sharp_sl_nand_round_block_status(oob[NAND_NOOB_ECCPOS22]);
+    ecc[23] = sharp_sl_nand_round_block_status(oob[NAND_NOOB_ECCPOS23]);
+
+    for (i=0; i <24 ; i++) 
+        if (ecc[i] != 0xff) return 0;
+    
+    return 1;
+
+#else
     ecc0 = sharp_sl_nand_round_block_status(oob[NAND_NOOB_ECCPOS0]);
     ecc1 = sharp_sl_nand_round_block_status(oob[NAND_NOOB_ECCPOS1]);
     ecc2 = sharp_sl_nand_round_block_status(oob[NAND_NOOB_ECCPOS2]);
     ecc3 = sharp_sl_nand_round_block_status(oob[NAND_NOOB_ECCPOS3]);
     ecc6 = sharp_sl_nand_round_block_status(oob[NAND_NOOB_ECCPOS4]);
     ecc7 = sharp_sl_nand_round_block_status(oob[NAND_NOOB_ECCPOS5]);
+
 
     if(ecc0 == 0xff &&
        ecc1 == 0xff &&
@@ -227,6 +266,7 @@ static u_char sharp_sl_nand_is_ecc_ff(unsigned char *oob)
     }else{
 	return 0;
     }
+#endif
 }
 
 static u_int sharp_sl_nand_search_free_block(void)
@@ -288,7 +328,11 @@ static int sharp_sl_nand_init_logical(struct mtd_info *mtd, u_int32_t partition_
     loff_t block_adr;
     u_int log_no;
     int unusable = 0;
+#if defined (CONFIG_ARCH_PXA_AKITA)
+    unsigned char oob[64];
+#else
     unsigned char oob[16];
+#endif
     int readretry;
     int ret;  
     int i;
@@ -299,10 +343,17 @@ static int sharp_sl_nand_init_logical(struct mtd_info *mtd, u_int32_t partition_
 	printk("Illegal partition size. (%x)\n", partition_size);
 	return -EINVAL;
     }
+#if defined (CONFIG_ARCH_PXA_AKITA)
+    if(mtd->oobblock != 2048 || mtd->oobsize != 64){
+	printk("Unkknown oobblock/oobsize in sharp_sl_nand_logical_init()\n");
+	return -EINVAL;
+    }
+#else
     if(mtd->oobblock != 512 || mtd->oobsize != 16){
 	printk("Unknown oobblock/oobsize in sharp_sl_nand_logical_init()\n");
 	return -EINVAL;
     }
+#endif
 
     // Allocate memory for Logical Address Management
     logical = kmalloc(sizeof(struct mtd_logical), GFP_KERNEL);
@@ -316,7 +367,13 @@ static int sharp_sl_nand_init_logical(struct mtd_info *mtd, u_int32_t partition_
     logical->size = partition_size;
     logical->index = mtd->index;
     logical->phymax = (partition_size / mtd->erasesize);
+
+#if defined (CONFIG_ARCH_PXA_AKITA)
+    logical->logmax = (logical->phymax > 4) ? (logical->phymax - 4) : 1;
+#else
     logical->logmax = (logical->phymax > 24) ? (logical->phymax - 24) : 1;
+#endif
+
 #if 1	// wear-leveling
     logical->phynext = (jiffies % logical->phymax);
 #else
@@ -408,6 +465,7 @@ static int sharp_sl_nand_init_logical(struct mtd_info *mtd, u_int32_t partition_
 	}
 	if(log_no >= logical->logmax){
 	    printk("The logical no is too big. (%d)\n", log_no);
+	    printk("***patition(%d) erasesize(%d) logmax(%d) \n", partition_size, mtd->erasesize, logical->logmax);
 	    logical->usage[block_no].block_written = WRITTEN_JFFS2;
 	    unusable++;
 	    continue;
@@ -425,8 +483,11 @@ static int sharp_sl_nand_init_logical(struct mtd_info *mtd, u_int32_t partition_
 	    continue;
 	}
     }
-
+#if defined (CONFIG_ARCH_PXA_AKITA)
+    if(unusable > 4){
+#else
     if(unusable > 24){
+#endif
 	printk("The unusable block is too much(%d). Your partition supports LOGICAL?\n", unusable);
 	sharp_sl_mtd_logical = logical;
 	sharp_sl_nand_cleanup_logical();
@@ -485,6 +546,7 @@ sharp_sl_nand_read_laddr(struct mtd_info* mtd,	// mtd is slave.
     loff_t block_ofs;
     size_t retlen;
     int ret;
+
 
     // support only for one block.
     if(len <= 0){
@@ -553,6 +615,9 @@ sharp_sl_nand_write_laddr(struct mtd_info* mtd,	// mtd is slave.
     u_char *block, *oobs;
     u_char *blockv, *oobv;
     int ret;
+#if defined (CONFIG_ARCH_PXA_AKITA)
+    dma_addr_t	oobs_phys, oobv_phys;   
+#endif
 
     // support only for one block.
     if(len <= 0){
@@ -596,7 +661,12 @@ sharp_sl_nand_write_laddr(struct mtd_info* mtd,	// mtd is slave.
 	block = buf;
     }
     else{
+#if defined (CONFIG_ARCH_PXA_AKITA)
+	oobs = consistent_alloc(GFP_KERNEL, mtd->oobsize * page_num + mtd->erasesize,&oobs_phys );
+#else
 	oobs = kmalloc(mtd->oobsize * page_num + mtd->erasesize, GFP_KERNEL);
+#endif
+
 	if(oobs == NULL){
 	    printk("Unable to allocate for oobs.\n");
 	    return -ENOMEM;
@@ -605,14 +675,22 @@ sharp_sl_nand_write_laddr(struct mtd_info* mtd,	// mtd is slave.
     }
 
     // alloc buffer for verifying
+#if defined (CONFIG_ARCH_PXA_AKITA)
+    oobv = consistent_alloc(GFP_KERNEL, mtd->oobsize + mtd->erasesize, &oobv_phys );
+#else
     oobv = kmalloc(mtd->oobsize + mtd->erasesize, GFP_KERNEL);
+#endif
     if(oobv == NULL){
 	printk("Unable to allocate for oobv.\n");
+#if defined (CONFIG_ARCH_PXA_AKITA)
+	if (is_all) kfree(oobs);
+	else consistent_free(oobs, mtd->oobsize * page_num + mtd->erasesize, oobs_phys );
+#else
 	kfree(oobs);
+#endif
 	return -ENOMEM;
     }
     blockv = oobv + mtd->oobsize;
-
     // old block
     block_no_read = logical->log2phy[log_no];
     block_adr_read = block_no_read * mtd->erasesize;
@@ -627,21 +705,34 @@ sharp_sl_nand_write_laddr(struct mtd_info* mtd,	// mtd is slave.
 	    ret = (mtd->read)(mtd, block_adr_read, mtd->erasesize, &retlen, block);
 	    if(ret != 0){
 		printk("mtd->read failed in sharp_sl_nand_write_laddr()\n");
+#if defined (CONFIG_ARCH_PXA_AKITA)
+		consistent_free(oobv, mtd->oobsize + mtd->erasesize, oobv_phys );
+		if (is_all) kfree(oobs);
+		else consistent_free(oobs, mtd->oobsize * page_num + mtd->erasesize, oobs_phys );
+#else
 		kfree(oobv);
 		kfree(oobs);
+#endif
 		return ret;
 	    }
 	    if(mtd->erasesize != retlen){
 		printk("mtd->read cannot read full-size.\n");
+#if defined (CONFIG_ARCH_PXA_AKITA)
+		consistent_free(oobv, mtd->oobsize + mtd->erasesize, oobv_phys );
+		if (is_all) kfree(oobs);
+		else consistent_free(oobs, mtd->oobsize * page_num + mtd->erasesize,oobs_phys );
+#else
 		kfree(oobv);
 		kfree(oobs);
+#endif
 		return -EINVAL;
 	    }
 	}
 
 	memcpy(block + block_ofs, buf, len);
-    }
 
+
+    }
     // make oob data
     memset(oobs, 0xff, mtd->oobsize * page_num);
     for(page_idx = 0; page_idx < page_num; page_idx++){
@@ -655,8 +746,14 @@ sharp_sl_nand_write_laddr(struct mtd_info* mtd,	// mtd is slave.
 	block_adr = block_no * mtd->erasesize;
 	if(block_no == (u_int)-1){
 	    printk("No usable block in sharp_sl_nand_write_laddr().\n");
+#if defined (CONFIG_ARCH_PXA_AKITA)
+	    consistent_free(oobv, mtd->oobsize + mtd->erasesize, oobv_phys );
+	    if (is_all) kfree(oobs);
+	    else consistent_free(oobs, mtd->oobsize * page_num + mtd->erasesize, oobs_phys );
+#else
 	    kfree(oobv);
 	    kfree(oobs);
+#endif
 	    return -EIO;
 	}
 
@@ -731,7 +828,6 @@ sharp_sl_nand_write_laddr(struct mtd_info* mtd,	// mtd is slave.
 	    printk("Can not erase the block. adr=(%x)\n", (u_int32_t)block_adr);
 	}
     }
-
     // chain new block
     logical->log2phy[log_no] = block_no;
     logical->usage[block_no].block_written = WRITTEN_LOGICAL;
@@ -743,14 +839,25 @@ sharp_sl_nand_write_laddr(struct mtd_info* mtd,	// mtd is slave.
 	ret = eraseproc(mtd, block_adr_read);
 	if(ret != 0){
 	    printk("Can not erase the old block. adr=(%x)\n", (u_int32_t)block_adr_read);
+#if defined (CONFIG_ARCH_PXA_AKITA)
+	    consistent_free(oobv, mtd->oobsize + mtd->erasesize, oobv_phys );
+	    if (is_all) kfree(oobs);
+	    else consistent_free(oobs, mtd->oobsize * page_num + mtd->erasesize, oobs_phys );
+#else
 	    kfree(oobv);
 	    kfree(oobs);
+#endif
 	    return ret;
 	}
     }
-
+#if defined (CONFIG_ARCH_PXA_AKITA)
+    consistent_free(oobv, mtd->oobsize + mtd->erasesize, oobv_phys );
+    if (is_all) kfree(oobs);
+    else consistent_free(oobs, mtd->oobsize * page_num + mtd->erasesize,oobs_phys );
+#else
     kfree(oobv);
     kfree(oobs);
+#endif
     return 0;
 }
 

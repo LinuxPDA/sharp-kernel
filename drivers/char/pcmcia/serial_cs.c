@@ -31,6 +31,7 @@
     
     Change Log
 	07-Feb-2003 Sharp Corporation
+	20-Dec-2004 Sharp Corporation  for Spitz
 
 ======================================================================*/
 
@@ -128,6 +129,10 @@ static dev_link_t *serial_attach(void);
 static void serial_detach(dev_link_t *);
 
 static dev_link_t *dev_list = NULL;
+
+#if defined(CONFIG_ARCH_PXA_SPITZ)
+int sharpsl_serial_out_wait = 0;
+#endif
 
 /*====================================================================*/
 
@@ -612,6 +617,21 @@ void serial_config(dev_link_t *link)
 	CS_CHECK(AccessConfigurationRegister, link->handle, &reg);
     }
 
+#if defined(CONFIG_ARCH_PXA_SPITZ)
+    sharpsl_serial_out_wait = 0;
+    tuple.DesiredTuple = CISTPL_FUNCID;
+    if (info->manfid == 0x10 && !first_tuple(handle, &tuple, &parse)) {
+      if (parse.funcid.func == CISTPL_FUNCID_SERIAL) {
+	tuple.DesiredTuple = CISTPL_VERS_1;
+	if (!first_tuple(handle, &tuple, &parse) && parse.version_1.ns > 1) {
+	  if (strstr(parse.version_1.str + parse.version_1.ofs[1], "MA-N2"))
+	    sharpsl_serial_out_wait = 1;
+	}
+      }
+    }
+#endif
+
+
     link->dev = &info->node[0];
     link->state &= ~DEV_CONFIG_PENDING;
     return;
@@ -651,6 +671,9 @@ void serial_release(u_long arg)
     
     link->state &= ~DEV_CONFIG;
 
+#if defined(CONFIG_ARCH_PXA_SPITZ)
+    sharpsl_serial_out_wait = 0;
+#endif
 } /* serial_release */
 
 /*======================================================================
