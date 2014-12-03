@@ -18,6 +18,7 @@
 #include <linux/init.h>
 #include <linux/spinlock.h>
 
+#include <asm/hardware.h>
 #include <asm/dma.h>
 
 #include <asm/mach/dma.h>

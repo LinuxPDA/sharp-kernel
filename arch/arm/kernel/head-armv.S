@@ -124,6 +124,10 @@ __entry:
  * FIXME - No bootloader, so manually set 'r1' with our architecture number.
  */
 		mov	r1, #MACH_TYPE_L7200
+#elif defined(CONFIG_ARCH_IQ80310)
+		mov	r1, #MACH_TYPE_IQ80310
+#elif defined(CONFIG_ARCH_ADI_EVB)
+		mov	r1, #MACH_TYPE_ADI_EVB
 #endif
 
 		mov	r0, #F_BIT | I_BIT | MODE_SVC	@ make sure svc mode

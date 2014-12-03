@@ -2591,6 +2591,12 @@ S: Valurink. 4A11
 S: 03600 Karkkila
 S: Finland
 
+N: Deepak Saxena
+E: deepak@csociety.purdue.edu
+D: I2O kernel layer (config, block, core, pci, net). I2O disk support for LILO
+D: XScale(IOP310) porting
+S: Tempe, Arizona
+
 N: Eric Schenk
 E: Eric.Schenk@dna.lth.se
 D: Random kernel debugging.

@@ -33,7 +33,8 @@ mainmenu_option next_comment
 comment 'System Type'
 
 choice 'ARM system type' \
-	"Anakin			CONFIG_ARCH_ANAKIN \
+	"ADIFCC-Based		CONFIG_ARCH_ADIFCC \
+	 Anakin			CONFIG_ARCH_ANAKIN \
 	 Archimedes/A5000	CONFIG_ARCH_ARCA5K \
 	 Cirrus-CL-PS7500FE     CONFIG_ARCH_CLPS7500 \
  	 CLPS711x/EP721x-based	CONFIG_ARCH_CLPS711X \
@@ -42,6 +43,7 @@ choice 'ARM system type' \
  	 Epxa10db               CONFIG_ARCH_CAMELOT \
 	 FootBridge		CONFIG_ARCH_FOOTBRIDGE \
 	 Integrator		CONFIG_ARCH_INTEGRATOR \
+ 	 IOP310-based		CONFIG_ARCH_IOP310 \
 	 LinkUp-L7200		CONFIG_ARCH_L7200 \
 	 RiscPC			CONFIG_ARCH_RPC \
  	 SA1100-based		CONFIG_ARCH_SA1100 \
@@ -152,6 +154,27 @@ if [ "$CONFIG_ARCH_EP7211" = "y" -o \
 fi
 endmenu
 
+if [ "$CONFIG_ARCH_IOP310" = "y" ]; then
+   mainmenu_option next_comment
+   comment 'IOP310 Implementation Options'
+   choice 'IOP310 System Type' \
+   	"IQ80310	CONFIG_ARCH_IQ80310" IQ80310
+   dep_bool '  Run IQ80310 @ 733MHz (AT YOUR OWN RISK)' CONFIG_IQ80310_TURBO_CHARGE $CONFIG_ARCH_IQ80310
+   comment 'IOP310 Chipset Features'
+   bool 'Support Intel 80312 Application Accelerator Unit (EXPERIMENTAL)' CONFIG_IOP310_AAU
+   bool 'Support Intel 80312 DMA (EXPERIMENTAL)' CONFIG_IOP310_DMA
+   bool 'Support Intel 80312 Messaging Unit (EXPERIMENTAL)' CONFIG_IOP310_MU
+   bool 'Support Intel 80312 Performance Monitor (EXPERIMENTAL)' CONFIG_IOP310_PMON
+   endmenu
+fi
+
+if [ "$CONFIG_ARCH_ADIFCC" = "y" ]; then
+   define_bool CONFIG_ARCH_ADI_EVB y
+   define_bool CONFIG_XSCALE_PMU_TIMER y
+else
+   define_bool CONFIG_XSCALE_PMU_TIMER n
+fi 
+
 # Definitions to make life easier
 if [ "$CONFIG_ARCH_ARCA5K" = "y" -o \
      "$CONFIG_ARCH_RPC" = "y" ]; then
@@ -196,7 +219,7 @@ else
    define_bool CONFIG_CPU_26 n
 fi
 
-comment 'Processor Type'
+comment 'Processor Options'
 
 # Firstly, figure out what processor architecture version we should be using.
 if [ "$CONFIG_ARCH_RPC"        = "y" -o "$CONFIG_ARCH_CLPS7500" = "y" ]; then
@@ -337,6 +360,24 @@ else
    define_bool CONFIG_CPU_SA1100 n
 fi
 
+# XScale
+if [ "$CONFIG_ARCH_IOP310" = "y" -o "$CONFIG_ARCH_ADIFCC" = "y" ]; then
+   define_bool CONFIG_CPU_32v4 y
+   define_bool CONFIG_CPU_XSCALE y
+   define_bool CONFIG_ARM_THUMB y
+fi
+
+if [ "$CONFIG_CPU_XSCALE" = "y" ]; then
+   bool 'Use XScale aware tools' CONFIG_XSCALE_TOOLS
+   bool 'Enable XScale DCACHE write allocation' CONFIG_XSCALE_WRITE_ALLOC
+fi
+
+if [ "$CONFIG_CPU_XSCALE" = "y" -a "$CONFIG_XSCALE_PMU_TIMER" != "y" ]; then
+   define_bool CONFIG_XSCALE_PMU y
+else
+   define_bool CONFIG_XSCALE_PMU y
+fi
+
 if [ "$CONFIG_CPU_32" = "y" ]; then
    dep_bool 'Support Thumb instructions (experimental)' CONFIG_ARM_THUMB $CONFIG_EXPERIMENTAL
 fi
@@ -357,7 +398,9 @@ comment 'General setup'
 # Now handle the bus types
 if [ "$CONFIG_ARCH_FTVPCI" = "y" -o \
      "$CONFIG_ARCH_SHARK" = "y" -o \
-     "$CONFIG_FOOTBRIDGE_HOST" = "y" ]; then
+     "$CONFIG_ARCH_IOP310" = "y" -o \
+     "$CONFIG_FOOTBRIDGE_HOST" = "y" -o \
+     "$CONFIG_ARCH_IOP310" = "y" ]; then
    define_bool CONFIG_PCI y
 else
    if [ "$CONFIG_ARCH_INTEGRATOR" = "y" ]; then
@@ -423,7 +466,9 @@ if [ "$CONFIG_ARCH_EBSA110" = "y" -o         \
      "$CONFIG_ARCH_P720T" = "y" -o	     \
      "$CONFIG_ARCH_CDB89712" = "y" -o	     \
      "$CONFIG_ARCH_CAMELOT" = "y" -o	     \
-     "$CONFIG_ARCH_ANAKIN" = "y" ]; then
+     "$CONFIG_ARCH_ANAKIN" = "y" -o          \
+     "$CONFIG_ARCH_IOP310" = "y" -o 	     \
+     "$CONFIG_ARCH_ADIFCC" = "y" ]; then
    string 'Default kernel command string' CONFIG_CMDLINE ""
 fi
 if [ "$CONFIG_ARCH_NETWINDER" = "y" -o  \

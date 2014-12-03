@@ -18,6 +18,9 @@ struct map_desc {
 	    prot_write:1,
 	    cacheable:1,
 	    bufferable:1,
+#ifdef CONFIG_CPU_XSCALE
+	    extend:1,
+#endif
 	    last:1;
 };
 

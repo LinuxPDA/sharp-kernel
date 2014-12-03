@@ -548,6 +548,39 @@ ENTRY(anakin_active_irqs)
 		.text
 		.endm
 
+#elif defined(CONFIG_ARCH_IOP310) || defined(CONFIG_ARCH_ADIFCC)
+
+		.macro	disable_fiq
+		.endm
+
+        	.macro  get_irqnr_and_base, irqnr, irqstat, base, tmp
+        	mrc p13, 0, \irqstat, c4, c0, 0 @ get INTSRC
+        	mrc p13, 0, \base, c0, c0, 0    @ get INTCTL
+	
+        	tst \irqstat, #(1<<29)      @ if INTSRC_BI
+        	tstne   \base, #(1<<3)          @ and INTCTL_BM
+        	movne   \irqnr, #IRQ_XS80200_BCU
+        	bne 1001f
+	
+        	tst \irqstat, #(1<<28)      @ if INTSRC_PI
+        	tstne   \base, #(1<<2)          @ and INTCTL_PM
+        	movne   \irqnr, #IRQ_XS80200_PMU
+        	bne 1001f
+	
+        	tst \irqstat, #(1<<31)      @ if INTSRC_FI
+        	tstne   \base, #(1<<0)          @ and INTCTL_FM
+        	movne   \irqnr, #IRQ_XS80200_EXTFIQ
+        	bne 1001f
+	
+        	tst \irqstat, #(1<<30)      @ if INTSRC_II
+        	tstne   \base, #(1<<1)          @ and INTCTL_IM
+        	movne   \irqnr, #IRQ_XS80200_EXTIRQ
+
+1001:
+  		.endm
+  
+  		.macro	irq_prio_table
+ 		.endm
 #else
 #error Unknown architecture
 #endif
@@ -843,6 +876,7 @@ ENTRY(fp_enter)
 		.text
 /*
  * Register switch for ARMv3 and ARMv4 processors
+ * Save DSP (CP0) state on XScale CPUs
  * r0 = previous, r1 = next, return previous.
  * previous and next are guaranteed not to be the same.
  */
@@ -850,9 +884,17 @@ ENTRY(__switch_to)
 		stmfd	sp!, {r4 - sl, fp, lr}		@ Store most regs on stack
 		mrs	ip, cpsr
 		str	ip, [sp, #-4]!			@ Save cpsr_SVC
+#ifdef CONFIG_XSCALE_TOOLS
+		mra	r4, r5, acc0
+		stmfd	sp!, {r4, r5}
+#endif
 		str	sp, [r0, #TSS_SAVE]		@ Save sp_SVC
 		ldr	sp, [r1, #TSS_SAVE]		@ Get saved sp_SVC
 		ldr	r2, [r1, #TSS_DOMAIN]
+#ifdef CONFIG_XSCALE_TOOLS
+		ldmfd	sp!, {r4, r5}
+		mar	acc0, r4, r5
+#endif
 		ldr	ip, [sp], #4
 		mcr	p15, 0, r2, c3, c0		@ Set domain register
 		msr	spsr, ip			@ Save tasks CPSR into SPSR for this return

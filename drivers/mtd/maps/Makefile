@@ -8,6 +8,7 @@ O_TARGET	:= mapslink.o
 # Chip mappings
 obj-$(CONFIG_MTD_CDB89712)      += cdb89712.o
 obj-$(CONFIG_MTD_ARM_INTEGRATOR)+= integrator-flash.o
+obj-$(CONFIG_MTD_ADI_EVB)	+= adi_evb.o
 obj-$(CONFIG_MTD_CFI_FLAGADM)	+= cfi_flagadm.o
 obj-$(CONFIG_MTD_CSTM_MIPS_IXX) += cstm_mips_ixx.o
 obj-$(CONFIG_MTD_DC21285)       += dc21285.o

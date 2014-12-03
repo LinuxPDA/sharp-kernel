@@ -57,6 +57,10 @@ ifeq ($(CONFIG_SA1100_NANOENGINE),y)
 endif
 endif
 
+ifeq ($(CONFIG_CPU_XSCALE),y)
+OBJS		+= head-xscale.o
+endif
+
 SEDFLAGS	= s/TEXT_START/$(ZTEXTADDR)/;s/LOAD_ADDR/$(ZRELADDR)/;
 
 ifneq ($(ZBSSADDR),)

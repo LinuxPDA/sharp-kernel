@@ -118,6 +118,22 @@ ifeq ($(CONFIG_ARCH_ANAKIN),y)
 ZTEXTADDR	 = 0x20008000
 endif
 
+ifeq ($(CONFIG_ARCH_IQ80310),y)
+ZRELADDR	 = 0xa0008000
+
+# for serial upload
+ZTEXTADDR	 = 0xa1008000
+
+# for direct flash execution
+# ZTEXTADDR       = 0x00060000
+# ZBSSADDR       = 0xa1008000
+endif
+
+ifeq ($(CONFIG_ARCH_ADIFCC),y)
+ZRELADDR	= 0xc0008000
+ZTEXTADDR	= 0xc1000000
+endif
+
 #
 # If you don't define ZRELADDR above,
 # then it defaults to ZTEXTADDR
@@ -135,6 +151,9 @@ bzImage: zImage
 
 zImage:	$(CONFIGURE) compressed/vmlinux
 	$(OBJCOPY) -O binary -R .note -R .comment -S compressed/vmlinux $@
+
+zsrec: $(CONFIGURE) compressed/vmlinux
+	$(CROSS_COMPILE)objcopy -O srec -R .note -R .comment -S $< $@   
 
 bootpImage: bootp/bootp
 	$(OBJCOPY) -O binary -R .note -R .comment -S bootp/bootp $@
@@ -156,7 +175,7 @@ zinstall: $(CONFIGURE) zImage
 	sh ./install.sh $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION) zImage $(TOPDIR)/System.map "$(INSTALL_PATH)"
 
 clean:
-	$(RM) Image zImage bootpImage
+	$(RM) Image zImage bootpImage zsrec
 	@$(MAKE) -C compressed clean
 	@$(MAKE) -C bootp clean
 

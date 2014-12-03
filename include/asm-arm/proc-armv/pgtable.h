@@ -40,6 +40,11 @@
 #define PMD_SECT_BUFFERABLE	0x0004
 #define PMD_SECT_AP_WRITE	0x0400
 #define PMD_SECT_AP_READ	0x0800
+
+#ifdef CONFIG_CPU_XSCALE
+#define PMD_SECT_TYPE_EXT      0x1000
+#endif
+
 #define PMD_DOMAIN(x)		((x) << 5)
 
 #define _PAGE_USER_TABLE	(PMD_TYPE_TABLE | PMD_DOMAIN(DOMAIN_USER))
@@ -88,6 +93,10 @@ static inline unsigned long pmd_page(pmd_t pmd)
 #define PTE_AP_WRITE		0x0550
 #define PTE_CACHEABLE		0x0008
 #define PTE_BUFFERABLE		0x0004
+#ifdef CONFIG_CPU_XSCALE
+#define PTE_TYPE_SMALL_EXT     0x0003
+#define PTE_SMALL_TEX          0x0040
+#endif
 
 #define set_pte(ptep, pte)	cpu_set_pte(ptep,pte)
 
@@ -118,6 +127,10 @@ static inline unsigned long pmd_page(pmd_t pmd)
 #define L_PTE_EXEC		(1 << 6)
 #define L_PTE_DIRTY		(1 << 7)
 
+#ifdef CONFIG_CPU_XSCALE
+#define L_PTE_EXTEND	(1 << 8)
+#endif
+		
 /*
  * The following macros handle the cache and bufferable bits...
  */

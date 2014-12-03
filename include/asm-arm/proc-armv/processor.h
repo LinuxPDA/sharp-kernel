@@ -23,6 +23,9 @@
 #define KERNEL_STACK_SIZE	PAGE_SIZE
 
 struct context_save_struct {
+#ifdef CONFIG_XSCALE_TOOLS
+	long long acc0;
+#endif
 	unsigned long cpsr;
 	unsigned long r4;
 	unsigned long r5;
@@ -35,7 +38,11 @@ struct context_save_struct {
 	unsigned long pc;
 };
 
+#ifdef CONFIG_XSCALE_TOOLS
+#define INIT_CSS (struct context_save_struct){ 0, SVC_MODE, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
+#else
 #define INIT_CSS (struct context_save_struct){ SVC_MODE, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
+#endif
 
 #define EXTRA_THREAD_STRUCT						\
 	unsigned int	domain;

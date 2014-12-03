@@ -32,6 +32,7 @@ arch-y				:=
 arch-$(CONFIG_CPU_32v3)		:=-march=armv3
 arch-$(CONFIG_CPU_32v4)		:=-march=armv4
 arch-$(CONFIG_CPU_32v5)		:=-march=armv5
+arch-$(CONFIG_XSCALE_TOOLS)	:=-march=armv4 -Wa,-mxscale
 
 # This selects how we optimise for the processor.
 tune-y				:=
@@ -135,6 +136,14 @@ ifeq ($(CONFIG_ARCH_ANAKIN),y)
 MACHINE		 = anakin
 endif
 
+ifeq ($(CONFIG_ARCH_IOP310),y)
+MACHINE		 = iop310
+endif
+
+ifeq ($(CONFIG_ARCH_ADIFCC),y)
+MACHINE		= adifcc
+endif
+
 export	MACHINE PROCESSOR TEXTADDR GZFLAGS
 
 # Only set INCDIR if its not already defined above
@@ -201,7 +210,7 @@ arch/arm/vmlinux.lds: $(LDSCRIPT) dummy
 arch/arm/kernel arch/arm/mm arch/arm/lib: dummy
 	$(MAKE) CFLAGS="$(CFLAGS) $(CFLAGS_KERNEL)" $(subst $@, _dir_$@, $@)
 
-bzImage zImage zinstall Image bootpImage install: vmlinux
+bzImage zImage zinstall Image bootpImage install zsrec: vmlinux
 	@$(MAKEBOOT) $@
 
 CLEAN_FILES	+= \

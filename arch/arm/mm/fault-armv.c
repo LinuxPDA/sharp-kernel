@@ -597,7 +597,7 @@ do_DataAbort(unsigned long addr, int error_code, struct pt_regs *regs, int fsr)
 {
 	const struct fsr_info *inf = fsr_info + (fsr & 15);
 
-#if defined(CONFIG_CPU_SA110) || defined(CONFIG_CPU_SA1100) || defined(CONFIG_DEBUG_ERRORS)
+#if defined(CONFIG_CPU_SA110) || defined(CONFIG_CPU_SA1100) || defined(CONFIG_CPU_XSCALE) || defined(CONFIG_DEBUG_ERRORS)
 	if (addr == regs->ARM_pc)
 		goto sa1_weirdness;
 #endif
@@ -615,7 +615,7 @@ bad:
 	die_if_kernel("Oops", regs, 0);
 	return;
 
-#if defined(CONFIG_CPU_SA110) || defined(CONFIG_CPU_SA1100) || defined(CONFIG_DEBUG_ERRORS)
+#if defined(CONFIG_CPU_SA110) || defined(CONFIG_CPU_SA1100) || defined(CONFIG_CPU_XSCALE) || defined(CONFIG_DEBUG_ERRORS)
 sa1_weirdness:
 	if (user_mode(regs)) {
 		static int first = 1;

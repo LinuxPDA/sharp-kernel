@@ -222,16 +222,22 @@ static inline void clear_mapping(unsigned long virt)
 static void __init create_mapping(struct map_desc *md)
 {
 	unsigned long virt, length;
-	int prot_sect, prot_pte;
+	unsigned int prot_sect, prot_pte;
 	long off;
 
 	prot_pte = L_PTE_PRESENT | L_PTE_YOUNG | L_PTE_DIRTY |
+#ifdef CONFIG_CPU_XSCALE
+		   (md->extend ? L_PTE_EXTEND : 0) |
+#endif
 		   (md->prot_read  ? L_PTE_USER       : 0) |
 		   (md->prot_write ? L_PTE_WRITE      : 0) |
 		   (md->cacheable  ? L_PTE_CACHEABLE  : 0) |
 		   (md->bufferable ? L_PTE_BUFFERABLE : 0);
 
 	prot_sect = PMD_TYPE_SECT | PMD_DOMAIN(md->domain) |
+#ifdef CONFIG_CPU_XSCALE
+		    (md->extend ? PMD_SECT_TYPE_EXT : 0) |
+#endif
 		    (md->prot_read  ? PMD_SECT_AP_READ    : 0) |
 		    (md->prot_write ? PMD_SECT_AP_WRITE   : 0) |
 		    (md->cacheable  ? PMD_SECT_CACHEABLE  : 0) |
@@ -312,6 +318,13 @@ void __init memtable_init(struct meminfo *mi)
 		p->prot_write = 1;
 		p->cacheable  = 1;
 		p->bufferable = 1;
+#ifdef CONFIG_CPU_XSCALE
+#ifdef CONFIG_XSCALE_WRITE_ALLOC
+		p->extend = 1;
+#else
+		p->extend = 0;
+#endif
+#endif
 
 		p ++;
 	}
@@ -325,6 +338,9 @@ void __init memtable_init(struct meminfo *mi)
 	p->prot_write = 0;
 	p->cacheable  = 1;
 	p->bufferable = 1;
+#ifdef CONFIG_CPU_XSCALE
+	p->extend = 1;
+#endif
 
 	p ++;
 #endif
@@ -338,6 +354,9 @@ void __init memtable_init(struct meminfo *mi)
 	p->prot_write = 0;
 	p->cacheable  = 1;
 	p->bufferable = 0;
+#ifdef CONFIG_CPU_XSCALE
+	p->extend = 1;
+#endif
 
 	p ++;
 #endif
@@ -373,6 +392,9 @@ void __init memtable_init(struct meminfo *mi)
 	init_maps->prot_write = 0;
 	init_maps->cacheable  = 1;
 	init_maps->bufferable = 0;
+#ifdef CONFIG_CPU_XSCALE
+	init_maps->extend = 0;
+#endif
 
 	create_mapping(init_maps);
 

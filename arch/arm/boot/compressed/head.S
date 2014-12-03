@@ -218,6 +218,10 @@ cache_on:	ldr	r1, proc_sa110_type
 		ldr     r1, proc_sa1110_type
 		eor	r1, r1, r6
 		movs	r1, r1, lsr #4
+		beq	1f
+		ldr	r1, proc_xscale_type
+		eor	r1, r1, r6
+		movs	r1, r1, lsr #16
 		movne	pc, lr
 1:
 		sub	r3, r4, #16384		@ Page directory size
@@ -318,6 +322,12 @@ proc_sa1110_type:
 		.word	0x6901b110
 		.size	proc_sa1110_type, . - proc_sa1110_type
 
+		.type	proc_xscale_type,#object
+proc_xscale_type:
+		.word	0x69050000
+		.size	proc_xscale_type, . - proc_xscale_type
+
+
 /*
  * Turn off the Cache and MMU.  ARMv3 does not support
  * reading the control register, but ARMv4 does.
@@ -379,10 +389,14 @@ cache_clean_flush:
 		ldr	r1, proc_sa1110_type
 		eor	r1, r1, r6
 		movs	r1, r1, lsr #4
+		beq	1f
+		ldr	r1, proc_xscale_type
+		eor	r1, r1, r6
+		movs	r1, r1, lsr #16
 		movne	pc, lr
 1:
 		bic	r1, pc, #31
-		add	r2, r1, #32768
+		add	r2, r1, #65536		@ 2x the largest dcache size
 1:		ldr	r12, [r1], #32		@ s/w flush D cache
 		teq	r1, r2
 		bne	1b

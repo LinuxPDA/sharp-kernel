@@ -406,6 +406,7 @@ extern struct hw_pci personal_server_pci;
 extern struct hw_pci ftv_pci;
 extern struct hw_pci shark_pci;
 extern struct hw_pci integrator_pci;
+extern struct hw_pci iq80310_pci;
 
 void __init pcibios_init(void)
 {
@@ -455,6 +456,12 @@ void __init pcibios_init(void)
 			break;
 		}
 #endif
+#ifdef CONFIG_ARCH_IQ80310
+		if (machine_is_iq80310()) {
+			hw = &iq80310_pci;
+			break;
+		}
+#endif
 	} while (0);
 
 	if (hw == NULL)
@@ -491,7 +498,10 @@ void __init pcibios_init(void)
 	/*
 	 * Assign any unassigned resources.
 	 */
+#ifndef CONFIG_ARCH_IQ80310
 	pci_assign_unassigned_resources();
+#endif
+
 	pci_fixup_irqs(root->hw->swizzle, root->hw->map_irq);
 }
 
