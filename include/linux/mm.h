@@ -603,6 +603,12 @@ static inline struct vm_area_struct * find_vma_intersection(struct mm_struct * m
 
 extern struct vm_area_struct *find_extend_vma(struct mm_struct *mm, unsigned long addr);
 
+#ifndef __arm__
+#define memc_update_addr(x,y,z)
+#define memc_update_mm(x)
+#define memc_clear(x,y)
+#endif
+
 #endif /* __KERNEL__ */
 
 #endif

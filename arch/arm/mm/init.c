@@ -378,7 +378,7 @@ static __init void reserve_node_zero(unsigned int bootmap_pfn, unsigned int boot
 	 */
 	if (machine_is_archimedes() || machine_is_a5k())
 		reserve_bootmem_node(pgdat, 0x02000000, 0x00080000);
-	if (machine_is_edb7211())
+	if (machine_is_edb7211() || machine_is_fortunet())
 		reserve_bootmem_node(pgdat, 0xc0000000, 0x00020000);
 	if (machine_is_p720t())
 		reserve_bootmem_node(pgdat, PHYS_OFFSET, 0x00014000);

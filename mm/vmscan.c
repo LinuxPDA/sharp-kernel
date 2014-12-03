@@ -89,6 +89,7 @@ set_swap_pte:
 drop_pte:
 		mm->rss--;
 		UnlockPage(page);
+		memc_clear(vma->vm_mm, page);
 		{
 			int freeable = page_count(page) - !!page->buffers <= 2;
 			page_cache_release(page);

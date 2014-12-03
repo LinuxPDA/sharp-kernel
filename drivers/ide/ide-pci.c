@@ -592,7 +592,10 @@ static void __init ide_setup_pci_device (struct pci_dev *dev, ide_pci_device_t *
 		autodma = 1;
 #endif
 
-	pci_enable_device(dev);
+	if (pci_enable_device(dev)) {
+		printk("%s: error while enabling PCI device\n", d->name);
+		return;
+	}
 
 check_if_enabled:
 	if (pci_read_config_word(dev, PCI_COMMAND, &pcicmd)) {

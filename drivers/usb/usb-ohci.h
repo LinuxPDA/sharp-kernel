@@ -403,6 +403,7 @@ typedef struct ohci {
 
 	/* PCI device handle, settings, ... */
 	struct pci_dev	*ohci_dev;
+	const char	*slot_name;
 	u8		pci_latency;
 	struct pci_pool	*td_cache;
 	struct pci_pool	*dev_cache;
@@ -448,7 +449,7 @@ static int rh_init_int_timer(urb_t * urb);
 #endif
  
 #ifndef CONFIG_PCI
-#	error "usb-ohci currently requires PCI-based controllers"
+//#	error "usb-ohci currently requires PCI-based controllers"
 	/* to support non-PCI OHCIs, you need custom bus/mem/... glue */
 #endif
 

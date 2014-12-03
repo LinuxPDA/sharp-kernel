@@ -675,10 +675,17 @@ static void do_shutdown(socket_info_t *s)
 static void parse_events(void *info, u_int events)
 {
     socket_info_t *s = info;
+
     if (events & SS_DETECT) {
 	int status;
 
 	get_socket_status(s, &status);
+
+	/*
+	 * If our socket state indicates that a card is present and
+	 * either the socket has not been suspended (for some reason)
+	 * or the card has been removed, shut down the socket first.
+	 */
 	if ((s->state & SOCKET_PRESENT) &&
 	    (!(s->state & SOCKET_SUSPEND) ||
 	     !(status & SS_DETECT)))
@@ -1609,7 +1616,7 @@ int pcmcia_release_irq(client_handle_t handle, irq_req_t *req)
 	bus_free_irq(s->cap.bus, req->AssignedIRQ, req->Instance);
     }
 
-#ifdef CONFIG_ISA
+#ifdef CONFIG_PCMCIA_PROBE
     if (req->AssignedIRQ != s->cap.pci_irq)
 	undo_irq(req->Attributes, req->AssignedIRQ);
 #endif
@@ -1636,7 +1643,7 @@ int pcmcia_release_window(window_handle_t win)
 
     /* Release system memory */
     if(!(s->cap.features & SS_CAP_STATIC_MAP))
-	release_mem_region(win->base, win->size);
+	release_mem_resource(win->base, win->size);
     win->handle->state &= ~CLIENT_WIN_REQ(win->index);
 
     win->magic = 0;
@@ -1873,7 +1880,7 @@ int pcmcia_request_irq(client_handle_t handle, irq_req_t *req)
     if (!s->cap.irq_mask) {
 	irq = s->cap.pci_irq;
 	ret = (irq) ? 0 : CS_IN_USE;
-#ifdef CONFIG_ISA
+#ifdef CONFIG_PCMCIA_PROBE
     } else if (s->irq.AssignedIRQ != 0) {
 	/* If the interrupt is already assigned, it must match */
 	irq = s->irq.AssignedIRQ;

@@ -13,6 +13,10 @@ if [ "$CONFIG_I2C" != "n" ]; then
       dep_tristate '  Philips style parallel port adapter' CONFIG_I2C_PHILIPSPAR $CONFIG_I2C_ALGOBIT $CONFIG_PARPORT
       dep_tristate '  ELV adapter' CONFIG_I2C_ELV $CONFIG_I2C_ALGOBIT
       dep_tristate '  Velleman K9000 adapter' CONFIG_I2C_VELLEMAN $CONFIG_I2C_ALGOBIT
+      if [ "$CONFIG_ARCH_SA1100" = "y" ]; then
+         dep_bool '  Frodo I2C adapter' CONFIG_I2C_FRODO $CONFIG_I2C_ALGOBIT
+         dep_bool '  SA1100 I2C GPIO adapter' CONFIG_I2C_BIT_SA1100_GPIO $CONFIG_I2C_ALGOBIT
+      fi
    fi
 
    dep_tristate 'I2C PCF 8584 interfaces' CONFIG_I2C_ALGOPCF $CONFIG_I2C

@@ -1,5 +1,5 @@
 /* 
- * $Id: blkmtd.c,v 1.7 2001/11/10 17:06:30 spse Exp $
+ * $Id: blkmtd.c,v 1.10 2002/03/03 15:42:06 spse Exp $
  *
  * blkmtd.c - use a block device as a fake MTD
  *
@@ -45,9 +45,8 @@
 
 #include <linux/config.h>
 #include <linux/module.h>
-
 #include <linux/fs.h>
-#include <linux/pagemap.h>
+#include <linux/blkdev.h>
 #include <linux/iobuf.h>
 #include <linux/slab.h>
 #include <linux/pagemap.h>
@@ -65,9 +64,7 @@
 
 /* Default erase size in K, always make it a multiple of PAGE_SIZE */
 #define CONFIG_MTD_BLKDEV_ERASESIZE 128
-#define VERSION "1.7"
-extern int *blk_size[];
-extern int *blksize_size[];
+#define VERSION "1.9"
 
 /* Info for the block device */
 typedef struct mtd_raw_dev_data_s {
@@ -112,27 +109,17 @@ static spinlock_t mbd_writeq_lock = SPIN_LOCK_UNLOCKED;
 static volatile int write_task_finish;
 
 /* ipc with the write thread */
-#if LINUX_VERSION_CODE > KERNEL_VERSION(2,3,0)
 static DECLARE_MUTEX_LOCKED(thread_sem);
 static DECLARE_WAIT_QUEUE_HEAD(thr_wq);
 static DECLARE_WAIT_QUEUE_HEAD(mtbd_sync_wq);
-#else
-static struct semaphore thread_sem = MUTEX_LOCKED;
-DECLARE_WAIT_QUEUE_HEAD(thr_wq);
-DECLARE_WAIT_QUEUE_HEAD(mtbd_sync_wq);
-#endif
-
 
 /* Module parameters passed by insmod/modprobe */
 char *device;    /* the block device to use */
 int erasesz;     /* optional default erase size */
 int ro;          /* optional read only flag */
-int bs;          /* optionally force the block size (avoid using) */
-int count;       /* optionally force the block count (avoid using) */
 int wqs;         /* optionally set the write queue size */
 
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,2,0)
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Simon Evans <spse@secret.org.uk>");
 MODULE_DESCRIPTION("Emulate an MTD using a block device");
@@ -142,12 +129,7 @@ MODULE_PARM(erasesz, "i");
 MODULE_PARM_DESC(erasesz, "optional erase size to use in KB. eg 4=4K.");
 MODULE_PARM(ro, "i");
 MODULE_PARM_DESC(ro, "1=Read only, writes and erases cause errors");
-MODULE_PARM(bs, "i");
-MODULE_PARM_DESC(bs, "force the block size in bytes");
-MODULE_PARM(count, "i");
-MODULE_PARM_DESC(count, "force the block count");
 MODULE_PARM(wqs, "i");
-#endif
 
 
 /* Page cache stuff */
@@ -170,7 +152,7 @@ static int blkmtd_readpage(mtd_raw_dev_data_t *rawdevice, struct page *page)
   unsigned long *blocks;
 
   if(!rawdevice) {
-    printk("blkmtd: readpage: PANIC file->private_data == NULL\n");
+    printk(KERN_ERR "blkmtd: readpage: PANIC rawdevice == NULL\n");
     return -EIO;
   }
   dev = to_kdev_t(rawdevice->binding->bd_dev);
@@ -220,16 +202,16 @@ static int blkmtd_readpage(mtd_raw_dev_data_t *rawdevice, struct page *page)
   DEBUG(3, "blkmtd: readpage: getting kiovec\n");
   err = alloc_kiovec(1, &iobuf);
   if (err) {
-    printk("blkmtd: cant allocate kiobuf\n");
+    printk(KERN_CRIT "blkmtd: cant allocate kiobuf\n");
     SetPageError(page);
     return err;
   }
 
   /* Pre 2.4.4 doesnt have space for the block list in the kiobuf */ 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,4,4)
-  blocks = kmalloc(KIO_MAX_SECTORS * sizeof(unsigned long));
+  blocks = kmalloc(KIO_MAX_SECTORS * sizeof(unsigned long), GFP_KERNEL);
   if(blocks == NULL) {
-    printk("blkmtd: cant allocate iobuf blocks\n");
+    printk(KERN_CRIT "blkmtd: cant allocate iobuf blocks\n");
     free_kiovec(1, &iobuf);
     SetPageError(page);
     return -ENOMEM;
@@ -257,7 +239,8 @@ static int blkmtd_readpage(mtd_raw_dev_data_t *rawdevice, struct page *page)
   if(rawdevice->partial_last_page && page->index == rawdevice->partial_last_page) {
     int offset = rawdevice->last_page_sectors << rawdevice->sector_bits;
     int count = PAGE_SIZE-offset;
-    DEBUG(3, "blkmtd: clear last partial page: offset = %d count = %d\n", offset, count);
+    DEBUG(3, "blkmtd: clear last partial page: offset = %d count = %d\n",
+	  offset, count);
     memset(page_address(page)+offset, 0, count);
     sectors = rawdevice->last_page_sectors;
   }
@@ -274,7 +257,7 @@ static int blkmtd_readpage(mtd_raw_dev_data_t *rawdevice, struct page *page)
 #endif
 
   if(err != PAGE_SIZE) {
-    printk("blkmtd: readpage: error reading page %ld\n", page->index);
+    printk(KERN_ERR "blkmtd: readpage: error reading page %ld\n", page->index);
     memset(page_address(page), 0, PAGE_SIZE);
     SetPageError(page);
     err = -EIO;
@@ -311,20 +294,20 @@ static int write_queue_task(void *data)
   tsk->tty = NULL;
   spin_lock_irq(&tsk->sigmask_lock);
   sigfillset(&tsk->blocked);
-  recalc_sigpending(tsk);
+  recalc_sigpending();
   spin_unlock_irq(&tsk->sigmask_lock);
   exit_sighand(tsk);
 
   if(alloc_kiovec(1, &iobuf)) {
-    printk("blkmtd: write_queue_task cant allocate kiobuf\n");
+    printk(KERN_CRIT "blkmtd: write_queue_task cant allocate kiobuf\n");
     return 0;
   }
 
   /* Pre 2.4.4 doesnt have space for the block list in the kiobuf */ 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,4,4)
-  blocks = kmalloc(KIO_MAX_SECTORS * sizeof(unsigned long));
+  blocks = kmalloc(KIO_MAX_SECTORS * sizeof(unsigned long), GFP_KERNEL);
   if(blocks == NULL) {
-    printk("blkmtd: write_queue_task cant allocate iobuf blocks\n");
+    printk(KERN_CRIT "blkmtd: write_queue_task cant allocate iobuf blocks\n");
     free_kiovec(1, &iobuf);
     return 0;
   }
@@ -456,7 +439,8 @@ static int queue_page_write(mtd_raw_dev_data_t *rawdevice, struct page **pages,
   mtdblkdev_write_queue_t *item;
   int i;
   DECLARE_WAITQUEUE(wait, current);
-  DEBUG(2, "blkmtd: queue_page_write: adding pagenr = %d pagecnt = %d\n", pagenr, pagecnt);
+  DEBUG(2, "blkmtd: queue_page_write: adding pagenr = %d pagecnt = %d\n",
+	pagenr, pagecnt);
 
   if(!pagecnt)
     return 0;
@@ -499,7 +483,8 @@ static int queue_page_write(mtd_raw_dev_data_t *rawdevice, struct page **pages,
     schedule();
     current->state = TASK_RUNNING;
     remove_wait_queue(&mtbd_sync_wq, &wait);
-    DEBUG(3, "blkmtd: queue_page_write: Queue has %d items in it\n", write_queue_cnt);
+    DEBUG(3, "blkmtd: queue_page_write: Queue has %d items in it\n",
+	  write_queue_cnt);
     goto test_lock;
   }
 
@@ -537,7 +522,8 @@ static int blkmtd_erase(struct mtd_info *mtd, struct erase_info *instr)
 
   /* check readonly */
   if(rawdevice->readonly) {
-    printk("blkmtd: error: trying to erase readonly device %s\n", device);
+    printk(KERN_ERR "blkmtd: error: trying to erase readonly device %s\n",
+	   device);
     instr->state = MTD_ERASE_FAILED;
     goto erase_callback;
   }
@@ -562,7 +548,8 @@ static int blkmtd_erase(struct mtd_info *mtd, struct erase_info *instr)
 
   if(!numregions) {
     /* Not a valid erase block */
-    printk("blkmtd: erase: invalid erase request 0x%lX @ 0x%08X\n", len, from);
+    printk(KERN_ERR "blkmtd: erase: invalid erase request 0x%lX @ 0x%08X\n",
+	   len, from);
     instr->state = MTD_ERASE_FAILED;
     err = -EIO;
   }
@@ -594,7 +581,8 @@ static int blkmtd_erase(struct mtd_info *mtd, struct erase_info *instr)
       DEBUG(3, "blkmtd: erase: doing grab_cache_page() for page %d\n", pagenr);
       page = grab_cache_page(&rawdevice->as, pagenr);
       if(!page) {
-	DEBUG(3, "blkmtd: erase: grab_cache_page() failed for page %d\n", pagenr);
+	DEBUG(3, "blkmtd: erase: grab_cache_page() failed for page %d\n",
+	      pagenr);
 	kfree(pages);
 	err = -EIO;
 	instr->state = MTD_ERASE_FAILED;
@@ -656,7 +644,8 @@ static int blkmtd_read(struct mtd_info *mtd, loff_t from, size_t len,
   offset = from - (pagenr << PAGE_SHIFT);
   
   pages = (offset+len+PAGE_SIZE-1) >> PAGE_SHIFT;
-  DEBUG(3, "blkmtd: read: pagenr = %d offset = %d, pages = %d\n", pagenr, offset, pages);
+  DEBUG(3, "blkmtd: read: pagenr = %d offset = %d, pages = %d\n",
+	pagenr, offset, pages);
 
   /* just loop through each page, getting it via readpage() - slow but easy */
   while(pages) {
@@ -670,7 +659,7 @@ static int blkmtd_read(struct mtd_info *mtd, loff_t from, size_t len,
     wait_on_page(page);
     if(!Page_Uptodate(page)) {
       /* error reading page */
-      printk("blkmtd: read: page not uptodate\n");
+      printk(KERN_ERR "blkmtd: read: page not uptodate\n");
       page_cache_release(page);
       return -EIO;
     }
@@ -725,7 +714,7 @@ static int blkmtd_write(struct mtd_info *mtd, loff_t to, size_t len,
   /* handle readonly and out of range numbers */
 
   if(rawdevice->readonly) {
-    printk("blkmtd: error: trying to write to a readonly device %s\n", device);
+    printk(KERN_ERR "blkmtd: error: trying to write to a readonly device %s\n", device);
     return -EROFS;
   }
 
@@ -765,7 +754,8 @@ static int blkmtd_write(struct mtd_info *mtd, loff_t to, size_t len,
   if(len3)
     pagecnt++;
 
-  DEBUG(3, "blkmtd: write: len1 = %d len2 = %d len3 = %d pagecnt = %d\n", len1, len2, len3, pagecnt);
+  DEBUG(3, "blkmtd: write: len1 = %d len2 = %d len3 = %d pagecnt = %d\n",
+	len1, len2, len3, pagecnt);
   
   /* get space for list of pages */
   pages = kmalloc(pagecnt * sizeof(struct page *), GFP_KERNEL);
@@ -778,7 +768,8 @@ static int blkmtd_write(struct mtd_info *mtd, loff_t to, size_t len,
     /* do partial start region */
     struct page *page;
     
-    DEBUG(3, "blkmtd: write: doing partial start, page = %d len = %d offset = %d\n", pagenr, len1, offset);
+    DEBUG(3, "blkmtd: write: doing partial start, page = %d len = %d offset = %d\n",
+	  pagenr, len1, offset);
     page = read_cache_page(&rawdevice->as, pagenr, (filler_t *)blkmtd_readpage, rawdevice);
 
     if(IS_ERR(page)) {
@@ -805,7 +796,7 @@ static int blkmtd_write(struct mtd_info *mtd, loff_t to, size_t len,
       page = grab_cache_page(&rawdevice->as, pagenr);
       DEBUG(3, "blkmtd: write: got page %d from page cache\n", pagenr);
       if(!page) {
-	printk("blkmtd: write: cant grab cache page %d\n", pagenr);
+	printk(KERN_WARNING "blkmtd: write: cant grab cache page %d\n", pagenr);
 	err = -EIO;
 	goto write_err;
       }
@@ -936,7 +927,8 @@ static int blkmtd_proc_read(char *page, char **start, off_t off, int count, int 
 
 
 /* Cleanup and exit - sync the device and kill of the kernel thread */
-static void __exit cleanup_blkmtd(void)
+
+static void __devexit cleanup_blkmtd(void)
 {
 #ifdef BLKMTD_PROC_DEBUG
   if(blkmtd_proc) {
@@ -970,10 +962,8 @@ static void __exit cleanup_blkmtd(void)
     UnlockPage(erase_page);
     __free_pages(erase_page, 0);
   }
-  printk("blkmtd: unloaded for %s\n", device);
+  printk(KERN_INFO "blkmtd: unloaded for %s\n", device);
 }
-
-extern struct module __this_module;
 
 #ifndef MODULE
 
@@ -983,6 +973,7 @@ extern struct module __this_module;
 static int __init param_blkmtd_device(char *str)
 {
   device = str;
+  printk("blkmtd device = %s", device);
   return 1;
 }
 
@@ -1001,24 +992,9 @@ static int __init param_blkmtd_ro(char *str)
 }
 
 
-static int __init param_blkmtd_bs(char *str)
-{
-  bs = simple_strtol(str, NULL, 0);
-  return 1;
-}
-
-
-static int __init param_blkmtd_count(char *str)
-{
-  count = simple_strtol(str, NULL, 0);
-  return 1;
-}
-
 __setup("blkmtd_device=", param_blkmtd_device);
 __setup("blkmtd_erasesz=", param_blkmtd_erasesz);
 __setup("blkmtd_ro=", param_blkmtd_ro);
-__setup("blkmtd_bs=", param_blkmtd_bs);
-__setup("blkmtd_count=", param_blkmtd_count);
 
 #endif
 
@@ -1062,7 +1038,7 @@ static int __init init_blkmtd(void)
 #endif
 
   int maj, min;
-  int i, blocksize, blocksize_bits;
+  int blocksize = BLOCK_SIZE, blocksize_bits;
   loff_t size = 0;
   int readonly = 0;
   int erase_size = CONFIG_MTD_BLKDEV_ERASESIZE;
@@ -1070,10 +1046,12 @@ static int __init init_blkmtd(void)
   int err;
   int mode;
   int regions;
+  int i;
 
+  printk("blkmtd: starting\n");
   /* Check args */
   if(device == 0) {
-    printk("blkmtd: error, missing `device' name\n");
+    printk(KERN_ERR "blkmtd: error, missing `device' name\n");
     return -EINVAL;
   }
 
@@ -1100,7 +1078,7 @@ static int __init init_blkmtd(void)
 
   file = filp_open(device, mode, 0);
   if(IS_ERR(file)) {
-    printk("blkmtd: error, cant open device %s\n", device);
+    printk(KERN_ERR "blkmtd: error, cant open device %s\n", device);
     DEBUG(2, "blkmtd: filp_open returned %ld\n", PTR_ERR(file));
     return 1;
   }
@@ -1109,7 +1087,7 @@ static int __init init_blkmtd(void)
      numbers */
   inode = file->f_dentry->d_inode;
   if(!S_ISBLK(inode->i_mode)) {
-    printk("blkmtd: %s not a block device\n", device);
+    printk(KERN_ERR "blkmtd: %s not a block device\n", device);
     filp_close(file, NULL);
     return 1;
   }
@@ -1119,31 +1097,25 @@ static int __init init_blkmtd(void)
   rdev = name_to_kdev_t(device);
 #endif
 
+  if(!rdev) {
+    printk(KERN_ERR "blkmtd: bad block device: `%s'\n", device);
+    return 1;
+  }
+
   maj = MAJOR(rdev);
   min = MINOR(rdev);
   DEBUG(1, "blkmtd: found a block device major = %d, minor = %d\n", maj, min);
 
-  if(!rdev) {
-    printk("blkmtd: bad block device: `%s'\n", device);
-    return 1;
-  }
-
   if(maj == MTD_BLOCK_MAJOR) {
-    printk("blkmtd: attempting to use an MTD device as a block device\n");
+    printk(KERN_ERR "blkmtd: attempting to use an MTD device as a block device\n");
     return 1;
   }
 
   DEBUG(1, "blkmtd: devname = %s\n", bdevname(rdev));
-  blocksize = BLOCK_SIZE;
 
-  if(bs) {
-    blocksize = bs;
-  } else {
-    if (blksize_size[maj] && blksize_size[maj][min]) {
-      DEBUG(2, "blkmtd: blksize_size = %d\n", blksize_size[maj][min]);
-      blocksize = blksize_size[maj][min];
-    }
-  }
+  if(blksize_size[maj] && blksize_size[maj][min])
+    blocksize = blksize_size[maj][min];
+
   i = blocksize;
   blocksize_bits = 0;
   while(i != 1) {
@@ -1151,18 +1123,12 @@ static int __init init_blkmtd(void)
     i >>= 1;
   }
 
-  if(count) {
-    size = count;
-  } else {
-    if (blk_size[maj]) {
-      size = ((loff_t) blk_size[maj][min] << BLOCK_SIZE_BITS) >> blocksize_bits;
-    }
-  }
-  size *= blocksize;
+  size = (loff_t) blk_size[maj][min] << blocksize_bits;
+
   DEBUG(1, "blkmtd: size = %ld\n", (long int)size);
 
   if(size == 0) {
-    printk("blkmtd: cant determine size\n");
+    printk(KERN_ERR "blkmtd: cant determine size\n");
     return 1;
   }
 
@@ -1241,10 +1207,8 @@ static int __init init_blkmtd(void)
   mtd_rawdevice->as.i_mmap = NULL;
   mtd_rawdevice->as.i_mmap_shared = NULL;
   mtd_rawdevice->as.gfp_mask = GFP_KERNEL;
-
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,2,0)
   mtd_rawdevice->mtd_info.module = THIS_MODULE;			
-#endif
+
   if (add_mtd_device(&mtd_rawdevice->mtd_info)) {
     err = -EIO;
     goto init_err;
@@ -1272,7 +1236,7 @@ static int __init init_blkmtd(void)
     DEBUG(2, "blkmtd: init: starting kernel task\n");
     kernel_thread(write_queue_task, NULL, CLONE_FS | CLONE_FILES | CLONE_SIGHAND);
     DEBUG(2, "blkmtd: init: started\n");
-    printk("blkmtd loaded: version = %s using %s erase_size = %dK %s\n",
+    printk(KERN_INFO "blkmtd loaded: version = %s using %s erase_size = %dK %s\n",
 	   VERSION, device, erase_size, (readonly) ? "(read-only)" : "");
   }
 
@@ -1282,7 +1246,7 @@ static int __init init_blkmtd(void)
   blkmtd_proc = create_proc_read_entry("blkmtd_debug", 0444,
 				       NULL, blkmtd_proc_read, NULL);
   if(blkmtd_proc == NULL) {
-    printk("Cant create /proc/blkmtd_debug\n");
+    printk(KERN_ERR "Cant create /proc/blkmtd_debug\n");
   } else {
     blkmtd_proc->owner = THIS_MODULE;
   }

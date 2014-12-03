@@ -1,6 +1,6 @@
 /*
  * mtdram - a test mtd device
- * $Id: mtdram.c,v 1.25 2001/10/02 15:05:13 dwmw2 Exp $
+ * $Id: mtdram.c,v 1.27 2002/03/28 15:05:19 dwmw2 Exp $
  * Author: Alexander Larsson <alex@cendio.se>
  *
  * Copyright (c) 1999 Alexander Larsson <alex@cendio.se>
@@ -28,7 +28,9 @@
 static unsigned long total_size = CONFIG_MTDRAM_TOTAL_SIZE;
 static unsigned long erase_size = CONFIG_MTDRAM_ERASE_SIZE;
 MODULE_PARM(total_size,"l");
+MODULE_PARM_DESC(total_size, "Total device size in KiB");
 MODULE_PARM(erase_size,"l");
+MODULE_PARM_DESC(erase_size, "Device erase block size in KiB");
 #define MTDRAM_TOTAL_SIZE (total_size * 1024)
 #define MTDRAM_ERASE_SIZE (erase_size * 1024)
 #else
@@ -123,7 +125,7 @@ int __init init_mtdram(void)
    // Allocate some memory
    mtd_info = (struct mtd_info *)kmalloc(sizeof(struct mtd_info), GFP_KERNEL);
    if (!mtd_info)
-      return 0;
+      return -ENOMEM;
    
    memset(mtd_info, 0, sizeof(*mtd_info));
 

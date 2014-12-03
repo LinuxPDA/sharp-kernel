@@ -18,7 +18,6 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
-#include <linux/config.h>
 #include <linux/types.h>
 #include <linux/sched.h>
 #include <linux/interrupt.h>
@@ -42,7 +41,7 @@ epxa10db_fixup(struct machine_desc *desc, struct param_struct *params,
 
         mi->nr_banks      = 1;
         mi->bank[0].start = 0;
-        mi->bank[0].size  = (32*1024*1024);
+        mi->bank[0].size  = (128*1024*1024);
         mi->bank[0].node  = 0;
 
 /*

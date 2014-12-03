@@ -164,9 +164,9 @@ int __init i2o_pci_install(struct pci_dev *dev)
 	c->bus.pci.short_req = 0;
 	c->pdev = dev;
 
-	c->irq_mask = (volatile u32 *)(mem+0x34);
-	c->post_port = (volatile u32 *)(mem+0x40);
-	c->reply_port = (volatile u32 *)(mem+0x44);
+	c->irq_mask = (u32 *)(mem+0x34);
+	c->post_port = (u32 *)(mem+0x40);
+	c->reply_port = (u32 *)(mem+0x44);
 
 	c->mem_phys = memptr;
 	c->mem_offset = (u32)mem;

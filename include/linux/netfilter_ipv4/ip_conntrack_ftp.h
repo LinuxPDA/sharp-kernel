@@ -8,6 +8,8 @@
 
 #include <linux/netfilter_ipv4/lockhelp.h>
 
+#define IP_CONNTR_FTP 21
+
 /* Protects ftp part of conntracks */
 DECLARE_LOCK_EXTERN(ip_ftp_lock);
 

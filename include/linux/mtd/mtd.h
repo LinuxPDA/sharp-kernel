@@ -1,5 +1,5 @@
 
-/* $Id: mtd.h,v 1.33 2001/06/09 00:08:59 dwmw2 Exp $ */
+/* $Id: mtd.h,v 1.34 2001/11/27 14:55:12 cdavies Exp $ */
 
 #ifndef __MTD_MTD_H__
 #define __MTD_MTD_H__
@@ -179,6 +179,18 @@ struct mtd_info {
 
 	int (*read_oob) (struct mtd_info *mtd, loff_t from, size_t len, size_t *retlen, u_char *buf);
 	int (*write_oob) (struct mtd_info *mtd, loff_t to, size_t len, size_t *retlen, const u_char *buf);
+
+	/* 
+	 * Methods to access the protection register area, present in some 
+	 * flash devices. The user data is one time programmable but the
+	 * factory data is read only. 
+	 */
+	int (*read_user_prot_reg) (struct mtd_info *mtd, loff_t from, size_t len, size_t *retlen, u_char *buf);
+
+	int (*read_fact_prot_reg) (struct mtd_info *mtd, loff_t from, size_t len, size_t *retlen, u_char *buf);
+
+	/* This function is not yet implemented */
+	int (*write_user_prot_reg) (struct mtd_info *mtd, loff_t from, size_t len, size_t *retlen, u_char *buf);
 
 	/* iovec-based read/write methods. We need these especially for NAND flash,
 	   with its limited number of write cycles per erase.

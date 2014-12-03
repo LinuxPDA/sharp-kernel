@@ -31,6 +31,9 @@ if [ "$CONFIG_NET_ETHERNET" = "y" ]; then
          source drivers/acorn/net/Config.in
       fi
    fi
+   if [ "$CONFIG_ARCH_CAMELOT" = "y" ]; then
+	tristate ' Altera Ether00 support' CONFIG_ETHER00
+   fi
    if [ "$CONFIG_PPC" = "y" ]; then
       dep_tristate '  MACE (Power Mac ethernet) support' CONFIG_MACE $CONFIG_ALL_PPC
       if [ "$CONFIG_MACE" != "n" ]; then

@@ -2,7 +2,7 @@
  * Routines common to all CFI-type probes.
  * (C) 2001, 2001 Red Hat, Inc.
  * GPL'd
- * $Id: gen_probe.c,v 1.5 2001/10/02 15:05:12 dwmw2 Exp $
+ * $Id: gen_probe.c,v 1.7 2002/01/30 09:08:31 rkaiser Exp $
  */
 
 #include <linux/kernel.h>
@@ -38,7 +38,7 @@ struct mtd_info *mtd_do_chip_probe(struct map_info *map, struct chip_probe *cp)
 	if (mtd)
 		return mtd;
 
-	printk(KERN_WARNING"cfi_probe: No supported Vendor Command Set found\n");
+	printk(KERN_WARNING"gen_probe: No supported Vendor Command Set found\n");
 	
 	kfree(cfi->cfiq);
 	kfree(cfi);
@@ -106,6 +106,12 @@ struct cfi_private *genprobe_ident_chips(struct map_info *map, struct chip_probe
 	 * Now probe for other chips, checking sensibly for aliases while
 	 * we're at it. The new_chip probe above should have let the first
 	 * chip in read mode.
+	 *
+	 * NOTE: Here, we're checking if there is room for another chip
+	 *       the same size within the mapping. Therefore, 
+	 *       base + chipsize <= map->size is the correct thing to do, 
+	 *       because, base + chipsize would be the  _first_ byte of the
+	 *       next chip, not the one we're currently pondering.
 	 */
 
 	for (base = (1<<cfi.chipshift); base + (1<<cfi.chipshift) <= map->size;

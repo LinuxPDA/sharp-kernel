@@ -3,8 +3,9 @@
  *
  *  Copyright (c) 2000 David Woodhouse <dwmw2@mvhi.com>
  *                     Steven J. Hill <sjhill@cotw.com>
+ *		       Thomas Gleixner <gleixner@autronix.de>
  *
- * $Id: nand.h,v 1.8 2000/10/30 17:16:17 sjhill Exp $
+ * $Id: nand.h,v 1.13 2002/04/28 13:40:41 gleixner Exp $
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -23,6 +24,14 @@
  *			bat later if I did something naughty.
  *   10-11-2000 SJH     Added private NAND flash structure for driver
  *   10-24-2000 SJH     Added prototype for 'nand_scan' function
+ *   10-29-2001 TG	changed nand_chip structure to support 
+ *			hardwarespecific function for accessing control lines
+ *   02-21-2002 TG	added support for different read/write adress and
+ *			ready/busy line access function
+ *   02-26-2002 TG	added chip_delay to nand_chip structure to optimize
+ *			command delay times for different chips
+ *   04-28-2002 TG	OOB config defines moved from nand.c to avoid duplicate
+ *			defines in jffs2/wbuf.c
  */
 #ifndef __LINUX_MTD_NAND_H
 #define __LINUX_MTD_NAND_H
@@ -34,6 +43,16 @@
  * Searches for a NAND device
  */
 extern int nand_scan (struct mtd_info *mtd);
+
+/*
+ * Constants for hardware specific CLE/ALE/NCE function
+*/
+#define NAND_CTL_SETNCE 	1
+#define NAND_CTL_CLRNCE		2
+#define NAND_CTL_SETCLE		3
+#define NAND_CTL_CLRCLE		4
+#define NAND_CTL_SETALE		5
+#define NAND_CTL_CLRALE		6
 
 /*
  * Standard NAND flash commands
@@ -60,20 +79,19 @@ typedef enum {
 	FL_SYNCING
 } nand_state_t;
 
+
 /*
  * NAND Private Flash Chip Data
  *
  * Structure overview:
  *
- *  IO_ADDR - address to access the 8 I/O lines to the flash device
+ *  IO_ADDR_R - address to read the 8 I/O lines of the flash device 
  *
- *  CTRL_ADDR - address where ALE, CLE and CE control bits are accessed
+ *  IO_ADDR_W - address to write the 8 I/O lines of the flash device 
  *
- *  CLE - location in control word for Command Latch Enable bit
+ *  hwcontrol - hardwarespecific function for accesing control-lines
  *
- *  ALE - location in control word for Address Latch Enable bit
- *
- *  NCE - location in control word for nChip Enable bit
+ *  dev_ready - hardwarespecific function for accesing device ready/busy line
  *
  *  chip_lock - spinlock used to protect access to this structure
  *
@@ -85,6 +103,9 @@ typedef enum {
  *
  *  data_buf - data buffer passed to/from MTD user modules
  *
+ *  data_cache - data cache for redundant page access and shadow for
+ *		 ECC failure
+ *
  *  ecc_code_buf - used only for holding calculated or read ECCs for
  *                 a page read or written when ECC is in use
  *
@@ -92,19 +113,23 @@ typedef enum {
  *             when ECC is in use
  */
 struct nand_chip {
-	unsigned long IO_ADDR;
-	unsigned long CTRL_ADDR;
-	unsigned int CLE;
-	unsigned int ALE;
-	unsigned int NCE;
-	spinlock_t chip_lock;
+	unsigned long 	IO_ADDR_R;
+	unsigned long 	IO_ADDR_W;
+	void 		(*hwcontrol)(int cmd);
+	int  		(*dev_ready)(void);
+	void 		(*cmdfunc)(struct mtd_info *mtd, unsigned command, int column, int page_addr);
+	int 		(*waitfunc)(struct mtd_info *mtd, struct nand_chip *this, int state);
+	int 		chip_delay;
+	spinlock_t 	chip_lock;
 	wait_queue_head_t wq;
-	nand_state_t state;
-	int page_shift;
-	u_char *data_buf;
+	nand_state_t 	state;
+	int 		page_shift;
+	u_char 		*data_buf;
+	u_char 		*data_cache;
+	int		cache_page;
 #ifdef CONFIG_MTD_NAND_ECC
-	u_char ecc_code_buf[6];
-	u_char reserved[2];
+	u_char 		ecc_code_buf[6];
+	u_char 		reserved[2];
 #endif
 };
 
@@ -150,5 +175,31 @@ struct nand_flash_dev {
 	char pageadrlen;
 	unsigned long erasesize;
 };
+
+/*
+* Constants for oob configuration
+*/
+#define NAND_NOOB_ECCPOS0		0
+#define NAND_NOOB_ECCPOS1		1
+#define NAND_NOOB_ECCPOS2		2
+#define NAND_NOOB_ECCPOS3		3
+#define NAND_NOOB_ECCPOS4		4
+#define NAND_NOOB_ECCPOS5		5
+#define NAND_NOOB_BADBPOS		-1
+#define NAND_NOOB_ECCVPOS		-1
+
+#define NAND_JFFS2_OOB_ECCPOS0		0
+#define NAND_JFFS2_OOB_ECCPOS1		1
+#define NAND_JFFS2_OOB_ECCPOS2		2
+#define NAND_JFFS2_OOB_ECCPOS3		3
+#define NAND_JFFS2_OOB_ECCPOS4		6
+#define NAND_JFFS2_OOB_ECCPOS5		7
+#define NAND_JFFS2_OOB_BADBPOS		5
+#define NAND_JFFS2_OOB_ECCVPOS		4
+
+#define NAND_JFFS2_OOB8_FSDAPOS		6
+#define NAND_JFFS2_OOB16_FSDAPOS	8
+#define NAND_JFFS2_OOB8_FSDALEN		2
+#define NAND_JFFS2_OOB16_FSDALEN	8
 
 #endif /* __LINUX_MTD_NAND_H */

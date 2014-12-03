@@ -140,6 +140,30 @@ static int __init no_initrd(char *str)
 
 __setup("noinitrd", no_initrd);
 
+/*
+ * initrd=start,size
+ *   start - phyical start address of initrd
+ *   size  - byte size of initrd
+ */
+static int __init set_initrd(char *str)
+{
+	unsigned long start, size = 0;
+
+	if (str)
+		start = simple_strtoul(str, &str, 0);
+
+	if (str && *str == ',')
+		size = simple_strtoul(str + 1, NULL, 0);
+
+	if (size) {
+		initrd_start = (unsigned long)phys_to_virt(start);
+		initrd_end = initrd_start + size;
+	}
+	return 1;
+}
+
+__setup("initrd=", set_initrd);
+
 #endif
 
 static int __init ramdisk_start_setup(char *str)
@@ -830,6 +854,9 @@ static void __init rd_load_disk(int n)
 #ifdef CONFIG_BLK_DEV_INITRD
 		&& MAJOR(real_root_dev) != FLOPPY_MAJOR
 #endif
+#ifdef CONFIG_MTD_BLOCK
+		&& MAJOR(ROOT_DEV) != 31
+#endif
 	)
 		return;
 
@@ -966,10 +993,15 @@ static int __init fill_inbuf(void)
 static void __init flush_window(void)
 {
     ulg c = crc;         /* temporary variable */
-    unsigned n;
+    unsigned n, written;
     uch *in, ch;
     
-    crd_outfp->f_op->write(crd_outfp, window, outcnt, &crd_outfp->f_pos);
+    written = crd_outfp->f_op->write(crd_outfp, window, outcnt, &crd_outfp->f_pos);
+    if (written != outcnt && exit_code == 0) {
+    	printk(KERN_ERR "RAMDISK: incomplete write (ramdisk too small?) "
+		"(%d != %d)\n", written, outcnt);
+	exit_code = 1;
+    }
     in = window;
     for (n = 0; n < outcnt; n++) {
 	    ch = *in++;

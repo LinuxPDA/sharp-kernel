@@ -18,57 +18,62 @@
  * 2001-08-29:	Nicolas Pitre <nico@cam.org>
  * 			Cleaned up, pushed platform dependent stuff
  * 			in the platform specific files.
+ *
+ * 2002-05-27:	Nicolas Pitre	Killed sleep.h and the kmalloced save array.
+ * 				Storage is local on the stack now.
  */
-
-/*
- * Debug macros
- */
-#define DEBUG 1
-#ifdef DEBUG
-#  define DPRINTK(fmt, args...)	printk("%s: " fmt, __FUNCTION__ , ## args)
-#else
-#  define DPRINTK(fmt, args...)
-#endif
-
-
+#include <linux/config.h>
 #include <linux/init.h>
 #include <linux/pm.h>
-#include <linux/slab.h>
+#include <linux/sched.h>
+#include <linux/interrupt.h>
 #include <linux/sysctl.h>
-#include <linux/acpi.h>
+#include <linux/errno.h>
 
 #include <asm/hardware.h>
 #include <asm/memory.h>
 #include <asm/system.h>
+#include <asm/leds.h>
 
-#include "sleep.h"
+
+/*
+ * Debug macros
+ */
+#undef DEBUG
 
 extern void sa1100_cpu_suspend(void);
 extern void sa1100_cpu_resume(void);
 
-extern unsigned long *sleep_save;	/* virtual address */
-extern unsigned long  sleep_save_p;	/* physical address */
-
 #define SAVE(x)		sleep_save[SLEEP_SAVE_##x] = x
 #define RESTORE(x)	x = sleep_save[SLEEP_SAVE_##x]
 
+/*
+ * List of global SA11x0 peripheral registers to preserve.
+ * More ones like CP and general purpose register values are preserved
+ * with the stack location in sleep.S.
+ */
+enum {	SLEEP_SAVE_START = 0,
+
+	SLEEP_SAVE_OSCR, SLEEP_SAVE_OIER,
+	SLEEP_SAVE_OSMR0, SLEEP_SAVE_OSMR1, SLEEP_SAVE_OSMR2, SLEEP_SAVE_OSMR3,
+
+	SLEEP_SAVE_GPDR, SLEEP_SAVE_GRER, SLEEP_SAVE_GFER, SLEEP_SAVE_GAFR,
+	SLEEP_SAVE_PPDR, SLEEP_SAVE_PPSR, SLEEP_SAVE_PPAR, SLEEP_SAVE_PSDR,
+
+	SLEEP_SAVE_ICMR,
+	SLEEP_SAVE_Ser1SDCR0,
+
+	SLEEP_SAVE_SIZE
+};
+
+
 int pm_do_suspend(void)
 {
-	int retval;
-
-	/* set up pointer to sleep parameters */
-	sleep_save = kmalloc (SLEEP_SAVE_SIZE*sizeof(long), GFP_ATOMIC);
-	if (!sleep_save)
-		return -ENOMEM;
-	sleep_save_p = virt_to_phys(sleep_save);
-
-	retval = pm_send_all(PM_SUSPEND, (void *)2);
-	if (retval) {
-		kfree(sleep_save);
-		return retval;
-	}
+	unsigned long sleep_save[SLEEP_SAVE_SIZE];
 
 	cli();
+
+	leds_event(led_stop);
 
 	/* preserve current time */
 	RCNR = xtime.tv_sec;
@@ -112,7 +117,9 @@ int pm_do_suspend(void)
 	/* ensure not to come back here if it wasn't intended */
 	PSPR = 0;
 
-	DPRINTK("*** made it back from resume\n");
+#ifdef DEBUG
+	printk(KERN_DEBUG "*** made it back from resume\n");
+#endif
 
 	/* restore registers */
 	RESTORE(GPDR);
@@ -146,21 +153,58 @@ int pm_do_suspend(void)
 	/* restore current time */
 	xtime.tv_sec = RCNR;
 
+	leds_event(led_start);
+
 	sti();
 
-	kfree (sleep_save);
-
-	retval = pm_send_all(PM_RESUME, (void *)0);
-	if (retval)
-		return retval;
+	/*
+	 * Restore the CPU frequency settings.
+	 */
+#ifdef CONFIG_CPU_FREQ
+	cpufreq_restore();
+#endif
 
 	return 0;
 }
 
+unsigned long sleep_phys_sp(void *sp)
+{
+	return virt_to_phys(sp);
+}
+
+#ifdef CONFIG_SYSCTL
+/*
+ * ARGH!  ACPI people defined CTL_ACPI in linux/acpi.h rather than
+ * linux/sysctl.h.
+ *
+ * This means our interface here won't survive long - it needs a new
+ * interface.  Quick hack to get this working - use sysctl id 9999.
+ */
+#warning ACPI broke the kernel, this interface needs to be fixed up.
+#define CTL_ACPI 9999
+#define ACPI_S1_SLP_TYP 19
+
+/*
+ * Send us to sleep.
+ */
+static int sysctl_pm_do_suspend(void)
+{
+	int retval;
+
+	retval = pm_send_all(PM_SUSPEND, (void *)3);
+
+	if (retval == 0) {
+		retval = pm_do_suspend();
+
+		pm_send_all(PM_RESUME, (void *)0);
+	}
+
+	return retval;
+}
 
 static struct ctl_table pm_table[] =
 {
-	{ACPI_S1_SLP_TYP, "suspend", NULL, 0, 0600, NULL, (proc_handler *)&pm_do_suspend},
+	{ACPI_S1_SLP_TYP, "suspend", NULL, 0, 0600, NULL, (proc_handler *)&sysctl_pm_do_suspend},
 	{0}
 };
 
@@ -181,3 +225,4 @@ static int __init pm_init(void)
 
 __initcall(pm_init);
 
+#endif

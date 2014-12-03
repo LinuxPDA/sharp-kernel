@@ -56,22 +56,27 @@
  * cpu_arm920_data_abort()
  *
  * obtain information about current aborted instruction
+ * Note: we read user space.  This means we might cause a data
+ * abort here if the I-TLB and D-TLB aren't seeing the same
+ * picture.  Unfortunately, this does happen.  We live with it.
  *
- * r0 = address of aborted instruction
+ *  r2 = address of aborted instruction
+ *  r3 = cpsr
  *
  * Returns:
  *  r0 = address of abort
  *  r1 != 0 if writing
  *  r3 = FSR
+ *  r4 = corrupted
  */
 	.align	5
 ENTRY(cpu_arm920_data_abort)
-	ldr	r1, [r0]			@ read aborted instruction
-	mrc	p15, 0, r0, c6, c0, 0		@ get FAR
-	tst	r1, r1, lsr #21			@ C = bit 20
 	mrc	p15, 0, r3, c5, c0, 0		@ get FSR
-	sbc	r1, r1, r1			@ r1 = C - 1
+	mrc	p15, 0, r0, c6, c0, 0		@ get FAR
+	ldr	r1, [r2]			@ read aborted instruction
 	and	r3, r3, #255
+	tst	r1, r1, lsr #21			@ C = bit 20
+	sbc	r1, r1, r1			@ r1 = C - 1
 	mov	pc, lr
 	
 /*
@@ -405,6 +410,10 @@ ENTRY(cpu_arm920_tlb_invalidate_all)
  */
 	.align	5
 ENTRY(cpu_arm920_tlb_invalidate_range)
+	sub	r3, r1, r0
+	cmp	r3, #256 * PAGESIZE		@ arbitary, should be tuned
+	bhi	cpu_arm920_tlb_invalidate_all
+
 	mov	r3, #0
 	mcr	p15, 0, r3, c7, c10, 4		@ drain WB
 
@@ -650,7 +659,7 @@ __arm920_proc_info:
 	b	__arm920_setup
 	.long	cpu_arch_name
 	.long	cpu_elf_name
-	.long	HWCAP_SWP | HWCAP_HALF | HWCAP_26BIT
+	.long	HWCAP_SWP | HWCAP_HALF | HWCAP_THUMB
 	.long	cpu_arm920_info
 	.long	arm920_processor_functions
 	.size	__arm920_proc_info, . - __arm920_proc_info

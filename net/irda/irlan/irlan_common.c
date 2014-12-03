@@ -317,6 +317,9 @@ void irlan_connect_indication(void *instance, void *sap, struct qos_info *qos,
 
 	del_timer(&self->watchdog_timer);
 
+	/* since irlan_do_*_event gobble the skb, we must get it once -- rmk */
+	skb_get(skb);
+
 	/* If you want to pass the skb to *both* state machines, you will
 	 * need to skb_clone() it, so that you don't free it twice.
 	 * As the state machines don't need it, git rid of it here...

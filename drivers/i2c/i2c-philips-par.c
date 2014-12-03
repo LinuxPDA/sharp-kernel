@@ -259,7 +259,7 @@ static struct parport_driver i2c_driver = {
 };
 #endif
 
-int __init i2c_bitlp_init(void)
+static int __init i2c_bitlp_init(void)
 {
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,3,4)
 	struct parport *port;
@@ -276,7 +276,7 @@ int __init i2c_bitlp_init(void)
 	return 0;
 }
 
-void __exit i2c_bitlp_exit(void)
+static void __exit i2c_bitlp_exit(void)
 {
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,3,4)
 	parport_unregister_driver(&i2c_driver);
@@ -295,14 +295,5 @@ MODULE_LICENSE("GPL");
 
 MODULE_PARM(type, "i");
 
-#ifdef MODULE
-int init_module(void)
-{
-	return i2c_bitlp_init();
-}
-
-void cleanup_module(void)
-{
-	i2c_bitlp_exit();
-}
-#endif
+module_init(i2c_bitlp_init);
+module_exit(i2c_bitlp_exit);

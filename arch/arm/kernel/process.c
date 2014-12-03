@@ -24,9 +24,8 @@
 #include <linux/interrupt.h>
 #include <linux/init.h>
 
-#include <asm/system.h>
-#include <asm/io.h>
 #include <asm/leds.h>
+#include <asm/system.h>
 #include <asm/uaccess.h>
 
 /*
@@ -306,7 +305,7 @@ int copy_thread(int nr, unsigned long clone_flags, unsigned long esp,
 
 	atomic_set(&p->thread.refcount, 1);
 
-	childregs = ((struct pt_regs *)((unsigned long)p + 8192)) - 1;
+	childregs = ((struct pt_regs *)((unsigned long)p + 8192 - 8)) - 1;
 	*childregs = *regs;
 	childregs->ARM_r0 = 0;
 	childregs->ARM_sp = esp;
@@ -383,7 +382,7 @@ pid_t kernel_thread(int (*fn)(void *), void *arg, unsigned long flags)
 	mov	pc, %3
 	b	sys_exit
 1:	"
-        : "=r" (__ret)
+        : "=&r" (__ret)
         : "Ir" (flags), "I" (CLONE_VM), "r" (fn), "r" (arg)
 	: "r0", "r1", "lr");
 	return __ret;

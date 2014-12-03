@@ -4,7 +4,7 @@
  * Author: Fabrice Bellard (fabrice.bellard@netgem.com) 
  * Copyright (C) 2000 Netgem S.A.
  *
- * $Id: nftlmount.c,v 1.25 2001/11/30 16:46:27 dwmw2 Exp $
+ * $Id: nftlmount.c,v 1.28 2002/03/13 07:31:25 dwmw2 Exp $
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -39,7 +39,7 @@
 
 #define SECTORSIZE 512
 
-char nftlmountrev[]="$Revision: 1.25 $";
+char nftlmountrev[]="$Revision: 1.28 $";
 
 /* find_boot_record: Find the NFTL Media Header and its Spare copy which contains the
  *	various device information of the NFTL partition and Bad Unit Table. Update
@@ -55,6 +55,11 @@ static int find_boot_record(struct NFTLrecord *nftl)
 	u8 buf[SECTORSIZE];
 	struct NFTLMediaHeader *mh = &nftl->MediaHdr;
 	unsigned int i;
+
+        /* Assume logical EraseSize == physical erasesize for starting the scan. 
+	   We'll sort it out later if we find a MediaHeader which says otherwise */
+	nftl->EraseSize = nftl->mtd->erasesize;
+        nftl->nb_blocks = nftl->mtd->size / nftl->EraseSize;
 
 	nftl->MediaUnit = BLOCK_NIL;
 	nftl->SpareMediaUnit = BLOCK_NIL;
@@ -122,7 +127,6 @@ static int find_boot_record(struct NFTLrecord *nftl)
 			continue;
 		}
 #endif
-			       
 		/* OK, we like it. */
 
 		if (boot_record_count) {
@@ -137,6 +141,10 @@ static int find_boot_record(struct NFTLrecord *nftl)
 			if (boot_record_count == 1)
 				nftl->SpareMediaUnit = block;
 
+			/* Mark this boot record (NFTL MediaHeader) block as reserved */
+			nftl->ReplUnitTable[block] = BLOCK_RESERVED;
+
+
 			boot_record_count++;
 			continue;
 		}
@@ -145,12 +153,18 @@ static int find_boot_record(struct NFTLrecord *nftl)
 		memcpy(mh, buf, sizeof(struct NFTLMediaHeader));
 
 		/* Do some sanity checks on it */
-		if (mh->UnitSizeFactor != 0xff) {
-			printk(KERN_NOTICE "Sorry, we don't support UnitSizeFactor "
-			       "of != 1 yet.\n");
+		if (mh->UnitSizeFactor == 0) {
+			printk(KERN_NOTICE "NFTL: UnitSizeFactor 0x00 detected. This violates the spec but we think we know what it means...\n");
+		} else if (mh->UnitSizeFactor < 0xfc) {
+			printk(KERN_NOTICE "Sorry, we don't support UnitSizeFactor 0x%02x\n",
+			       mh->UnitSizeFactor);
 			return -1;
+		} else if (mh->UnitSizeFactor != 0xff) {
+			printk(KERN_NOTICE "WARNING: Support for NFTL with UnitSizeFactor 0x%02x is experimental\n",
+			       mh->UnitSizeFactor);
+			nftl->EraseSize = nftl->mtd->erasesize << (0xff - mh->UnitSizeFactor);
+			nftl->nb_blocks = nftl->mtd->size / nftl->EraseSize;
 		}
-
 		nftl->nb_boot_blocks = le16_to_cpu(mh->FirstPhysicalEUN);
 		if ((nftl->nb_boot_blocks + 2) >= nftl->nb_blocks) {
 			printk(KERN_NOTICE "NFTL Media Header sanity check failed:\n");
@@ -168,10 +182,38 @@ static int find_boot_record(struct NFTLrecord *nftl)
 		}
 		
 		nftl->nr_sects  = nftl->numvunits * (nftl->EraseSize / SECTORSIZE);
-		
+
 		/* If we're not using the last sectors in the device for some reason,
 		   reduce nb_blocks accordingly so we forget they're there */
 		nftl->nb_blocks = le16_to_cpu(mh->NumEraseUnits) + le16_to_cpu(mh->FirstPhysicalEUN);
+
+		/* XXX: will be suppressed */
+		nftl->lastEUN = nftl->nb_blocks - 1;
+
+		/* memory alloc */
+		nftl->EUNtable = kmalloc(nftl->nb_blocks * sizeof(u16), GFP_KERNEL);
+		if (!nftl->EUNtable) {
+			printk(KERN_NOTICE "NFTL: allocation of EUNtable failed\n");
+			return -ENOMEM;
+		}
+
+		nftl->ReplUnitTable = kmalloc(nftl->nb_blocks * sizeof(u16), GFP_KERNEL);
+		if (!nftl->ReplUnitTable) {
+			kfree(nftl->EUNtable);
+			printk(KERN_NOTICE "NFTL: allocation of ReplUnitTable failed\n");
+			return -ENOMEM;
+		}
+		
+		/* mark the bios blocks (blocks before NFTL MediaHeader) as reserved */
+		for (i = 0; i < nftl->nb_boot_blocks; i++)
+			nftl->ReplUnitTable[i] = BLOCK_RESERVED;
+		/* mark all remaining blocks as potentially containing data */
+		for (; i < nftl->nb_blocks; i++) { 
+			nftl->ReplUnitTable[i] = BLOCK_NOTEXPLORED;
+		}
+
+		/* Mark this boot record (NFTL MediaHeader) block as reserved */
+		nftl->ReplUnitTable[block] = BLOCK_RESERVED;
 
 		/* read the Bad Erase Unit Table and modify ReplUnitTable[] accordingly */
 		for (i = 0; i < nftl->nb_blocks; i++) {
@@ -182,6 +224,8 @@ static int find_boot_record(struct NFTLrecord *nftl)
 						       &retlen, buf, (char *)&oob)) < 0) {
 					printk(KERN_NOTICE "Read of bad sector table failed (err %d)\n",
 					       ret);
+					kfree(nftl->ReplUnitTable);
+					kfree(nftl->EUNtable);
 					return -1;
 				}
 			}
@@ -505,41 +549,11 @@ int NFTL_mount(struct NFTLrecord *s)
 	struct nftl_uci1 h1;
 	int retlen;
 
-	/* XXX: will be suppressed */
-	s->lastEUN = s->nb_blocks - 1;
-
-	/* memory alloc */
-	s->EUNtable = kmalloc(s->nb_blocks * sizeof(u16), GFP_KERNEL);
-	s->ReplUnitTable = kmalloc(s->nb_blocks * sizeof(u16), GFP_KERNEL);
-	if (!s->EUNtable || !s->ReplUnitTable) {
-	fail:
-		if (s->EUNtable)
-			kfree(s->EUNtable);
-		if (s->ReplUnitTable)
-			kfree(s->ReplUnitTable);
-		return -1;
-	}
-
-	/* mark all blocks as potentially containing data */
-	for (i = 0; i < s->nb_blocks; i++) { 
-		s->ReplUnitTable[i] = BLOCK_NOTEXPLORED;
-	}
-
 	/* search for NFTL MediaHeader and Spare NFTL Media Header */
 	if (find_boot_record(s) < 0) {
 		printk("Could not find valid boot record\n");
-		goto fail;
+		return -1;
 	}
-
-	/* mark the bios blocks (blocks before NFTL MediaHeader) as reserved */
-	for (i = 0; i < s->nb_boot_blocks; i++)
-		s->ReplUnitTable[i] = BLOCK_RESERVED;
-
-	/* also mark the boot records (NFTL MediaHeader) blocks as reserved */
-	if (s->MediaUnit != BLOCK_NIL)
-		s->ReplUnitTable[s->MediaUnit] = BLOCK_RESERVED;
-	if (s->SpareMediaUnit != BLOCK_NIL)
-		s->ReplUnitTable[s->SpareMediaUnit] = BLOCK_RESERVED;
 
 	/* init the logical to physical table */
 	for (i = 0; i < s->nb_blocks; i++) {

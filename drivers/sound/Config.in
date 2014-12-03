@@ -106,6 +106,16 @@ fi
 dep_tristate '  VIA 82C686 Audio Codec' CONFIG_SOUND_VIA82CXXX $CONFIG_PCI
 dep_mbool    '  VIA 82C686 MIDI' CONFIG_MIDI_VIA82CXXX $CONFIG_SOUND_VIA82CXXX
 
+if [ "$CONFIG_ARCH_SA1100" = "y" ]; then
+   dep_tristate '  StrongARM-11x0 Sound Drivers' CONFIG_SOUND_SA1100 $CONFIG_ARCH_SA1100 $CONFIG_SOUND
+   dep_tristate '    UDA1341 Stereo Codec' CONFIG_SOUND_UDA1341 $CONFIG_L3 $CONFIG_SOUND_SA1100 $CONFIG_SOUND
+   dep_tristate '      Assabet audio support' CONFIG_SOUND_ASSABET_UDA1341 $CONFIG_SA1100_ASSABET $CONFIG_SOUND_UDA1341
+   dep_tristate '      Compaq iPAQ audio support' CONFIG_SOUND_H3600_UDA1341 $CONFIG_SA1100_H3600 $CONFIG_SOUND_UDA1341
+   dep_tristate '      Pangolin audio support' CONFIG_SOUND_PANGOLIN_UDA1341 $CONFIG_SA1100_PANGOLIN $CONFIG_SOUND_UDA1341
+   dep_tristate '      SA1111 audio support' CONFIG_SOUND_SA1111_UDA1341 $CONFIG_SA1111 $CONFIG_SOUND_UDA1341
+   dep_tristate '    Generic DAC on the SA11x0 SSP port' CONFIG_SOUND_SA1100SSP $CONFIG_SOUND_SA1100
+fi
+
 dep_tristate '  OSS sound modules' CONFIG_SOUND_OSS $CONFIG_SOUND
 
 if [ "$CONFIG_SOUND_OSS" = "y" -o "$CONFIG_SOUND_OSS" = "m" ]; then
@@ -194,13 +204,13 @@ if [ "$CONFIG_SOUND_OSS" = "y" -o "$CONFIG_SOUND_OSS" = "m" ]; then
       fi
    fi
 	 
-   if [ "$CONFIG_ARM" = "y" ]; then
-      if [ "$CONFIG_ARCH_ACORN" = "y" -o "$CONFIG_ARCH_CLPS7500" = "y" ]; then
-         dep_tristate '    VIDC 16-bit sound' CONFIG_SOUND_VIDC $CONFIG_SOUND_OSS
-      fi
-      dep_tristate '    Netwinder WaveArtist' CONFIG_SOUND_WAVEARTIST $CONFIG_SOUND_OSS $CONFIG_ARCH_NETWINDER
-   fi
+fi
 
+if [ "$CONFIG_ARM" = "y" ]; then
+   if [ "$CONFIG_ARCH_ACORN" = "y" -o "$CONFIG_ARCH_CLPS7500" = "y" ]; then
+      dep_tristate '    VIDC 16-bit sound' CONFIG_SOUND_VIDC $CONFIG_SOUND_OSS
+   fi
+   dep_tristate '    Netwinder WaveArtist' CONFIG_SOUND_WAVEARTIST $CONFIG_SOUND_OSS $CONFIG_ARCH_NETWINDER
 fi
 
 dep_tristate '  TV card (bt848) mixer support' CONFIG_SOUND_TVMIXER $CONFIG_SOUND $CONFIG_I2C

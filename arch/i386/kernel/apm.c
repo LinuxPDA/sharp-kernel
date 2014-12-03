@@ -1221,6 +1221,7 @@ static int suspend(int vetoable)
 		as->suspend_wait = 0;
 		as->suspend_result = err;
 	}
+	ignore_normal_resume = 1;
 	wake_up_interruptible(&apm_suspend_waitqueue);
 	return err;
 }
@@ -1273,6 +1274,8 @@ static void check_events(void)
 		if (ignore_bounce
 		    && ((jiffies - last_resume) > bounce_interval))
 			ignore_bounce = 0;
+		if (ignore_normal_resume && (event != APM_NORMAL_RESUME))
+			ignore_normal_resume = 0;
 
 		switch (event) {
 		case APM_SYS_STANDBY:

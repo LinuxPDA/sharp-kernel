@@ -31,7 +31,7 @@
  * provisions above, a recipient may use your version of this file
  * under either the RHEPL or the GPL.
  *
- * $Id: nodelist.h,v 1.46 2001/09/18 23:43:05 dwmw2 Exp $
+ * $Id: nodelist.h,v 1.46.2.2 2002/05/27 09:27:50 dwmw2 Exp $
  *
  */
 
@@ -163,7 +163,6 @@ struct jffs2_node_frag
 	struct jffs2_full_dnode *node; /* NULL for holes */
 	__u32 size;
 	__u32 ofs; /* Don't really need this, but optimisation */
-	__u32 node_ofs; /* offset within the physical node */
 };
 
 struct jffs2_eraseblock
@@ -248,7 +247,8 @@ void jffs2_add_fd_to_list(struct jffs2_sb_info *c, struct jffs2_full_dirent *new
 void jffs2_add_tn_to_list(struct jffs2_tmp_dnode_info *tn, struct jffs2_tmp_dnode_info **list);
 int jffs2_get_inode_nodes(struct jffs2_sb_info *c, ino_t ino, struct jffs2_inode_info *f,
 			  struct jffs2_tmp_dnode_info **tnp, struct jffs2_full_dirent **fdp,
-			  __u32 *highest_version);
+			  __u32 *highest_version, __u32 *latest_mctime,
+			  __u32 *mctime_ver);
 struct jffs2_inode_cache *jffs2_get_ino_cache(struct jffs2_sb_info *c, int ino);
 void jffs2_add_ino_cache (struct jffs2_sb_info *c, struct jffs2_inode_cache *new);
 void jffs2_del_ino_cache(struct jffs2_sb_info *c, struct jffs2_inode_cache *old);

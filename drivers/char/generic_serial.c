@@ -883,6 +883,9 @@ void gs_set_termios (struct tty_struct * tty,
 		if(!memcmp(tiosp->c_cc, old_termios->c_cc, NCC)) printk("c_cc changed\n");
 	}
 
+	/*
+	 * should be using tty_get_baud_rate() here -- rmk
+	 */
 	baudrate = tiosp->c_cflag & CBAUD;
 	if (baudrate & CBAUDEX) {
 		baudrate &= ~CBAUDEX;
@@ -957,6 +960,11 @@ int gs_init_port(struct gs_port *port)
 	unsigned long flags;
 	unsigned long page;
 
+	/*
+	 * Do we expect to allocate tmp_buf from an interrupt routine?
+	 * If not, then save_flags() cli() and restore_flags() are
+	 * redundant here and should be replaced by a semaphore. -- rmk
+	 */
 	save_flags (flags);
 	if (!tmp_buf) {
 		page = get_free_page(GFP_KERNEL);
@@ -976,6 +984,11 @@ int gs_init_port(struct gs_port *port)
 	if (port->flags & ASYNC_INITIALIZED)
 		return 0;
 
+	/*
+	 * Do we expect to allocate xmit_buf from an interrupt routine?
+	 * If not, then save_flags() cli() and restore_flags() are
+	 * redundant here and should be replaced by a semaphore. -- rmk
+	 */
 	if (!port->xmit_buf) {
 		/* We may sleep in get_free_page() */
 		unsigned long tmp;
@@ -1016,7 +1029,7 @@ int gs_setserial(struct gs_port *port, struct serial_struct *sp)
 	struct serial_struct sio;
 
 	if (copy_from_user(&sio, sp, sizeof(struct serial_struct)))
-		return(-EFAULT);
+		return -EFAULT;
 
 	if (!capable(CAP_SYS_ADMIN)) {
 		if ((sio.baud_base != port->baud_base) ||

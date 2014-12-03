@@ -352,17 +352,37 @@ static inline int zap_pmd_range(mmu_gather_t *tlb, pgd_t * dir, unsigned long ad
 	return freed;
 }
 
+void unmap_page_range(mmu_gather_t *tlb, struct mm_struct *mm, unsigned long address, unsigned long end)
+{
+	int freed = 0;
+	pgd_t * dir;
+
+	if (address >= end)
+		BUG();
+	dir = pgd_offset(mm, address);
+	do {
+		freed += zap_pmd_range(tlb, dir, address, end - address);
+		address = (address + PGDIR_SIZE) & PGDIR_MASK;
+		dir++;
+	} while (address && (address < end));
+
+	/*
+	 * Update rss for the mm_struct (not necessarily current->mm)
+	 * Notice that rss is an unsigned long.
+	 */
+	if (mm->rss > freed)
+		mm->rss -= freed;
+	else
+		mm->rss = 0;
+}
+
 /*
  * remove user pages in a given range.
  */
 void zap_page_range(struct mm_struct *mm, unsigned long address, unsigned long size)
 {
-	mmu_gather_t *tlb;
-	pgd_t * dir;
 	unsigned long start = address, end = address + size;
-	int freed = 0;
-
-	dir = pgd_offset(mm, address);
+	mmu_gather_t *tlb;
 
 	/*
 	 * This is a long-lived spinlock. That's fine.
@@ -375,25 +395,10 @@ void zap_page_range(struct mm_struct *mm, unsigned long address, unsigned long s
 		BUG();
 	spin_lock(&mm->page_table_lock);
 	flush_cache_range(mm, address, end);
+
 	tlb = tlb_gather_mmu(mm);
-
-	do {
-		freed += zap_pmd_range(tlb, dir, address, end - address);
-		address = (address + PGDIR_SIZE) & PGDIR_MASK;
-		dir++;
-	} while (address && (address < end));
-
-	/* this will flush any remaining tlb entries */
+	unmap_page_range(tlb, mm, address, end);
 	tlb_finish_mmu(tlb, start, end);
-
-	/*
-	 * Update rss for the mm_struct (not necessarily current->mm)
-	 * Notice that rss is an unsigned long.
-	 */
-	if (mm->rss > freed)
-		mm->rss -= freed;
-	else
-		mm->rss = 0;
 	spin_unlock(&mm->page_table_lock);
 }
 

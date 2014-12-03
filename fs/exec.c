@@ -283,6 +283,7 @@ void put_dirty_page(struct task_struct * tsk, struct page *page, unsigned long a
 	spin_unlock(&tsk->mm->page_table_lock);
 
 	/* no need for flush_tlb */
+	memc_update_addr(tsk->mm, *pte, address);
 	return;
 out:
 	spin_unlock(&tsk->mm->page_table_lock);

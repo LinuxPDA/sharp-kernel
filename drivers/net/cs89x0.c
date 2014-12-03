@@ -112,6 +112,7 @@
 
 */
 
+#include <linux/config.h>
 #include <linux/kernel.h>
 #include <linux/sched.h>
 #include <linux/types.h>
@@ -397,18 +398,18 @@ cs89x0_probe1(struct net_device *dev, int ioaddr)
 	/* if they give us an odd I/O address, then do ONE write to
            the address port, to get it back to address zero, where we
            expect to find the EISA signature word. An IO with a base of 0x3
-	   will skip the test for the ADD_PORT. */
+ 	   will skip the test for the ADD_PORT. */
 	if (ioaddr & 1) {
 		if (net_debug > 1)
 			printk(KERN_INFO "%s: odd ioaddr 0x%x\n", dev->name, ioaddr);
-	        if ((ioaddr & 2) != 2)
+ 	        if ((ioaddr & 2) != 2)
 	        	if ((inw((ioaddr & ~3)+ ADD_PORT) & ADD_MASK) != ADD_SIG) {
 				printk(KERN_ERR "%s: bad signature 0x%x\n",
 					dev->name, inw((ioaddr & ~3)+ ADD_PORT));
 		        	retval = -ENODEV;
 				goto out2;
 			}
-		ioaddr &= ~3;
+ 		ioaddr &= ~3;
 		outw(PP_ChipID, ioaddr + ADD_PORT);
 	}
 printk("PP_addr=0x%x\n", inw(ioaddr + ADD_PORT));
@@ -416,7 +417,7 @@ printk("PP_addr=0x%x\n", inw(ioaddr + ADD_PORT));
         if (inw(ioaddr + DATA_PORT) != CHIP_EISA_ID_SIG) {
 		printk(KERN_ERR "%s: incorrect signature 0x%x\n",
 			dev->name, inw(ioaddr + DATA_PORT));
-  		retval = -ENODEV;
+		retval = -ENODEV;
   		goto out2;
 	}
 
@@ -447,7 +448,7 @@ printk("PP_addr=0x%x\n", inw(ioaddr + ADD_PORT));
 	       dev->base_addr);
 
 	reset_chip(dev);
-   
+
         /* Here we read the current configuration of the chip. If there
 	   is no Extended EEPROM then the idea is to not disturb the chip
 	   configuration, it should have been correctly setup by automatic

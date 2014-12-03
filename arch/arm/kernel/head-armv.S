@@ -143,7 +143,6 @@ __entry:
 
 		.type	__switch_data, %object
 __switch_data:	.long	__mmap_switched
-		.long	SYMBOL_NAME(compat)
 		.long	SYMBOL_NAME(__bss_start)
 		.long	SYMBOL_NAME(_end)
 		.long	SYMBOL_NAME(processor_id)
@@ -170,9 +169,8 @@ __ret:		ldr	lr, __switch_data
 		.align	5
 __mmap_switched:
 		adr	r3, __switch_data + 4
-		ldmia	r3, {r2, r4, r5, r6, r7, r8, sp}@ r2 = compat
+		ldmia	r3, {r4, r5, r6, r7, r8, sp}@ r2 = compat
 							@ sp = stack pointer
-		str	r12, [r2]
 
 		mov	fp, #0				@ Clear BSS (and zero fp)
 1:		cmp	r4, r5

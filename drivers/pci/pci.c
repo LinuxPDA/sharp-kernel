@@ -356,6 +356,48 @@ pci_restore_state(struct pci_dev *dev, u32 *buffer)
 	return 0;
 }
 
+int 
+pci_compare_state(struct pci_dev *dev, u32 *buffer)
+{
+	int i;
+	unsigned int temp;
+
+	if (buffer) {
+		for (i = 0; i < 16; i++) {
+			pci_read_config_dword(dev,i*4,&temp);
+			if (temp!=buffer[i])
+				return 1;
+		}
+	}
+	return 0;
+}
+
+int pci_generic_suspend_save(struct pci_dev *pdev, u32 state)
+{
+	if (pdev)
+		pci_save_state(pdev,pdev->saved_state);
+	return 0;
+}
+
+int pci_generic_resume_restore(struct pci_dev *pdev)
+{
+	if (pdev)
+		pci_restore_state(pdev,pdev->saved_state);
+	return 0;		
+}
+
+int pci_generic_resume_compare(struct pci_dev *pdev)
+{
+	int retval=0;
+	if (pdev)
+		retval = pci_compare_state(pdev,pdev->saved_state);
+	return retval;		
+}
+
+EXPORT_SYMBOL(pci_generic_suspend_save);
+EXPORT_SYMBOL(pci_generic_resume_restore);
+EXPORT_SYMBOL(pci_generic_resume_compare);
+
 /**
  * pci_enable_device - Initialize device before it's used by a driver.
  * @dev: PCI device to be initialized
@@ -914,13 +956,15 @@ static void pci_read_bases(struct pci_dev *dev, unsigned int howmany, int rom)
 			l = 0;
 		if ((l & PCI_BASE_ADDRESS_SPACE) == PCI_BASE_ADDRESS_SPACE_MEMORY) {
 			res->start = l & PCI_BASE_ADDRESS_MEM_MASK;
+			res->flags |= l & ~PCI_BASE_ADDRESS_MEM_MASK;
 			sz = pci_size(sz, PCI_BASE_ADDRESS_MEM_MASK);
 		} else {
 			res->start = l & PCI_BASE_ADDRESS_IO_MASK;
+			res->flags |= l & ~PCI_BASE_ADDRESS_IO_MASK;
 			sz = pci_size(sz, PCI_BASE_ADDRESS_IO_MASK & 0xffff);
 		}
 		res->end = res->start + (unsigned long) sz;
-		res->flags |= (l & 0xf) | pci_calc_resource_flags(l);
+		res->flags |= pci_calc_resource_flags(l);
 		if ((l & (PCI_BASE_ADDRESS_SPACE | PCI_BASE_ADDRESS_MEM_TYPE_MASK))
 		    == (PCI_BASE_ADDRESS_SPACE_MEMORY | PCI_BASE_ADDRESS_MEM_TYPE_64)) {
 			pci_read_config_dword(dev, reg+4, &l);

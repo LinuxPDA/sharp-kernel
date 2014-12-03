@@ -5,8 +5,12 @@
  *
  * Maintainer unknown.
  *
- * Drive tuning added from Rebel.com's kernel sources
- *  -- Russell King (15/11/98) linux@arm.linux.org.uk
+ * Changelog:
+ *
+ * 15/11/1998	RMK	Drive tuning added from Rebel.com's kernel
+ *			sources
+ * 30/03/2002	RMK	Add fixes specified in W83C553F errata.
+ *			(with special thanks to Todd Inglett)
  */
 
 #include <linux/config.h>
@@ -27,6 +31,17 @@
 #include "ide_modes.h"
 
 extern char *ide_xfer_verbose (byte xfer_rate);
+
+/*
+ * SL82C105 PCI config register 0x40 bits.
+ */
+#define CTRL_IDE_IRQB	(1 << 30)
+#define CTRL_IDE_IRQA	(1 << 28)
+#define CTRL_LEGIRQ	(1 << 11)
+#define CTRL_P1F16	(1 << 5)
+#define CTRL_P1EN	(1 << 4)
+#define CTRL_P0F16	(1 << 1)
+#define	CTRL_P0EN	(1 << 0)
 
 /*
  * Convert a PIO mode and cycle time to the required on/off
@@ -116,6 +131,7 @@ static int config_for_dma(ide_drive_t *drive)
 	return 0;
 }
 
+
 /*
  * Check to see if the drive and
  * chipset is capable of DMA mode
@@ -156,21 +172,107 @@ static int sl82c105_check_drive(ide_drive_t *drive)
 }
 
 /*
- * Our own dmaproc, only to intercept ide_dma_check
+ * The SL82C105 holds off all IDE interrupts while in DMA mode until
+ * all DMA activity is completed.  Sometimes this causes problems (eg,
+ * when the drive wants to report an error condition).
+ *
+ * 0x7e is a "chip testing" register.  Bit 2 resets the DMA controller
+ * state machine.  We need to kick this to work around various bugs.
+ */
+static inline void sl82c105_reset_host(struct pci_dev *dev)
+{
+	u16 val;
+
+	pci_read_config_word(dev, 0x7e, &val);
+	pci_write_config_word(dev, 0x7e, val | (1 << 2));
+	pci_write_config_word(dev, 0x7e, val & ~(1 << 2));
+}
+
+/*
+ * If we get an IRQ timeout, it might be that the DMA state machine
+ * got confused.  Fix from Todd Inglett.  Details from Winbond.
+ *
+ * This function is called when the IDE timer expires, the drive
+ * indicates that it is READY, and we were waiting for DMA to complete.
+ */
+static int sl82c105_lostirq(ide_drive_t *drive)
+{
+	ide_hwif_t *hwif = HWIF(drive);
+	struct pci_dev *dev = hwif->pci_dev;
+	u32 val, mask = hwif->channel ? CTRL_IDE_IRQB : CTRL_IDE_IRQA;
+	unsigned long dma_base = hwif->dma_base;
+
+	printk("sl82c105: lost IRQ: resetting host\n");
+
+	/*
+	 * Check the raw interrupt from the drive.
+	 */
+	pci_read_config_dword(dev, 0x40, &val);
+	if (val & mask)
+		printk("sl82c105: drive was requesting IRQ, but host lost it\n");
+
+	/*
+	 * Was DMA enabled?  If so, disable it - we're resetting the
+	 * host.  The IDE layer will be handling the drive for us.
+	 */
+	val = inb(dma_base);
+	if (val & 1) {
+		outb(val & ~1, dma_base);
+		printk("sl82c105: DMA was enabled\n");
+	}
+
+	sl82c105_reset_host(dev);
+
+	/* ide_dmaproc would return 1, so we do as well */
+	return 1;
+}
+
+/*
+ * ATAPI devices can cause the SL82C105 DMA state machine to go gaga.
+ * Winbond recommend that the DMA state machine is reset prior to
+ * setting the bus master DMA enable bit.
+ *
+ * The generic IDE core will have disabled the BMEN bit before this
+ * function is called.
+ */
+static void sl82c105_before_bm_enable(ide_drive_t *drive)
+{
+	ide_hwif_t *hwif = HWIF(drive);
+	struct pci_dev *dev = hwif->pci_dev;
+
+	sl82c105_reset_host(dev);
+}
+
+/*
+ * Our very own dmaproc.  We need to intercept various calls
+ * to fix up the SL82C105 specific behaviour.
  */
 static int sl82c105_dmaproc(ide_dma_action_t func, ide_drive_t *drive)
 {
 	switch (func) {
 	case ide_dma_check:
 		return sl82c105_check_drive(drive);
+
 	case ide_dma_on:
 		if (config_for_dma(drive))
 			func = ide_dma_off;
 		/* fall through */
+
 	case ide_dma_off_quietly:
 	case ide_dma_off:
 		config_for_pio(drive, 4, 0);
 		break;
+
+	case ide_dma_read:
+	case ide_dma_write:
+	case ide_dma_begin:
+	case ide_dma_timeout:
+		sl82c105_before_bm_enable(drive);
+		break;
+
+	case ide_dma_lostirq:
+		return sl82c105_lostirq(drive);
+
 	default:
 		break;
 	}
@@ -202,16 +304,20 @@ static unsigned int sl82c105_bridge_revision(struct pci_dev *dev)
 	struct pci_dev *bridge;
 	unsigned char rev;
 
-	bridge = pci_find_device(PCI_VENDOR_ID_WINBOND, PCI_DEVICE_ID_WINBOND_83C553, NULL);
-
 	/*
-	 * If we are part of a Winbond 553
+	 * The bridge should be part of the same device, but function 0.
 	 */
-	if (!bridge || bridge->class >> 8 != PCI_CLASS_BRIDGE_ISA)
+	bridge = pci_find_slot(dev->bus->number,
+			       PCI_DEVFN(PCI_SLOT(dev->devfn), 0));
+	if (!bridge)
 		return -1;
 
-	if (bridge->bus != dev->bus ||
-	    PCI_SLOT(bridge->devfn) != PCI_SLOT(dev->devfn))
+	/*
+	 * Make sure it is a Winbond 553 and is an ISA bridge.
+	 */
+	if (bridge->vendor != PCI_VENDOR_ID_WINBOND ||
+	    bridge->device != PCI_DEVICE_ID_WINBOND_83C553 ||
+	    bridge->class >> 8 != PCI_CLASS_BRIDGE_ISA)
 		return -1;
 
 	/*
@@ -227,30 +333,28 @@ static unsigned int sl82c105_bridge_revision(struct pci_dev *dev)
  */
 unsigned int __init pci_init_sl82c105(struct pci_dev *dev, const char *msg)
 {
-	unsigned char ctrl_stat;
+	u32 val;
 
-	/*
-	 * Enable the ports
-	 */
-	pci_read_config_byte(dev, 0x40, &ctrl_stat);
-	pci_write_config_byte(dev, 0x40, ctrl_stat | 0x33);
+	pci_read_config_dword(dev, 0x40, &val);
+	val |= CTRL_P0EN | CTRL_P0F16 | CTRL_P1EN | CTRL_P1F16;
+	pci_write_config_dword(dev, 0x40, val);
 
 	return dev->irq;
 }
 
 void __init dma_init_sl82c105(ide_hwif_t *hwif, unsigned long dma_base)
 {
-	unsigned int rev;
+	unsigned int bridge_rev;
 	byte dma_state;
 
 	dma_state = inb(dma_base + 2);
-	rev = sl82c105_bridge_revision(hwif->pci_dev);
-	if (rev <= 5) {
+	bridge_rev = sl82c105_bridge_revision(hwif->pci_dev);
+	if (bridge_rev <= 5) {
 		hwif->autodma = 0;
 		hwif->drives[0].autotune = 1;
 		hwif->drives[1].autotune = 1;
 		printk("    %s: Winbond 553 bridge revision %d, BM-DMA disabled\n",
-		       hwif->name, rev);
+		       hwif->name, bridge_rev);
 		dma_state &= ~0x60;
 	} else {
 		dma_state |= 0x60;
@@ -258,9 +362,11 @@ void __init dma_init_sl82c105(ide_hwif_t *hwif, unsigned long dma_base)
 	}
 	outb(dma_state, dma_base + 2);
 
-	hwif->dmaproc = NULL;
 	ide_setup_dma(hwif, dma_base, 8);
-	if (hwif->dmaproc)
+
+	if (bridge_rev <= 5)
+		hwif->dmaproc = NULL;
+	else
 		hwif->dmaproc = sl82c105_dmaproc;
 }
 

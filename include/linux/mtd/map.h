@@ -1,6 +1,6 @@
 
 /* Overhauled routines for dealing with different mmap regions of flash */
-/* $Id: map.h,v 1.25 2001/09/09 15:04:17 dwmw2 Exp $ */
+/* $Id: map.h,v 1.27 2002/02/21 08:26:59 dwmw2 Exp $ */
 
 #ifndef __LINUX_MTD_MAP_H__
 #define __LINUX_MTD_MAP_H__
@@ -33,6 +33,7 @@ struct map_info {
 	__u8 (*read8)(struct map_info *, unsigned long);
 	__u16 (*read16)(struct map_info *, unsigned long);
 	__u32 (*read32)(struct map_info *, unsigned long);  
+	__u64 (*read64)(struct map_info *, unsigned long);  
 	/* If it returned a 'long' I'd call it readl.
 	 * It doesn't.
 	 * I won't.
@@ -42,6 +43,7 @@ struct map_info {
 	void (*write8)(struct map_info *, __u8, unsigned long);
 	void (*write16)(struct map_info *, __u16, unsigned long);
 	void (*write32)(struct map_info *, __u32, unsigned long);
+	void (*write64)(struct map_info *, __u64, unsigned long);
 	void (*copy_to)(struct map_info *, unsigned long, const void *, ssize_t);
 
 	void (*set_vpp)(struct map_info *, int);
@@ -68,7 +70,7 @@ struct mtd_chip_driver {
 void register_mtd_chip_driver(struct mtd_chip_driver *);
 void unregister_mtd_chip_driver(struct mtd_chip_driver *);
 
-struct mtd_info *do_map_probe(char *name, struct map_info *map);
+struct mtd_info *do_map_probe(const char *name, struct map_info *map);
 
 
 /*

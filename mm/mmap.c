@@ -17,6 +17,9 @@
 
 #include <asm/uaccess.h>
 #include <asm/pgalloc.h>
+#include <asm/tlb.h>
+
+extern void unmap_page_range(mmu_gather_t *tlb, struct mm_struct *mm, unsigned long start, unsigned long end);
 
 /*
  * WARNING: the debugging will use recursive algorithms so never enable this
@@ -882,6 +885,8 @@ no_mmaps:
 	 * old method of shifting the VA >> by PGDIR_SHIFT doesn't work.
 	 */
 	start_index = pgd_index(first);
+	if (start_index < FIRST_USER_PGD_NR)
+		start_index = FIRST_USER_PGD_NR;
 	end_index = pgd_index(last);
 	if (end_index > start_index) {
 		clear_page_tables(mm, start_index, end_index - start_index);
@@ -1102,44 +1107,58 @@ void build_mmap_rb(struct mm_struct * mm)
 /* Release all mmaps. */
 void exit_mmap(struct mm_struct * mm)
 {
+	mmu_gather_t *tlb;
 	struct vm_area_struct * mpnt;
 
 	release_segments(mm);
 	spin_lock(&mm->page_table_lock);
-	mpnt = mm->mmap;
-	mm->mmap = mm->mmap_cache = NULL;
-	mm->mm_rb = RB_ROOT;
-	mm->rss = 0;
-	spin_unlock(&mm->page_table_lock);
-	mm->total_vm = 0;
-	mm->locked_vm = 0;
+
+	tlb = tlb_gather_mmu(mm);
 
 	flush_cache_mm(mm);
+	mpnt = mm->mmap;
 	while (mpnt) {
-		struct vm_area_struct * next = mpnt->vm_next;
 		unsigned long start = mpnt->vm_start;
 		unsigned long end = mpnt->vm_end;
-		unsigned long size = end - start;
 
-		if (mpnt->vm_ops) {
-			if (mpnt->vm_ops->close)
-				mpnt->vm_ops->close(mpnt);
-		}
 		mm->map_count--;
 		remove_shared_vm_struct(mpnt);
-		zap_page_range(mm, start, size);
-		if (mpnt->vm_file)
-			fput(mpnt->vm_file);
-		kmem_cache_free(vm_area_cachep, mpnt);
-		mpnt = next;
+		unmap_page_range(tlb, mm, start, end);
+		mpnt = mpnt->vm_next;
 	}
-	flush_tlb_mm(mm);
 
 	/* This is just debugging */
 	if (mm->map_count)
 		BUG();
 
+	tlb_finish_mmu(tlb, 0, TASK_SIZE);
+
+	mpnt = mm->mmap;
+	mm->mmap = mm->mmap_cache = NULL;
+	mm->mm_rb = RB_ROOT;
+	mm->rss = 0;
+	mm->total_vm = 0;
+	mm->locked_vm = 0;
+
+	spin_unlock(&mm->page_table_lock);
+
 	clear_page_tables(mm, FIRST_USER_PGD_NR, USER_PTRS_PER_PGD);
+
+	/*
+	 * Walk the list again, actually closing and freeing it
+	 * without holding any MM locks.
+	 */
+	while (mpnt) {
+		struct vm_area_struct * next = mpnt->vm_next;
+		if (mpnt->vm_ops) {
+			if (mpnt->vm_ops->close)
+				mpnt->vm_ops->close(mpnt);
+		}
+		if (mpnt->vm_file)
+			fput(mpnt->vm_file);
+		kmem_cache_free(vm_area_cachep, mpnt);
+		mpnt = next;
+	}
 }
 
 /* Insert vm structure into process list sorted by address

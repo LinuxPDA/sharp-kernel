@@ -842,11 +842,11 @@ static int hwif_init (ide_hwif_t *hwif)
 		printk("%s: UNABLE TO GET MAJOR NUMBER %d\n", hwif->name, hwif->major);
 		return (hwif->present = 0);
 	}
-	
+
 	if (init_irq(hwif)) {
 		int i = hwif->irq;
 		/*
-		 *	It failed to initialise. Find the default IRQ for 
+		 *	It failed to initialise. Find the default IRQ for
 		 *	this port and try that.
 		 */
 		if (!(hwif->irq = ide_default_irq(hwif->io_ports[IDE_DATA_OFFSET]))) {
@@ -863,7 +863,7 @@ static int hwif_init (ide_hwif_t *hwif)
 		printk("%s: probed IRQ %d failed, using default.\n",
 			hwif->name, hwif->irq);
 	}
-	
+
 	init_gendisk(hwif);
 	blk_dev[hwif->major].data = hwif;
 	blk_dev[hwif->major].queue = ide_get_queue;

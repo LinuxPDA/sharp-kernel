@@ -27,19 +27,14 @@
 #include <asm/io.h>
 #include <asm/pgtable.h>
 #include <asm/page.h>
+#include <asm/sizes.h>
  
 #include <asm/mach/map.h>
 
 /* Page table mapping for I/O region */
  
 static struct map_desc epxa10db_io_desc[] __initdata = {
- { IO_ADDRESS(EXC_REGISTERS_BASE),   EXC_REGISTERS_BASE,   SZ_16K     , DOMAIN_IO, 0, 1}, 
-{IO_ADDRESS(EXC_PLD_BLOCK0_BASE),   EXC_PLD_BLOCK0_BASE,   SZ_16K     , DOMAIN_IO, 0, 1}, 
-{IO_ADDRESS(EXC_PLD_BLOCK1_BASE),   EXC_PLD_BLOCK1_BASE,   SZ_16K     , DOMAIN_IO, 0, 1}, 
-{IO_ADDRESS(EXC_PLD_BLOCK2_BASE),   EXC_PLD_BLOCK2_BASE,   SZ_16K     , DOMAIN_IO, 0, 1}, 
-{IO_ADDRESS(EXC_PLD_BLOCK3_BASE),   EXC_PLD_BLOCK3_BASE,   SZ_16K     , DOMAIN_IO, 0, 1}, 
-{ FLASH_VADDR(EXC_EBI_BLOCK0_BASE),   EXC_EBI_BLOCK0_BASE,   SZ_16M     , DOMAIN_IO, 0, 1},
- LAST_DESC
+ { IO_ADDRESS(EXC_REGISTERS_BASE),   EXC_REGISTERS_BASE,   SZ_4K     , DOMAIN_IO, 0, 1},  LAST_DESC
 };
 
 void __init epxa10db_map_io(void)

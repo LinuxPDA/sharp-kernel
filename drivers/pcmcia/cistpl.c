@@ -285,7 +285,7 @@ void release_cis_mem(socket_info_t *s)
 	s->cis_mem.flags &= ~MAP_ACTIVE;
 	s->ss_entry->set_mem_map(s->sock, &s->cis_mem);
 	if (!(s->cap.features & SS_CAP_STATIC_MAP))
-	    release_mem_region(s->cis_mem.sys_start, s->cap.map_size);
+	    release_mem_resource(s->cis_mem.sys_start, s->cap.map_size);
 	bus_iounmap(s->cap.bus, s->cis_virt);
 	s->cis_mem.sys_start = 0;
 	s->cis_virt = NULL;

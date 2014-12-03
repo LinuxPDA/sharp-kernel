@@ -58,7 +58,6 @@ extern int root_mountflags;
 extern int _stext, _text, _etext, _edata, _end;
 
 unsigned int processor_id;
-unsigned int compat;
 unsigned int __machine_arch_type;
 unsigned int system_rev;
 unsigned int system_serial_low;
@@ -135,7 +134,7 @@ static void __init setup_processor(void)
 	processor = *list->proc;
 #endif
 
-	printk("Processor: %s %s revision %d\n",
+	printk("CPU: %s %s revision %d\n",
 	       proc_info.manufacturer, proc_info.cpu_name,
 	       (int)processor_id & 15);
 
@@ -168,12 +167,7 @@ static struct machine_desc * __init setup_architecture(unsigned int nr)
 		while (1);
 	}
 
-	printk("Architecture: %s\n", list->name);
-	if (compat)
-		printk(KERN_WARNING "Using compatibility code "
-			"scheduled for removal in v%d.%d.%d\n",
-			compat >> 24, (compat >> 12) & 0x3ff,
-			compat & 0x3ff);
+	printk("Machine: %s\n", list->name);
 
 	return list;
 }
@@ -393,6 +387,20 @@ static int __init parse_tag_initrd(const struct tag *tag)
 }
 
 __tagtable(ATAG_INITRD, parse_tag_initrd);
+
+static int __init parse_tag_initrd2(const struct tag *tag)
+{
+	unsigned long start = 0;
+
+	if (tag->u.initrd.size) {
+		start = (unsigned long)phys_to_virt(tag->u.initrd.start);
+
+		setup_initrd(start, tag->u.initrd.size);
+	}
+	return 0;
+}
+
+__tagtable(ATAG_INITRD2, parse_tag_initrd2);
 
 static int __init parse_tag_serialnr(const struct tag *tag)
 {

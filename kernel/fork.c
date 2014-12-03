@@ -72,7 +72,11 @@ void __init fork_init(unsigned long mempages)
 	 * value: the thread structures can take up at most half
 	 * of memory.
 	 */
+#if THREAD_SIZE > PAGE_SIZE
 	max_threads = mempages / (THREAD_SIZE/PAGE_SIZE) / 8;
+#else
+	max_threads = (mempages * PAGE_SIZE) / (8 * THREAD_SIZE);
+#endif
 
 	init_task.rlim[RLIMIT_NPROC].rlim_cur = max_threads/2;
 	init_task.rlim[RLIMIT_NPROC].rlim_max = max_threads/2;
@@ -205,6 +209,7 @@ static inline int dup_mmap(struct mm_struct * mm)
 
 fail_nomem:
 	flush_tlb_mm(current->mm);
+	memc_update_mm(mm);
 	return retval;
 }
 
