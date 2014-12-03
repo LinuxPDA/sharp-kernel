@@ -25,6 +25,8 @@
  * 04-04-1998: Added keyboard autorepeat support (some keyboards don't
  *   autorepeat, and some keyboard changers interfere with keyboard
  *   autorepeat settings).     - Russell King (rmk@arm.linux.org.uk)
+ *
+ * 05-03-2002 Edward Chen
  */
 
 #include <linux/config.h>
@@ -49,6 +51,7 @@
 #include <linux/sysrq.h>
 #include <linux/pm.h>
 #include <linux/speakup.h>
+#include <asm/arch/keyboard_discovery.h>
 
 #ifndef kbd_ops
 struct kbd_ops_struct *kbd_ops;
@@ -1064,8 +1067,15 @@ int __init kbd_init(void)
 		kbd_table[i] = kbd0;
 
 	ttytab = console_driver.table;
+//	printk("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%\n");
+//	printk("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%\n");
+//	printk("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%\n");
+//	printk("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%\n");
+//	printk("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%\n");
+//	printk("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%\n");
 
-	kbd_init_hw();
+//	kbd_init_hw();
+	collie_kbd_hw_init();
 
 	tasklet_enable(&keyboard_tasklet);
 	tasklet_schedule(&keyboard_tasklet);

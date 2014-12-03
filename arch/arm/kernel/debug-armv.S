@@ -8,6 +8,9 @@
  * published by the Free Software Foundation.
  *
  *  32-bit debugging code
+ *
+ *  Change Log
+ *  31-Jul-2002 Lineo Japan, Inc.
  */
 #include <linux/config.h>
 #include <linux/linkage.h>
@@ -413,6 +416,34 @@
 		tst	\rd, #0x10
 		beq	1001b
 		.endm
+
+#elif defined(CONFIG_ARCH_COTULLA)
+                .macro  addruart,rx
+                mrc     p15, 0, \rx, c1, c0
+                tst     \rx, #1                 @ MMU enabled?
+                moveq   \rx, #0x40000000        @ physical base address
+                movne   \rx, #0xf0000000        @ virtual address
+		@add	\rx, \rx, #0x00700000	@ UART3
+		add	\rx, \rx, #0x00200000	@ UART2
+		@add	\rx, \rx, #0x00100000	@ UART1
+               .endm
+
+                .macro  senduart,rd,rx
+                str     \rd, [\rx]
+                .endm
+
+                .macro  waituart,rd,rx
+1001:           ldr     \rd, [\rx, #0x14]       @ LSR
+                tst     \rd, #1 << 6            @ TEMT
+                beq     1001b
+                .endm
+
+                .macro  busyuart,rd,rx
+1001:           ldr     \rd, [\rx, #0x20]       @ UTSR1
+                tst     \rd, #1 << 0            @ UTSR1_TBY
+                bne     1001b
+                .endm
+
 #else
 #error Unknown architecture
 #endif

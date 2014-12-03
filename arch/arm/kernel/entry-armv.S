@@ -12,6 +12,9 @@
  *
  *  Note:  there is a StrongARM bug in the STMIA rn, {regs}^ instruction that causes
  *  it to save wrong values...  Be aware!
+ *
+ * Change Log
+ *  31-Jul-2002 Lineo Japan, Inc.
  */
 #include <linux/config.h>
 #include "entry-header.S"
@@ -581,6 +584,46 @@ ENTRY(anakin_active_irqs)
   
   		.macro	irq_prio_table
  		.endm
+#elif defined(CONFIG_ARCH_COTULLA)
+
+		.macro	disable_fiq
+		.endm
+
+		.macro	get_irqnr_and_base, irqnr, irqstat, base, tmp
+		mov	r4, #0xf0000000			@ ICIP = 0xf0d00000
+		add	r4, r4, #0x00d00000
+#if 0
+		mov	r4, #0x40000000			@ ICIP = 0x40d00000
+		add	r4, r4, #0x00d00000
+#endif
+		ldr	\irqstat, [r4]			@ get irqs
+		ldr	\irqnr, [r4, #4]		@ ICMR = 0x40d00004
+		ands	\irqstat, \irqstat, \irqnr
+		mov	\irqnr, #0
+		beq	1001f
+		tst	\irqstat, #0xff
+		moveq	\irqstat, \irqstat, lsr #8
+		addeq	\irqnr, \irqnr, #8
+		tsteq	\irqstat, #0xff
+		moveq	\irqstat, \irqstat, lsr #8
+		addeq	\irqnr, \irqnr, #8
+		tsteq	\irqstat, #0xff
+		moveq	\irqstat, \irqstat, lsr #8
+		addeq	\irqnr, \irqnr, #8
+		tst	\irqstat, #0x0f
+		moveq	\irqstat, \irqstat, lsr #4
+		addeq	\irqnr, \irqnr, #4
+		tst	\irqstat, #0x03
+		moveq	\irqstat, \irqstat, lsr #2
+		addeq	\irqnr, \irqnr, #2
+		tst	\irqstat, #0x01
+		addeqs	\irqnr, \irqnr, #1
+1001:
+		.endm
+
+		.macro	irq_prio_table
+		.endm
+
 #else
 #error Unknown architecture
 #endif
@@ -862,6 +905,7 @@ __pabt_usr:	sub	sp, sp, #S_FRAME_SIZE		@ Allocate frame size in one go
 		mov	r1, sp				@ regs
 		bl	SYMBOL_NAME(do_PrefetchAbort)	@ call abort handler
 		/* fall through */
+
 /*
  * This is the return code to user mode for abort handlers
  */

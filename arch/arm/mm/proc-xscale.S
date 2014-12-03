@@ -18,13 +18,40 @@
  * 2001 Sep 08:
  *	Completely revisited, many important fixes
  *	Nicolas Pitre <nico@cam.org>
+ *
+ * Change Log
+ *  31-Jul-2002 Lineo Japan, Inc.
  */
 
+#include <linux/config.h>
 #include <linux/linkage.h>
 #include <asm/assembler.h>
 #include <asm/constants.h>
 #include <asm/procinfo.h>
 #include <asm/hardware.h>
+#include <asm/proc/pgtable.h>
+
+/*
+ * Some knobs for cache allocation policy.
+ * Allocate on write may or may not be beneficial depending on the memory
+ * usage pattern of your main application.  Write through cache is definitely
+ * a performance loss in most cases, but might be used for special purposes.
+ */
+#define PMD_CACHE_WRITE_ALLOCATE 1
+#define PTE_CACHE_WRITE_ALLOCATE 1
+#define CACHE_WRITE_THROUGH 0
+
+/*
+ * There are errata that say that dirty status bits in the cache may get
+ * corrupted. The workaround significantly affects performance, and the bug
+ * _might_ just not be that visible or critical to you, so it is configurable.
+ * Let's hope a future core revision will tell us this was only a bad dream.
+ * But in the mean time the risk and tradeoff is yours to decide....
+ */
+#ifdef CONFIG_XSCALE_CACHE_ERRATA
+#undef CACHE_WRITE_THROUGH
+#define CACHE_WRITE_THROUGH 1
+#endif
 
 /* 
  * This is the maximum size of an area which will be flushed.  If the area
@@ -50,13 +77,19 @@
 /*
  * Virtual address used to allocate the cache when flushed
  *
- * This must be a virtual address which is _never_ used or mapped in any way.
- * Top of memory is likely to be the best address to use since the vector
- * table is located at 0xffff0000-0xffff0fff so nothing useful can be mapped
- * above that page.  The flush address is used downwards so this value is
- * loadable with a single 'mov'.
+ * This must be an address range which is _never_ used.  It should 
+ * apparently have a mapping in the corresponding page table for 
+ * compatibility with future CPUs that _could_ require it.  For instance we
+ * don't care.
+ *
+ * This must be aligned on a 2*CACHESIZE boundary.  The code selects one of
+ * the 2 areas in alternance each time the clean_d_cache macro is used.
+ * Without this the XScale core exhibits cache eviction problems and no one
+ * knows why.  
+ *
+ * Reminder: the vector table is located at 0xffff0000-0xffff0fff.
  */
-#define FLUSH_ADDR	0xffffffe0
+#define CLEAN_ADDR	0xfffe0000
 
 /*
  * This macro is used to wait for a CP15 write and is needed
@@ -75,15 +108,7 @@
 						@ flush instruction pipeline
 	.endm
 
-	.macro  IRQ_DISABLE r, tmp
-	mrs     \r, cpsr
-	orr     \tmp, \r, #(F_BIT | I_BIT)
-	msr     cpsr_c, \tmp
-	.endm
-
-	.macro  IRQ_RESTORE r
-	msr     cpsr_c, \r
-	.endm
+#if !CACHE_WRITE_THROUGH
 
 /*
  * This macro cleans the entire dcache using line allocate.
@@ -91,19 +116,46 @@
  * rd and rs are two scratch registers.
  */
 	.macro  clean_d_cache, rd, rs
-	mov	\rd, #FLUSH_ADDR
-	sub	\rs, \rd, #CACHESIZE
+	ldr	\rs, =clean_addr
+	ldr	\rd, [\rs]
+	eor	\rd, \rd, #CACHESIZE
+	str	\rd, [\rs]
+	add	\rs, \rd, #CACHESIZE
 1:	mcr	p15, 0, \rd, c7, c2, 5		@ allocate D cache line
-	sub	\rd, \rd, #CACHELINESIZE
+	add	\rd, \rd, #CACHELINESIZE
 	mcr	p15, 0, \rd, c7, c2, 5		@ allocate D cache line
-	sub	\rd, \rd, #CACHELINESIZE
+	add	\rd, \rd, #CACHELINESIZE
 	mcr	p15, 0, \rd, c7, c2, 5		@ allocate D cache line
-	sub	\rd, \rd, #CACHELINESIZE
+	add	\rd, \rd, #CACHELINESIZE
 	mcr	p15, 0, \rd, c7, c2, 5		@ allocate D cache line
-	sub	\rd, \rd, #CACHELINESIZE
+	add	\rd, \rd, #CACHELINESIZE
 	teq	\rd, \rs
 	bne	1b
 	.endm
+
+	.macro	clean_d_line,	rd
+	mcr	p15, 0, \rd, c7, c10, 1
+	.endm
+
+	.data
+clean_addr:	.word	CLEAN_ADDR
+
+#else
+
+/*
+ * If cache is write-through, there is no need to clean it.
+ * Simply invalidating will do.
+ */
+
+	.macro  clean_d_cache, rd, rs
+	mcr	p15, 0, \rd, c7, c6, 0
+	.endm
+
+	/* let's try to skip this needless operations at least within loops */
+	.macro	clean_d_line,	rd
+	.endm
+
+#endif
 
 	.text
 
@@ -138,6 +190,7 @@ ENTRY(cpu_xscale_check_bugs)
 	msr	cpsr, ip
 	mov	pc, lr
 
+#ifndef CONFIG_XSCALE_CACHE_ERRATA
 /*
  * cpu_xscale_proc_init()
  *
@@ -145,6 +198,51 @@ ENTRY(cpu_xscale_check_bugs)
  */
 ENTRY(cpu_xscale_proc_init)
 	mov	pc, lr
+#else
+/*
+ * We enable the cache here, but we make sure all the status bits for dirty
+ * lines are cleared as well (see PXA250 erratum #120).
+ */
+ENTRY(cpu_xscale_proc_init)
+	@ enable data cache
+	ldr	r0, cr_p
+	ldmia	r0, {r1, r2}
+	orr	r1, r1, #0x4
+	orr	r2, r2, #0x4
+	stmia	r0, {r1, r2}
+	mcr	p15, 0, r1, c1, c0, 0
+	cpwait	r0
+
+	@ invalidate data cache
+	mcr	p15, 0, r0, c7, c6, 0
+
+	@ fill main cache with write-through lines
+	bic	r0, pc, #0x1f
+	add	r1, r0, #CACHESIZE
+1:	ldr	r2, [r0], #32
+	cmp	r0, r1
+	bne	1b
+
+	@ enable test feature to force all fills to the mini-cache
+	mov	r1, #0x8
+	mcr	p15, 0, r1, c15, c15, 3
+
+	@ fill mini-cache with write-through lines (2kbytes, 64 lines)
+	add	r1, r0, #2048
+2:	ldr	r2, [r0], #32
+	cmp	r0, r1
+	bne	2b
+
+	@ disable test feature to force all fills to the mini-cache
+	mov	r1, #0x0
+	mcr	p15, 0, r1, c15, c15, 3
+
+	@ invalidate data cache again
+	mcr	p15, 0, r1, c7, c6, 0
+	mov	pc, lr
+
+cr_p:	.long	SYMBOL_NAME(cr_alignment)
+#endif
 
 /*
  * cpu_xscale_proc_fin()
@@ -229,13 +327,7 @@ ENTRY(cpu_xscale_do_idle)
 ENTRY(cpu_xscale_cache_clean_invalidate_all)
 	mov	r2, #1
 cpu_xscale_cache_clean_invalidate_all_r2:
-#ifdef CONFIG_ARCH_IQ80310
-        IRQ_DISABLE r3, r1
-#endif
-	clean_d_cache r1, ip
-#ifdef CONFIG_ARCH_IQ80310
-        IRQ_RESTORE r3
-#endif
+	clean_d_cache r0, r1
 	teq	r2, #0
 	mcrne	p15, 0, ip, c7, c5, 0		@ Invalidate I cache & BTB
 	mcr	p15, 0, ip, c7, c10, 4		@ Drain Write (& Fill) Buffer
@@ -256,22 +348,11 @@ ENTRY(cpu_xscale_cache_clean_invalidate_range)
 	sub	r3, r1, r0
 	cmp	r3, #MAX_AREA_SIZE
 	bhi	cpu_xscale_cache_clean_invalidate_all_r2
-
-#ifdef CONFIG_ARCH_IQ80310
-	IRQ_DISABLE ip, r3
-	sub	r3, r1, r0
-#endif
-
-1:	mcr	p15, 0, r0, c7, c10, 1		@ Clean D cache line
+1:	clean_d_line r0				@ Clean D cache line
 	mcr	p15, 0, r0, c7, c6, 1		@ Invalidate D cache line
 	add	r0, r0, #CACHELINESIZE
 	cmp	r0, r1
 	blo	1b
-
-#ifdef CONFIG_ARCH_IQ80310
-         @ ip = interrupt state
-	IRQ_RESTORE ip
-#endif
 	teq	r2, #0
 	mcr	p15, 0, ip, c7, c10, 4		@ Drain Write (& Fill) Buffer
 	moveq	pc, lr
@@ -292,9 +373,7 @@ ENTRY(cpu_xscale_cache_clean_invalidate_range)
  */
 	.align	5
 ENTRY(cpu_xscale_flush_ram_page)
-#ifdef CONFIG_ARCH_IQ80310
-        IRQ_DISABLE r3, r1
-#endif
+#if !CACHE_WRITE_THROUGH
 	mov	r1, #PAGESIZE
 1:	mcr	p15, 0, r0, c7, c10, 1		@ Clean D cache line
 	add	r0, r0, #CACHELINESIZE
@@ -302,12 +381,8 @@ ENTRY(cpu_xscale_flush_ram_page)
 	add	r0, r0, #CACHELINESIZE
 	subs	r1, r1, #2 * CACHELINESIZE
 	bne	1b
-	mcr	p15, 0, ip, c7, c10, 4		@ Drain Write (& Fill) Buffer
-
-#ifdef CONFIG_ARCH_IQ80310
-         @ r3 = interrupt state
-        IRQ_RESTORE r3
 #endif
+	mcr	p15, 0, ip, c7, c10, 4		@ Drain Write (& Fill) Buffer
 	mov	pc, lr
 
 /* ================================ D-CACHE =============================== */
@@ -324,14 +399,13 @@ ENTRY(cpu_xscale_flush_ram_page)
  */
 	.align	5
 ENTRY(cpu_xscale_dcache_invalidate_range)
-#ifdef CONFIG_ARCH_IOP310
 	mrc	p15, 0, r2, c0, c0, 0		@ Read part no.
 	eor	r2, r2, #0x69000000
 	eor	r2, r2, #0x00052000		@ 80200 XX part no.
 	bics	r2, r2, #0x1			@ Clear LSB in revision field
 	moveq	r2, #0
 	beq	cpu_xscale_cache_clean_invalidate_range	@ An 80200 A0 or A1
-#endif
+
 	tst	r0, #CACHELINESIZE - 1
 	mcrne	p15, 0, r0, c7, c10, 1		@ Clean D cache line
 	tst	r1, #CACHELINESIZE - 1
@@ -355,6 +429,7 @@ ENTRY(cpu_xscale_dcache_invalidate_range)
  */
 	.align	5
 ENTRY(cpu_xscale_dcache_clean_range)
+#if !CACHE_WRITE_THROUGH
 	bic	r0, r0, #CACHELINESIZE - 1
 	sub	r2, r1, r0
 	cmp	r2, #MAX_AREA_SIZE
@@ -367,6 +442,7 @@ ENTRY(cpu_xscale_dcache_clean_range)
 	add	r0, r0, #CACHELINESIZE
 	cmp	r0, r1
 	blo	1b
+#endif
 	mcr	p15, 0, ip, c7, c10, 4		@ Drain Write (& Fill) Buffer
 	mov	pc, lr
 
@@ -383,6 +459,7 @@ ENTRY(cpu_xscale_dcache_clean_range)
  */
 	.align	5
 ENTRY(cpu_xscale_dcache_clean_page)
+#if !CACHE_WRITE_THROUGH
 	mov	r1, #PAGESIZE
 1:	mcr	p15, 0, r0, c7, c10, 1		@ Clean D cache line
 	add	r0, r0, #CACHELINESIZE
@@ -394,6 +471,7 @@ ENTRY(cpu_xscale_dcache_clean_page)
 	add	r0, r0, #CACHELINESIZE
 	subs	r1, r1, #4 * CACHELINESIZE
 	bne	1b
+#endif
 	mcr	p15, 0, ip, c7, c10, 4		@ Drain Write (& Fill) Buffer
 	mov	pc, lr
 
@@ -427,8 +505,8 @@ ENTRY(cpu_xscale_dcache_clean_entry)
 	.align	5
 ENTRY(cpu_xscale_icache_invalidate_range)
 	bic	r0, r0, #CACHELINESIZE - 1
-1:	mcr	p15, 0, r0, c7, c10, 1		@ Clean D cache line
-	mcr	p15, 0, r0, c7, c5, 0		@ Invalidate I cache line
+1:	clean_d_line r0				@ Clean D cache line
+	mcr	p15, 0, r0, c7, c5, 1		@ Invalidate I cache line
 	add	r0, r0, #CACHELINESIZE
 	cmp	r0, r1
 	blo	1b
@@ -655,17 +733,11 @@ ENTRY(xscale_dtlb_unlock)
  */
 	.align	5
 ENTRY(cpu_xscale_set_pgd)
-#ifdef CONFIG_ARCH_IQ80310
-        IRQ_DISABLE r3, r1
-#endif
-	clean_d_cache r1, ip
-	mcr	p15, 0, ip, c7, c10, 4		@ Drain Write (& Fill) Buffer
+	clean_d_cache r1, r2
 	mcr	p15, 0, ip, c7, c5, 0		@ Invalidate I cache & BTB
+	mcr	p15, 0, ip, c7, c10, 4		@ Drain Write (& Fill) Buffer
 	mcr	p15, 0, r0, c2, c0, 0		@ load page table pointer
 	mcr	p15, 0, ip, c8, c7, 0		@ invalidate I & D TLBs
-#ifdef CONFIG_ARCH_IQ80310
-	IRQ_RESTORE r3
-#endif
 	cpwait_ret lr, ip
 
 /*
@@ -679,7 +751,17 @@ ENTRY(cpu_xscale_set_pgd)
  */
 	.align	5
 ENTRY(cpu_xscale_set_pmd)
+#if PMD_CACHE_WRITE_ALLOCATE && !CACHE_WRITE_THROUGH
+	and	r2, r1, #PMD_TYPE_MASK|PMD_SECT_CACHEABLE|PMD_SECT_BUFFERABLE
+	cmp	r2, #PMD_TYPE_SECT|PMD_SECT_CACHEABLE|PMD_SECT_BUFFERABLE
+	orreq	r1, r1, #PMD_SECT_TEX(1)
+#elif CACHE_WRITE_THROUGH
+	and	r2, r1, #PMD_TYPE_MASK|PMD_SECT_CACHEABLE|PMD_SECT_BUFFERABLE
+	cmp	r2, #PMD_TYPE_SECT|PMD_SECT_CACHEABLE|PMD_SECT_BUFFERABLE
+	biceq	r1, r1, #PMD_SECT_BUFFERABLE
+#endif
 	str	r1, [r0]
+	mov	ip, #0
 	mcr	p15, 0, r0, c7, c10, 1		@ Clean D cache line
 	mcr	p15, 0, ip, c7, c10, 4		@ Drain Write (& Fill) Buffer
 	mov	pc, lr
@@ -688,39 +770,122 @@ ENTRY(cpu_xscale_set_pmd)
  * cpu_xscale_set_pte(ptep, pte)
  *
  * Set a PTE and flush it out
+ *
+ * Errata 40: must set memory to write-through for user read-only pages.
  */
 	.align	5
 ENTRY(cpu_xscale_set_pte)
 	str	r1, [r0], #-1024		@ linux version
 
-	eor	r1, r1, #LPTE_PRESENT | LPTE_YOUNG | LPTE_WRITE | LPTE_DIRTY
-
 	bic	r2, r1, #0xff0
-	bic	r2, r2, #3
-	orr	r2, r2, #HPTE_TYPE_SMALL
+	orr	r2, r2, #PTE_TYPE_EXT		@ extended page
 
-	tst	r1, #LPTE_USER | LPTE_EXEC	@ User or Exec?
-	orrne	r2, r2, #HPTE_AP_READ
+	eor	r3, r1, #L_PTE_PRESENT | L_PTE_YOUNG | L_PTE_WRITE | L_PTE_DIRTY
 
-	tst	r1, #LPTE_WRITE | LPTE_DIRTY	@ Write and Dirty?
-	orreq	r2, r2, #HPTE_AP_WRITE
+	tst	r3, #L_PTE_USER | L_PTE_EXEC	@ User or Exec?
+	orrne	r2, r2, #PTE_EXT_AP_URO_SRW	@ yes -> user r/o, system r/w
 
-	tst 	r1, #LPTE_EXTEND
-	beq	normal
-	bic	r2,r2, #0xfc0		@ clear the rest of the AP fields
-	bic	r2, r2, #0x3		@ clear the desc type
-	orr	r2, r2, #HPTE_TYPE_SMALL_EXT | HPTE_SMALL_TEX
+	tst	r3, #L_PTE_WRITE | L_PTE_DIRTY	@ Write and Dirty?
+	orreq	r2, r2, #PTE_EXT_AP_UNO_SRW	@ yes -> user n/a, system r/w
+						@ combined with user -> user r/w
 
-normal:
- 	tst		r1, #LPTE_PRESENT | LPTE_YOUNG	@ Present and Young?
-	movne	r2, #0
+	@
+	@ Handle the X bit.  We want to set this bit for the minicache
+	@ (U = E = B = W = 0, C = 1) or when write allocate is enabled,
+	@ and we have a writeable, cacheable region.  If we ignore the
+	@ U and E bits, we can allow user space to use the minicache as
+	@ well.
+	@
+	@  X = C & ~W & ~B
+	@      | C & W & B & write_allocate
+	@
+	eor	ip, r1, #L_PTE_CACHEABLE
+	tst	ip, #L_PTE_CACHEABLE | L_PTE_WRITE | L_PTE_BUFFERABLE
+#if PTE_CACHE_WRITE_ALLOCATE && !CACHE_WRITE_THROUGH
+	eorne	ip, r1, #L_PTE_CACHEABLE | L_PTE_WRITE | L_PTE_BUFFERABLE
+	tstne	ip, #L_PTE_CACHEABLE | L_PTE_WRITE | L_PTE_BUFFERABLE
+#endif
+	orreq	r2, r2, #PTE_EXT_TEX(1)
+
+#if CACHE_WRITE_THROUGH
+	bic	r2, r2, #L_PTE_BUFFERABLE
+#else
+	@
+	@ Errata 40: The B bit must be cleared for a user read-only
+	@ cacheable page.
+	@
+	@  B = B & ~((U|E) & C & ~W)
+	@
+	and	ip, r1, #L_PTE_USER | L_PTE_EXEC | L_PTE_WRITE | L_PTE_CACHEABLE
+	teq	ip, #L_PTE_USER | L_PTE_CACHEABLE
+	teqne	ip, #L_PTE_EXEC | L_PTE_CACHEABLE
+	teqne	ip, #L_PTE_USER | L_PTE_EXEC | L_PTE_CACHEABLE
+	biceq	r2, r2, #PTE_BUFFERABLE
+#endif
+
+	tst	r3, #L_PTE_PRESENT | L_PTE_YOUNG	@ Present and Young?
+	movne	r2, #0				@ no -> fault
 
 	str	r2, [r0]			@ hardware version
-	mov	r0, r0
+
+	@ We try to map 64K page entries when possible.  
+	@ We do that for kernel space only since the usage pattern from
+	@ the setting of VM area is quite simple.  User space is not worth
+	@ the implied complexity because of ever randomly changing PTEs 
+	@ (page aging, swapout, etc) requiring constant coherency checks.
+	@ Since PTEs are usually set in increasing order, we test the
+	@ possibility for a large page only when given the last PTE of a
+	@ 64K boundary.
+	tsteq	r1, #L_PTE_USER
+	andeq	r1, r0, #(15 << 2)
+	teqeq	r1, #(15 << 2)
+	beq	1f
+
+	mov	ip, #0
 	mcr	p15, 0, r0, c7, c10, 1		@ Clean D cache line
 	mcr	p15, 0, ip, c7, c10, 4		@ Drain Write (& Fill) Buffer
 	mov	pc, lr
 
+	@ See if we have 16 identical PTEs but with consecutive base addresses
+1:	bic	r3, r2, #0x0000f000
+	mov	r1, #0x0000f000
+2:	eor	r2, r2, r3
+	teq	r2, r1
+	bne	4f
+	subs	r1, r1, #0x00001000
+	ldr	r2, [r0, #-4]!
+	bne	2b
+	eors	r2, r2, r3
+	bne	4f
+
+	@ Now create our LARGE PTE from the current EXT one.
+	bic	r3, r3, #PTE_TYPE_MASK
+	orr	r3, r3, #PTE_TYPE_LARGE
+	and	r2, r3, #0x30			@ EXT_AP --> LARGE_AP0
+	orr	r2, r2, r2, lsl #2		@ add LARGE_AP1
+	orr	r2, r2, r2, lsl #4		@ add LARGE_AP3 + LARGE_AP2
+	and	r1, r3, #0x3c0			@ EXT_TEX
+	bic	r3, r3, #0x3c0
+	orr	r2, r2, r1, lsl #(12 - 6)	@ --> LARGE_TEX
+	orr	r2, r2, r3			@ add remaining bits
+
+	@ then put it in the pagetable
+	mov	r3, r2
+3:	str	r2, [r0], #4
+	str	r3, [r0], #4
+	tst	r0, #(15 << 2)
+	bne	3b
+
+	@ Then sync the 2 corresponding cache lines
+	sub	r0, r0, #(16 << 2)
+	mcr	p15, 0, r0, c7, c10, 1		@ Clean D cache line
+4:	orr	r0, r0, #(15 << 2)
+	mcr	p15, 0, r0, c7, c10, 1		@ Clean D cache line
+	mov	ip, #0
+	mcr	p15, 0, ip, c7, c10, 4		@ Drain Write (& Fill) Buffer
+	mov	pc, lr
+
+	.ltorg
 
 cpu_manu_name:
 	.asciz	"Intel"
@@ -729,7 +894,7 @@ cpu_80200_name:
 	.asciz	"XScale-80200"
 
 cpu_cotulla_name:
-	.asciz	"XScale-Cotulla"
+	.asciz	"XScale-PXA210"
 
 	.align
 
@@ -744,11 +909,22 @@ __xscale_setup:
 	mcr	p15, 0, r4, c2, c0, 0		@ load page table pointer
 	mov	r0, #0x1f			@ Domains 0, 1 = client
 	mcr	p15, 0, r0, c3, c0, 0		@ load domain access register
+	mov	r0, #1				@ Allow user space to access
+	mcr	p15, 0, r0, c15, c1, 0		@ ... CP 0 only.
+#if CACHE_WRITE_THROUGH
+	mov	r0, #0x20
+#else
+	mov	r0, #0x00
+#endif
+	mcr	p15, 0, r0, c1, c1, 0		@ set auxiliary control reg
 	mrc	p15, 0, r0, c1, c0, 0		@ get control register
 	bic	r0, r0, #0x0200			@ ......R.........
 	bic	r0, r0, #0x0082			@ ........B.....A.
 	orr	r0, r0, #0x0005			@ .............C.M
 	orr	r0, r0, #0x3900			@ ..VIZ..S........
+#ifdef CONFIG_XSCALE_CACHE_ERRATA
+	bic	r0, r0, #0x0004			@ see cpu_xscale_proc_init
+#endif
 	mov	pc, lr
 
 	.text
@@ -822,7 +998,11 @@ cpu_elf_name:
 __80200_proc_info:
 	.long	0x69052000
 	.long	0xfffffff0
+#if CACHE_WRITE_THROUGH
+	.long	0x00000c0a
+#else
 	.long	0x00000c0e
+#endif
 	b	__xscale_setup
 	.long	cpu_arch_name
 	.long	cpu_elf_name
@@ -833,9 +1013,13 @@ __80200_proc_info:
 
 	.type	__cotulla_proc_info,#object
 __cotulla_proc_info:
-	.long	0x69052100
-	.long	0xfffffff0
+	.long	0x69052900
+	.long	0xffffff00
+#if CACHE_WRITE_THROUGH
+	.long	0x00000c0a
+#else
 	.long	0x00000c0e
+#endif
 	b	__xscale_setup
 	.long	cpu_arch_name
 	.long	cpu_elf_name
@@ -844,3 +1028,4 @@ __cotulla_proc_info:
 	.long	xscale_processor_functions
 	.size	__cotulla_proc_info, . - __cotulla_proc_info
 
+	.type	__cotulla_proc_info,#object

@@ -2,6 +2,7 @@
  *  linux/arch/arm/kernel/signal.c
  *
  *  Copyright (C) 1995-2001 Russell King
+ *  Dump registers when abnormal signal is received, 2002 SHARP
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -561,6 +562,20 @@ asmlinkage int do_signal(sigset_t *oldset, struct pt_regs *regs, int syscall)
 
 		if (!signr)
 			break;
+
+#ifdef CONFIG_DEBUG_COREDUMP_SIGNAL
+		/* 2002/07/05 t.oku@sharp */
+		switch(signr){
+		case SIGQUIT: case SIGILL: case SIGTRAP:
+		case SIGABRT: case SIGFPE: case SIGSEGV:
+		case SIGBUS: case SIGSYS: case SIGXCPU: case SIGXFSZ:
+		    printk("signal = %d\n", signr);
+		    show_regs(regs);
+		    break;
+		default:
+		    break;
+		}
+#endif
 
 		if ((current->ptrace & PT_PTRACED) && signr != SIGKILL) {
 			/* Let the debugger run.  */

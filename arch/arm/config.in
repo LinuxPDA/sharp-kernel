@@ -45,6 +45,7 @@ choice 'ARM system type' \
 	 Integrator		CONFIG_ARCH_INTEGRATOR \
  	 IOP310-based		CONFIG_ARCH_IOP310 \
 	 LinkUp-L7200		CONFIG_ARCH_L7200 \
+	 Cotulla		CONFIG_ARCH_COTULLA \
 	 RiscPC			CONFIG_ARCH_RPC \
  	 SA1100-based		CONFIG_ARCH_SA1100 \
 	 Shark			CONFIG_ARCH_SHARK" RiscPC
@@ -137,6 +138,7 @@ dep_bool '  P720T' CONFIG_ARCH_P720T $CONFIG_ARCH_CLPS711X
 
 # XXX Maybe these should indicate register compatibility
 # instead of being mutually exclusive.
+
 if [ "$CONFIG_ARCH_EDB7211" = "y" ]; then
    define_bool CONFIG_ARCH_EP7211 y
 else
@@ -174,6 +176,30 @@ if [ "$CONFIG_ARCH_ADIFCC" = "y" ]; then
 else
    define_bool CONFIG_XSCALE_PMU_TIMER n
 fi 
+
+if [ "$CONFIG_ARCH_COTULLA" = "y" ]; then
+   define_bool CONFIG_XSCALE_COTULLA y
+   bool 'Support Cotulla DMA (EXPERIMENTAL)' CONFIG_COTULLA_DMA
+   mainmenu_option next_comment
+   comment 'Cotulla Implementation Options'
+   choice 'Default console device' \
+	"UART0	CONFIG_UART0_DFLT_CONSOLE    \
+	 UART1	CONFIG_UART1_DFLT_CONSOLE    \
+	 UART2	CONFIG_UART2_DFLT_CONSOLE"    \
+	 UART2
+
+   comment 'Discovery H/W type'
+   choice 'Discovery Default H/W type' \
+	"DVT	CONFIG_SABINAL_DISCOVERY_DVT    \
+	 DVT2	CONFIG_SABINAL_DISCOVERY_DVT2    \
+	 PreMV	CONFIG_SABINAL_DISCOVERY_PreMV"    \
+	 DVT2
+	 
+   bool     'Sabinal' CONFIG_ARCH_SABINAL
+   dep_bool 'Discovery' CONFIG_SABINAL_DISCOVERY $CONFIG_ARCH_SABINAL
+   endmenu
+fi
+
 
 # Definitions to make life easier
 if [ "$CONFIG_ARCH_ARCA5K" = "y" -o \
@@ -232,7 +258,7 @@ if [ "$CONFIG_ARCH_EBSA110"    = "y" -o "$CONFIG_FOOTBRIDGE"    = "y" -o \
      "$CONFIG_ARCH_NEXUSPCI"   = "y" -o "$CONFIG_ARCH_CLPS711X" = "y" -o \
      "$CONFIG_ARCH_INTEGRATOR" = "y" -o "$CONFIG_ARCH_SA1100"   = "y" -o \
      "$CONFIG_ARCH_L7200"      = "y" -o "$CONFIG_ARCH_ANAKIN"	= "y" -o \
-     "$CONFIG_ARCH_CAMELOT"    = "y" ]; then
+     "$CONFIG_ARCH_CAMELOT"    = "y" -o "$CONFIG_ARCH_COTULLA"	= "y" ]; then
    define_bool CONFIG_CPU_32v4 y
 else
    define_bool CONFIG_CPU_32v4 n
@@ -367,9 +393,17 @@ if [ "$CONFIG_ARCH_IOP310" = "y" -o "$CONFIG_ARCH_ADIFCC" = "y" ]; then
    define_bool CONFIG_ARM_THUMB y
 fi
 
+if [ "$CONFIG_ARCH_COTULLA" = "y" ]; then
+   define_bool CONFIG_CPU_XSCALE y
+   define_bool CONFIG_CPU_COTULLA y
+   define_bool CONFIG_BATT y
+   bool 'Fix xscale A0, A1 serial bug' CONFIG_XPA2x0_A1
+fi
+
 if [ "$CONFIG_CPU_XSCALE" = "y" ]; then
    bool 'Use XScale aware tools' CONFIG_XSCALE_TOOLS
    bool 'Enable XScale DCACHE write allocation' CONFIG_XSCALE_WRITE_ALLOC
+   bool 'Workaround for XScale cache errata (see help)' CONFIG_XSCALE_CACHE_ERRATA
 fi
 
 if [ "$CONFIG_CPU_XSCALE" = "y" -a "$CONFIG_XSCALE_PMU_TIMER" != "y" ]; then
@@ -456,6 +490,17 @@ tristate 'Kernel support for a.out binaries' CONFIG_BINFMT_AOUT
 tristate 'Kernel support for ELF binaries' CONFIG_BINFMT_ELF
 tristate 'Kernel support for MISC binaries' CONFIG_BINFMT_MISC
 dep_bool 'Power Management support (experimental)' CONFIG_PM $CONFIG_EXPERIMENTAL
+
+if [ "$CONFIG_ARCH_COTULLA" = "y" -o "$CONFIG_ARCH_SABINAL" = "y" ]; then
+   dep_tristate 'Advanced power management support' CONFIG_APM $CONFIG_PM
+   if [ "$CONFIG_APM" != "n" ]; then
+      bool '    Ignore USER SUSPEND' CONFIG_APM_IGNORE_USER_SUSPEND
+      bool '    Make CPU Idle calls when idle' CONFIG_APM_CPU_IDLE
+      bool '    Enable console blanking using APM' CONFIG_APM_DISPLAY_BLANK
+      bool '    RTC stores time in GMT' CONFIG_APM_RTC_IS_GMT
+   fi
+fi
+
 dep_tristate 'RISC OS personality' CONFIG_ARTHUR $CONFIG_CPU_32
 
 if [ "$CONFIG_ARCH_EBSA110" = "y" -o         \
@@ -468,7 +513,8 @@ if [ "$CONFIG_ARCH_EBSA110" = "y" -o         \
      "$CONFIG_ARCH_CAMELOT" = "y" -o	     \
      "$CONFIG_ARCH_ANAKIN" = "y" -o          \
      "$CONFIG_ARCH_IOP310" = "y" -o 	     \
-     "$CONFIG_ARCH_ADIFCC" = "y" ]; then
+     "$CONFIG_ARCH_ADIFCC" = "y" -o	     \
+     "$CONFIG_ARCH_COTULLA" = "y" ]; then
    string 'Default kernel command string' CONFIG_CMDLINE ""
 fi
 if [ "$CONFIG_ARCH_NETWINDER" = "y" -o  \
@@ -500,6 +546,12 @@ if [ "$CONFIG_ARCH_NETWINDER" = "y" -o  \
 fi
 if [ "$CONFIG_CPU_32" = "y" -a "$CONFIG_ARCH_EBSA110" != "y" ]; then
    bool 'Kernel-mode alignment trap handler' CONFIG_ALIGNMENT_TRAP
+fi
+bool 'kswapd freepages signaling support' CONFIG_FREEPG_SIGNAL
+bool 'oom_kill survival support' CONFIG_OOM_KILL_SURVIVAL
+dep_tristate 'Device hardware specific information support' CONFIG_DEVICEINFO $CONFIG_MODULES
+if [ "$CONFIG_DEVICEINFO" = "m" -a "$CONFIG_SABINAL_DISCOVERY" = "y" ]; then
+   define_tristate CONFIG_DISCOVERY_DEVICEINFO m
 fi
 endmenu
 
@@ -633,6 +685,7 @@ if [ "$CONFIG_ARCH_ACORN" = "y" -o \
      "$CONFIG_ARCH_TBOX" = "y" -o \
      "$CONFIG_ARCH_SHARK" = "y" -o \
      "$CONFIG_ARCH_SA1100" = "y" -o \
+     "$CONFIG_ARCH_COTULLA" = "y" -o \
      "$CONFIG_PCI" = "y" ]; then
    mainmenu_option next_comment
    comment 'Sound'
@@ -664,9 +717,11 @@ bool 'Include debugging information in kernel binary' CONFIG_DEBUG_INFO
 bool 'Debug memory allocations' CONFIG_DEBUG_SLAB
 bool 'Magic SysRq key' CONFIG_MAGIC_SYSRQ
 bool 'Spinlock debugging' CONFIG_DEBUG_SPINLOCK
+bool 'Dump registers with abnormal signal' CONFIG_DEBUG_COREDUMP_SIGNAL
 dep_bool 'Disable pgtable cache' CONFIG_NO_PGT_CACHE $CONFIG_CPU_26
 # These options are only for real kernel hackers who want to get their hands dirty. 
 dep_bool 'Kernel low-level debugging functions' CONFIG_DEBUG_LL $CONFIG_EXPERIMENTAL
 dep_bool '  Kernel low-level debugging messages via footbridge serial port' CONFIG_DEBUG_DC21285_PORT $CONFIG_DEBUG_LL $CONFIG_FOOTBRIDGE
 dep_bool '  kernel low-level debugging messages via UART2' CONFIG_DEBUG_CLPS711X_UART2 $CONFIG_DEBUG_LL $CONFIG_ARCH_CLPS711X
 endmenu
+

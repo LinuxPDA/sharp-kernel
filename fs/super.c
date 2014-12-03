@@ -18,6 +18,9 @@
  *    Torbjörn Lindh (torbjorn.lindh@gopta.se), April 14, 1996.
  *  Added devfs support: Richard Gooch <rgooch@atnf.csiro.au>, 13-JAN-1998
  *  Heavily rewritten for 'one fs - one tree' dcache architecture. AV, Mar 2000
+ *
+ * Change Log
+ *  31-Jul-2002 Lineo Japan, Inc.
  */
 
 #include <linux/config.h>
@@ -596,7 +599,13 @@ restart:
 		if (!grab_super(old))
 			goto restart;
 		put_super(s);
+#if defined(CONFIG_SA1100_COLLIE) || defined(CONFIG_SABINAL_DISCOVERY)
+		up_write(&old->s_umount);
 		blkdev_put(bdev, BDEV_FS);
+		down_write(&old->s_umount);
+#else
+		blkdev_put(bdev, BDEV_FS);
+#endif
 		path_release(&nd);
 		return old;
 	}

@@ -88,6 +88,12 @@ ifeq ($(ARCH),arm)
   ifeq ($(CONFIG_SA1100_CERF_CPLD),y)
     KEYBD    += cerf_keyb.o
   endif
+  ifeq ($(CONFIG_ARCH_COTULLA),y)
+    KEYMAP    = defkeymap.o
+  endif
+  ifeq ($(CONFIG_DISCOVERY_KEY),y)
+     KEYBD    := discovery_keyb.o sharp_logkey.o
+  endif
 endif
 
 ifeq ($(ARCH),um)
@@ -186,6 +192,7 @@ obj-$(CONFIG_MVME147_SCC) += generic_serial.o vme_scc.o
 obj-$(CONFIG_MVME162_SCC) += generic_serial.o vme_scc.o
 obj-$(CONFIG_BVME6000_SCC) += generic_serial.o vme_scc.o
 obj-$(CONFIG_SERIAL_TX3912) += generic_serial.o serial_tx3912.o
+obj-$(CONFIG_SABINAL_DISCOVERY) += serial_pxa200.o
 
 subdir-$(CONFIG_RIO) += rio
 subdir-$(CONFIG_INPUT) += joystick
@@ -198,6 +205,7 @@ ifeq ($(CONFIG_INPUT),y)
 obj-y += joystick/js.o
 endif
 
+obj-$(CONFIG_LED) += sharp_led.o discovery_led.o
 obj-$(CONFIG_BUSMOUSE) += busmouse.o
 obj-$(CONFIG_DTLK) += dtlk.o
 obj-$(CONFIG_R3964) += n_r3964.o
@@ -212,6 +220,8 @@ obj-$(CONFIG_PC110_PAD) += pc110pad.o
 obj-$(CONFIG_RTC) += rtc.o
 obj-$(CONFIG_EFI_RTC) += efirtc.o
 obj-$(CONFIG_SA1100_RTC) += sa1100-rtc.o
+obj-$(CONFIG_COTULLA_RTC) += cotulla-rtc.o
+obj-$(CONFIG_ADS7846_TS) += ads7846_ts.o
 ifeq ($(CONFIG_PPC),)
   obj-$(CONFIG_NVRAM) += nvram.o
 endif
@@ -290,3 +300,5 @@ defkeymap.c: defkeymap.map
 
 qtronixmap.c: qtronixmap.map
 	set -e ; loadkeys --mktable $< | sed -e 's/^static *//' > $@
+
+

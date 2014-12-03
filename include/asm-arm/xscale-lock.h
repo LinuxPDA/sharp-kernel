@@ -61,7 +61,7 @@ struct cache_capabilities
 int cache_query(u8, struct cache_capabilities *);
 int cache_lock(void *, u32, u8, const char *);
 int cache_unlock(void *);
-int cache_lock_init(void);
+static int cache_lock_init(void);
 
 
 /*

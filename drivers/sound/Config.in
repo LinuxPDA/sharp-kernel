@@ -114,6 +114,10 @@ if [ "$CONFIG_ARCH_SA1100" = "y" ]; then
    dep_tristate '    Generic DAC on the SA11x0 SSP port' CONFIG_SOUND_SA1100SSP $CONFIG_SOUND_SA1100
 fi
 
+if [ "$CONFIG_SABINAL_DISCOVERY" = "y" ]; then
+   dep_bool '  Discovery Sound Drivers' CONFIG_SOUND_DISCOVERY $CONFIG_SABINAL_DISCOVERY $CONFIG_SOUND
+fi
+
 dep_tristate '  OSS sound modules' CONFIG_SOUND_OSS $CONFIG_SOUND
 
 if [ "$CONFIG_SOUND_OSS" = "y" -o "$CONFIG_SOUND_OSS" = "m" ]; then

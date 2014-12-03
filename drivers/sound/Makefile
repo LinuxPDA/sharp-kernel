@@ -71,6 +71,7 @@ obj-$(CONFIG_SOUND_MAESTRO)	+= maestro.o
 obj-$(CONFIG_SOUND_MAESTRO3)	+= maestro3.o ac97_codec.o
 obj-$(CONFIG_SOUND_TRIDENT)	+= trident.o ac97_codec.o
 obj-$(CONFIG_SOUND_SA1100)	+= sa1100-audio.o
+obj-$(CONFIG_SOUND_DISCOVERY)	+= discovery_audio.o i2sc.o
 obj-$(CONFIG_SOUND_UDA1341)	+= uda1341.o
 obj-$(CONFIG_SOUND_ASSABET_UDA1341) += assabet-uda1341.o
 obj-$(CONFIG_SOUND_PANGOLIN_UDA1341) += pangolin-uda1341.o

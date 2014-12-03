@@ -9,6 +9,9 @@
  * This file is subject to the terms and conditions of the GNU General Public
  * License.  See the file COPYING in the main directory of this archive
  * for more details.
+ *
+ * Change Log
+ *  31-Jul-2002 Lineo Japan, Inc.
  */
 
 #include <linux/config.h>
@@ -137,7 +140,8 @@ extern int pvr2fb_setup(char*);
 extern int sstfb_init(void);
 extern int sstfb_setup(char*);
 extern int anakinfb_init(void);
-  
+extern int cotulla_fb_init(void);
+
 static struct {
 	const char *name;
 	int (*init)(void);
@@ -221,6 +225,9 @@ static struct {
 #endif
 #ifdef CONFIG_FB_VOODOO1
 	{ "sstfb", sstfb_init, sstfb_setup },
+#endif
+#ifdef CONFIG_FB_COTULLA
+	{ "cotulla_fb", cotulla_fb_init, NULL},
 #endif
 
 	/*

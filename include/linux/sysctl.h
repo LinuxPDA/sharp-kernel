@@ -19,6 +19,9 @@
  **
  ****************************************************************
  ****************************************************************
+ *
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
  */
 
 #ifndef _LINUX_SYSCTL_H
@@ -146,6 +149,12 @@ enum
 	VM_AGING_TACTIC=14,	/* Page aging strategy */
 	VM_INACTIVE_TARGET=15,	/* Static inactive target, zero for dynamic */
 	VM_DROP_BEHIND=16,	/* Turn drop-behind hack on/off */
+#ifdef CONFIG_FREEPG_SIGNAL
+	/* struct: Set free page signalling thresholds */
+	VM_FREEPG_SIGNAL_PROC=17,
+	VM_FREEPG_SIGNAL_WATERMARK=18,
+	VM_FREEPG_SIGNAL_CURRENT=19,
+#endif
 };
 
 

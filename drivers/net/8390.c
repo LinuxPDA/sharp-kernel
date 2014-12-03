@@ -41,6 +41,7 @@
 			  module by all drivers that require it.
   Alan Cox		: Spinlocking work, added 'BUG_83C690'
   Paul Gortmaker	: Separate out Tx timeout code from Tx path.
+  SHARP Corporation	: Support for SL-A300 CF. (6/5/02)
 
   Sources:
   The National Semiconductor LAN Databook, and the 3Com 3c503 databook.
@@ -60,6 +61,9 @@ static const char version[] =
 #include <asm/system.h>
 #include <asm/uaccess.h>
 #include <asm/bitops.h>
+#ifdef CONFIG_SABINAL_DISCOVERY
+#define CONFIG_REDEFINE_IO8BIT
+#endif
 #include <asm/io.h>
 #include <asm/irq.h>
 #include <linux/delay.h>

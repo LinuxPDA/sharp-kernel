@@ -135,7 +135,7 @@ int cache_lock(void *addr, u32 len, u8 cache_type, const char *desc)
 	u32 address = (u32)addr;
 
 	DBG(1, "cache_lock entered\n");
-	DBG(2, "   Addr: %#10x\n", addr);
+	DBG(2, "   Addr: %#10x\n", (unsigned int)addr);
 	DBG(2, "   Type: %s\n", cache_type == ICACHE ? "ICACHE" : "DCACHE");
 	DBG(2, "    Len: %#6x\n", len);
 
@@ -166,7 +166,7 @@ int cache_unlock(void *addr)
 		return -ENOENT;
 	}
 
-	DBG(2, "   Addr: %#10x\n", addr);
+	DBG(2, "   Addr: %#10x\n", (unsigned int)addr);
 	DBG(2, "   Type: %s\n", cache_type == ICACHE ? "ICACHE" : "DCACHE");
 	DBG(2, "    Len: %#6x\n", entry->lines);
 
@@ -331,7 +331,7 @@ static int __init cache_lock_init(void)
 
 	memcpy(low_level_page + 128, xscale_icache_lock, len - 256);
 
-	DBG(1, "   low_level_page @ %#10x\n", low_level_page);
+	DBG(1, "   low_level_page @ %#10x\n", (unsigned int)low_level_page);
 	icache_lock_fn = (cache_lock_fn)(low_level_page + 128);
 	dcache_lock_fn = 
 		(cache_lock_fn)(low_level_page + 128 + 

@@ -8,6 +8,7 @@ bool 'Quota support' CONFIG_QUOTA
 tristate 'Kernel automounter support' CONFIG_AUTOFS_FS
 tristate 'Kernel automounter version 4 support (also supports v3)' CONFIG_AUTOFS4_FS
 
+bool 'Syncronous file I/O' CONFIG_FS_SYNC
 dep_tristate 'Reiserfs support' CONFIG_REISERFS_FS $CONFIG_EXPERIMENTAL
 dep_mbool '  Have reiserfs do extra internal checking' CONFIG_REISERFS_CHECK $CONFIG_REISERFS_FS $CONFIG_EXPERIMENTAL
 
@@ -41,6 +42,9 @@ if [ "$CONFIG_JFFS_FS" = "y" -o "$CONFIG_JFFS_FS" = "m" ] ; then
    bool 'JFFS stats available in /proc filesystem' CONFIG_JFFS_PROC_FS
 fi
 dep_tristate 'Journalling Flash File System v2 (JFFS2) support' CONFIG_JFFS2_FS $CONFIG_MTD
+if [ "$CONFIG_JFFS2_FS" = "y" ] ; then
+   bool '  JFFS2 with zlib' CONFIG_JFFS2_FS_ZLIB
+fi
 if [ "$CONFIG_JFFS2_FS" = "y" -o "$CONFIG_JFFS2_FS" = "m" ] ; then
    int 'JFFS2 debugging verbosity (0 = quiet, 2 = noisy)' CONFIG_JFFS2_FS_DEBUG 0
 fi

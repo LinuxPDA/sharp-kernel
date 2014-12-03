@@ -54,6 +54,11 @@
  *  This file is subject to the terms and conditions of the GNU General Public
  *  License.  See the file COPYING in the main directory of this archive for
  *  more details.
+ *
+ * ChangeLog:
+ *   06-26-2002 SHARP
+ *      display the SHARP logo while booting.
+ *
  */
 
 #undef FBCONDEBUG
@@ -109,8 +114,13 @@
 #  define DPRINTK(fmt, args...)
 #endif
 
+#ifdef CONFIG_COTULLA_LOGO_SCREEN
+#define LOGO_H			(320-16)
+#define LOGO_W			240
+#else
 #define LOGO_H			80
 #define LOGO_W			80
+#endif 
 #define LOGO_LINE	(LOGO_W/8)
 
 struct display fb_display[MAX_NR_CONSOLES];
@@ -646,6 +656,7 @@ static void fbcon_setup(int con, int init, int logo)
     nr_cols = p->var.xres/fontwidth(p);
     nr_rows = p->var.yres/fontheight(p);
     
+#ifndef CONFIG_COTULLA_LOGO_SCREEN
     if (logo) {
     	/* Need to make room for the logo */
 	int cnt;
@@ -684,7 +695,13 @@ static void fbcon_setup(int con, int init, int logo)
 		    conp->vc_video_erase_char, 
 		    conp->vc_size_row * logo_lines);
     }
-    
+#else    
+    if (logo) {
+      logo_lines = (LOGO_H + fontheight(p) - 1) / fontheight(p);
+      conp->vc_y += nr_rows - 1;
+    }
+#endif	/* CONFIG_COTULLA_LOGO_SCREEN */
+
     /*
      *  ++guenther: console.c:vc_allocate() relies on initializing
      *  vc_{cols,rows}, but we must not set those if we are only
@@ -1541,7 +1558,9 @@ static int fbcon_switch(struct vc_data *conp)
 	p->dispsw->clear_margins(conp, p, 0);
     if (logo_shown == -2) {
 	logo_shown = fg_console;
+#ifndef CONFIG_COTULLA_LOGO_SCREEN
 	fbcon_show_logo(); /* This is protected above by initmem_freed */
+#endif
 	update_region(fg_console,
 		      conp->vc_origin + conp->vc_size_row * conp->vc_top,
 		      conp->vc_size_row * (conp->vc_bottom - conp->vc_top) / 2);

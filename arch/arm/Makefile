@@ -44,6 +44,7 @@ tune-$(CONFIG_CPU_ARM922T)	:=-mtune=arm9tdmi
 tune-$(CONFIG_CPU_ARM926T)	:=-mtune=arm9tdmi
 tune-$(CONFIG_CPU_SA110)	:=-mtune=strongarm110
 tune-$(CONFIG_CPU_SA1100)	:=-mtune=strongarm1100
+tune-$(CONFIG_CPU_COTULLA)	:=-mtune=strongarm1100
 
 CFLAGS		+=$(apcs-y) $(arch-y) $(tune-y) -mshort-load-bytes -msoft-float
 AFLAGS		+=$(apcs-y) $(arch-y) -mno-fpu -msoft-float
@@ -142,6 +143,11 @@ endif
 
 ifeq ($(CONFIG_ARCH_ADIFCC),y)
 MACHINE		= adifcc
+endif
+
+ifeq ($(CONFIG_ARCH_COTULLA),y)
+TEXTADDR	 = 0xC0008000
+MACHINE         = cotulla
 endif
 
 export	MACHINE PROCESSOR TEXTADDR GZFLAGS

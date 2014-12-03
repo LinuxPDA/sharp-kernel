@@ -33,7 +33,8 @@ static rwlock_t gendisk_lock;
  *	the only reason this is exported is source compatiblity.
  */
 
-static struct gendisk *gendisk_head;
+/*static*/ struct gendisk *gendisk_head;
+EXPORT_SYMBOL(gendisk_head);
 
 /**
  * add_gendisk - add partitioning information to kernel list

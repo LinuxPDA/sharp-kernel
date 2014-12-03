@@ -1,3 +1,8 @@
+/* 
+ * Change Log
+ *	12-Mar-2002 Lineo Japan, Inc.
+ */
+
 #ifndef _LINUX_SCHED_H
 #define _LINUX_SCHED_H
 
@@ -407,7 +412,67 @@ struct task_struct {
 
 /* journalling filesystem info */
 	void *journal_info;
+
+#ifdef CONFIG_OOM_KILL_SURVIVAL
+	int oom_kill_survival_level;
+#endif
 };
+
+#ifdef CONFIG_OOM_KILL_SURVIVAL
+static inline int
+is_oom_kill_survival_process(const struct task_struct* p)
+{
+	return p->oom_kill_survival_level != 0;
+}
+	    
+static inline short
+oom_kill_survival_get(const struct task_struct* p)
+{
+	return p->oom_kill_survival_level;
+}
+
+static inline int
+is_oom_kill_survival_inherit(const struct task_struct* p)
+{
+	return (p->oom_kill_survival_level & ~0xFFFF) != 0;
+}
+
+static inline int
+oom_kill_survival_set(struct task_struct* p, int m, int l)
+{
+	int level = l & 0xFFFF;
+	int mode = (level != 0 && m != 0);
+	p->oom_kill_survival_level = (mode << 16 | level);
+
+	return 0;
+}
+
+#else
+static inline int
+is_oom_kill_survival_process(const struct task_struct* p)
+{
+	return 0;
+}
+
+static inline short
+oom_kill_survival_get(const struct task_struct* p)
+{
+	return 0;
+}
+
+static inline int
+is_oom_kill_survival_inherit(const struct task_struct* p)
+{
+	return 0;
+}
+
+static inline int
+oom_kill_survival_set(struct task_struct* p, int m, int l)
+{
+    return EINVAL;
+}
+
+#endif
 
 /*
  * Per process flags

@@ -119,6 +119,9 @@
  *  To do, in likely order of completion:
  *	- modify kernel to obtain BIOS geometry for drives on 2nd/3rd/4th i/f
  *
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
+ *
  */
 
 #define	REVISION	"Revision: 6.31"
@@ -196,6 +199,10 @@ ide_module_t *ide_probe;
  * This is declared extern in ide.h, for access by other IDE modules:
  */
 ide_hwif_t	ide_hwifs[MAX_HWIFS];	/* master data repository */
+
+#if defined(CONFIG_SA1100_COLLIE) || defined(CONFIG_SABINAL_DISCOVERY)
+extern int ide_resume_handling;
+#endif
 
 #if (DISK_RECOVERY_TIME > 0)
 /*
@@ -540,6 +547,10 @@ void atapi_output_bytes (ide_drive_t *drive, void *buffer, unsigned int bytecoun
 static inline int drive_is_ready (ide_drive_t *drive)
 {
 	byte stat = 0;
+#if defined(CONFIG_SA1100_COLLIE) || defined(CONFIG_SABINAL_DISCOVERY)
+	if (ide_resume_handling == 2)
+		return 0;
+#endif
 	if (drive->waiting_for_dma)
 		return HWIF(drive)->dmaproc(ide_dma_test_irq, drive);
 #if 0
@@ -700,6 +711,16 @@ static ide_startstop_t reset_pollfunc (ide_drive_t *drive)
 	ide_hwif_t *hwif = HWIF(drive);
 	byte tmp;
 
+#if defined(CONFIG_SA1100_COLLIE) || defined(CONFIG_SABINAL_DISCOVERY)
+	if (!is_pcmcia_card_present(0)) {
+		hwgroup->poll_timeout = 0;	/* done polling */
+		return ide_stopped;
+	}
+	if (ide_resume_handling == 2) {
+		hwgroup->poll_timeout = 0;	/* done polling */
+		return ide_stopped;
+	}
+#endif
 	if (!OK_STAT(tmp=GET_STAT(), 0, BUSY_STAT)) {
 		if (0 < (signed long)(hwgroup->poll_timeout - jiffies)) {
 			ide_set_handler (drive, &reset_pollfunc, HZ/20, NULL);
@@ -1222,6 +1243,13 @@ static ide_startstop_t start_request (ide_drive_t *drive)
 	unsigned int minor = MINOR(rq->rq_dev), unit = minor >> PARTN_BITS;
 	ide_hwif_t *hwif = HWIF(drive);
 
+#if defined(CONFIG_SA1100_COLLIE) || defined(CONFIG_SABINAL_DISCOVERY)
+	if (!is_pcmcia_card_present(0))
+		goto kill_rq;
+	if (ide_resume_handling == 2)
+		goto kill_rq;
+#endif
+
 #ifdef DEBUG
 	printk("%s: start_request: current=0x%08lx\n", hwif->name, (unsigned long) rq);
 #endif
@@ -1593,7 +1621,12 @@ void ide_timer_expiry (unsigned long data)
 			__cli();	/* local CPU only, as if we were handling an interrupt */
 			if (hwgroup->poll_timeout != 0) {
 				startstop = handler(drive);
+#if defined(CONFIG_SA1100_COLLIE) || defined(CONFIG_SABINAL_DISCOVERY)
+			} else if (!ide_resume_handling &&
+				   drive_is_ready(drive)) {
+#else
 			} else if (drive_is_ready(drive)) {
+#endif
 				if (drive->waiting_for_dma)
 					(void) hwgroup->hwif->dmaproc(ide_dma_lostirq, drive);
 				(void)ide_ack_intr(hwif);

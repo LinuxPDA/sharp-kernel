@@ -6,6 +6,9 @@
  * Elevator latency, (C) 2000  Andrea Arcangeli <andrea@suse.de> SuSE
  * Queue request tables / lock, selectable elevator, Jens Axboe <axboe@suse.de>
  * kernel-doc documentation started by NeilBrown <neilb@cse.unsw.edu.au> -  July2000
+ *
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
  */
 
 /*
@@ -1102,9 +1105,12 @@ int end_that_request_first (struct request *req, int uptodate, char *name)
 	int nsect;
 
 	req->errors = 0;
+#if defined(CONFIG_SA1100_COLLIE) || defined(CONFIG_SABINAL_DISCOVERY)
+#else
 	if (!uptodate)
 		printk("end_request: I/O error, dev %s (%s), sector %lu\n",
 			kdevname(req->rq_dev), name, req->sector);
+#endif
 
 	if ((bh = req->bh) != NULL) {
 		nsect = bh->b_size >> 9;

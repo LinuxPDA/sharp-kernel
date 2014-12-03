@@ -34,5 +34,6 @@ obj-$(CONFIG_MTD_DBOX2)		+= dbox2-flash.o
 obj-$(CONFIG_MTD_OCELOT)	+= ocelot.o
 obj-$(CONFIG_MTD_SOLUTIONENGINE)+= solutionengine.o
 obj-$(CONFIG_MTD_PCI)		+= pci.o
+obj-$(CONFIG_MTD_DISCOVERY)	+= discovery-flash.o
 
 include $(TOPDIR)/Rules.make

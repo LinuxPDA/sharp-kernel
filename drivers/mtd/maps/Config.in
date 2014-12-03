@@ -58,6 +58,7 @@ if [ "$CONFIG_ARM" = "y" ]; then
    dep_tristate '  CFI Flash device mapped on DC21285 Footbridge' CONFIG_MTD_DC21285 $CONFIG_MTD_CFI $CONFIG_ARCH_FOOTBRIDGE $CONFIG_MTD_PARTITIONS
    dep_tristate '  CFI Flash device mapped on the XScale IQ80310 board' CONFIG_MTD_IQ80310 $CONFIG_MTD_CFI $CONFIG_ARCH_IQ80310 $CONFIG_MTD_PARTITIONS
    dep_tristate '  CFI Flash device mapped on ADI 80200EVB' CONFIG_MTD_ADI_EVB $CONFIG_MTD_CFI $CONFIG_ARCH_ADI_EVB $CONFIG_MTD_PARTITIONS
+   dep_tristate '  CFI Flash device mapped on Sabinal Discovery' CONFIG_MTD_DISCOVERY $CONFIG_MTD_CFI $CONFIG_ARCH_SABINAL $CONFIG_MTD_PARTITIONS
 fi
 
 # This needs CFI or JEDEC, depending on the cards found.

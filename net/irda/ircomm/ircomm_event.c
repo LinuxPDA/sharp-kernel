@@ -26,6 +26,8 @@
  *     Foundation, Inc., 59 Temple Place, Suite 330, Boston, 
  *     MA 02111-1307 USA
  *     
+ * ChangeLog:
+ *	06-21-2002 SHARP	add rx-buffer and delayed disconnection control
  ********************************************************************/
 
 #include <linux/sched.h>
@@ -209,6 +211,12 @@ static int ircomm_state_conn(struct ircomm_cb *self, IRCOMM_EVENT event,
 		ret = self->issue.data_request(self, skb, skb->len);
 		break;
 	case IRCOMM_TTP_DISCONNECT_INDICATION:
+	    /*
+		 *	Keep state. disconnection might be pending.
+		 *	modified by SHARP
+		 */
+		ircomm_disconnect_indication(self, skb, info);
+		break;
 	case IRCOMM_LMP_DISCONNECT_INDICATION:
 		ircomm_next_state(self, IRCOMM_IDLE);
 		ircomm_disconnect_indication(self, skb, info);

@@ -86,7 +86,8 @@ void disable_irq(unsigned int irq)
 void enable_irq(unsigned int irq)
 {
 	unsigned long flags;
-
+	int i;
+	
 	spin_lock_irqsave(&irq_controller_lock, flags);
 	irq_desc[irq].probing = 0;
 	irq_desc[irq].triggered = 0;
@@ -154,9 +155,10 @@ asmlinkage void do_IRQ(int irq, struct pt_regs * regs)
 {
 	struct irqdesc * desc;
 	struct irqaction * action;
-	int cpu;
+	int cpu,i;
 
 	irq = fixup_irq(irq);
+//	if (irq == 8) printk("ASIC interrupt\n");
 
 	/*
 	 * Some hardware gives randomly wrong interrupts.  Rather
@@ -184,6 +186,7 @@ asmlinkage void do_IRQ(int irq, struct pt_regs * regs)
 
 		if (desc->nomask) {
 			spin_lock(&irq_controller_lock);
+			if (irq == 0) printk("do_IRQ\n");
 			desc->unmask(irq);
 			spin_unlock(&irq_controller_lock);
 		}
@@ -260,7 +263,8 @@ int setup_arm_irq(int irq, struct irqaction * new)
 	struct irqaction *old, **p;
 	unsigned long flags;
 	struct irqdesc *desc;
-
+	int i;
+	
 	/*
 	 * Some drivers like serial.c use request_irq() heavily,
 	 * so we have to be careful not to interfere with a
@@ -440,6 +444,7 @@ unsigned long probe_irq_on(void)
 
 		irq_desc[i].probing = 1;
 		irq_desc[i].triggered = 0;
+		if (i == 0) printk("probe_irq_on\n");
 		irq_desc[i].unmask(i);
 		irqs += 1;
 	}

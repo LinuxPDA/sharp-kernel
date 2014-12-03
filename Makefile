@@ -1,8 +1,7 @@
 VERSION = 2
 PATCHLEVEL = 4
 SUBLEVEL = 13
-EXTRAVERSION = -ac5-rmk2-iop310.1
-
+EXTRAVERSION = -ac5-rmk2-cotulla.1
 KERNELRELEASE=$(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
 
 
@@ -29,7 +28,7 @@ FINDHPATH	= $(HPATH)/asm $(HPATH)/linux $(HPATH)/scsi $(HPATH)/net
 HOSTCC  	= gcc
 HOSTCFLAGS	= -Wall -Wstrict-prototypes -O2 -fomit-frame-pointer
 
-CROSS_COMPILE 	= /opt/hardhat/devkit/arm/sa_le/bin/arm_sa_le-
+CROSS_COMPILE 	= arm-linux-
 
 # CROSS_COMPILE 	= /usr/local/3.0/bin/arm-linux-
 

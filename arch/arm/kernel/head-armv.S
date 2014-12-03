@@ -8,6 +8,9 @@
  * published by the Free Software Foundation.
  *
  *  32-bit kernel startup code for all architectures
+ *
+ * Change Log
+ *  31-Jul-2002 Lineo Japan, Inc.
  */
 #include <linux/config.h>
 #include <linux/linkage.h>
@@ -128,6 +131,8 @@ __entry:
 		mov	r1, #MACH_TYPE_IQ80310
 #elif defined(CONFIG_ARCH_ADI_EVB)
 		mov	r1, #MACH_TYPE_ADI_EVB
+#elif defined(CONFIG_ARCH_COTULLA)
+		mov	r1, #MACH_TYPE_COTULLA
 #endif
 
 		mov	r0, #F_BIT | I_BIT | MODE_SVC	@ make sure svc mode

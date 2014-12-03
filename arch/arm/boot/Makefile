@@ -134,6 +134,11 @@ ZRELADDR	= 0xc0008000
 ZTEXTADDR	= 0xc1000000
 endif
 
+ifeq ($(CONFIG_ARCH_COTULLA),y)
+ZRELADDR	= 0xa0008000
+ZTEXTADDR	= 0xa0008000
+endif
+
 #
 # If you don't define ZRELADDR above,
 # then it defaults to ZTEXTADDR

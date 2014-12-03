@@ -57,6 +57,8 @@
  * 10/00: add in optional software flow control for serial console.
  *	  Kanoj Sarcar <kanoj@sgi.com>  (Modified by Theodore Ts'o)
  *
+ *  6/02: Support for SL-A300 CF by SHARP Corporation.
+ *
  */
 
 static char *serial_version = "5.05c";
@@ -94,6 +96,10 @@ static char *serial_revdate = "2001-07-08";
 
 #include <linux/config.h>
 #include <linux/version.h>
+#ifdef CONFIG_SABINAL_DISCOVERY
+#undef CONFIG_SERIAL_CONSOLE
+#define CONFIG_REDEFINE_IO8BIT
+#endif
 
 #undef SERIAL_PARANOIA_CHECK
 #define CONFIG_SERIAL_NOPAUSE_IO
@@ -233,6 +239,10 @@ static char *serial_revdate = "2001-07-08";
 
 #ifdef CONFIG_MAC_SERIAL
 #define SERIAL_DEV_OFFSET	2
+#elif defined(CONFIG_ARCH_SA1100) && defined(CONFIG_SA1100_COLLIE)
+#define SERIAL_DEV_OFFSET       3
+#elif defined(CONFIG_SABINAL_DISCOVERY)
+#define SERIAL_DEV_OFFSET       3
 #else
 #define SERIAL_DEV_OFFSET	0
 #endif
@@ -3252,7 +3262,8 @@ static inline int line_info(char *buf, struct serial_state *state)
 	unsigned long flags;
 
 	ret = sprintf(buf, "%d: uart:%s port:%lX irq:%d",
-		      state->line, uart_config[state->type].name, 
+		      state->line + SERIAL_DEV_OFFSET, 
+		      uart_config[state->type].name, 
 		      state->port, state->irq);
 
 	if (!state->port || (state->type == PORT_UNKNOWN)) {
@@ -3740,6 +3751,7 @@ static void autoconfig(struct serial_state * state)
 				autoconfig_startech_uarts(info, state, flags);
 		}
 	}
+        #ifndef CONFIG_SABINAL_DISCOVERY      /* not to judge the 16750 type for P-in memory */
 	if (state->type == PORT_16550A) {
 		/* Check for TI 16750 */
 		serial_outp(info, UART_LCR, save_lcr | UART_LCR_DLAB);
@@ -3763,6 +3775,7 @@ static void autoconfig(struct serial_state * state)
 		}
 		serial_outp(info, UART_FCR, UART_FCR_ENABLE_FIFO);
 	}
+	#endif
 #if defined(CONFIG_SERIAL_RSA) && defined(MODULE)
 	if (state->type == PORT_16550A) {
 		int i;
@@ -5662,13 +5675,13 @@ int register_serial(struct serial_struct *req)
 void unregister_serial(int line)
 {
 	unsigned long flags;
-	struct serial_state *state = &rs_table[line];
+	struct serial_state *state = &rs_table[line - SERIAL_DEV_OFFSET];
 
 	save_flags(flags); cli();
 	if (state->info && state->info->tty)
 		tty_hangup(state->info->tty);
 	state->type = PORT_UNKNOWN;
-	printk(KERN_INFO "tty%02d unloaded\n", state->line);
+	printk(KERN_INFO "tty%02d unloaded\n", state->line + SERIAL_DEV_OFFSET);
 	/* These will be hidden, because they are devices that will no longer
 	 * be available to the system. (ie, PCMCIA modems, once ejected)
 	 */

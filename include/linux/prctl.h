@@ -1,3 +1,8 @@
+/* 
+ * Change Log
+ *	12-Mar-2002 Lineo Japan, Inc.
+ */
+
 #ifndef _LINUX_PRCTL_H
 #define _LINUX_PRCTL_H
 
@@ -19,5 +24,9 @@
 /* Get/set whether or not to drop capabilities on setuid() away from uid 0 */
 #define PR_GET_KEEPCAPS   7
 #define PR_SET_KEEPCAPS   8
+
+/* Get/set oom_kill survival level */
+#define PR_GET_OOM_KILL_SURVIVAL_LEVEL 257
+#define PR_SET_OOM_KILL_SURVIVAL_LEVEL 258
 
 #endif /* _LINUX_PRCTL_H */

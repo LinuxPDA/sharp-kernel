@@ -320,8 +320,15 @@ void irlan_connect_indication(void *instance, void *sap, struct qos_info *qos,
 	/* since irlan_do_*_event gobble the skb, we must get it once -- rmk */
 	skb_get(skb);
 
-	irlan_do_provider_event(self, IRLAN_DATA_CONNECT_INDICATION, skb);
-	irlan_do_client_event(self, IRLAN_DATA_CONNECT_INDICATION, skb);
+	/* If you want to pass the skb to *both* state machines, you will
+	 * need to skb_clone() it, so that you don't free it twice.
+	 * As the state machines don't need it, git rid of it here...
+	 * Jean II */
+	if (skb)
+		dev_kfree_skb(skb);
+
+	irlan_do_provider_event(self, IRLAN_DATA_CONNECT_INDICATION, NULL);
+	irlan_do_client_event(self, IRLAN_DATA_CONNECT_INDICATION, NULL);
 
 	if (self->provider.access_type == ACCESS_PEER) {
 		/* 
@@ -424,6 +431,13 @@ void irlan_disconnect_indication(void *instance, void *sap, LM_REASON reason,
 		break;
 	}
 	
+	/* If you want to pass the skb to *both* state machines, you will
+	 * need to skb_clone() it, so that you don't free it twice.
+	 * As the state machines don't need it, git rid of it here...
+	 * Jean II */
+	if (userdata)
+		dev_kfree_skb(userdata);
+
 	irlan_do_client_event(self, IRLAN_LMP_DISCONNECT, NULL);
 	irlan_do_provider_event(self, IRLAN_LMP_DISCONNECT, NULL);
 	

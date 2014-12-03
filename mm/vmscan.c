@@ -9,6 +9,9 @@
  *  to bring the system back to freepages.high: 2.4.97, Rik van Riel.
  *  Zone aware kswapd started 02/00, Kanoj Sarcar (kanoj@sgi.com).
  *  Multiqueue VM started 5.8.00, Rik van Riel.
+ *
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
  */
 
 #include <linux/slab.h>
@@ -22,6 +25,8 @@
 #include <linux/file.h>
 
 #include <asm/pgalloc.h>
+
+extern void shrink_pgtcache_memory(int gfp_mask);
 
 int vm_static_inactive_target;
 
@@ -1053,6 +1058,149 @@ static int do_try_to_free_pages(unsigned int gfp_mask, int user)
 	return ret;
 }
 
+
+#ifdef CONFIG_FREEPG_SIGNAL
+static struct {
+	int cur_level;		/* 0: normal, 1: warning, 2: critical */
+	int min_avail;		/* minimum available pages.
+				 * Signal is never sent unless available
+				 * memory is less than min_avail. */
+	unsigned long lasttick;	/* last-sent time */
+} freepg_sig;
+
+
+freepg_signal_watermark_t freepg_sig_watermark = {
+	comm: "memalerter",
+	low: 0,
+	mid: 0,
+	high: 0,
+	cur: 0,
+};
+
+
+static void
+freepg_sig_send(int level)
+{
+	int signo = (level == 2) ? SIGHUP : SIGUSR1;
+	struct task_struct* p = NULL;
+	struct task_struct* recipient_task = NULL;
+	struct siginfo si;
+
+	freepg_sig.cur_level = level;
+
+	if (level == 0)
+		return;
+
+	read_lock(&tasklist_lock);
+	for_each_task(p) {
+		if (strncmp(p->comm, freepg_sig_watermark.comm, sizeof p->comm) == 0) {
+			recipient_task = p;
+			break;
+		}
+	}
+
+	if (recipient_task == NULL)
+		goto finish;
+
+	si.si_signo = signo;
+	si.si_errno = 0;
+	si.si_code = SI_KERNEL;
+	si.si_pid = current->pid;
+	si.si_uid = current->uid;
+	freepg_sig.lasttick = jiffies;
+	send_sig_info(signo, &si, recipient_task);
+
+  finish:
+	read_unlock(&tasklist_lock);
+}
+
+
+#if 0
+/*
+ * do not count buffer pages added by bdflush.
+ */
+static int
+nr_launderable_pages(void)
+{
+	int nr_pages;
+	struct list_head* page_lru;
+
+	nr_pages = 0;
+	spin_lock(&pagemap_lru_lock);
+	for (page_lru = inactive_dirty_list.prev;
+	     page_lru != &inactive_dirty_list; page_lru = page_lru->prev) {
+		struct page* page;
+
+		page = list_entry(page_lru, struct page, lru);
+
+		if (! PageInactiveDirty(page) ||
+		    PageReferenced(page) ||
+		    (! page->buffers && page_count(page) > 1) ||
+		    page_ramdisk(page) ||
+		    PageLocked(page))
+			continue;
+
+		if (PageDirty(page)) {
+			if (! page->mapping->a_ops->writepage)
+				continue;
+			nr_pages++;
+			continue;
+		}
+
+		if (page->buffers)
+			continue;
+		
+		if (page->mapping)
+			nr_pages++;
+	}
+	spin_unlock(&pagemap_lru_lock);
+
+	return nr_pages;
+}
+#endif
+
+
+static void
+freepg_sig_send_if_under(void)
+{
+	int nr_fps;
+	int cur_avail;
+
+	if (freepg_sig.cur_level == 2 &&
+	    time_before(jiffies, freepg_sig.lasttick + 10 * HZ))
+		return;
+
+	cur_avail = nr_fps = nr_free_pages();
+	cur_avail += atomic_read(&buffermem_pages);
+	cur_avail += atomic_read(&page_cache_size);
+	freepg_sig_watermark.cur = nr_fps + nr_inactive_clean_pages();
+	if (cur_avail >= freepg_sig.min_avail)
+		return;
+
+	if (freepg_sig_watermark.cur < freepg_sig_watermark.low)
+		freepg_sig_send(2);
+	else if ((freepg_sig.cur_level < 1 ||
+		  time_after_eq(jiffies, freepg_sig.lasttick + 10 * HZ)) &&
+		 freepg_sig_watermark.cur < freepg_sig_watermark.mid)
+		freepg_sig_send(1);
+}
+
+
+
+static void
+freepg_sig_send_if_over(void)
+{
+	if (freepg_sig.cur_level == 0)
+		return;
+
+	freepg_sig_watermark.cur = nr_free_pages() +
+		nr_inactive_clean_pages();
+	if (freepg_sig_watermark.cur >= freepg_sig_watermark.high)
+		freepg_sig_send(0);
+}
+#endif
+
+
 DECLARE_WAIT_QUEUE_HEAD(kswapd_wait);
 DECLARE_WAIT_QUEUE_HEAD(kswapd_done);
 
@@ -1124,7 +1272,13 @@ int kswapd(void *unused)
 		 * We go to sleep for one second, but if it's needed
 		 * we'll be woken up earlier...
 		 */
+#ifdef CONFIG_FREEPG_SIGNAL
+		freepg_sig_send_if_under();
+#endif
 		if (!free_shortage() || !inactive_shortage()) {
+#ifdef CONFIG_FREEPG_SIGNAL
+			freepg_sig_send_if_over();
+#endif
 			interruptible_sleep_on_timeout(&kswapd_wait, HZ);
 		/*
 		 * If we couldn't free enough memory, we see if it was
@@ -1219,9 +1373,28 @@ static int __init kswapd_init(void)
 {
 	printk("Starting kswapd v1.8\n");
 	swap_setup();
+#ifdef CONFIG_FREEPG_SIGNAL
+	{
+		const int min = freepages.min;
+		struct sysinfo sysinfo;
+
+		freepg_sig_watermark.low = min * 5;
+		freepg_sig_watermark.mid = min * 8;
+		freepages.high = min * 6;
+		freepg_sig_watermark.high = min * 10;
+		si_meminfo(&sysinfo);
+		freepg_sig.min_avail = sysinfo.totalram * 3 / 10;
+	}
+#endif
 	kernel_thread(kswapd, NULL, CLONE_FS | CLONE_FILES | CLONE_SIGNAL);
 	kernel_thread(kreclaimd, NULL, CLONE_FS | CLONE_FILES | CLONE_SIGNAL);
 	return 0;
 }
 
 module_init(kswapd_init)
+
+/*
+ * Local variables:
+ *  c-basic-offset: 8
+ * End:
+ */

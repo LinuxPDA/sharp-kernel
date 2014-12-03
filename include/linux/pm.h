@@ -33,6 +33,7 @@ enum
 {
 	PM_SUSPEND, /* enter D1-D3 */
 	PM_RESUME,  /* enter D0 */
+	PM_STANDBY,
 
 	PM_SAVE_STATE,  /* save device's state */
 
@@ -46,6 +47,11 @@ enum
 	/* base station management */
 	PM_EJECT,
 	PM_LOCK,
+
+	PM_BLANK,
+	PM_UNBLANK,
+
+	PM_BATTERY_CRITICAL_LOW,
 };
 
 typedef int pm_request_t;
@@ -62,6 +68,8 @@ enum
 	PM_SCSI_DEV,	    /* SCSI device */
 	PM_ISA_DEV,	    /* ISA device */
 	PM_MTD_DEV,	    /* Memory Technology Device */
+	PM_ILLUMINATION_DEV, /* Display back or front light */
+	PM_COTULLA_DEV, /* test only */
 };
 
 typedef int pm_dev_t;
@@ -78,6 +86,7 @@ enum
 	PM_SYS_FDC =	 0x41d00700, /* floppy controller */
 	PM_SYS_VGA =	 0x41d00900, /* VGA controller */
 	PM_SYS_PCMCIA =	 0x41d00e00, /* PCMCIA controller */
+	PM_SYS_LIGHT =   0x41d00a00, /* LCD light -Jamey Hicks */
 };
 
 /*

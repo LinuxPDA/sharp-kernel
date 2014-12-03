@@ -7,6 +7,9 @@
  *  Reshaped it to be a zoned allocator, Ingo Molnar, Red Hat, 1999
  *  Discontiguous memory support, Kanoj Sarcar, SGI, Nov 1999
  *  Zone balancing, Kanoj Sarcar, SGI, Jan 2000
+ *
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
  */
 
 #include <linux/config.h>
@@ -24,7 +27,11 @@ int nr_inactive_dirty_pages;
 pg_data_t *pgdat_list;
 
 static char *zone_names[MAX_NR_ZONES] = { "DMA", "Normal", "HighMem" };
+#if defined(CONFIG_SA1100_COLLIE) || defined(CONFIG_SABINAL_DISCOVERY)
+static int zone_balance_ratio[MAX_NR_ZONES] = { 128, 128, 128, };
+#else
 static int zone_balance_ratio[MAX_NR_ZONES] = { 32, 128, 128, };
+#endif
 static int zone_balance_min[MAX_NR_ZONES] = { 10 , 10, 10, };
 static int zone_balance_max[MAX_NR_ZONES] = { 255 , 255, 255, };
 
@@ -353,8 +360,16 @@ try_again:
 	 * by the hogs.
 	 */
 	wakeup_kswapd();
+#ifdef CONFIG_SABINAL_DISCOVERY
+	if ((gfp_mask & __GFP_WAIT) && !(current->flags & PF_MEMALLOC)) {
+		__set_current_state(TASK_RUNNING);
+		current->policy |= SCHED_YIELD;
+		schedule();
+	}
+#else
 	if ((gfp_mask & __GFP_WAIT) && !(current->flags & PF_MEMALLOC))
 		try_to_free_pages(gfp_mask);
+#endif
 
 	/*
 	 * After waking up kswapd, we try to allocate a page

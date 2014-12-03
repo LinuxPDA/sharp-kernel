@@ -2,6 +2,9 @@
  *  linux/kernel/fork.c
  *
  *  Copyright (C) 1991, 1992  Linus Torvalds
+ * 
+ * Change Log
+ *	12-Mar-2002 Lineo Japan, Inc.
  */
 
 /*
@@ -687,6 +690,8 @@ int do_fork(unsigned long clone_flags, unsigned long stack_start,
 	p->swappable = 1;
 	p->exit_signal = clone_flags & CSIGNAL;
 	p->pdeath_signal = 0;
+	if (! is_oom_kill_survival_inherit(p))
+		oom_kill_survival_set(p, 0, 0);
 
 	/*
 	 * "share" dynamic priority between parent and child, thus the

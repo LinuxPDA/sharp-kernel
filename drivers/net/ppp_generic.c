@@ -20,6 +20,9 @@
  * subsequently hacked by Paul Mackerras.
  *
  * ==FILEVERSION 20000902==
+ *
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
  */
 
 #include <linux/config.h>
@@ -241,6 +244,10 @@ static struct channel *ppp_find_channel(int unit);
 static int ppp_connect_channel(struct channel *pch, int unit);
 static int ppp_disconnect_channel(struct channel *pch);
 static void ppp_destroy_channel(struct channel *pch);
+
+#if defined(CONFIG_SA1100_COLLIE) || defined(CONFIG_SABINAL_DISCOVERY)
+int ppp_connect_count = 0;
+#endif
 
 /* Translates a PPP protocol number to a NP index (NP == network protocol) */
 static inline int proto_to_npindex(int proto)
@@ -2406,6 +2413,9 @@ ppp_connect_channel(struct channel *pch, int unit)
 	++ppp->n_channels;
 	pch->ppp = ppp;
 	ret = 0;
+#if defined(CONFIG_SA1100_COLLIE) || defined(CONFIG_SABINAL_DISCOVERY)
+	ppp_connect_count++;
+#endif
 
  outr:
 	spin_unlock_bh(&pch->downl);
@@ -2442,6 +2452,9 @@ ppp_disconnect_channel(struct channel *pch)
 			   that is already dead: free it. */
 			kfree(ppp);
 		err = 0;
+#if defined(CONFIG_SA1100_COLLIE) || defined(CONFIG_SABINAL_DISCOVERY)
+		ppp_connect_count--;
+#endif
 	}
 	write_unlock_bh(&pch->upl);
 	return err;

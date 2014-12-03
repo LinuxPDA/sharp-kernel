@@ -10,6 +10,7 @@
  * Modified by:   Dag Brattli <dagb@cs.uit.no>
  * 
  *     Copyright (c) 1998-1999 Dag Brattli, All Rights Reserved.
+ *     Copyright (c) 2000-2001 Jean Tourrilhes <jt@hpl.hp.com>
  *     
  *     This program is free software; you can redistribute it and/or 
  *     modify it under the terms of the GNU General Public License as 
@@ -26,6 +27,8 @@
  *     Foundation, Inc., 59 Temple Place, Suite 330, Boston, 
  *     MA 02111-1307 USA
  *     
+ * ChangeLog:
+ *	07-03-2002 SHARP	add peer device list to limit some negotiation parameters
  ********************************************************************/
 
 #include <linux/config.h>
@@ -50,9 +53,15 @@
 hashbin_t *irlap = NULL;
 int sysctl_slot_timeout = SLOT_TIMEOUT * 1000 / HZ;
 
+/* This is the delay of missed pf period before generating an event
+ * to the application. The spec mandate 3 seconds, but in some cases
+ * it's way too long. - Jean II */
+int sysctl_warn_noreply_time = 3;
+
 extern void irlap_queue_xmit(struct irlap_cb *self, struct sk_buff *skb);
 static void __irlap_close(struct irlap_cb *self);
 
+#ifdef CONFIG_IRDA_DEBUG
 static char *lap_reasons[] = {
 	"ERROR, NOT USED",
 	"LAP_DISC_INDICATION",
@@ -63,6 +72,7 @@ static char *lap_reasons[] = {
 	"LAP_PRIMARY_CONFLICT",
 	"ERROR, NOT USED",
 };
+#endif	/* CONFIG_IRDA_DEBUG */
 
 #ifdef CONFIG_PROC_FS
 int irlap_proc_read(char *, char **, off_t, int);
@@ -182,6 +192,12 @@ static void __irlap_close(struct irlap_cb *self)
 	self->magic = 0;
 	
 	kfree(self);
+
+	/*
+	 * Delete all specific device lists here.
+	 *	modified by SHARP
+	 */
+	irda_device_list_delete();
 }
 
 /*
@@ -221,12 +237,22 @@ void irlap_close(struct irlap_cb *self)
  */
 void irlap_connect_indication(struct irlap_cb *self, struct sk_buff *skb) 
 {
+	struct qos_info qos;
+
 	IRDA_DEBUG(4, __FUNCTION__ "()\n");
 
 	ASSERT(self != NULL, return;);
 	ASSERT(self->magic == LAP_MAGIC, return;);
 
-	irlap_init_qos_capabilities(self, NULL); /* No user QoS! */
+	/*
+	 * Check the specific device list. If peer device exists in the list,
+	 * set the specified QoS.
+	 *	modified by SHARP
+	 */
+	if (irda_make_appropriate_qos(self->daddr, &qos) != 0) {
+		irlap_init_qos_capabilities(self, &qos); /* use QoS */
+	}else
+		irlap_init_qos_capabilities(self, NULL); /* No user QoS! */
 
 	skb_get(skb); /*LEVEL4*/
 	irlmp_link_connect_indication(self->notify.instance, self->saddr, 
@@ -257,6 +283,8 @@ void irlap_connect_response(struct irlap_cb *self, struct sk_buff *skb)
 void irlap_connect_request(struct irlap_cb *self, __u32 daddr, 
 			   struct qos_info *qos_user, int sniff) 
 {
+	struct qos_info qos;
+
 	IRDA_DEBUG(3, __FUNCTION__ "(), daddr=0x%08x\n", daddr);
 
 	ASSERT(self != NULL, return;);
@@ -268,7 +296,16 @@ void irlap_connect_request(struct irlap_cb *self, __u32 daddr,
 	 *  If the service user specifies QoS values for this connection, 
 	 *  then use them
 	 */
-	irlap_init_qos_capabilities(self, qos_user);
+	if ((qos_user == NULL)&&(irda_make_appropriate_qos(daddr, &qos) != 0)){
+		/*
+		 *	If the servie user doesn't specify QoS value, and QoS value
+         *	for the peer device exists, use the registered value.
+		 *	modified by SHARP
+		 */
+		irlap_init_qos_capabilities(self, &qos);
+	}else{
+		irlap_init_qos_capabilities(self, qos_user);
+	}
 	
 	if ((self->state == LAP_NDM) && !self->media_busy)
 		irlap_do_event(self, CONNECT_REQUEST, NULL, NULL);
@@ -502,10 +539,17 @@ void irlap_discovery_request(struct irlap_cb *self, discovery_t *discovery)
 		IRDA_DEBUG(4, __FUNCTION__ 
 			   "(), discovery only possible in NDM mode\n");
 		irlap_discovery_confirm(self, NULL);
+		/* Note : in theory, if we are not in NDM, we could postpone
+		 * the discovery like we do for connection request.
+		 * In practice, it's not worth it. If the media was busy,
+		 * it's likely next time around it won't be busy. If we are
+		 * in REPLY state, we will get passive discovery info & event.
+		 * Jean II */
 		return;
 	}
 
-	/* Check if last discovery request finished in time */
+	/* Check if last discovery request finished in time, or if
+	 * it was aborted due to the media busy flag. */
 	if (self->discovery_log != NULL) {
 		hashbin_delete(self->discovery_log, (FREE_FUNC) kfree);
 		self->discovery_log = NULL;
@@ -519,22 +563,7 @@ void irlap_discovery_request(struct irlap_cb *self, discovery_t *discovery)
 	self->discovery_cmd = discovery;
 	info.discovery = discovery;
 	
-	/* Check if the slot timeout is within limits */
-	if (sysctl_slot_timeout < 20) {
-		ERROR(__FUNCTION__ 
-		      "(), to low value for slot timeout!\n");
-		sysctl_slot_timeout = 20;
-	}
-	/* 
-	 * Highest value is actually 8, but we allow higher since
-	 * some devices seems to require it.
-	 */
-	if (sysctl_slot_timeout > 160) {
-		ERROR(__FUNCTION__ 
-		      "(), to high value for slot timeout!\n");
-		sysctl_slot_timeout = 160;
-	}
-	
+	/* sysctl_slot_timeout bounds are checked in irsysctl.c - Jean II */
 	self->slot_timeout = sysctl_slot_timeout * HZ / 1000;
 	
 	irlap_do_event(self, DISCOVERY_REQUEST, NULL, &info);
@@ -555,10 +584,16 @@ void irlap_discovery_confirm(struct irlap_cb *self, hashbin_t *discovery_log)
 	
 	/* 
 	 * Check for successful discovery, since we are then allowed to clear 
-	 * the media busy condition (irlap p.94). This should allow us to make 
-	 * connection attempts much easier.
+	 * the media busy condition (IrLAP 6.13.4 - p.94). This should allow
+	 * us to make connection attempts much faster and easier (i.e. no
+	 * collisions).
+	 * Setting media busy to false will also generate an event allowing
+	 * to process pending events in NDM state machine.
+	 * Note : the spec doesn't define what's a successful discovery is.
+	 * If we want Ultra to work, it's successful even if there is
+	 * nobody discovered - Jean II
 	 */
-	if (discovery_log && HASHBIN_GET_SIZE(discovery_log) > 0)
+	if (discovery_log)
 		irda_device_set_media_busy(self->netdev, FALSE);
 	
 	/* Inform IrLMP */
@@ -580,7 +615,18 @@ void irlap_discovery_indication(struct irlap_cb *self, discovery_t *discovery)
 	ASSERT(discovery != NULL, return;);
 
 	ASSERT(self->notify.instance != NULL, return;);
-	
+
+	/* A device is very likely to connect immediately after it performs
+	 * a successful discovery. This means that in our case, we are much
+	 * more likely to receive a connection request over the medium.
+	 * So, we backoff to avoid collisions.
+	 * IrLAP spec 6.13.4 suggest 100ms...
+	 * Note : this little trick actually make a *BIG* difference. If I set
+	 * my Linux box with discovery enabled and one Ultra frame sent every
+	 * second, my Palm has no trouble connecting to it every time !
+	 * Jean II */
+	irda_device_set_media_busy(self->netdev, SMALL);
+
 	irlmp_link_discovery_indication(self->notify.instance, discovery);
 }
 
@@ -906,9 +952,6 @@ void irlap_init_qos_capabilities(struct irlap_cb *self,
 	/* Set data size */
 	/*self->qos_rx.data_size.bits &= 0x03;*/
 
-	/* Set disconnect time -> done properly in qos.c */
-	/*self->qos_rx.link_disc_time.bits &= 0x07;*/
-
 	irda_qos_bits_to_value(&self->qos_rx);
 }
 
@@ -1045,8 +1088,11 @@ void irlap_apply_connection_parameters(struct irlap_cb *self, int now)
 	/*
 	 *  Set N1 to 0 if Link Disconnect/Threshold Time = 3 and set it to 
 	 *  3 seconds otherwise. See page 71 in IrLAP for more details.
+	 *  Actually, it's not always 3 seconds, as we allow to set
+	 *  it via sysctl... Max maxtt is 500ms, and N1 need to be multiple
+	 *  of 2, so 1 second is minimum we can allow. - Jean II
 	 */
-	if (self->qos_tx.link_disc_time.value == 3)
+	if (self->qos_tx.link_disc_time.value == sysctl_warn_noreply_time)
 		/* 
 		 * If we set N1 to 0, it will trigger immediately, which is
 		 * not what we want. What we really want is to disable it,
@@ -1054,7 +1100,8 @@ void irlap_apply_connection_parameters(struct irlap_cb *self, int now)
 		 */
 		self->N1 = -2; /* Disable - Need to be multiple of 2*/
 	else
-		self->N1 = 3000 / self->qos_rx.max_turn_time.value;
+		self->N1 = sysctl_warn_noreply_time * 1000 /
+		  self->qos_rx.max_turn_time.value;
 	
 	IRDA_DEBUG(4, "Setting N1 = %d\n", self->N1);
 	

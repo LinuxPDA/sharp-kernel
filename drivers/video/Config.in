@@ -110,6 +110,12 @@ if [ "$CONFIG_FB" = "y" ]; then
       tristate '  SGI Visual Workstation framebuffer support' CONFIG_FB_SGIVW
       define_bool CONFIG_BUS_I2C y
    fi
+
+   if [ "$CONFIG_ARCH_COTULLA" = "y" ]; then
+      bool '  Cotulla framebuffer support' CONFIG_FB_COTULLA
+      dep_bool '  Cotulla LOGO screen support' CONFIG_COTULLA_LOGO_SCREEN $CONFIG_FB_COTULLA
+   fi
+
    if [ "$CONFIG_SUN3" = "y" -o "$CONFIG_SUN3X" = "y" ]; then
       bool '  Sun3 framebuffer support' CONFIG_FB_SUN3
       if [ "$CONFIG_FB_SUN3" != "n" ]; then

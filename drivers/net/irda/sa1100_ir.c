@@ -38,11 +38,7 @@
 
 #include <asm/arch/assabet.h>
 
-#ifndef CONFIG_SA1100_H3600
-#define clr_h3600_egpio(x)	do { } while (0)
-#define set_h3600_egpio(x)	do { } while (0)
-#endif
-
+/* Yopy wants fixing */
 #ifndef GPIO_IRDA_FIR
 #define GPIO_IRDA_FIR		(0)
 #endif
@@ -174,8 +170,8 @@ static int sa1100_irda_set_speed(struct sa1100_irda *si, int speed)
 
 		if (machine_is_assabet())
 			ASSABET_BCR_clear(ASSABET_BCR_IRDA_FSEL);
-		if (machine_is_h3600())
-			clr_h3600_egpio(EGPIO_H3600_IR_FSEL);
+		if (machine_is_h3xxx())
+			clr_h3600_egpio(IPAQ_EGPIO_IR_FSEL);
 		if (machine_is_yopy())
 			PPSR &= ~GPIO_IRDA_FIR;
 
@@ -199,8 +195,8 @@ static int sa1100_irda_set_speed(struct sa1100_irda *si, int speed)
 
 		if (machine_is_assabet())
 			ASSABET_BCR_set(ASSABET_BCR_IRDA_FSEL);
-		if (machine_is_h3600())
-			set_h3600_egpio(EGPIO_H3600_IR_FSEL);
+		if (machine_is_h3xxx())
+			set_h3600_egpio(IPAQ_EGPIO_IR_FSEL);
 		if (machine_is_yopy())
 			PPSR |= GPIO_IRDA_FIR;
 
@@ -246,10 +242,7 @@ sa1100_irda_set_power_assabet(struct sa1100_irda *si, unsigned int state)
 static inline int
 sa1100_irda_set_power_h3600(struct sa1100_irda *si, unsigned int state)
 {
-	if (state)
-		set_h3600_egpio(EGPIO_H3600_IR_ON);
-	else
-		clr_h3600_egpio(EGPIO_H3600_IR_ON);
+	assign_h3600_egpio( IPAQ_EGPIO_IR_ON, state );
 	return 0;
 }
 
@@ -283,7 +276,7 @@ __sa1100_irda_set_power(struct sa1100_irda *si, unsigned int state)
 
 	if (machine_is_assabet())
 		ret = sa1100_irda_set_power_assabet(si, state);
-	if (machine_is_h3600())
+	if (machine_is_h3xxx())
 		ret = sa1100_irda_set_power_h3600(si, state);
 	if (machine_is_yopy())
 		ret = sa1100_irda_set_power_yopy(si, state);

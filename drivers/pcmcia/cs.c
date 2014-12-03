@@ -28,6 +28,10 @@
     and other provisions required by the GPL.  If you do not delete
     the provisions above, a recipient may use your version of this
     file under either the MPL or the GPL.
+
+    Change Log
+	12-Nov-2001 Lineo Japan, Inc.
+	06-13-2002  Richard Rau
     
 ======================================================================*/
 
@@ -61,6 +65,12 @@
 #include <pcmcia/bus_ops.h>
 #include "cs_internal.h"
 #include "rsrc_mgr.h"
+
+#if defined(CONFIG_SABINAL_DISCOVERY)
+//#include <linux/apm_bios.h>
+extern volatile u_char discovery_second_battery;
+//extern volatile int collie_ac_status; /* EASY-DEBUG */
+#endif
 
 #ifdef PCMCIA_DEBUG
 int pc_debug = PCMCIA_DEBUG;
@@ -108,7 +118,11 @@ INT_MODULE_PARM(setup_delay,	10);		/* centiseconds */
 INT_MODULE_PARM(resume_delay,	20);		/* centiseconds */
 INT_MODULE_PARM(shutdown_delay,	3);		/* centiseconds */
 INT_MODULE_PARM(vcc_settle,	40);		/* centiseconds */
+#ifdef CONFIG_SABINAL_DISCOVERY
+INT_MODULE_PARM(reset_time,	10000);		/* usecs (for Pin-C) */
+#else
 INT_MODULE_PARM(reset_time,	10);		/* usecs */
+#endif
 INT_MODULE_PARM(unreset_delay,	10);		/* centiseconds */
 INT_MODULE_PARM(unreset_check,	10);		/* centiseconds */
 INT_MODULE_PARM(unreset_limit,	30);		/* unreset_check's */
@@ -517,6 +531,27 @@ static int setup_socket(socket_info_t *s)
 		goto out;
 	}
 
+#if defined(CONFIG_SABINAL_DISCOVERY)
+/* If battery is low, then cancel card detect. */
+//	if( collie_ac_status == APM_AC_OFFLINE ) /* EASY-DEBUG */
+//		discovery_second_battery = 2; // APM_BATTERY_STATUS_CRITICAL;
+	switch( discovery_second_battery ){
+	case 0: // APM_BATTERY_STATUS_HIGH:
+	case 1: // APM_BATTERY_STATUS_LOW:
+	case 3: // APM_BATTERY_STATUS_CHARGING:
+	case 0x7F: // very low
+		break;
+	case 2: // APM_BATTERY_STATUS_CRITICAL:
+		printk(KERN_ERR "cs: Backpack battery is critical low."
+			" (%d)\n", discovery_second_battery);
+		ret = 0;
+		goto out;
+	default:
+		printk(KERN_ERR "cs: Backpack battery is unknown status."
+			" (%d)\n", discovery_second_battery);
+	}
+#endif /* CONFIG_SABINAL_DISCOVERY */
+
 	if (val & SS_DETECT) {
 		DEBUG(1, "cs: setup_socket(%p): applying power\n", s);
 		s->state |= SOCKET_PRESENT;
@@ -572,6 +607,11 @@ static void reset_socket(socket_info_t *s)
 #define EVENT_MASK \
 (SOCKET_SETUP_PENDING|SOCKET_SUSPEND|SOCKET_RESET_PENDING)
 
+#if defined(CONFIG_SA1100_COLLIE) || defined(CONFIG_SABINAL_DISCOVERY)
+int ide_resume_handling = 0;
+int pcmcia_resume_handling = 0;
+#endif
+
 static void unreset_socket(socket_info_t *s)
 {
 	int setup_timeout = unreset_limit;
@@ -596,10 +636,37 @@ static void unreset_socket(socket_info_t *s)
 	DEBUG(1, "cs: reset done on socket %p\n", s);
 	if (s->state & SOCKET_SUSPEND) {
 	    s->state &= ~EVENT_MASK;
+#if defined(CONFIG_SA1100_COLLIE) || defined(CONFIG_SABINAL_DISCOVERY)
+	    if (verify_cis_cache(s) != 0) {
+		if (is_pcmcia_card_present(0))
+		    ide_resume_handling = 2;
+		parse_events(s, SS_DETECT);
+	    } else {
+		cisparse_t parse;
+		send_event(s, CS_EVENT_PM_RESUME, CS_EVENT_PRI_LOW);
+		read_tuple(s->clients, CISTPL_FUNCID, &parse);
+		ide_resume_handling = 1;
+		if (parse.funcid.func == CISTPL_FUNCID_FIXED &&
+		    proc_ide_verify_identify() != 0) {
+		    ide_resume_handling = 2;
+		    parse_events(s, SS_DETECT);
+		} else {
+		    ide_resume_handling = 0;
+		}
+		/* power off serial card */
+		if (parse.funcid.func == CISTPL_FUNCID_SERIAL &&
+		    pcmcia_resume_handling) {
+		    send_event(s, CS_EVENT_PM_SUSPEND, CS_EVENT_PRI_LOW);
+		    suspend_socket(s);
+		    s->state |= SOCKET_SUSPEND;
+		}
+	    }
+#else
 	    if (verify_cis_cache(s) != 0)
 		parse_events(s, SS_DETECT);
 	    else
 		send_event(s, CS_EVENT_PM_RESUME, CS_EVENT_PRI_LOW);
+#endif
 	} else if (s->state & SOCKET_SETUP_PENDING) {
 #ifdef CONFIG_CARDBUS
 	    if (s->state & SOCKET_CARDBUS)
@@ -687,8 +754,14 @@ static void parse_events(void *info, u_int events)
 	    else
 		cs_sleep(setup_delay);
 	    s->socket.flags |= SS_DEBOUNCED;
-	    if (setup_socket(s) == 0)
+	    if (setup_socket(s) == 0){
 		s->state &= ~SOCKET_SETUP_PENDING;
+#if defined(CONFIG_SABINAL_DISCOVERY)
+/* If power-on failed in resume, then card eject. */
+		if( s->state & SOCKET_SUSPEND )
+			do_shutdown(s);
+#endif
+	    }
 	    s->socket.flags &= ~SS_DEBOUNCED;
 	}
     }
@@ -739,12 +812,21 @@ static int handle_pm_event(struct pm_dev *dev, pm_request_t rqst, void *data)
 {
     int i;
     socket_info_t *s;
+    unsigned long backpackptr;
 
     /* only for busses that don't suspend/resume slots directly */
 
     switch (rqst) {
     case PM_SUSPEND:
 	DEBUG(1, "cs: received suspend notification\n");
+#if defined(CONFIG_SA1100_COLLIE) || defined(CONFIG_SABINAL_DISCOVERY)
+	sys_sync();
+	disable_irq(IRQ_ASIC3_CF_DETECT);    // Richard 0628
+	backpackptr = ioremap(0x14000000, 4);    // Richard 0702  Output '0' to physical add. 0x14000000 to avoid ..
+	if (NULL != backpackptr) {
+		*((u16*)backpackptr) = 0;		     // Richard 0702
+	}
+#endif
 	for (i = 0; i < sockets; i++) {
 	    s = socket_table [i];
 	    if (!s->use_bus_pm)
@@ -753,11 +835,22 @@ static int handle_pm_event(struct pm_dev *dev, pm_request_t rqst, void *data)
 	break;
     case PM_RESUME:
 	DEBUG(1, "cs: received resume notification\n");
+#if defined(CONFIG_SA1100_COLLIE) || defined(CONFIG_SABINAL_DISCOVERY)
+	pcmcia_resume_handling = 1;
+#endif
 	for (i = 0; i < sockets; i++) {
 	    s = socket_table [i];
 	    if (!s->use_bus_pm)
 		pcmcia_resume_socket (socket_table [i]);
 	}
+#if defined(CONFIG_SA1100_COLLIE) || defined(CONFIG_SABINAL_DISCOVERY)
+	pcmcia_resume_handling = 0;
+	if (NULL != backpackptr) {
+		iounmap(backpackptr);			// Richard 0702
+		backpackptr = NULL;
+	}	
+	enable_irq(IRQ_ASIC3_CF_DETECT);	// Richard 0628
+#endif
 	break;
     }
     return 0;
@@ -2075,7 +2168,13 @@ int pcmcia_resume_card(client_handle_t handle, client_req_t *req)
 	return CS_IN_USE;
 
     DEBUG(1, "cs: waking up socket %d\n", i);
+#if defined(CONFIG_SABINAL_DISCOVERY)
+/* If power-on failed, then card eject. */
+    if( setup_socket(s) == 0 )
+	do_shutdown(s);
+#else
     setup_socket(s);
+#endif /* CONFIG_SABINAL_DISCOVERY */
 
     return CS_SUCCESS;
 } /* resume_card */
@@ -2194,6 +2293,23 @@ int pcmcia_report_error(client_handle_t handle, error_info_t *err)
 
     return CS_SUCCESS;
 } /* report_error */
+
+/*====================================================================*/
+
+#if defined(CONFIG_SA1100_COLLIE) || defined(CONFIG_SABINAL_DISCOVERY)
+void pcmcia_set_detect_interrupt(int sock, int enable, int setting)
+{
+    socket_info_t *s;
+
+    s = socket_table[sock];
+    if (enable)
+	s->socket.csc_mask |= SS_DETECT;
+    else
+	s->socket.csc_mask &= ~SS_DETECT;
+    if (setting)
+	set_socket(s, &s->socket);
+}
+#endif
 
 /*====================================================================*/
 
@@ -2414,7 +2530,8 @@ static int __init init_pcmcia_cs(void)
     printk(KERN_INFO "  %s\n", options);
     DEBUG(0, "%s\n", version);
     if (do_apm)
-	pm_register(PM_SYS_DEV, PM_SYS_PCMCIA, handle_pm_event);
+//	pm_register(PM_SYS_DEV, PM_SYS_PCMCIA, handle_pm_event);
+	pm_register(PM_COTULLA_DEV, PM_SYS_PCMCIA, handle_pm_event);
 #ifdef CONFIG_PROC_FS
     proc_pccard = proc_mkdir("pccard", proc_bus);
 #endif

@@ -14,6 +14,10 @@
  * WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * General Public License for more details.
+ *
+ * ChangeLog:
+ *	27-AUG-2002 Steve Lin added definition for battery fault.
+ *
  */
 
 typedef unsigned short	apm_event_t;
@@ -143,6 +147,7 @@ extern struct apm_info	apm_info;
 #define APM_USER_SUSPEND	0x000a
 #define APM_STANDBY_RESUME	0x000b
 #define APM_CAPABILITY_CHANGE	0x000c
+#define APM_BATTERY_FAULT	0x000d
 
 /*
  * Error codes
@@ -214,5 +219,25 @@ extern struct apm_info	apm_info;
 
 #define APM_IOC_STANDBY		_IO('A', 1)
 #define APM_IOC_SUSPEND		_IO('A', 2)
+
+#define APM_AC_OFFLINE 0
+#define APM_AC_ONLINE 1
+#define APM_AC_BACKUP 2
+#define APM_AC_UNKNOWN 0xFF
+
+#define APM_BATTERY_STATUS_HIGH 0
+#define APM_BATTERY_STATUS_LOW  1
+#define APM_BATTERY_STATUS_CRITICAL 2
+#define APM_BATTERY_STATUS_CHARGING 3
+#define APM_BATTERY_STATUS_FAULT 4
+#define APM_BATTERY_STATUS_UNKNOWN 0xFF
+
+#define APM_BATTERY_LIFE_UNKNOWN 0xFFFF
+#define APM_BATTERY_LIFE_MINUTES 0x8000
+#define APM_BATTERY_LIFE_VALUE_MASK 0x7FFF
+
+#if defined(CONFIG_IRIS) || defined(CONFIG_SA1100_COLLIE)
+#include <asm/sharp_apm.h>
+#endif /* CONFIG_IRIS || CONFIG_COLLIE */
 
 #endif	/* LINUX_APM_H */

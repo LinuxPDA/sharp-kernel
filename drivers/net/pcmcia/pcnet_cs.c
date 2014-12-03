@@ -26,6 +26,10 @@
     CCAE support.  Drivers merged back together, and shared-memory
     Socket EA support added, by Ken Raeburn, September 1995.
 
+    Change Log:
+      12-Mar-2002 Lineo Japan, Inc.
+      05-Jun-2002 SHARP Corporation: Support for SL-A300 CF.
+
 ======================================================================*/
 
 #include <linux/kernel.h>
@@ -37,6 +41,9 @@
 #include <linux/string.h>
 #include <linux/timer.h>
 #include <linux/delay.h>
+#ifdef CONFIG_SABINAL_DISCOVERY
+#define CONFIG_REDEFINE_IO8BIT
+#endif
 #include <asm/io.h>
 #include <asm/system.h>
 
@@ -347,6 +354,9 @@ static void pcnet_detach(dev_link_t *link)
 
     del_timer(&link->release);
     if (link->state & DEV_CONFIG) {
+#if defined(CONFIG_SA1100_COLLIE) || defined(CONFIG_SABINAL_DISCOVERY)
+	link->state &= ~DEV_STALE_CONFIG;
+#endif
 	pcnet_release((u_long)link);
 	if (link->state & DEV_STALE_CONFIG) {
 	    link->state |= DEV_STALE_LINK;

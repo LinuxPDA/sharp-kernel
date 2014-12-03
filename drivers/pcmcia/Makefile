@@ -80,6 +80,10 @@ sa1100_cs-objs-$(CONFIG_SA1100_GRAPHICSMASTER)	+= sa1100_graphicsmaster.o
 sa1100_cs-objs-$(CONFIG_SA1100_ADSBITSY)	+= sa1100_adsbitsy.o
 sa1100_cs-objs-$(CONFIG_SA1100_STORK)		+= sa1100_stork.o
 
+obj-$(CONFIG_PCMCIA_COTULLA) += cotulla_cs.o
+cotulla_cs-objs-y				:= cotulla_generic.o
+cotulla_cs-objs-$(CONFIG_SABINAL_DISCOVERY)	+= cotulla_discovery.o
+
 include $(TOPDIR)/Rules.make
 
 pcmcia_core.o:  $(pcmcia_core-objs)
@@ -90,3 +94,6 @@ sa1100_cs.o: $(sa1100_cs-objs-y)
 
 yenta_socket.o: $(yenta_socket-objs)
 	$(LD) $(LD_RFLAG) -r -o $@ $(yenta_socket-objs)
+
+cotulla_cs.o: $(cotulla_cs-objs-y)
+	$(LD) -r -o $@ $(cotulla_cs-objs-y)

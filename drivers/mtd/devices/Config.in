@@ -22,6 +22,16 @@ if [ "$CONFIG_MTD_MTDRAM" = "y" -o "$CONFIG_MTD_MTDRAM" = "m" ]; then
       hex 'SRAM Hexadecimal Absolute position or 0' CONFIG_MTDRAM_ABS_POS 0
    fi
 fi
+if [ "$CONFIG_ARCH_SABINAL" = "y" ]; then
+  dep_tristate '  RAM driver for sabinal' CONFIG_MTD_MTDRAM_SABINAL $CONFIG_MTD
+  if [ "$CONFIG_MTD_MTDRAM_SABINAL" = "y" -o "$CONFIG_MTD_MTDRAM_SABINAL" = "m" ]; then
+     int 'MTDRAM_SABINAL device size in KiB' CONFIG_MTDRAM_SABINAL_TOTAL_SIZE 4096
+     int 'MTDRAM_SABINAL erase block size in KiB' CONFIG_MTDRAM_SABINAL_ERASE_SIZE 128
+     if [ "$CONFIG_MTD_MTDRAM_SABINAL" = "y" ]; then #If not a module (I don't want to test it as a module)
+        hex 'SRAM Hexadecimal Absolute position or 0' CONFIG_MTDRAM_SABINAL_ABS_POS 0
+     fi
+  fi
+fi
 dep_tristate '  MTD emulation using block device' CONFIG_MTD_BLKMTD $CONFIG_MTD
 
 comment 'Disk-On-Chip Device Drivers'

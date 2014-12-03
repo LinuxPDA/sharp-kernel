@@ -1,0 +1,68 @@
+CONFIG_USBD_SERIAL
+  Enable the generic serial function driver.
+
+CONFIG_USBD_SERIAL_VENDORID
+  Specify the USB Device Vendor ID for the serial function driver. The
+  top level Vendor ID will be used if this is not specified.
+
+CONFIG_USBD_SERIAL_PRODUCTID
+  Specify the USB Device Product ID for the serial function driver.
+  The top level Vendor ID will be used if this is not specified.
+
+CONFIG_USBD_SERIAL_CDC
+  Enable CDC mode. This configures the network driver to support the
+  ACM model specified in the USB Class Definitions.
+
+CONFIG_USBD_SERIAL_OUT_ENDPOINT
+  Specify the preferred OUT (received data) endpoint number. This is a
+  number from 0-15 and must be allowed by the bus interface device.
+
+  Some devices such as the SA-1110 and Linkup L7205/L7210 will override
+  this selection with a fixed address.
+
+CONFIG_USBD_SERIAL_IN_ENDPOINT
+  Specify the preferred IN (transmit data) endpoint number. This is a
+  number from 0-15 and must be allowed by the bus interface device.
+
+  Some devices such as the SA-1110 and Linkup L7205/L7210 will
+  override this selection with a fixed address.
+
+CONFIG_USBD_SERIAL_INT_ENDPOINT
+  Specify the preferred INT (interrupt) endpoint number. This is a
+  number from 0-15 and must be allowed by the bus interface device.
+
+  Some devices such as the SA-1110 and Linkup L7205/L7210 will
+  override this selection with a fixed address.
+
+CONFIG_USBD_SERIAL_IN_PKTSIZE
+  Specify the preferred INT (interrupt) endpoint number. This is a
+  number from 0-15 and must be allowed by the bus interface device.
+
+  Some devices such as the Linkup L7205/L7210 may override this value
+  with a lower maximum value (such as 32).
+
+CONFIG_USBD_SERIAL_OUT_PKTSIZE
+  Specify the maximum packet size for the OUT endpoint. This allowable
+  values are normally 16, 32 and 64. Some bus interface devices may
+  not support all values.
+
+  Some devices such as the Linkup L7205/L7210 may override this value
+  with a lower maximum value (such as 32).
+
+CONFIG_USBD_SERIAL_INT_PKTSIZE
+  Specify the maximum packet size for the INT endpoint. This allowable
+  values are normally 8 and 16. Some bus interface devices may not
+  support all values.
+
+  Some devices such as the L7205/L7210 may override this value with a
+  fixed value. Others such as the SA-1110 do not allow an interrupt
+  value.
+
+CONFIG_USBD_SERIAL_SAFE
+  Enable optional Safe Encapsulation layer for the serial driver.
+
+CONFIG_USBD_SERIAL_SAFE_DEFAULT
+  Set Secure option default value.
+
+CONFIG_USBD_SERIAL_SAFE_PADDED
+  Force all Secure mode packets to be padded to the full packetsize.

@@ -84,6 +84,9 @@ fi
 if [ "$CONFIG_EXPERIMENTAL" = "y" -a "$CONFIG_ZORRO" = "y" ]; then
    tristate 'Commodore A2232 serial support (EXPERIMENTAL)' CONFIG_A2232
 fi
+   tristate 'Enable Discovery Button/Keyboard support' CONFIG_DISCOVERY_KEY
+
+
 
 source drivers/serial/Config.in
 
@@ -188,6 +191,11 @@ if [ "$CONFIG_OBSOLETE" = "y" -a "$CONFIG_ALPHA_BOOK1" = "y" ]; then
 fi
 if [ "$CONFIG_ARCH_SA1100" = "y" ]; then
    tristate 'SA1100 Real Time Clock' CONFIG_SA1100_RTC
+fi
+if [ "$CONFIG_ARCH_COTULLA" = "y" ]; then
+   tristate 'Cotulla Real Time Clock' CONFIG_COTULLA_RTC
+   tristate 'ADS7846 Touch Pannel' CONFIG_ADS7846_TS
+   tristate 'Cotulla LED ' CONFIG_LED
 fi
 
 tristate 'Double Talk PC internal speech card support' CONFIG_DTLK

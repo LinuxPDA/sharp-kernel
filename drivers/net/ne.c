@@ -29,6 +29,7 @@
     last in cleanup_modue()
     Richard Guenther    : Added support for ISAPnP cards
     Paul Gortmaker	: Discontinued PCI support - use ne2k-pci.c instead.
+    SHARP Corporation	: Support for SL-A300 CF. (6/5/02) (not use)
 
 */
 
@@ -48,6 +49,9 @@ static const char version2[] =
 #include <linux/init.h>
 #include <linux/delay.h>
 #include <asm/system.h>
+#ifdef CONFIG_SABINAL_DISCOVERY
+#define CONFIG_REDEFINE_IO8BIT
+#endif
 #include <asm/io.h>
 
 #include <linux/netdevice.h>
