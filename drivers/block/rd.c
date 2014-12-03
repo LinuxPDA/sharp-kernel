@@ -200,7 +200,6 @@ static int rd_make_request(request_queue_t * q, int rw, struct buffer_head *sbh)
 	unsigned long offset, len;
 	struct buffer_head *rbh;
 	char *bdata;
-
 	
 	minor = MINOR(sbh->b_rdev);
 
@@ -852,10 +851,15 @@ static int __init fill_inbuf(void)
 static void __init flush_window(void)
 {
     ulg c = crc;         /* temporary variable */
-    unsigned n;
+    unsigned n, written;
     uch *in, ch;
     
-    crd_outfp->f_op->write(crd_outfp, window, outcnt, &crd_outfp->f_pos);
+    written = crd_outfp->f_op->write(crd_outfp, window, outcnt, &crd_outfp->f_pos);
+    if (written != outcnt && exit_code == 0) {
+    	printk(KERN_ERR "RAMDISK: incomplete write (ramdisk too small?) "
+		"(%d != %d)\n", written, outcnt);
+	exit_code = 1;
+    }
     in = window;
     for (n = 0; n < outcnt; n++) {
 	    ch = *in++;

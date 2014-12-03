@@ -50,15 +50,14 @@
 #define MAX_HWIFS	4	/* same as the other archs */
 #endif
 
-
 static __inline__ int ide_default_irq(ide_ioreg_t base)
 {
-	  return 0;
+	return 0;
 }
 
 static __inline__ ide_ioreg_t ide_default_io_base(int index)
 {
-          return 0;
+	return 0;
 }
 
 

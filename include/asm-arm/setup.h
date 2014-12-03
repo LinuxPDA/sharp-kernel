@@ -53,7 +53,7 @@ struct param_struct {
 	    unsigned long system_rev;		/* 76 */
 	    unsigned long system_serial_low;	/* 80 */
 	    unsigned long system_serial_high;	/* 84 */
-	    unsigned long mem_fclk_21285;       /* 88 */ 
+	    unsigned long mem_fclk_21285;       /* 88 */
 	} s;
 	char unused[256];
     } u1;
@@ -203,6 +203,17 @@ struct tagtable {
 	u32 tag;
 	int (*parse)(const struct tag *);
 };
+
+#define __tag __attribute__((unused, __section__(".taglist")))
+#define __tagtable(tag, fn) \
+static struct tagtable __tagtable_##fn __tag = { tag, fn }
+
+#define tag_member_present(tag,member)				\
+	((unsigned long)(&((struct tag *)0L)->member + 1)	\
+		<= (tag)->hdr.size * 4)
+
+#define tag_next(t)	((struct tag *)((u32 *)(t) + (t)->hdr.size))
+#define tag_size(type)	((sizeof(struct tag_header) + sizeof(struct type)) >> 2)
 
 /*
  * Memory map description

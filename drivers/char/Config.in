@@ -60,14 +60,43 @@ if [ "$CONFIG_SERIAL_NONSTANDARD" = "y" ]; then
      tristate '    Stallion EC8/64, ONboard, Brumby support' CONFIG_ISTALLION
    fi
 fi
-if [ "$CONFIG_FOOTBRIDGE" = "y" ]; then
-   bool 'DC21285 serial port support' CONFIG_SERIAL_21285
-   if [ "$CONFIG_SERIAL_21285" = "y" ]; then
-      if [ "$CONFIG_OBSOLETE" = "y" ]; then
-         bool '  Use /dev/ttyS0 device (OBSOLETE)' CONFIG_SERIAL_21285_OLD
-      fi
-      bool '  Console on DC21285 serial port' CONFIG_SERIAL_21285_CONSOLE
-   fi
+dep_bool 'DC21285 serial port support' CONFIG_SERIAL_21285 $CONFIG_FOOTBRIDGE
+dep_bool '  Use /dev/ttyS0 device (OBSOLETE)' CONFIG_SERIAL_21285_OLD $CONFIG_SERIAL_21285 $CONFIG_OBSOLETE
+dep_bool '  Console on DC21285 serial port' CONFIG_SERIAL_21285_CONSOLE $CONFIG_SERIAL_21285
+
+dep_bool 'SA1100 serial port support' CONFIG_SERIAL_SA1100 $CONFIG_ARCH_SA1100
+dep_bool '  Console on SA1100 serial port' CONFIG_SERIAL_SA1100_CONSOLE $CONFIG_SERIAL_SA1100
+if [ "$CONFIG_ARCH_SA1100" = "y" ]; then
+   int  '  Default SA1100 serial baudrate' CONFIG_SA1100_DEFAULT_BAUDRATE 9600
+fi
+
+dep_bool 'ARM AMBA serial port support' CONFIG_SERIAL_AMBA $CONFIG_ARCH_INTEGRATOR
+dep_bool '  Support for console on AMBA serial port' CONFIG_SERIAL_AMBA_CONSOLE $CONFIG_SERIAL_AMBA
+if [ "$CONFIG_SERIAL_AMBA" = "y" ]; then
+   define_bool CONFIG_SERIAL_INTEGRATOR y
+fi
+
+dep_bool 'CLPS711X serial port support' CONFIG_SERIAL_CLPS711X $CONFIG_ARCH_CLPS711X
+dep_bool '  Support for console on CLPS711X serial port' CONFIG_SERIAL_CLPS711X_CONSOLE $CONFIG_SERIAL_CLPS711X
+
+#dep_bool 'Anakin serial port support' CONFIG_SERIAL_ANAKIN $CONFIG_ARCH_ANAKIN
+#dep_bool '  Console on Anakin serial port' CONFIG_SERIAL_ANAKIN_CONSOLE $CONFIG_SERIAL_ANAKIN
+#if [ "$CONFIG_SERIAL_ANAKIN" = "y" ]; then
+#   int  '  Default Anakin serial baudrate' CONFIG_ANAKIN_DEFAULT_BAUDRATE 9600
+#fi
+#dep_tristate 'Anakin touchscreen support' CONFIG_TOUCHSCREEN_ANAKIN $CONFIG_ARCH_ANAKIN
+
+if [ "$CONFIG_SERIAL_AMBA" = "y" -o \
+     "$CONFIG_SERIAL_CLPS711X" = "y" -o \
+     "$CONFIG_SERIAL_SA1100" = "y" -o \
+     "$CONFIG_SERIAL_ANAKIN" = "y" ]; then
+   define_bool CONFIG_SERIAL_CORE y
+fi
+if [ "$CONFIG_SERIAL_AMBA_CONSOLE" = "y" -o \
+     "$CONFIG_SERIAL_CLPS711X_CONSOLE" = "y" -o \
+     "$CONFIG_SERIAL_SA1100_CONSOLE" = "y" -o \
+     "$CONFIG_SERIAL_ANAKIN_CONSOLE" = "y" ]; then
+   define_bool CONFIG_SERIAL_CORE_CONSOLE y
 fi
 bool 'Unix98 PTY support' CONFIG_UNIX98_PTYS
 if [ "$CONFIG_UNIX98_PTYS" = "y" ]; then
@@ -137,13 +166,10 @@ if [ "$CONFIG_WATCHDOG" != "n" ]; then
    tristate '  SBC-60XX Watchdog Timer' CONFIG_60XX_WDT
    tristate '  Mixcom Watchdog' CONFIG_MIXCOMWD 
    tristate '  Intel i810 TCO timer / Watchdog' CONFIG_I810_TCO
-   if [ "$CONFIG_FOOTBRIDGE" = "y" ]; then
-      tristate '  DC21285 watchdog' CONFIG_21285_WATCHDOG
-      if [ "$CONFIG_ARCH_NETWINDER" = "y" ]; then
-         tristate '  NetWinder WB83C977 watchdog' CONFIG_977_WATCHDOG
-      fi
-   fi
+   dep_tristate '  DC21285 watchdog' CONFIG_21285_WATCHDOG $CONFIG_FOOTBRIDGE
+   dep_tristate '  NetWinder WB83C977 watchdog' CONFIG_977_WATCHDOG $CONFIG_ARCH_NETWINDER
    tristate '  ZF MachZ Watchdog' CONFIG_MACHZ_WDT
+   dep_tristate '  SA1100 watchdog' CONFIG_SA1100_WATCHDOG $CONFIG_ARCH_SA1100
 fi
 endmenu
 
@@ -164,6 +190,9 @@ if [ "$CONFIG_IA64" = "y" ]; then
 fi
 if [ "$CONFIG_OBSOLETE" = "y" -a "$CONFIG_ALPHA_BOOK1" = "y" ]; then
    bool 'Tadpole ANA H8 Support'  CONFIG_H8
+fi
+if [ "$CONFIG_ARCH_SA1100" = "y" ]; then
+   tristate 'SA1100 Real Time Clock' CONFIG_SA1100_RTC
 fi
 
 tristate 'Double Talk PC internal speech card support' CONFIG_DTLK

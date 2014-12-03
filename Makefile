@@ -1,7 +1,7 @@
 VERSION = 2
 PATCHLEVEL = 4
 SUBLEVEL = 6
-EXTRAVERSION =
+EXTRAVERSION =-rmk1
 
 KERNELRELEASE=$(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
 
@@ -153,6 +153,7 @@ ifneq ($(CONFIG_CD_NO_IDESCSI)$(CONFIG_BLK_DEV_IDECD)$(CONFIG_BLK_DEV_SR)$(CONFI
 DRIVERS-y += drivers/cdrom/driver.o
 endif
 
+DRIVERS-$(CONFIG_SSI) += drivers/ssi/ssi.o
 DRIVERS-$(CONFIG_SOUND) += drivers/sound/sounddrivers.o
 DRIVERS-$(CONFIG_PCI) += drivers/pci/driver.o
 DRIVERS-$(CONFIG_MTD) += drivers/mtd/mtdlink.o
@@ -234,11 +235,6 @@ include arch/$(ARCH)/Makefile
 export	CPPFLAGS CFLAGS AFLAGS
 
 export	NETWORKS DRIVERS LIBS HEAD LDFLAGS LINKFLAGS MAKEBOOT ASFLAGS
-
-.S.s:
-	$(CPP) $(AFLAGS) -traditional -o $*.s $<
-.S.o:
-	$(CC) $(AFLAGS) -traditional -c -o $*.o $<
 
 Version: dummy
 	@rm -f include/linux/compile.h

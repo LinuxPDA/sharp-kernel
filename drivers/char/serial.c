@@ -3159,14 +3159,15 @@ static int rs_open(struct tty_struct *tty, struct file * filp)
 
 	if (!tmp_buf) {
 		page = get_zeroed_page(GFP_KERNEL);
-		if (!page) {
-			MOD_DEC_USE_COUNT;
-			return -ENOMEM;
-		}
 		if (tmp_buf)
 			free_page(page);
-		else
+		else {
+			if (!page) {
+				MOD_DEC_USE_COUNT;
+				return -ENOMEM;
+			}
 			tmp_buf = (unsigned char *) page;
+		}
 	}
 
 	/*

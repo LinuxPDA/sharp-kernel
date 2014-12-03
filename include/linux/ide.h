@@ -115,16 +115,16 @@ typedef unsigned char	byte;	/* used everywhere */
 #define IDE_FEATURE_OFFSET	IDE_ERROR_OFFSET
 #define IDE_COMMAND_OFFSET	IDE_STATUS_OFFSET
 
-#define IDE_DATA_REG		(HWIF(drive)->io_ports[IDE_DATA_OFFSET])
-#define IDE_ERROR_REG		(HWIF(drive)->io_ports[IDE_ERROR_OFFSET])
-#define IDE_NSECTOR_REG		(HWIF(drive)->io_ports[IDE_NSECTOR_OFFSET])
-#define IDE_SECTOR_REG		(HWIF(drive)->io_ports[IDE_SECTOR_OFFSET])
-#define IDE_LCYL_REG		(HWIF(drive)->io_ports[IDE_LCYL_OFFSET])
-#define IDE_HCYL_REG		(HWIF(drive)->io_ports[IDE_HCYL_OFFSET])
-#define IDE_SELECT_REG		(HWIF(drive)->io_ports[IDE_SELECT_OFFSET])
-#define IDE_STATUS_REG		(HWIF(drive)->io_ports[IDE_STATUS_OFFSET])
-#define IDE_CONTROL_REG		(HWIF(drive)->io_ports[IDE_CONTROL_OFFSET])
-#define IDE_IRQ_REG		(HWIF(drive)->io_ports[IDE_IRQ_OFFSET])
+#define IDE_DATA_REG		(HWIF(drive)->hw.io_ports[IDE_DATA_OFFSET])
+#define IDE_ERROR_REG		(HWIF(drive)->hw.io_ports[IDE_ERROR_OFFSET])
+#define IDE_NSECTOR_REG		(HWIF(drive)->hw.io_ports[IDE_NSECTOR_OFFSET])
+#define IDE_SECTOR_REG		(HWIF(drive)->hw.io_ports[IDE_SECTOR_OFFSET])
+#define IDE_LCYL_REG		(HWIF(drive)->hw.io_ports[IDE_LCYL_OFFSET])
+#define IDE_HCYL_REG		(HWIF(drive)->hw.io_ports[IDE_HCYL_OFFSET])
+#define IDE_SELECT_REG		(HWIF(drive)->hw.io_ports[IDE_SELECT_OFFSET])
+#define IDE_STATUS_REG		(HWIF(drive)->hw.io_ports[IDE_STATUS_OFFSET])
+#define IDE_CONTROL_REG		(HWIF(drive)->hw.io_ports[IDE_CONTROL_OFFSET])
+#define IDE_IRQ_REG		(HWIF(drive)->hw.io_ports[IDE_IRQ_OFFSET])
 
 #define IDE_FEATURE_REG		IDE_ERROR_REG
 #define IDE_COMMAND_REG		IDE_STATUS_REG
@@ -183,7 +183,7 @@ typedef unsigned char	byte;	/* used everywhere */
 {								\
 	if (hwif->selectproc)					\
 		hwif->selectproc(drive);			\
-	OUT_BYTE((drive)->select.all, hwif->io_ports[IDE_SELECT_OFFSET]); \
+	OUT_BYTE((drive)->select.all, hwif->hw.io_ports[IDE_SELECT_OFFSET]); \
 }
 
 #define SELECT_INTERRUPT(hwif,drive)				\
@@ -191,7 +191,7 @@ typedef unsigned char	byte;	/* used everywhere */
 	if (hwif->intrproc)					\
 		hwif->intrproc(drive);				\
 	else							\
-		OUT_BYTE((drive)->ctl|2, hwif->io_ports[IDE_CONTROL_OFFSET]);	\
+		OUT_BYTE((drive)->ctl|2, hwif->hw.io_ports[IDE_CONTROL_OFFSET]);	\
 }
 
 #define SELECT_MASK(hwif,drive,mask)				\
@@ -219,7 +219,9 @@ typedef unsigned char	byte;	/* used everywhere */
  * Check for an interrupt and acknowledge the interrupt status
  */
 struct hwif_s;
+struct ide_drive_s;
 typedef int (ide_ack_intr_t)(struct hwif_s *);
+typedef void (ide_xfer_data_t)(struct ide_drive_s *, void *, unsigned int);
 
 #ifndef NO_DMA
 #define NO_DMA  255
@@ -229,10 +231,14 @@ typedef int (ide_ack_intr_t)(struct hwif_s *);
  * Structure to hold all information about the location of this port
  */
 typedef struct hw_regs_s {
-	ide_ioreg_t	io_ports[IDE_NR_PORTS];	/* task file registers */
-	int		irq;			/* our irq number */
-	int		dma;			/* our dma entry */
-	ide_ack_intr_t	*ack_intr;		/* acknowledge interrupt */
+	ide_ioreg_t	io_ports[IDE_NR_PORTS];	/* task file registers	   */
+	int		irq;			/* our irq number	   */
+	int		dma;			/* our DMA number	   */
+	ide_ack_intr_t	*ack_intr;		/* acknowledge interrupt   */
+	ide_xfer_data_t	*ide_output_data;	/* write data to i/face	   */
+	ide_xfer_data_t	*ide_input_data;	/* read data from i/face   */
+	ide_xfer_data_t	*atapi_output_bytes;	/* write bytes to i/face   */
+	ide_xfer_data_t	*atapi_input_bytes;	/* read bytes from i/face  */
 	void		*priv;			/* interface specific data */
 } hw_regs_t;
 
@@ -405,7 +411,7 @@ typedef enum {	ide_unknown,	ide_generic,	ide_pci,
 		ide_qd6580,	ide_umc8672,	ide_ht6560b,
 		ide_pdc4030,	ide_rz1000,	ide_trm290,
 		ide_cmd646,	ide_cy82c693,	ide_4drives,
-		ide_pmac
+		ide_pmac,	ide_acorn
 } hwif_chipset_t;
 
 #ifdef CONFIG_BLK_DEV_IDEPCI
@@ -421,7 +427,6 @@ typedef struct ide_pci_devid_s {
 typedef struct hwif_s {
 	struct hwif_s	*next;		/* for linked-list in ide_hwgroup_t */
 	void		*hwgroup;	/* actually (ide_hwgroup_t *) */
-	ide_ioreg_t	io_ports[IDE_NR_PORTS];	/* task file registers */
 	hw_regs_t	hw;		/* Hardware info */
 	ide_drive_t	drives[MAX_DRIVES];	/* drive info */
 	struct gendisk	*gd;		/* gendisk structure */
@@ -445,7 +450,6 @@ typedef struct hwif_s {
 	unsigned long	config_data;	/* for use by chipset-specific code */
 	unsigned long	select_data;	/* for use by chipset-specific code */
 	struct proc_dir_entry *proc;	/* /proc/ide/ directory entry */
-	int		irq;		/* our irq number */
 	byte		major;		/* our major number */
 	char 		name[6];	/* name of interface, eg. "ide0" */
 	byte		index;		/* 0 for ide0; 1 for ide1; ... */

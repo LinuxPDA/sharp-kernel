@@ -2168,7 +2168,7 @@ int usb_new_device(struct usb_device *dev)
 	wait_ms(10);	/* Let the SET_ADDRESS settle */
 
 	err = usb_get_descriptor(dev, USB_DT_DEVICE, 0, &dev->descriptor, 8);
-	if (err < 8) {
+	if (err < (signed)8/*sizeof(dev->descriptor)*/) {
 		if (err < 0)
 			err("USB device not responding, giving up (error=%d)", err);
 		else
@@ -2181,7 +2181,7 @@ int usb_new_device(struct usb_device *dev)
 	dev->epmaxpacketout[0] = dev->descriptor.bMaxPacketSize0;
 
 	err = usb_get_device_descriptor(dev);
-	if (err < (signed)sizeof(dev->descriptor)) {
+	if (err < (signed)18 /*sizeof(dev->descriptor)*/) {
 		if (err < 0)
 			err("unable to get device descriptor (error=%d)", err);
 		else

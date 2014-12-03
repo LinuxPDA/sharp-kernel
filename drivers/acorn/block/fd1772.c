@@ -3,7 +3,7 @@
  *  Based on ataflop.c in the m68k Linux
  *  Copyright (C) 1993  Greg Harp
  *  Atari Support by Bjoern Brauel, Roman Hodek
- *  Archimedes Support by Dave Gilbert (gilbertd@cs.man.ac.uk)
+ *  Archimedes Support by Dave Gilbert (linux@treblig.org)
  *
  *  Big cleanup Sep 11..14 1994 Roman Hodek:
  *   - Driver now works interrupt driven
@@ -118,11 +118,16 @@
  * DAG 30/01/99 - Started frobbing for 2.2.1
  * DAG 20/06/99 - A little more frobbing:
  *     Included include/asm/uaccess.h for get_user/put_user
+ *
+ * DAG  1/09/00 - Dusted off for 2.4.0-test7
+ *                MAX_SECTORS was name clashing so it is now FD1772_...
+ *                Minor parameter, name layouts for 2.4.x differences
  */
 
 #include <linux/sched.h>
 #include <linux/fs.h>
 #include <linux/fcntl.h>
+#include <linux/malloc.h>
 #include <linux/kernel.h>
 #include <linux/interrupt.h>
 #include <linux/timer.h>
@@ -140,7 +145,7 @@
 #include <asm/dma.h>
 #include <asm/hardware.h>
 #include <asm/io.h>
-#include <asm/ioc.h>
+#include <asm/hardware/ioc.h>
 #include <asm/irq.h>
 #include <asm/mach-types.h>
 #include <asm/pgtable.h>
@@ -242,7 +247,7 @@ void FDC1772_WRITE(int reg, unsigned char val)
 	outb(val, (reg / 2) + FDC1772BASE);
 };
 
-#define	MAX_SECTORS	22
+#define	FD1772_MAX_SECTORS	22
 
 unsigned char *DMABuffer;	/* buffer for writes */
 /*static unsigned long PhysDMABuffer; *//* physical address */
@@ -275,6 +280,7 @@ static int MotorOn = 0, MotorOffTrys;
 /* Synchronization of FDC1772 access. */
 static volatile int fdc_busy = 0;
 static DECLARE_WAIT_QUEUE_HEAD(fdc_wait);
+
 
 /* long req'd for set_bit --RR */
 static unsigned long changed_floppies = 0xff, fake_change = 0;
@@ -369,18 +375,18 @@ static void fd_probe(int drive);
 static int fd_test_drive_present(int drive);
 static void config_types(void);
 static int floppy_open(struct inode *inode, struct file *filp);
-static void floppy_release(struct inode *inode, struct file *filp);
+static int floppy_release(struct inode *inode, struct file *filp);
 
 /************************* End of Prototypes **************************/
 
 static struct timer_list motor_off_timer =
-{NULL, NULL, 0, 0, fd_motor_off_timer};
+{ {NULL,NULL}, 0, 0, fd_motor_off_timer};
 #ifdef TRACKBUFFER
 static struct timer_list readtrack_timer =
-             { NULL, NULL, 0, 0, fd_readtrack_check };
+             { {NULL,NULL}, 0, 0, fd_readtrack_check };
 #endif
 static struct timer_list timeout_timer =
-{NULL, NULL, 0, 0, fd_times_out};
+{ {NULL,NULL}, 0, 0, fd_times_out};
 
 /* DAG: Haven't got a clue what this is? */
 int stdma_islocked(void)
@@ -720,7 +726,7 @@ static void fd_seek(void)
 		      unit[SelectedDrive].disktype->stretch);
 	udelay(25);
   save_flags(flags);
-  cliIF();
+  clf();
 	SET_IRQ_HANDLER(fd_seek_done);
 	FDC1772_WRITE(FDC1772REG_CMD, FDC1772CMD_SEEK | unit[SelectedDrive].steprate |
 		/* DAG */
@@ -810,7 +816,7 @@ static void fd_rwsec(void)
 	DPRINT(("fd_rwsec() before setup DMA \n"));
 	/* Setup DMA - Heavily modified by DAG */
 	save_flags(flags);
-	cliIF();
+	clf();
 	disable_dma(FLOPPY_DMA);
 	set_dma_mode(FLOPPY_DMA, rwflag ? DMA_MODE_WRITE : DMA_MODE_READ);
 	set_dma_addr(FLOPPY_DMA, (long) paddr);		/* DAG - changed from Atari specific */
@@ -877,7 +883,7 @@ static void fd_readtrack_check( unsigned long dummy )
   DPRINT(("fd_readtrack_check @ %d\n",jiffies));
 
   save_flags(flags);
-  cliIF();
+  clf();
 
   del_timer( &readtrack_timer );
 
@@ -893,10 +899,10 @@ static void fd_readtrack_check( unsigned long dummy )
   }
 
   /* get the current DMA address */
-  addr=fdc1772_dataaddr; /* DAG - ? */
+  addr=(unsigned long)fdc1772_dataaddr; /* DAG - ? */
   DPRINT(("fd_readtrack_check: addr=%x PhysTrackBuffer=%x\n",addr,PhysTrackBuffer));
 
-  if (addr >= PhysTrackBuffer + unit[SelectedDrive].disktype->spt*512) {
+  if (addr >= (unsigned int)PhysTrackBuffer + unit[SelectedDrive].disktype->spt*512) {
     /* already read enough data, force an FDC interrupt to stop
      * the read operation
      */
@@ -1008,7 +1014,7 @@ static void fd_rwsec_done(int status)
       }
     else
       {
-        /*cache_clear (PhysTrackBuffer, MAX_SECTORS * 512);*/
+        /*cache_clear (PhysTrackBuffer, FD1772_MAX_SECTORS * 512);*/
         BufferDrive = SelectedDrive;
         BufferSide  = ReqSide;
         BufferTrack = ReqTrack;
@@ -1118,9 +1124,9 @@ static void finish_fdc_done(int dummy)
 
 
 /* Prevent "aliased" accesses. */
-static fd_ref[4] =
+static int fd_ref[4] =
 {0, 0, 0, 0};
-static fd_device[4] =
+static int fd_device[4] =
 {0, 0, 0, 0};
 
 /*
@@ -1311,7 +1317,7 @@ static void fd1772_checkint(void)
   };
 };
 
-void do_fd_request(void)
+void do_fd_request(request_queue_t* q)
 {
 	unsigned long flags;
 
@@ -1352,9 +1358,6 @@ static int fd_ioctl(struct inode *inode, struct file *filp,
 	int drive, device;
 
 	device = inode->i_rdev;
-	switch (cmd) {
-		RO_IOCTLS(inode->i_rdev, param);
-	}
 	drive = MINOR(device);
 	switch (cmd) {
 	case FDFMTBEG:
@@ -1428,7 +1431,7 @@ static int fd_test_drive_present(int drive)
 		/*  if (!(mfp.par_dt_reg & 0x20))
 		   break; */
 		/* Well this is my nearest guess - quit when we get an FDC interrupt */
-		if (IOC_FIQSTAT & 2)
+		if (ioc_readb(IOC_FIQSTAT) & 2)
 			break;
 	}
 
@@ -1451,7 +1454,7 @@ static int fd_test_drive_present(int drive)
 		FDC1772_WRITE(FDC1772REG_CMD, FDC1772CMD_SEEK);
 		printk("fd_test_drive_present: just before wait for int\n");
 		/* DAG: Guess means wait for interrupt */
-		while (!(IOC_FIQSTAT & 2));
+		while (!(ioc_readb(IOC_FIQSTAT) & 2));
 		printk("fd_test_drive_present: just after wait for int\n");
 		status = FDC1772_READ(FDC1772REG_STATUS);
 	}
@@ -1553,7 +1556,7 @@ static int floppy_open(struct inode *inode, struct file *filp)
 }
 
 
-static void floppy_release(struct inode *inode, struct file *filp)
+static int floppy_release(struct inode *inode, struct file *filp)
 {
 	int drive = MINOR(inode->i_rdev) & 3;
 
@@ -1563,11 +1566,12 @@ static void floppy_release(struct inode *inode, struct file *filp)
 		printk("floppy_release with fd_ref == 0");
 		fd_ref[drive] = 0;
 	}
+
+  return 0;
 }
 
 static struct block_device_operations floppy_fops =
 {
-	owner:			THIS_MODULE,
 	open:			floppy_open,
 	release:		floppy_release,
 	ioctl:			fd_ioctl,
@@ -1580,7 +1584,7 @@ int fd1772_init(void)
 {
 	int i;
 
-	if (!machine_is_arc())
+	if (!machine_is_archimedes())
 		return 0;
 
 	if (register_blkdev(MAJOR_NR, "fd", &floppy_fops)) {
@@ -1609,10 +1613,9 @@ int fd1772_init(void)
 	/* initialize check_change timer */
 	init_timer(&fd_timer);
 	fd_timer.function = check_change;
-}
 
 #ifdef TRACKBUFFER
-  DMABuffer = (char *)kmalloc((MAX_SECTORS+1)*512,GFP_KERNEL); /* Atari uses 512 - I want to eventually cope with 1K sectors */
+  DMABuffer = (char *)kmalloc((FD1772_MAX_SECTORS+1)*512,GFP_KERNEL); /* Atari uses 512 - I want to eventually cope with 1K sectors */
   TrackBuffer = DMABuffer + 512;
 #else
 	/* Allocate memory for the DMAbuffer - on the Atari this takes it
@@ -1635,7 +1638,7 @@ int fd1772_init(void)
 
 	blk_size[MAJOR_NR] = floppy_sizes;
 	blksize_size[MAJOR_NR] = floppy_blocksizes;
-	blk_dev[MAJOR_NR].request_fn = DEVICE_REQUEST;
+  blk_init_queue(BLK_DEFAULT_QUEUE(MAJOR_NR), DEVICE_REQUEST);
 
 	config_types();
 

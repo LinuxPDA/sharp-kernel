@@ -1,12 +1,12 @@
 #
 # linux/drivers/maps/Makefile
 #
-# $Id: Makefile,v 1.9.2.1 2001/06/09 19:43:49 dwmw2 Exp $
+# $Id: Makefile,v 1.9 2001/06/09 18:55:22 rmk Exp $
 
 O_TARGET	:= mapslink.o
 
 # Chip mappings
-
+obj-$(CONFIG_MTD_ARM_INTEGRATOR)+= integrator-flash.o
 obj-$(CONFIG_MTD_CFI_FLAGADM)	+= cfi_flagadm.o
 obj-$(CONFIG_MTD_CSTM_MIPS_IXX) += cstm_mips_ixx.o
 obj-$(CONFIG_MTD_DC21285)       += dc21285.o

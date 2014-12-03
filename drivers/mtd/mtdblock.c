@@ -1,7 +1,7 @@
 /* 
  * Direct MTD block device access
  *
- * $Id: mtdblock.c,v 1.38 2000/11/27 08:50:22 dwmw2 Exp $
+ * $Id: mtdblock.c,v 1.42 2001/06/02 14:30:42 dwmw2 Exp $
  *
  * 02-nov-2000	Nicolas Pitre		Added read-modify-write with cache
  */
@@ -359,7 +359,7 @@ static release_t mtdblock_release(struct inode *inode, struct file *file)
 
 	if (inode == NULL)
 		release_return(-ENODEV);
-   
+
 	invalidate_device(inode->i_rdev, 1);
 
 	dev = MINOR(inode->i_rdev);
@@ -603,7 +603,7 @@ static void mtd_notify_remove(struct mtd_info* mtd)
 #define cleanup_mtdblock cleanup_module
 #endif
 
-int __init init_mtdblock(void)
+mod_init_t init_mtdblock(void)
 {
 	int i;
 
@@ -645,7 +645,7 @@ int __init init_mtdblock(void)
 	return 0;
 }
 
-static void __exit cleanup_mtdblock(void)
+mod_exit_t cleanup_mtdblock(void)
 {
 	leaving = 1;
 	wake_up(&thr_wq);

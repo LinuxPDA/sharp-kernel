@@ -53,15 +53,6 @@
  */
 /*#define CFB16_IS_CFB15*/
 
-/*
- * This is the offset of the PCI space in physical memory
- */
-#ifdef CONFIG_FOOTBRIDGE
-#define PCI_PHYS_OFFSET	0x80000000
-#else
-#define	PCI_PHYS_OFFSET	0x00000000
-#endif
-
 static char			*CyberRegs;
 
 #include "cyber2000fb.h"
@@ -367,6 +358,7 @@ struct par_info {
 	 * Other
 	 */
 	u_char	palette_ctrl;
+	u_int	vmode;
 };
 
 static const u_char crtc_idx[] = {
@@ -426,6 +418,16 @@ static void cyber2000fb_set_timing(struct cfb_info *cfb, struct par_info *hw)
 	cyber2000_attrw(0x12, 0x0f);
 	cyber2000_attrw(0x13, 0x00);
 	cyber2000_attrw(0x14, 0x00);
+
+	/* woody: set the interlaced bit... */
+	/* FIXME: what about doublescan? */
+	cyber2000_outb(0x11, 0x3ce);
+	i = cyber2000_inb(0x3cf);
+	if (hw->vmode == FB_VMODE_INTERLACED)
+		i |= 0x20;
+	else
+		i &= ~0x20;
+	cyber2000_outb(i, 0x3cf);
 
 	/* PLL registers */
 	cyber2000_grphw(DCLK_MULT, hw->clock_mult);
@@ -711,6 +713,7 @@ cyber2000fb_decode_var(struct fb_var_screeninfo *var, struct cfb_info *cfb,
 
 	hw->width = var->xres_virtual;
 	hw->palette_ctrl = 0x06;
+	hw->vmode = var->vmode;
 
 	switch (var->bits_per_pixel) {
 #ifdef FBCON_HAS_CFB8
@@ -1349,7 +1352,7 @@ static inline void cyberpro_init_hw(struct cfb_info *cfb, int at_boot)
 }
 
 static struct cfb_info * __devinit
-cyberpro_alloc_fb_info(struct pci_dev *dev, const struct pci_device_id *id)
+cyberpro_alloc_fb_info(struct pci_dev *dev, const struct pci_device_id *id, char *name)
 {
 	struct cfb_info *cfb;
 
@@ -1373,7 +1376,7 @@ cyberpro_alloc_fb_info(struct pci_dev *dev, const struct pci_device_id *id)
 	else
 		cfb->divisors[3] = 8;
 
-	sprintf(cfb->fb.fix.id, "CyberPro%4X", id->device);
+	strcpy(cfb->fb.fix.id, name);
 
 	cfb->fb.fix.type	= FB_TYPE_PACKED_PIXELS;
 	cfb->fb.fix.type_aux	= 0;
@@ -1428,13 +1431,8 @@ cyberpro_map_mmio(struct cfb_info *cfb, struct pci_dev *dev)
 
 	mmio_base = pci_resource_start(dev, 0) + MMIO_OFFSET;
 
-	cfb->fb.fix.mmio_start = mmio_base + PCI_PHYS_OFFSET;
+	cfb->fb.fix.mmio_start = mmio_base;
 	cfb->fb.fix.mmio_len   = MMIO_SIZE;
-
-	if (!request_mem_region(mmio_base, MMIO_SIZE, "memory mapped I/O")) {
-		printk("%s: memory mapped IO in use\n", cfb->fb.fix.id);
-		return -EBUSY;
-	}
 
 	CyberRegs = ioremap(mmio_base, MMIO_SIZE);
 	if (!CyberRegs) {
@@ -1453,9 +1451,6 @@ static void __devinit cyberpro_unmap_mmio(struct cfb_info *cfb)
 	if (cfb && CyberRegs) {
 		iounmap(CyberRegs);
 		CyberRegs = NULL;
-
-		release_mem_region(cfb->fb.fix.mmio_start - PCI_PHYS_OFFSET,
-				   cfb->fb.fix.mmio_len);
 	}
 }
 
@@ -1469,14 +1464,8 @@ cyberpro_map_smem(struct cfb_info *cfb, struct pci_dev *dev, u_long smem_len)
 
 	smem_base = pci_resource_start(dev, 0);
 
-	cfb->fb.fix.smem_start	= smem_base + PCI_PHYS_OFFSET;
+	cfb->fb.fix.smem_start	= smem_base;
 	cfb->fb.fix.smem_len	= smem_len;
-
-	if (!request_mem_region(smem_base, smem_len, "frame buffer")) {
-		printk("%s: frame buffer in use\n",
-		       cfb->fb.fix.id);
-		return -EBUSY;
-	}
 
 	cfb->fb.screen_base = ioremap(smem_base, smem_len);
 	if (!cfb->fb.screen_base) {
@@ -1493,9 +1482,6 @@ static void __devinit cyberpro_unmap_smem(struct cfb_info *cfb)
 	if (cfb && cfb->fb.screen_base) {
 		iounmap(cfb->fb.screen_base);
 		cfb->fb.screen_base = NULL;
-
-		release_mem_region(cfb->fb.fix.smem_start - PCI_PHYS_OFFSET,
-				   cfb->fb.fix.smem_len);
 	}
 }
 
@@ -1505,14 +1491,21 @@ cyberpro_probe(struct pci_dev *dev, const struct pci_device_id *id)
 	struct cfb_info *cfb;
 	u_int h_sync, v_sync;
 	u_long smem_size;
+	char name[16];
 	int err;
+
+	sprintf(name, "CyberPro%4X", id->device);
 
 	err = pci_enable_device(dev);
 	if (err)
 		return err;
 
+	err = pci_request_regions(dev, name);
+	if (err)
+		return err;
+
 	err = -ENOMEM;
-	cfb = cyberpro_alloc_fb_info(dev, id);
+	cfb = cyberpro_alloc_fb_info(dev, id, name);
 	if (!cfb)
 		goto failed;
 
@@ -1570,7 +1563,7 @@ cyberpro_probe(struct pci_dev *dev, const struct pci_device_id *id)
 	/*
 	 * Our driver data
 	 */
-	dev->driver_data = cfb;
+	pci_set_drvdata(dev, cfb);
 	if (int_cfb_info == NULL)
 		int_cfb_info = cfb;
 
@@ -1581,12 +1574,15 @@ failed:
 	cyberpro_unmap_mmio(cfb);
 	cyberpro_free_fb_info(cfb);
 
+release:
+	pci_release_regions(dev);
+
 	return err;
 }
 
 static void __devexit cyberpro_remove(struct pci_dev *dev)
 {
-	struct cfb_info *cfb = (struct cfb_info *)dev->driver_data;
+	struct cfb_info *cfb = pci_get_drvdata(dev);
 
 	if (cfb) {
 		/*
@@ -1606,9 +1602,11 @@ static void __devexit cyberpro_remove(struct pci_dev *dev)
 		 * Ensure that the driver data is no longer
 		 * valid.
 		 */
-		dev->driver_data = NULL;
+		pci_set_drvdata(dev, NULL);
 		if (cfb == int_cfb_info)
 			int_cfb_info = NULL;
+
+		pci_release_regions(dev);
 	}
 }
 
@@ -1622,7 +1620,7 @@ static int cyberpro_suspend(struct pci_dev *dev, u32 state)
  */
 static int cyberpro_resume(struct pci_dev *dev)
 {
-	struct cfb_info *cfb = (struct cfb_info *)dev->driver_data;
+	struct cfb_info *cfb = pci_get_drvdata(dev);
 
 	if (cfb) {
 		cyberpro_init_hw(cfb, 0);

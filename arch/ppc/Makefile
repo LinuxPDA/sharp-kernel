@@ -20,7 +20,7 @@ ifeq ($(shell uname -m),ppc)
 CHECKS		= checks
 endif
 
-ASFLAGS		=
+AFLAGS		=
 LINKFLAGS	= -T arch/ppc/vmlinux.lds -Ttext $(KERNELLOAD) -Bstatic
 CPPFLAGS	:= $(CPPFLAGS) -D__powerpc__
 CFLAGS		:= $(CFLAGS) -D__powerpc__ -fsigned-char \

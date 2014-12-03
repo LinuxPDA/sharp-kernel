@@ -77,6 +77,7 @@ drop_pte:
 		if (!page->age)
 			deactivate_page(page);
 		UnlockPage(page);
+		memc_clear(vma->vm_mm, page);
 		page_cache_release(page);
 		return;
 	}

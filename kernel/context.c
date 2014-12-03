@@ -63,7 +63,7 @@ int schedule_task(struct tq_struct *task)
 	return ret;
 }
 
-static int context_thread(void *dummy)
+static int context_thread(void *sem)
 {
 	struct task_struct *curtask = current;
 	DECLARE_WAITQUEUE(wait, curtask);
@@ -78,6 +78,8 @@ static int context_thread(void *dummy)
 	siginitsetinv(&curtask->blocked, sigmask(SIGCHLD));
 	recalc_sigpending(curtask);
 	spin_unlock_irq(&curtask->sigmask_lock);
+
+	up((struct semaphore *)sem);
 
 	/* Install a handler so SIGCLD is delivered */
 	sa.sa.sa_handler = SIG_IGN;
@@ -150,7 +152,9 @@ void flush_scheduled_tasks(void)
 	
 int start_context_thread(void)
 {
-	kernel_thread(context_thread, NULL, CLONE_FS | CLONE_FILES);
+	DECLARE_MUTEX_LOCKED(sem);
+	kernel_thread(context_thread, &sem, CLONE_FS | CLONE_FILES);
+	down(&sem);
 	return 0;
 }
 

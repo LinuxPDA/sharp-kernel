@@ -33,6 +33,7 @@
 #include <net/sock.h>
  
 #include <asm/byteorder.h>
+#include <asm/unaligned.h>
 
 #include <net/irda/irda.h>
 #include <net/irda/irda_device.h>
@@ -133,8 +134,8 @@ void irlap_send_snrm_frame(struct irlap_cb *self, struct qos_info *qos)
 	 */
 	if (qos) {
 		skb_put(skb, 9); /* 21 left */
-		frame->saddr = cpu_to_le32(self->saddr);
-		frame->daddr = cpu_to_le32(self->daddr);
+		put_unaligned(cpu_to_le32(self->saddr), &frame->saddr);
+		put_unaligned(cpu_to_le32(self->daddr), &frame->daddr);
 
 		frame->ncaddr = self->caddr;
 				
@@ -160,7 +161,7 @@ static void irlap_recv_snrm_cmd(struct irlap_cb *self, struct sk_buff *skb,
 
 	frame = (struct snrm_frame *) skb->data;
 	
-	if (skb->len >= sizeof(struct snrm_frame)) {
+	if (skb->len >= 11 /*sizeof(struct snrm_frame)*/) {
 		/* Copy the new connection address */
 		info->caddr = frame->ncaddr;
 
@@ -172,8 +173,8 @@ static void irlap_recv_snrm_cmd(struct irlap_cb *self, struct sk_buff *skb,
 		}
 		
 		/* Copy peer device address */
-		info->daddr = le32_to_cpu(frame->saddr);
-		info->saddr = le32_to_cpu(frame->daddr);
+		info->daddr = le32_to_cpu(get_unaligned(&frame->saddr));
+		info->saddr = le32_to_cpu(get_unaligned(&frame->daddr));
 		
 		/* Only accept if addressed directly to us */
 		if (info->saddr != self->saddr) {
@@ -217,8 +218,8 @@ void irlap_send_ua_response_frame(struct irlap_cb *self, struct qos_info *qos)
 	frame->caddr = self->caddr;
  	frame->control = UA_RSP | PF_BIT;
 
-	frame->saddr = cpu_to_le32(self->saddr);
-	frame->daddr = cpu_to_le32(self->daddr);
+	put_unaligned(cpu_to_le32(self->saddr), &frame->saddr);
+	put_unaligned(cpu_to_le32(self->daddr), &frame->daddr);
 
 	/* Should we send QoS negotiation parameters? */
 	if (qos) {
@@ -302,7 +303,7 @@ void irlap_send_discovery_xid_frame(struct irlap_cb *self, int S, __u8 s,
 {
 	struct sk_buff *skb = NULL;
 	struct xid_frame *frame;
-	__u32 bcast = BROADCAST;
+	__u32 bcast = BROADCAST, daddr;
 	__u8 *info;
 
  	IRDA_DEBUG(4, __FUNCTION__ "(), s=%d, S=%d, command=%d\n", s, S, 
@@ -328,12 +329,13 @@ void irlap_send_discovery_xid_frame(struct irlap_cb *self, int S, __u8 s,
 	}
 	frame->ident = XID_FORMAT;
 
-	frame->saddr = cpu_to_le32(self->saddr);
-
 	if (command)
-		frame->daddr = cpu_to_le32(bcast);
+		daddr = bcast;
 	else
-		frame->daddr = cpu_to_le32(discovery->daddr);
+		daddr = discovery->daddr;
+
+	put_unaligned(cpu_to_le32(self->saddr), &frame->saddr);
+	put_unaligned(cpu_to_le32(daddr), &frame->daddr);
 	
 	switch (S) {
 	case 1:
@@ -404,8 +406,8 @@ static void irlap_recv_discovery_xid_rsp(struct irlap_cb *self,
 
 	xid = (struct xid_frame *) skb->data;
 
-	info->daddr = le32_to_cpu(xid->saddr);
-	info->saddr = le32_to_cpu(xid->daddr);
+	info->daddr = le32_to_cpu(get_unaligned(&xid->saddr));
+	info->saddr = le32_to_cpu(get_unaligned(&xid->daddr));
 
 	/* Make sure frame is addressed to us */
 	if ((info->saddr != self->saddr) && (info->saddr != BROADCAST)) {
@@ -426,7 +428,7 @@ static void irlap_recv_discovery_xid_rsp(struct irlap_cb *self,
 
 	IRDA_DEBUG(4, __FUNCTION__ "(), daddr=%08x\n", discovery->daddr);
 
-	discovery_info = skb_pull(skb, sizeof(struct xid_frame));
+	discovery_info = skb_pull(skb, 14 /*sizeof(struct xid_frame)*/);
 
 	/* Get info returned from peer */
 	discovery->hints.byte[0] = discovery_info[0];
@@ -470,8 +472,8 @@ static void irlap_recv_discovery_xid_cmd(struct irlap_cb *self,
 
 	xid = (struct xid_frame *) skb->data;
 
-	info->daddr = le32_to_cpu(xid->saddr);
-	info->saddr = le32_to_cpu(xid->daddr);
+	info->daddr = le32_to_cpu(get_unaligned(&xid->saddr));
+	info->saddr = le32_to_cpu(get_unaligned(&xid->daddr));
 
 	/* Make sure frame is addressed to us */
 	if ((info->saddr != self->saddr) && (info->saddr != BROADCAST)) {
@@ -500,7 +502,7 @@ static void irlap_recv_discovery_xid_cmd(struct irlap_cb *self,
 	}
 	info->s = xid->slotnr;
 	
-	discovery_info = skb_pull(skb, sizeof(struct xid_frame));
+	discovery_info = skb_pull(skb, 14 /*sizeof(struct xid_frame)*/);
 
 	/* 
 	 *  Check if last frame 
@@ -1221,7 +1223,7 @@ void irlap_send_test_frame(struct irlap_cb *self, __u8 caddr, __u32 daddr,
 	/* Broadcast frames must include saddr and daddr fields */
 	if (caddr == CBROADCAST) {
 		frame = (struct test_frame *) 
-			skb_put(skb, sizeof(struct test_frame));
+			skb_put(skb, 10 /*sizeof(struct test_frame)*/);
 
 		/* Insert the swapped addresses */
 		frame->saddr = cpu_to_le32(self->saddr);
@@ -1258,15 +1260,15 @@ static void irlap_recv_test_frame(struct irlap_cb *self, struct sk_buff *skb,
 		
 	/* Broadcast frames must carry saddr and daddr fields */
 	if (info->caddr == CBROADCAST) {
-		if (skb->len < sizeof(struct test_frame)) {
+		if (skb->len < 10 /*sizeof(struct test_frame)*/) {
 			IRDA_DEBUG(0, __FUNCTION__ 
 				   "() test frame to short!\n");
 			return;
 		}
 		
 		/* Read and swap addresses */
-		info->daddr = le32_to_cpu(frame->saddr);
-		info->saddr = le32_to_cpu(frame->daddr);
+		info->daddr = le32_to_cpu(get_unaligned(&frame->saddr));
+		info->saddr = le32_to_cpu(get_unaligned(&frame->daddr));
 
 		/* Make sure frame is addressed to us */
 		if ((info->saddr != self->saddr) && 

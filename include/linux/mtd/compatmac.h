@@ -2,7 +2,7 @@
 /*
  * mtd/include/compatmac.h
  *
- * $Id: compatmac.h,v 1.4 2000/07/03 10:01:38 dwmw2 Exp $
+ * $Id: compatmac.h,v 1.16 2001/05/18 12:10:19 dwmw2 Exp $
  *
  * Extensions and omissions from the normal 'linux/compatmac.h'
  * files. hopefully this will end up empty as the 'real' one 
@@ -17,19 +17,155 @@
 #ifndef __LINUX_MTD_COMPATMAC_H__
 #define __LINUX_MTD_COMPATMAC_H__
 
-#include <linux/compatmac.h>
-#include <linux/types.h> /* used later in this header */
+#include <linux/config.h>
 #include <linux/module.h>
 #ifndef LINUX_VERSION_CODE
 #include <linux/version.h>
 #endif
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,1,0)
-#include <linux/vmalloc.h>
+#ifndef VERSION_CODE
+#  define VERSION_CODE(vers,rel,seq) ( ((vers)<<16) | ((rel)<<8) | (seq) )
+#endif
+#ifndef KERNEL_VERSION
+#  define KERNEL_VERSION(a,b,c) VERSION_CODE(a,b,c)
 #endif
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,0,0)
 #  error "This kernel is too old: not supported by this file"
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,1,0)
+#include <linux/types.h> /* used later in this header */
+
+#define memcpy_fromio(a,b,c)    memcpy((a),(void *)(b),(c))
+#define memcpy_toio(a,b,c)      memcpy((void *)(a),(b),(c))
+
+typedef struct wait_queue * wait_queue_head_t;
+
+#define DECLARE_WAITQUEUE(x,y) struct wait_queue x = {y,NULL}
+#define DECLARE_WAIT_QUEUE_HEAD(x) struct wait_queue *x = NULL
+#define init_waitqueue_head init_waitqueue
+#define DECLARE_MUTEX(x) struct semaphore x = MUTEX;
+
+/* from sysdep-2.1.h */
+#  include <asm/segment.h>
+#  define access_ok(t,a,sz)           (verify_area((t),(a),(sz)) ? 0 : 1)
+#  define verify_area_20              verify_area
+#  define copy_to_user(t,f,n)         (memcpy_tofs(t,f,n), 0)
+#  define __copy_to_user(t,f,n)       copy_to_user((t),(f),(n))
+#  define copy_to_user_ret(t,f,n,r)   copy_to_user((t),(f),(n))
+#  define copy_from_user(t,f,n)       (memcpy_fromfs((t),(f),(n)), 0)
+#  define __copy_from_user(t,f,n)     copy_from_user((t),(f),(n))
+#  define copy_from_user_ret(t,f,n,r) copy_from_user((t),(f),(n))
+//xxx #  define PUT_USER(val,add)           (put_user((val),(add)), 0)
+#  define Put_user(val,add)           (put_user((val),(add)), 0)
+#  define __PUT_USER(val,add)         PUT_USER((val),(add))
+#  define PUT_USER_RET(val,add,ret)   PUT_USER((val),(add))
+#  define GET_USER(dest,add)          ((dest)=get_user((add)), 0)
+#  define __GET_USER(dest,add)        GET_USER((dest),(add))
+#  define GET_USER_RET(dest,add,ret)  GET_USER((dest),(add))
+
+#define ioremap(offset,size) vremap(offset,size)
+#define iounmap(adr)	/* */
+
+#define EXPORT_SYMBOL(s) /* */
+#define EXPORT_SYMBOL_NOVERS(s) /* */
+
+/* 2.1.10 and 2.1.43 introduced new functions. They are worth using */
+
+#if LINUX_VERSION_CODE < VERSION_CODE(2,1,10)
+
+#  include <asm/byteorder.h>
+#  ifdef __LITTLE_ENDIAN
+#    define cpu_to_le16(x) (x)
+#    define cpu_to_le32(x) (x)
+#    define cpu_to_be16(x) htons((x))
+#    define cpu_to_be32(x) htonl((x))
+#  else
+#    define cpu_to_be16(x) (x)
+#    define cpu_to_be32(x) (x)
+     extern inline __u16 cpu_to_le16(__u16 x) { return (x<<8) | (x>>8);}
+     extern inline __u32 cpu_to_le32(__u32 x) { return((x>>24) |
+             ((x>>8)&0xff00) | ((x<<8)&0xff0000) | (x<<24));}
+#  endif
+
+#  define le16_to_cpu(x)  cpu_to_le16(x)
+#  define le32_to_cpu(x)  cpu_to_le32(x)
+#  define be16_to_cpu(x)  cpu_to_be16(x)
+#  define be32_to_cpu(x)  cpu_to_be32(x)
+
+#endif
+
+#if LINUX_VERSION_CODE < VERSION_CODE(2,1,43)
+#  define cpu_to_le16p(addr) (cpu_to_le16(*(addr)))
+#  define cpu_to_le32p(addr) (cpu_to_le32(*(addr)))
+#  define cpu_to_be16p(addr) (cpu_to_be16(*(addr)))
+#  define cpu_to_be32p(addr) (cpu_to_be32(*(addr)))
+
+   extern inline void cpu_to_le16s(__u16 *a) {*a = cpu_to_le16(*a);}
+   extern inline void cpu_to_le32s(__u16 *a) {*a = cpu_to_le32(*a);}
+   extern inline void cpu_to_be16s(__u16 *a) {*a = cpu_to_be16(*a);}
+   extern inline void cpu_to_be32s(__u16 *a) {*a = cpu_to_be32(*a);}
+
+#  define le16_to_cpup(x) cpu_to_le16p(x)
+#  define le32_to_cpup(x) cpu_to_le32p(x)
+#  define be16_to_cpup(x) cpu_to_be16p(x)
+#  define be32_to_cpup(x) cpu_to_be32p(x)
+
+#  define le16_to_cpus(x) cpu_to_le16s(x)
+#  define le32_to_cpus(x) cpu_to_le32s(x)
+#  define be16_to_cpus(x) cpu_to_be16s(x)
+#  define be32_to_cpus(x) cpu_to_be32s(x)
+#endif
+
+// from 2.2, linux/types.h
+#ifndef __BIT_TYPES_DEFINED__
+#define __BIT_TYPES_DEFINED__
+
+typedef         __u8            u_int8_t;
+typedef         __s8            int8_t;
+typedef         __u16           u_int16_t;
+typedef         __s16           int16_t;
+typedef         __u32           u_int32_t;
+typedef         __s32           int32_t;
+
+#endif /* !(__BIT_TYPES_DEFINED__) */
+
+#if (__GNUC__ > 2) || (__GNUC__ == 2 && __GNUC_MINOR__ >= 8)
+  typedef struct { } spinlock_t;
+  #define SPIN_LOCK_UNLOCKED (spinlock_t) { }
+#else
+  typedef struct { int gcc_is_buggy; } spinlock_t;
+  #define SPIN_LOCK_UNLOCKED (spinlock_t) { 0 }
+#endif
+
+#define spin_lock_init(lock)    do { } while(0)
+#define spin_lock(lock)         (void)(lock) /* Not "unused variable". */
+#define spin_trylock(lock)      (1)
+#define spin_unlock_wait(lock)  do { } while(0)
+#define spin_unlock(lock)       do { } while(0)
+#define spin_lock_irq(lock)     cli()
+#define spin_unlock_irq(lock)   sti()
+
+#define spin_lock_irqsave(lock, flags) \
+        do { save_flags(flags); cli(); } while (0)
+#define spin_unlock_irqrestore(lock, flags) \
+        restore_flags(flags)
+
+// Doesn't work when tqueue.h is included. 
+// #define queue_task                   queue_task_irq_off
+#define tty_flip_buffer_push(tty)    queue_task_irq_off(&tty->flip.tqueue, &tq_timer)
+#define signal_pending(current)      (current->signal & ~current->blocked)
+#define schedule_timeout(to)         do {current->timeout = jiffies + (to);schedule ();} while (0)
+#define time_after(t1,t2)            (((long)t1-t2) > 0)
+
+#else
+  #include <linux/compatmac.h>
+#endif  // LINUX_VERSION_CODE < 0x020100
+
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,1,0)
+#include <linux/vmalloc.h>
 #endif
 
 /* Modularization issues */
@@ -88,8 +224,10 @@
 #  define release_return(x) return (x)
 #endif
 
-#if LINUX_VERSION_CODE < 0x20300
+#if LINUX_VERSION_CODE < 0x20212
 #define __exit
+#define module_init(x) /* */
+#define module_exit(x) /* */
 #endif
 #if LINUX_VERSION_CODE < 0x20200
 #define __init
@@ -97,8 +235,12 @@
 #include <linux/init.h>
 #endif
 
-#if LINUX_VERSION_CODE < 0x20300
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,2,18)
 #define init_MUTEX(x) do {*(x) = MUTEX;} while (0)
+#define init_MUTEX_LOCKED(x) do {*(x) = MUTEX_LOCKED;} while (0)
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,3,0)
 #define RQFUNC_ARG void
 #define blkdev_dequeue_request(req) do {CURRENT = req->next;} while (0)
 #else
@@ -106,23 +248,41 @@
 #endif
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,2,0)
+#ifdef CONFIG_MODULES
 #define __MOD_INC_USE_COUNT(mod)                                        \
         (atomic_inc(&(mod)->uc.usecount), (mod)->flags |= MOD_VISITED|MOD_USED_ONCE)
 #define __MOD_DEC_USE_COUNT(mod)                                        \
         (atomic_dec(&(mod)->uc.usecount), (mod)->flags |= MOD_VISITED)
+#else
+#define __MOD_INC_USE_COUNT(mod)
+#define __MOD_DEC_USE_COUNT(mod)
+#endif
 #endif
 
 
+#ifndef HAVE_INTER_MODULE
+static inline void *inter_module_get(char *x) {return NULL;}
+static inline void *inter_module_get_request(char *x, char *y) {return NULL;}
+static inline void inter_module_put(const char *x) {}
+static inline void inter_module_register(const char *x, struct module *y, const void *z) {}
+static inline void inter_module_unregister(const char *x) {}
+#endif
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,3,0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,2,18)
 
 #define DECLARE_WAIT_QUEUE_HEAD(x) struct wait_queue *x = NULL
 #define init_waitqueue_head init_waitqueue
 
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,3,0)
+
 static inline int try_inc_mod_count(struct module *mod)
 {
+#ifdef CONFIG_MODULES
 	if (mod)
 		__MOD_INC_USE_COUNT(mod);
+#endif
 	return 1;
 }
 #endif
@@ -197,6 +357,34 @@ static inline int try_inc_mod_count(struct module *mod)
 #include <linux/spinlock.h>
 #endif
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,2,18)
+#define set_current_state(state_value)                        \
+        do { current->state = (state_value); } while (0)
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,2,0) 
+static inline int invalidate_device(kdev_t dev, int do_sync) {
+
+	if (do_sync)
+		fsync_dev(dev);
+	
+	invalidate_buffers(dev);
+	return 0;
+}
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(2,4,5)
+static inline int invalidate_device(kdev_t dev, int do_sync) {
+	struct super_block *sb = get_super(dev);
+	int res = 0;
+
+	if (do_sync)
+		fsync_dev(dev);
+	
+	if (sb)
+		res = invalidate_inodes(sb);
+
+	invalidate_buffers(dev);
+	return res;
+}
+#endif
+
 #endif /* __LINUX_MTD_COMPATMAC_H__ */
-
-

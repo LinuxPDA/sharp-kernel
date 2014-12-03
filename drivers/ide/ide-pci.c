@@ -426,7 +426,7 @@ static ide_hwif_t __init *ide_match_hwif (unsigned long io_base, byte bootable, 
 	 */
 	for (h = 0; h < MAX_HWIFS; ++h) {
 		hwif = &ide_hwifs[h];
-		if (hwif->io_ports[IDE_DATA_OFFSET] == io_base) {
+		if (hwif->hw.io_ports[IDE_DATA_OFFSET] == io_base) {
 			if (hwif->chipset == ide_generic)
 				return hwif; /* a perfect match */
 		}
@@ -438,7 +438,7 @@ static ide_hwif_t __init *ide_match_hwif (unsigned long io_base, byte bootable, 
 	 */
 	for (h = 0; h < MAX_HWIFS; ++h) {
 		hwif = &ide_hwifs[h];
-		if (hwif->io_ports[IDE_DATA_OFFSET] == io_base) {
+		if (hwif->hw.io_ports[IDE_DATA_OFFSET] == io_base) {
 			if (hwif->chipset == ide_unknown)
 				return hwif; /* match */
 			printk("%s: port 0x%04lx already claimed by %s\n", name, io_base, hwif->name);
@@ -529,7 +529,7 @@ static void __init ide_setup_pci_device (struct pci_dev *dev, ide_pci_device_t *
 	ide_hwif_t *hwif, *mate = NULL;
 	unsigned int class_rev;
 
-#ifdef CONFIG_IDEDMA_AUTO
+#ifdef CONFIG_IDEDMA_PCI_AUTO
 	autodma = 1;
 #endif
 
@@ -654,17 +654,16 @@ check_if_enabled:
 			base = port ? 0x170 : 0x1f0;	/* use default value */
 		if ((hwif = ide_match_hwif(base, d->bootable, d->name)) == NULL)
 			continue;	/* no room in ide_hwifs[] */
-		if (hwif->io_ports[IDE_DATA_OFFSET] != base) {
+		if (hwif->hw.io_ports[IDE_DATA_OFFSET] != base) {
 			ide_init_hwif_ports(&hwif->hw, base, (ctl | 2), NULL);
-			memcpy(hwif->io_ports, hwif->hw.io_ports, sizeof(hwif->io_ports));
-			hwif->noprobe = !hwif->io_ports[IDE_DATA_OFFSET];
+			hwif->noprobe = !hwif->hw.io_ports[IDE_DATA_OFFSET];
 		}
 		hwif->chipset = ide_pci;
 		hwif->pci_dev = dev;
 		hwif->pci_devid = d->devid;
 		hwif->channel = port;
-		if (!hwif->irq)
-			hwif->irq = pciirq;
+		if (!hwif->hw.irq)
+			hwif->hw.irq = pciirq;
 		if (mate) {
 			hwif->mate = mate;
 			mate->mate = hwif;
@@ -676,7 +675,7 @@ check_if_enabled:
 		if (IDE_PCI_DEVID_EQ(d->devid, DEVID_UM8886A) ||
 		    IDE_PCI_DEVID_EQ(d->devid, DEVID_UM8886BF) ||
 		    IDE_PCI_DEVID_EQ(d->devid, DEVID_UM8673F)) {
-			hwif->irq = hwif->channel ? 15 : 14;
+			hwif->hw.irq = hwif->channel ? 15 : 14;
 			goto bypass_umc_dma;
 		}
 		if (hwif->udma_four) {
@@ -684,7 +683,7 @@ check_if_enabled:
 		} else {
 			hwif->udma_four = (d->ata66_check) ? d->ata66_check(hwif) : 0;
 		}
-#ifdef CONFIG_BLK_DEV_IDEDMA
+#ifdef CONFIG_BLK_DEV_IDEDMA_PCI
 		if (IDE_PCI_DEVID_EQ(d->devid, DEVID_SIS5513) ||
 		    IDE_PCI_DEVID_EQ(d->devid, DEVID_AEC6260) ||
 		    IDE_PCI_DEVID_EQ(d->devid, DEVID_PIIX4NX) ||
@@ -731,7 +730,7 @@ check_if_enabled:
 				printk("%s: %s Bus-Master DMA disabled (BIOS)\n", hwif->name, d->name);
 			}
 		}
-#endif	/* CONFIG_BLK_DEV_IDEDMA */
+#endif	/* CONFIG_BLK_DEV_IDEDMA_PCI */
 bypass_umc_dma:
 		if (d->init_hwif)  /* Call chipset-specific routine for each enabled hwif */
 			d->init_hwif(hwif);

@@ -14,6 +14,9 @@
  */
 #include <linux/init.h>
 #include <linux/sched.h>
+#include <linux/time.h>
+#include <linux/miscdevice.h>
+#include <linux/rtc.h>
 #include <linux/i2c.h>
 #include <linux/i2c-algo-bit.h>
 
@@ -21,12 +24,10 @@
 #include <asm/io.h>
 #include <asm/hardware/ioc.h>
 #include <asm/system.h>
+#include <asm/uaccess.h>
 
 #include "pcf8583.h"
 
-extern unsigned long
-mktime(unsigned int year, unsigned int mon, unsigned int day,
-       unsigned int hour, unsigned int min, unsigned int sec);
 extern int (*set_rtc)(void);
 
 static struct i2c_client *rtc_client;
@@ -44,12 +45,10 @@ static inline int rtc_command(int cmd, void *data)
 /*
  * Read the current RTC time and date, and update xtime.
  */
-static void get_rtc_time(void)
+static void get_rtc_time(struct rtc_tm *rtctm, unsigned char *year)
 {
 	unsigned char ctrl;
-	unsigned char year;
-	struct rtc_tm rtctm;
-	struct mem rtcmem = { 0xc0, 1, &year };
+	struct mem rtcmem = { 0xc0, 1, year };
 
 	/*
 	 * Ensure that the RTC is running.
@@ -73,15 +72,11 @@ static void get_rtc_time(void)
 	if (rtc_command(MEM_READ, &rtcmem))
 		return;
 
-	if (rtc_command(RTC_GETDATETIME, &rtctm))
+	if (rtc_command(RTC_GETDATETIME, rtctm))
 		return;
 
-	if (year < 70)
-		year += 100;
-
-	xtime.tv_usec = rtctm.cs * 10000;
-	xtime.tv_sec  = mktime(1900 + year, rtctm.mon, rtctm.mday,
-			       rtctm.hours, rtctm.mins, rtctm.secs);
+	if (*year < 70)
+		*year += 100;
 }
 
 /*
@@ -117,6 +112,46 @@ static int set_rtc_time(void)
 	return rtc_command(RTC_SETTIME, &new_rtctm);
 }
 
+static int rtc_ioctl(struct inode *inode, struct file *file,
+		     unsigned int cmd, unsigned long arg)
+{
+	unsigned char year;
+	struct rtc_time rtctm;
+	struct rtc_tm rtc_raw;
+
+	switch (cmd) {
+	case RTC_ALM_READ:
+	case RTC_ALM_SET:
+		break;
+
+	case RTC_RD_TIME:
+		get_rtc_time(&rtc_raw, &year);
+		rtctm.tm_sec  = rtc_raw.secs;
+		rtctm.tm_min  = rtc_raw.mins;
+		rtctm.tm_hour = rtc_raw.hours;
+		rtctm.tm_mday = rtc_raw.mday;
+		rtctm.tm_mon  = rtc_raw.mon;
+		rtctm.tm_year = year;
+		return copy_to_user((void *)arg, &rtctm, sizeof(rtctm))
+				 ? -EFAULT : 0;
+
+	case RTC_SET_TIME:
+		break;
+	}
+	return -EINVAL;
+}
+
+static struct file_operations rtc_fops = {
+	ioctl:	rtc_ioctl,
+};
+
+static struct miscdevice rtc_dev = {
+	minor:	RTC_MINOR,
+	name:	"rtc",
+	fops:	&rtc_fops,
+};
+
+/* IOC / IOMD i2c driver */
 
 #define FORCE_ONES	0xdc
 #define SCL		0x02
@@ -184,8 +219,15 @@ static int ioc_client_reg(struct i2c_client *client)
 {
 	if (client->id == I2C_DRIVERID_PCF8583 &&
 	    client->addr == 0x50) {
+		struct rtc_tm rtctm;
+		unsigned char year;
+
 		rtc_client = client;
-		get_rtc_time();
+		get_rtc_time(&rtctm, &year);
+
+		xtime.tv_usec = rtctm.cs * 10000;
+		xtime.tv_sec  = mktime(1900 + year, rtctm.mon, rtctm.mday,
+				       rtctm.hours, rtctm.mins, rtctm.secs);
 		set_rtc = set_rtc_time;
 	}
 
@@ -212,9 +254,16 @@ static struct i2c_adapter ioc_ops = {
 
 static int __init i2c_ioc_init(void)
 {
+	int ret;
+
 	force_ones = FORCE_ONES | SCL | SDA;
 
-	return i2c_bit_add_bus(&ioc_ops);
+	ret = i2c_bit_add_bus(&ioc_ops);
+
+	if (ret >= 0)
+		misc_register(&rtc_dev);
+
+	return ret;
 }
 
 __initcall(i2c_ioc_init);

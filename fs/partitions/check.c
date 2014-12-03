@@ -72,6 +72,18 @@ static int (*check_part[])(struct gendisk *hd, kdev_t dev, unsigned long first_s
 	NULL
 };
 
+static char *raid_name (struct gendisk *hd, unsigned int unit, unsigned int part,
+			int major_base, char *buf)
+{
+	int ctlr = hd->major - major_base;
+	if (part == 0)
+		sprintf(buf, "%s/c%dd%d", hd->major_name, ctlr, unit);
+	else
+		sprintf(buf, "%s/c%dd%dp%d", hd->major_name, ctlr, unit,
+			part);
+	return buf;
+}
+
 /*
  * disk_name() is used by partition check code and the md driver.
  * It formats the devicename of the indicated disk into
@@ -80,11 +92,11 @@ static int (*check_part[])(struct gendisk *hd, kdev_t dev, unsigned long first_s
  */
 char *disk_name (struct gendisk *hd, int minor, char *buf)
 {
-	unsigned int part;
 	const char *maj = hd->major_name;
-	int unit = (minor >> hd->minor_shift) + 'a';
+	unsigned int unit = minor >> hd->minor_shift;
+	unsigned int part = minor & (( 1 << hd->minor_shift) - 1);
+	char *p;
 
-	part = minor & ((1 << hd->minor_shift) - 1);
 	if (hd->part[minor].de) {
 		int pos;
 
@@ -120,53 +132,28 @@ char *disk_name (struct gendisk *hd, int minor, char *buf)
 			maj = "hd";
 			break;
 		case MD_MAJOR:
-			sprintf(buf, "%s%d", maj, unit - 'a');
+			sprintf(buf, "%s%d", maj, part);
 			return buf;
 	}
 	if (hd->major >= SCSI_DISK1_MAJOR && hd->major <= SCSI_DISK7_MAJOR) {
 		unit = unit + (hd->major - SCSI_DISK1_MAJOR + 1) * 16;
-		if (unit > 'z') {
-			unit -= 'z' + 1;
-			sprintf(buf, "sd%c%c", 'a' + unit / 26, 'a' + unit % 26);
-			if (part)
-				sprintf(buf + 4, "%d", part);
-			return buf;
-		}
 	}
 	if (hd->major >= COMPAQ_SMART2_MAJOR && hd->major <= COMPAQ_SMART2_MAJOR+7) {
-		int ctlr = hd->major - COMPAQ_SMART2_MAJOR;
- 		int disk = minor >> hd->minor_shift;
- 		int part = minor & (( 1 << hd->minor_shift) - 1);
- 		if (part == 0)
- 			sprintf(buf, "%s/c%dd%d", maj, ctlr, disk);
- 		else
- 			sprintf(buf, "%s/c%dd%dp%d", maj, ctlr, disk, part);
- 		return buf;
- 	}
+		return raid_name(hd, unit, part, COMPAQ_SMART2_MAJOR, buf);
+	}
 	if (hd->major >= COMPAQ_CISS_MAJOR && hd->major <= COMPAQ_CISS_MAJOR+7) {
-                int ctlr = hd->major - COMPAQ_CISS_MAJOR;
-                int disk = minor >> hd->minor_shift;
-                int part = minor & (( 1 << hd->minor_shift) - 1);
-                if (part == 0)
-                        sprintf(buf, "%s/c%dd%d", maj, ctlr, disk);
-                else
-                        sprintf(buf, "%s/c%dd%dp%d", maj, ctlr, disk, part);
-                return buf;
+		return raid_name(hd, unit, part, COMPAQ_CISS_MAJOR, buf);
 	}
 	if (hd->major >= DAC960_MAJOR && hd->major <= DAC960_MAJOR+7) {
-		int ctlr = hd->major - DAC960_MAJOR;
- 		int disk = minor >> hd->minor_shift;
- 		int part = minor & (( 1 << hd->minor_shift) - 1);
- 		if (part == 0)
- 			sprintf(buf, "%s/c%dd%d", maj, ctlr, disk);
- 		else
- 			sprintf(buf, "%s/c%dd%dp%d", maj, ctlr, disk, part);
- 		return buf;
- 	}
-	if (part)
-		sprintf(buf, "%s%c%d", maj, unit, part);
+		return raid_name(hd, unit, part, DAC960_MAJOR, buf);
+	}
+	p = buf;
+	if (unit <= 26)
+		p += sprintf(buf, "%s%c", maj, 'a' + unit);
 	else
-		sprintf(buf, "%s%c", maj, unit);
+		p += sprintf(buf, "%s%c%c", maj, 'a' + unit / 26, 'a' + unit % 26);
+	if (part)
+		sprintf(p, "%d", part);
 	return buf;
 }
 
@@ -176,7 +163,7 @@ char *disk_name (struct gendisk *hd, int minor, char *buf)
 void add_gd_partition(struct gendisk *hd, int minor, int start, int size)
 {
 #ifndef CONFIG_DEVFS_FS
-	char buf[40];
+	char buf[MAX_DISKNAME_LEN];
 #endif
 
 	hd->part[minor].start_sect = start;
@@ -273,7 +260,7 @@ static void check_partition(struct gendisk *hd, kdev_t dev, int first_part_minor
 	devfs_handle_t de = NULL;
 	static int first_time = 1;
 	unsigned long first_sector;
-	char buf[64];
+	char buf[MAX_DISKNAME_LEN];
 	int i;
 
 	if (first_time)

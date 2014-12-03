@@ -29,8 +29,12 @@
 
 #define _BLOCKABLE (~(sigmask(SIGKILL) | sigmask(SIGSTOP)))
 
-#define SWI_SYS_SIGRETURN (0xef000000|(__NR_sigreturn))
-#define SWI_SYS_RT_SIGRETURN (0xef000000|(__NR_rt_sigreturn))
+#define SWI_SYS_SIGRETURN	(0xef000000|(__NR_sigreturn))
+#define SWI_SYS_RT_SIGRETURN	(0xef000000|(__NR_rt_sigreturn))
+
+/* fill these in later */
+#define SWI_THUMB_SIGRETURN	(0xdf00)
+#define SWI_THUMB_RT_SIGRETURN	(0xdf00)
 
 asmlinkage int do_signal(sigset_t *oldset, struct pt_regs * regs, int syscall);
 
@@ -327,16 +331,15 @@ static inline void *get_sigframe(struct k_sigaction *ka, struct pt_regs *regs,
 	/*
 	 * This is the X/Open sanctioned signal stack switching.
 	 */
-	if ((ka->sa.sa_flags & SA_ONSTACK) && ! on_sig_stack(sp))
+	if ((ka->sa.sa_flags & SA_ONSTACK) && sas_ss_flags(sp))
 		sp = current->sas_ss_sp + current->sas_ss_size;
 
 	/*
 	 * No matter what happens, 'sp' must be word
 	 * aligned otherwise nasty things could happen
 	 */
-	sp &= ~3;
-
-	return (void *)(sp - framesize);
+	/* ATPCS B01 mandates 8-byte alignment */
+	return (void *)((sp - framesize) & ~7);
 }
 
 static void setup_frame(int sig, struct k_sigaction *ka,
@@ -363,8 +366,13 @@ static void setup_frame(int sig, struct k_sigaction *ka,
 	if (ka->sa.sa_flags & SA_RESTORER) {
 		retcode = (unsigned long)ka->sa.sa_restorer;
 	} else {
+		unsigned int code;
 		retcode = (unsigned long)&frame->retcode;
-		err |= __put_user(SWI_SYS_SIGRETURN, &frame->retcode);
+		if (thumb_mode(regs))
+			code = SWI_THUMB_SIGRETURN;
+		else
+			code = SWI_SYS_SIGRETURN;
+		__put_user_error(code, &frame->retcode, err);
 		flush_icache_range(retcode, retcode + 4);
 	}
 
@@ -404,8 +412,8 @@ static void setup_rt_frame(int sig, struct k_sigaction *ka, siginfo_t *info,
 	if (!access_ok(VERIFY_WRITE, frame, sizeof (*frame)))
 		goto segv_and_exit;
 
-	err |= __put_user(&frame->info, &frame->pinfo);
-	err |= __put_user(&frame->uc, &frame->puc);
+	__put_user_error(&frame->info, &frame->pinfo, err);
+	__put_user_error(&frame->uc, &frame->puc, err);
 	err |= copy_siginfo_to_user(&frame->info, info);
 
 	/* Clear all the bits of the ucontext we don't use.  */
@@ -420,8 +428,13 @@ static void setup_rt_frame(int sig, struct k_sigaction *ka, siginfo_t *info,
 	if (ka->sa.sa_flags & SA_RESTORER) {
 		retcode = (unsigned long)ka->sa.sa_restorer;
 	} else {
+		unsigned int code;
 		retcode = (unsigned long)&frame->retcode;
-		err |= __put_user(SWI_SYS_RT_SIGRETURN, &frame->retcode);
+		if (thumb_mode(regs))
+			code = SWI_THUMB_RT_SIGRETURN;
+		else
+			code = SWI_SYS_RT_SIGRETURN;
+		__put_user_error(code, &frame->retcode, err);
 		flush_icache_range(retcode, retcode + 4);
 	}
 
@@ -432,6 +445,15 @@ static void setup_rt_frame(int sig, struct k_sigaction *ka, siginfo_t *info,
 		regs->ARM_r0 = current->exec_domain->signal_invmap[sig];
 	else
 		regs->ARM_r0 = sig;
+
+	/*
+	 * For realtime signals we must also set the second and third
+	 * arguments for the signal handler.
+	 *   -- Peter Maydell <pmaydell@chiark.greenend.org.uk> 2000-12-06
+	 */
+	regs->ARM_r1 = (unsigned long)frame->pinfo;
+	regs->ARM_r2 = (unsigned long)frame->puc;
+
 	regs->ARM_sp = (unsigned long)frame;
 	regs->ARM_lr = retcode;
 	regs->ARM_pc = (unsigned long)ka->sa.sa_handler;

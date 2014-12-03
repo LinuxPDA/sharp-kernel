@@ -30,6 +30,15 @@
 typedef unsigned char FreeSectorBitmap;
 #elif SECTORS_PER_PAGE <= 32
 typedef unsigned int FreeSectorBitmap;
+#elif SECTORS_PER_PAGE <= 64
+#if 0
+typedef unsigned long long FreeSectorBitmap;
+#else
+typedef struct {
+	unsigned long l,h;
+} FreeSectorBitmap;
+#define LARGE_MALLOC
+#endif
 #else
 #error You lose.
 #endif
@@ -69,6 +78,7 @@ static unsigned char **dma_malloc_pages = NULL;
  *              to allocate more memory in order to be able to write the
  *              data to disk, you would wedge the system.
  */
+#ifndef LARGE_MALLOC
 void *scsi_malloc(unsigned int len)
 {
 	unsigned int nbits, mask;
@@ -166,6 +176,97 @@ int scsi_free(void *obj, unsigned int len)
 	}
 	panic("scsi_free:Bad offset");
 }
+
+#else
+
+void *scsi_malloc(unsigned int len)
+{
+	unsigned int nbits;
+	unsigned long maskl, maskh, flags;
+	FreeSectorBitmap *fsb;
+	int i;
+
+	if (len % SECTOR_SIZE != 0 || len > PAGE_SIZE)
+		return NULL;
+
+	save_flags_cli (flags);
+	nbits = len >> 9;
+	if (nbits < 32) {
+		maskl = (1 << nbits) - 1;
+		maskh = 0;
+	} else {
+		maskl = (unsigned long)-1;
+		maskh = (1 << (nbits - 32)) - 1;
+	}
+
+	fsb = dma_malloc_freelist;
+
+	for (i = 0; i < dma_sectors / SECTORS_PER_PAGE; i++) {
+		unsigned long mml, mmh;
+		int j;
+		mml = maskl;
+		mmh = maskh;
+		j = 0;
+		do {
+			if ((fsb->l & mml) == 0 && (fsb->h & mmh) == 0) {
+				fsb->h |= mmh;
+				fsb->l |= mml;
+				restore_flags (flags);
+				scsi_dma_free_sectors -= nbits;
+#ifdef DEBUG
+				printk("SMalloc: %d %p\n",len, dma_malloc_pages[i] + (j << 9));
+#endif
+				return (void *) ((unsigned long) dma_malloc_pages[i] + (j << 9));
+			}
+			mmh = (mmh << 1) | (mml >> 31);
+			mml <<= 1;
+			j++;
+		} while (!(mmh & (1 << 31)));
+		fsb ++;
+	}
+	return NULL;  /* Nope.  No more */
+}
+
+int scsi_free(void *obj, unsigned int len)
+{
+	unsigned int page, sector, nbits;
+	unsigned long maskl, maskh, flags;
+
+#ifdef DEBUG
+	printk("scsi_free %p %d\n",obj, len);
+#endif
+
+	for (page = 0; page < dma_sectors / SECTORS_PER_PAGE; page++) {
+		unsigned long page_addr = (unsigned long) dma_malloc_pages[page];
+		if ((unsigned long) obj >= page_addr &&
+		    (unsigned long) obj < page_addr + PAGE_SIZE) {
+			sector = (((unsigned long) obj) - page_addr) >> 9;
+			nbits = len >> 9;
+			if (nbits < 32) {
+				maskl = (1 << nbits) - 1;
+				maskh = 0;
+			} else {
+				maskl = (unsigned long)-1;
+				maskh = (1 << (nbits - 32)) - 1;
+			}
+			if ((sector + nbits) > SECTORS_PER_PAGE)
+				panic ("scsi_free:Bad memory alignment");
+			maskh = (maskh << sector) | (maskl >> (32 - sector));
+			maskl = maskl << sector;
+			save_flags_cli(flags);
+			if (((dma_malloc_freelist[page].l & maskl) != maskl) ||
+			    ((dma_malloc_freelist[page].h & maskh) != maskh))
+				panic("scsi_free:Trying to free unused memory");
+			scsi_dma_free_sectors += nbits;
+			dma_malloc_freelist[page].l &= ~maskl;
+			dma_malloc_freelist[page].h &= ~maskh;
+			restore_flags(flags);
+			return 0;
+		}
+	}
+	panic("scsi_free:Bad offset");
+}
+#endif
 
 
 /*

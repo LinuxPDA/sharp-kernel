@@ -389,7 +389,7 @@ void ndisc_send_ns(struct net_device *dev, struct neighbour *neigh,
 	}
 
 	len = sizeof(struct icmp6hdr) + sizeof(struct in6_addr);
-	send_llinfo = dev->addr_len && ipv6_addr_type(saddr) != IPV6_ADDR_ANY;
+	send_llinfo = dev->addr_len && saddr && ipv6_addr_type(saddr) != IPV6_ADDR_ANY;
 	if (send_llinfo)
 		len += NDISC_OPT_SPACE(dev->addr_len);
 

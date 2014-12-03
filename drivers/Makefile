@@ -45,6 +45,7 @@ subdir-$(CONFIG_I2C)		+= i2c
 subdir-$(CONFIG_ACPI)		+= acpi
 
 subdir-$(CONFIG_BLUEZ)		+= bluetooth
+subdir-$(CONFIG_SSI)		+= ssi
 
 include $(TOPDIR)/Rules.make
 

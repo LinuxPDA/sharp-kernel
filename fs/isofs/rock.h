@@ -3,6 +3,10 @@
    extensions are present on the disk, and this is fine as long as they
    all use SUSP */
 
+/*
+ * Altered for word-aligned structure problems on ARM by Russell King.
+ */
+
 struct SU_SP{
   unsigned char magic[2];
   unsigned char skip;
@@ -47,7 +51,7 @@ struct SL_component{
 
 struct RR_SL{
   unsigned char flags;
-  struct SL_component link;
+  unsigned char __link,__dummy;
 };
 
 struct RR_NM{
@@ -69,7 +73,7 @@ struct stamp{
 
 struct RR_TF{
   char flags;
-  struct stamp times[0];  /* Variable number of these beasts */
+  unsigned char __times[0];  /* Variable number of these beasts */
 };
 
 /* These are the bits and their meanings for flags in the TF structure. */

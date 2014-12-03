@@ -2,15 +2,15 @@
 #               Makefile for wm-FPU-emu
 #
 
+USE_STANDARD_AS_RULE := true
+
 O_TARGET := math.o
 
 #DEBUG	= -DDEBUGGING
 DEBUG	=
 PARANOID = -DPARANOID
 CFLAGS	:= $(CFLAGS) $(PARANOID) $(DEBUG) -fno-builtin $(MATH_EMULATION)
-
-.S.o:
-	$(CC) $(AFLAGS) $(PARANOID) -c $<
+EXTRA_AFLAGS := $(PARANOID)
 
 # From 'C' language sources:
 C_OBJS =fpu_entry.o errors.o \

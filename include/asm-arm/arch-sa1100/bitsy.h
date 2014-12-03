@@ -1,3 +1,21 @@
+/*
+*
+* Definitions for H3600 Handheld Computer
+*
+* Copyright 2000 Compaq Computer Corporation.
+*
+* Use consistent with the GNU GPL is permitted,
+* provided that this copyright notice is
+* preserved in its entirety in all copies and derived works.
+*
+* COMPAQ COMPUTER CORPORATION MAKES NO WARRANTIES, EXPRESSED OR IMPLIED,
+* AS TO THE USEFULNESS OR CORRECTNESS OF THIS CODE OR ITS
+* FITNESS FOR ANY PARTICULAR PURPOSE.
+*
+* Author: Jamey Hicks.
+*
+*/
+
 #ifndef _INCLUDE_BITSY_H_
 #define _INCLUDE_BITSY_H_
 
@@ -17,14 +35,24 @@
 #define GPIO_BITSY_L3_CLOCK    GPIO_GPIO (16)
 #define GPIO_BITSY_L3_MODE     GPIO_GPIO (15)
 
+#define GPIO_BITSY_OPT_LOCK    GPIO_GPIO (22)
+#define GPIO_BITSY_OPT_IRQ     GPIO_GPIO (24)
+#define GPIO_BITSY_OPT_DET     GPIO_GPIO (27)
 
+#define GPIO_BITSY_COM_DCD     GPIO_GPIO (23)
+#define GPIO_BITSY_COM_CTS     GPIO_GPIO (25)
+#define GPIO_BITSY_COM_RTS     GPIO_GPIO (26)
 
 #define IRQ_GPIO_BITSY_NPOWER_BUTTON    IRQ_GPIO0
 #define IRQ_GPIO_BITSY_ACTION_BUTTON    IRQ_GPIO18
 #define IRQ_GPIO_BITSY_PCMCIA_CD0	IRQ_GPIO17
 #define IRQ_GPIO_BITSY_PCMCIA_CD1	IRQ_GPIO10
 #define IRQ_GPIO_BITSY_PCMCIA_IRQ0	IRQ_GPIO21
-#define IRQ_GPIO_BITSY_PCMCIA_IRQ1	IRQ_GPIO22
+#define IRQ_GPIO_BITSY_PCMCIA_IRQ1	IRQ_GPIO11
+#define IRQ_GPIO_BITSY_OPT_IRQ		IRQ_GPIO24
+#define IRQ_GPIO_BITSY_OPT_DET		IRQ_GPIO27
+#define IRQ_GPIO_BITSY_COM_DCD          IRQ_GPIO23
+#define IRQ_GPIO_BITSY_COM_CTS          IRQ_GPIO25
 
 #define EGPIO_BITSY_VPP_ON      (1 << 0)
 #define EGPIO_BITSY_CARD_RESET  (1 << 1)    /* reset the attached pcmcia/compactflash card.  active high. */

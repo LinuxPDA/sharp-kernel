@@ -7,7 +7,7 @@
  * Author: Fabrice Bellard (fabrice.bellard@netgem.com) 
  * Copyright (C) 2000 Netgem S.A.
  *
- * $Id: docecc.c,v 1.1 2000/11/03 12:43:43 dwmw2 Exp $
+ * $Id: docecc.c,v 1.2 2001/06/02 14:30:43 dwmw2 Exp $
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by

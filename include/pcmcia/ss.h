@@ -52,6 +52,7 @@ typedef struct socket_cap_t {
     u_int	features;
     u_int	irq_mask;
     u_int	map_size;
+    ioaddr_t	io_offset;
     u_char	pci_irq;
     struct pci_dev *cb_dev;
     struct bus_operations *bus;
@@ -101,7 +102,7 @@ typedef struct pccard_io_map {
     u_char	map;
     u_char	flags;
     u_short	speed;
-    u_short	start, stop;
+    ioaddr_t	start, stop;
 } pccard_io_map;
 
 typedef struct pccard_mem_map {

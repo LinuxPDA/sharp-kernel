@@ -171,7 +171,7 @@ S:	Maintained
 
 ARM PORT
 P:	Russell King
-M:	linux@arm.linux.org.uk
+M:	rmk@arm.linux.org.uk
 L:	linux-arm-kernel@lists.arm.linux.org.uk
 W:	http://www.arm.linux.org.uk/
 S:	Maintained
@@ -318,7 +318,7 @@ S:	Maintained
 
 CYBERPRO FB DRIVER
 P:	Russell King
-M:	linux@arm.linux.org.uk
+M:	rmk@arm.linux.org.uk
 W:	http://www.arm.linux.org.uk/
 S:	Maintained
 

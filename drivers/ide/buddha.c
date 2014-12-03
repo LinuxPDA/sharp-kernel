@@ -99,7 +99,7 @@ static int buddha_ack_intr(ide_hwif_t *hwif)
 {
     unsigned char ch;
 
-    ch = inb(hwif->io_ports[IDE_IRQ_OFFSET]);
+    ch = inb(hwif->hw.io_ports[IDE_IRQ_OFFSET]);
     if (!(ch & 0x80))
 	return 0;
     return 1;

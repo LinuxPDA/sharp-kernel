@@ -1408,10 +1408,14 @@ static void __exit unload_waveartist(struct address_info *hw)
 		       "to unload\n");
 }
 
+#ifdef CONFIG_ARCH_NETWINDER
+
 /*
  * Rebel.com Netwinder specifics...
  */
 
+#include <asm/hardware/dec21285.h>
+ 
 #define	VNC_TIMER_PERIOD (HZ/4)	//check slider 4 times/sec
 
 #define	MIXER_PRIVATE3_RESET	0x53570000
@@ -1760,6 +1764,8 @@ vnc_private_ioctl(int dev, unsigned int cmd, caddr_t arg)
 
 	return -ENOIOCTLCMD;
 }
+
+#endif
 
 static struct address_info cfg;
 

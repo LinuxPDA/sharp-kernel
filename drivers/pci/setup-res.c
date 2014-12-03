@@ -24,8 +24,11 @@
 #include <linux/cache.h>
 #include <linux/slab.h>
 
-
+#ifndef __arm__ /* enable this if you want lots of debug info */
 #define DEBUG_CONFIG 1
+#else
+#define DEBUG_CONFIG 0
+#endif
 #if DEBUG_CONFIG
 # define DBGC(args)     printk args
 #else

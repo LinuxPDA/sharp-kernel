@@ -93,14 +93,6 @@ extern __inline__ unsigned long get_css_fp(struct thread_struct *t)
 	return t->save ? t->save->fp : 0;
 }
 
-asmlinkage void ret_from_sys_call(void) __asm__("ret_from_sys_call");
-
-extern __inline__ void init_thread_css(struct context_save_struct *save)
-{
-	*save = INIT_CSS;
-	save->pc |= (unsigned long)ret_from_sys_call;
-}
-
 /* Forward declaration, a strange C thing */
 struct task_struct;
 

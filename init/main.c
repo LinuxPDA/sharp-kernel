@@ -104,6 +104,7 @@ extern void tc_init(void);
 #endif
 
 extern void ecard_init(void);
+extern void pgtable_cache_init(void);
 
 #if defined(CONFIG_SYSVIPC)
 extern void ipc_init(void);
@@ -261,6 +262,9 @@ static struct dev_name_struct {
 #endif
 #ifdef CONFIG_NFTL
 	{ "nftla", 0x5d00 },
+#endif
+#ifdef CONFIG_MTD_BLOCK
+	{ "mtdblock",	0x1f00 },
 #endif
 	{ NULL, 0 }
 };
@@ -558,6 +562,9 @@ asmlinkage void __init start_kernel(void)
 #endif
 	mem_init();
 	kmem_cache_sizes_init();
+#ifdef CONFIG_ARM
+	pgtable_cache_init();
+#endif
 	mempages = num_physpages;
 
 	fork_init(mempages);

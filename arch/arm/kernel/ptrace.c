@@ -33,7 +33,9 @@
 /*
  * Breakpoint SWI instruction: SWI &9F0001
  */
-#define BREAKINST	0xef9f0001
+#define BREAKINST_ARM	0xef9f0001
+/* fill this in later */
+#define BREAKINST_THUMB	0xdf00
 
 /*
  * Get the address of the live pt_regs for the specified task.
@@ -72,7 +74,7 @@ put_stack_long(struct task_struct *task, int offset, long data)
 
 	newregs = *regs;
 	newregs.uregs[offset] = data;
-	
+
 	if (valid_user_regs(&newregs)) {
 		regs->uregs[offset] = data;
 		ret = 0;
@@ -80,6 +82,52 @@ put_stack_long(struct task_struct *task, int offset, long data)
 
 	return ret;
 }
+
+#ifdef CONFIG_ARM_THUMB
+static inline int
+read_tsk16(struct task_struct *child, unsigned long addr, unsigned short *res)
+{
+	int copied;
+
+	copied = access_process_vm(child, addr, res, sizeof(*res), 0);
+
+	return copied != sizeof(*res) ? -EIO : 0;
+}
+
+static inline int
+write_tsk16(struct task_struct *child, unsigned long addr, unsigned short val)
+{
+	int copied;
+
+	copied = access_process_vm(child, addr, &val, sizeof(val), 1);
+
+	return copied != sizeof(val) ? -EIO : 0;
+}
+
+static int
+add_breakpoint_thumb(struct task_struct *child, struct debug_info *dbg, u32 addr)
+{
+	int nr = dbg->nsaved;
+	int res = -EINVAL;
+
+	if (nr < 2) {
+		u16 insn;
+
+		res = read_tsk16(child, addr, &insn);
+		if (res == 0)
+			res = write_tsk16(child, addr, BREAK_THUMB);
+
+		if (res == 0) {
+			dbg->bp[nr].address = addr;
+			dbg->bp[nr].insn = insn;
+			dbg->nsaved += 1;
+		}
+	} else
+		printk(KERN_ERR "ptrace: too many breakpoints\n");
+
+	return res;
+}
+#endif
 
 static inline int
 read_tsk_long(struct task_struct *child, unsigned long addr, unsigned long *res)
@@ -112,7 +160,7 @@ ptrace_getrn(struct task_struct *child, unsigned long insn)
 
 	val = get_stack_long(child, reg);
 	if (reg == 15)
-		val = pc_pointer(val);
+		val = pc_pointer(val + 8);
 
 	return val;
 }
@@ -275,7 +323,7 @@ get_branch_address(struct task_struct *child, unsigned long pc, unsigned long in
 			base = ptrace_getrn(child, insn);
 
 			if (read_tsk_long(child, base + nr_regs, &alt) == 0)
-				alt = pc_pointer (alt);
+				alt = pc_pointer(alt);
 			break;
 		}
 		break;
@@ -304,7 +352,7 @@ get_branch_address(struct task_struct *child, unsigned long pc, unsigned long in
 }
 
 static int
-add_breakpoint(struct task_struct *child, struct debug_info *dbg, unsigned long addr)
+add_breakpoint_arm(struct task_struct *child, struct debug_info *dbg, unsigned long addr)
 {
 	int nr = dbg->nsaved;
 	int res = -EINVAL;
@@ -312,24 +360,26 @@ add_breakpoint(struct task_struct *child, struct debug_info *dbg, unsigned long 
 	if (nr < 2) {
 		res = read_tsk_long(child, addr, &dbg->bp[nr].insn);
 		if (res == 0)
-			res = write_tsk_long(child, addr, BREAKINST);
+			res = write_tsk_long(child, addr, BREAKINST_ARM);
 
 		if (res == 0) {
 			dbg->bp[nr].address = addr;
 			dbg->nsaved += 1;
 		}
 	} else
-		printk(KERN_DEBUG "add_breakpoint: too many breakpoints\n");
+		printk(KERN_ERR "ptrace: too many breakpoints\n");
 
 	return res;
 }
 
 int ptrace_set_bpt(struct task_struct *child)
 {
-	unsigned long insn, pc;
+	struct pt_regs *regs;
+	unsigned long pc, insn;
 	int res;
 
-	pc = pc_pointer(get_stack_long(child, REG_PC));
+	regs = get_user_regs(child);
+	pc = instruction_pointer(regs);
 
 	res = read_tsk_long(child, pc, &insn);
 	if (!res) {
@@ -340,10 +390,19 @@ int ptrace_set_bpt(struct task_struct *child)
 
 		alt = get_branch_address(child, pc, insn);
 		if (alt)
-			res = add_breakpoint(child, dbg, alt);
+			res = add_breakpoint_arm(child, dbg, alt);
 
-		if (!res && (!alt || predicate(insn) != PREDICATE_ALWAYS))
-			res = add_breakpoint(child, dbg, pc + 4);
+		/*
+		 * Note that we ignore the result of setting the above
+		 * breakpoint since it may fail.  When it does, this is
+		 * not so much an error, but a forewarning that we may
+		 * be receiving a prefetch abort shortly.
+		 *
+		 * If we don't set this breakpoint here, then we can
+		 * loose control of the thread during single stepping.
+		 */
+		if (!alt || predicate(insn) != PREDICATE_ALWAYS)
+			res = add_breakpoint_arm(child, dbg, pc + 4);
 	}
 
 	return res;
@@ -369,9 +428,9 @@ void __ptrace_cancel_bpt(struct task_struct *child)
 		unsigned long tmp;
 
 		read_tsk_long(child, dbg->bp[i].address, &tmp);
-		if (tmp != BREAKINST)
-			printk(KERN_ERR "ptrace_cancel_bpt: weirdness\n");
 		write_tsk_long(child, dbg->bp[i].address, dbg->bp[i].insn);
+		if (tmp != BREAKINST_ARM)
+			printk(KERN_ERR "ptrace_cancel_bpt: weirdness\n");
 	}
 }
 
@@ -639,12 +698,21 @@ out:
 	return ret;
 }
 
-asmlinkage void syscall_trace(void)
+asmlinkage void syscall_trace(int why, struct pt_regs *regs)
 {
+	unsigned long ip;
+
 	if ((current->ptrace & (PT_PTRACED|PT_TRACESYS))
 			!= (PT_PTRACED|PT_TRACESYS))
 		return;
-	current->exit_code = SIGTRAP;
+
+	ip = regs->ARM_ip;
+	regs->ARM_ip = why;
+
+	/* the 0x80 provides a way for the tracing parent to distinguish
+	   between a syscall stop and SIGTRAP delivery */
+	current->exit_code = SIGTRAP | ((current->ptrace & PT_TRACESYSGOOD)
+					? 0x80 : 0);
 	current->state = TASK_STOPPED;
 	notify_parent(current, SIGCHLD);
 	schedule();
@@ -657,4 +725,5 @@ asmlinkage void syscall_trace(void)
 		send_sig(current->exit_code, current, 1);
 		current->exit_code = 0;
 	}
+	regs->ARM_ip = ip;
 }

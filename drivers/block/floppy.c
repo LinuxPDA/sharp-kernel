@@ -927,10 +927,12 @@ static struct timer_list motor_off_timer[N_DRIVE] = {
 	{ data: 1, function: motor_off_callback },
 	{ data: 2, function: motor_off_callback },
 	{ data: 3, function: motor_off_callback },
+#if N_DRIVE > 4
 	{ data: 4, function: motor_off_callback },
 	{ data: 5, function: motor_off_callback },
 	{ data: 6, function: motor_off_callback },
 	{ data: 7, function: motor_off_callback }
+#endif
 };
 
 /* schedules motor off */
@@ -4058,8 +4060,10 @@ static void __init set_cmos(int *ints, int dummy, int dummy2)
 		DPRINT("bad drive for set_cmos\n");
 		return;
 	}
+#if N_FDC > 1
 	if (current_drive >= 4 && !FDC2)
 		FDC2 = 0x370;
+#endif
 	DP->cmos = ints[2];
 	DPRINT("setting CMOS code to %d\n", ints[2]);
 }
@@ -4079,10 +4083,10 @@ static struct param_table {
 	{ "dma", 0, &FLOPPY_DMA, 2, 0 },
 
 	{ "daring", daring, 0, 1, 0},
-
+#if N_FDC > 1
 	{ "two_fdc",  0, &FDC2, 0x370, 0 },
 	{ "one_fdc", 0, &FDC2, 0, 0 },
-
+#endif
 	{ "thinkpad", floppy_set_flags, 0, 1, FD_INVERTED_DCL },
 	{ "broken_dcl", floppy_set_flags, 0, 1, FD_BROKEN_DCL },
 	{ "messages", floppy_set_flags, 0, 1, FTD_MSG },
@@ -4103,6 +4107,10 @@ static struct param_table {
 	{ "unexpected_interrupts", 0, &print_unex, 1, 0 },
 	{ "no_unexpected_interrupts", 0, &print_unex, 0, 0 },
 	{ "L40SX", 0, &print_unex, 0, 0 }
+
+#ifdef EXTRA_FLOPPY_PARAMS
+	EXTRA_FLOPPY_PARAMS
+#endif
 };
 
 static int __init floppy_setup(char *str)

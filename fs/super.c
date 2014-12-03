@@ -1349,7 +1349,7 @@ static int copy_mount_options (const void *data, unsigned long *where)
 	int i;
 	unsigned long page;
 	unsigned long size;
-	
+
 	*where = 0;
 	if (!data)
 		return 0;

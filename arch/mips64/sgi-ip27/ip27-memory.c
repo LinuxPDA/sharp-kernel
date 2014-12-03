@@ -32,6 +32,12 @@ extern pfn_t node_getfirstfree(cnodeid_t cnode);
 #define PFN_UP(x)	(((x) + PAGE_SIZE-1) >> PAGE_SHIFT)
 #define SLOT_IGNORED	0xffff
 
+/* FIXME:
+ * PG_skip is used on sparc/sparc64 architectures to "skip" certain
+ * parts of the address space.
+ */
+#define PG_skip			10
+
 short slot_lastfilled_cache[MAX_COMPACT_NODES];
 unsigned short slot_psize_cache[MAX_COMPACT_NODES][MAX_MEM_SLOTS];
 static pfn_t numpages;
@@ -250,6 +256,9 @@ void __init paging_init(void)
 					PLAT_NODE_DATA_SIZE(node);
 	}
 }
+
+/* Needs to be defined here and not in linux/mm.h, as it is arch dependent */
+#define PageSkip(page)		test_bit(PG_skip, &(page)->flags)
 
 void __init mem_init(void)
 {

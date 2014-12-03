@@ -7,6 +7,8 @@
  * Fields marked with [#] must be set by the low-level driver.
  * Fields marked with [!] can be changed by the low-level driver
  * to achieve effects such as fast scrolling by changing the origin.
+ *
+ *  11/07/1998	RMK	Changed vc_state to be a function pointer
  */
 
 #define NPAR 16
@@ -31,7 +33,11 @@ struct vc_data {
 	unsigned short	vc_s_complement_mask;	/* Saved mouse pointer mask */
 	unsigned int	vc_x, vc_y;		/* Cursor position */
 	unsigned int	vc_top, vc_bottom;	/* Scrolling region */
+#ifdef CONSOLE_WIP
+	int (*vc_state)(int currcons, struct tty_struct *tty, unsigned int c);
+#else
 	unsigned int	vc_state;		/* Escape sequence parser state */
+#endif
 	unsigned int	vc_npar,vc_par[NPAR];	/* Parameters of current escape sequence */
 	unsigned long	vc_origin;		/* [!] Start of real screen */
 	unsigned long	vc_scr_end;		/* [!] End of real screen */

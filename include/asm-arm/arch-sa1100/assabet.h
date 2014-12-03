@@ -67,6 +67,18 @@ extern unsigned long BCR_value;
 #define BCR_clear( x )	BCR = (BCR_value &= ~(x))
 #endif
 
+#define BSR_BASE	0xf1000000
+#define BSR (*(volatile unsigned int*)(BSR_BASE))
+
+#define BSR_RS232_VALID	(1 << 24)
+#define BSR_COM_DCD	(1 << 25)
+#define BSR_COM_CTS	(1 << 26)
+#define BSR_COM_DSR	(1 << 27)
+#define BSR_RAD_CTS	(1 << 28)
+#define BSR_RAD_DSR	(1 << 29)
+#define BSR_RAD_DCD	(1 << 30)
+#define BSR_RAD_RI	(1 << 31)
+
 
 /* GPIOs for which the generic definition doesn't say much */
 #define GPIO_RADIO_IRQ		GPIO_GPIO (14)	/* Radio interrupt request  */
@@ -143,6 +155,18 @@ extern unsigned long BCR_value;
 
 #define AUD_SEL_1341            (1<<0)
 #define AUD_MUTE_1341           (1<<1)
+
+#define MDM_CTL0_RTS1		(1 << 0)
+#define MDM_CTL0_DTR1		(1 << 1)
+#define MDM_CTL0_RTS2		(1 << 2)
+#define MDM_CTL0_DTR2		(1 << 3)
+
+#define MDM_CTL1_CTS1		(1 << 0)
+#define MDM_CTL1_DSR1		(1 << 1)
+#define MDM_CTL1_DCD1		(1 << 2)
+#define MDM_CTL1_CTS2		(1 << 3)
+#define MDM_CTL1_DSR2		(1 << 4)
+#define MDM_CTL1_DCD2		(1 << 5)
 
 #define NCR_GP01_OFF		(1<<0)
 #define NCR_TP_PWR_EN		(1<<1)

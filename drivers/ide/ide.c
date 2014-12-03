@@ -226,23 +226,14 @@ static inline void set_recovery_timer (ide_hwif_t *hwif)
 static void init_hwif_data (unsigned int index)
 {
 	unsigned int unit;
-	hw_regs_t hw;
 	ide_hwif_t *hwif = &ide_hwifs[index];
 
 	/* bulk initialize hwif & drive info with zeros */
 	memset(hwif, 0, sizeof(ide_hwif_t));
-	memset(&hw, 0, sizeof(hw_regs_t));
 
 	/* fill in any non-zero initial values */
 	hwif->index     = index;
-	ide_init_hwif_ports(&hw, ide_default_io_base(index), 0, &hwif->irq);
-	memcpy(&hwif->hw, &hw, sizeof(hw));
-	memcpy(hwif->io_ports, hw.io_ports, sizeof(hw.io_ports));
-	hwif->noprobe	= !hwif->io_ports[IDE_DATA_OFFSET];
-#ifdef CONFIG_BLK_DEV_HD
-	if (hwif->io_ports[IDE_DATA_OFFSET] == HD_DATA)
-		hwif->noprobe = 1; /* may be overridden by ide_setup() */
-#endif /* CONFIG_BLK_DEV_HD */
+	hwif->noprobe	= 1;
 	hwif->major	= ide_hwif_to_major[index];
 	hwif->name[0]	= 'i';
 	hwif->name[1]	= 'd';
@@ -263,6 +254,27 @@ static void init_hwif_data (unsigned int index)
 		drive->name[1]			= 'd';
 		drive->name[2]			= 'a' + (index * MAX_DRIVES) + unit;
 		init_waitqueue_head(&drive->wqueue);
+	}
+}
+
+/*
+ * Old compatability function - initialise ports using ide_default_io_base
+ */
+static void ide_old_init_default_hwifs(void)
+{
+	unsigned int index;
+	ide_ioreg_t base;
+	ide_hwif_t *hwif;
+
+	for (index = 0; index < MAX_HWIFS; index++) {
+		hwif = &ide_hwifs[index];
+
+		base = ide_default_io_base(index);
+
+		if (base) {
+			ide_init_hwif_ports(&hwif->hw, base, 0, &hwif->hw.irq);
+			hwif->noprobe = 0;
+		}
 	}
 }
 
@@ -295,7 +307,15 @@ static void __init init_ide_data (void)
 		init_hwif_data(index);
 
 	/* Add default hw interfaces */
+	ide_old_init_default_hwifs();
 	ide_init_default_hwifs();
+
+#ifdef CONFIG_BLK_DEV_HD
+	/* Check for any clashes with hd.c driver */
+	for (index = 0; index < MAX_HWIFS; ++index)
+		if (ide_hwifs[index].hw.io_ports[IDE_DATA_OFFSET] == HD_DATA)
+			hwif->noprobe = 1; /* may be overridden by ide_setup() */
+#endif /* CONFIG_BLK_DEV_HD */
 
 	idebus_parameter = 0;
 	system_bus_speed = 0;
@@ -1335,7 +1355,7 @@ static void ide_do_request(ide_hwgroup_t *hwgroup, int masked_irq)
 			return;		/* no more work for this hwgroup (for now) */
 		}
 		hwif = HWIF(drive);
-		if (hwgroup->hwif->sharing_irq && hwif != hwgroup->hwif && hwif->io_ports[IDE_CONTROL_OFFSET]) {
+		if (hwgroup->hwif->sharing_irq && hwif != hwgroup->hwif && hwif->hw.io_ports[IDE_CONTROL_OFFSET]) {
 			/* set nIEN for previous hwif */
 			SELECT_INTERRUPT(hwif, drive);
 		}
@@ -1355,14 +1375,14 @@ static void ide_do_request(ide_hwgroup_t *hwgroup, int masked_irq)
 		 * happens anyway when any interrupt comes in, IDE or otherwise
 		 *  -- the kernel masks the IRQ while it is being handled.
 		 */
-		if (masked_irq && hwif->irq != masked_irq)
-			disable_irq_nosync(hwif->irq);
+		if (masked_irq && hwif->hw.irq != masked_irq)
+			disable_irq_nosync(hwif->hw.irq);
 		spin_unlock(&io_request_lock);
 		ide__sti();	/* allow other IRQs while we start this request */
 		startstop = start_request(drive);
 		spin_lock_irq(&io_request_lock);
-		if (masked_irq && hwif->irq != masked_irq)
-			enable_irq(hwif->irq);
+		if (masked_irq && hwif->hw.irq != masked_irq)
+			enable_irq(hwif->hw.irq);
 		if (startstop == ide_stopped)
 			hwgroup->busy = 0;
 	}
@@ -1444,9 +1464,9 @@ void ide_timer_expiry (unsigned long data)
 			spin_unlock(&io_request_lock);
 			hwif  = HWIF(drive);
 #if DISABLE_IRQ_NOSYNC
-			disable_irq_nosync(hwif->irq);
+			disable_irq_nosync(hwif->hw.irq);
 #else
-			disable_irq(hwif->irq);	/* disable_irq_nosync ?? */
+			disable_irq(hwif->hw.irq);	/* disable_irq_nosync ?? */
 #endif /* DISABLE_IRQ_NOSYNC */
 			__cli();	/* local CPU only, as if we were handling an interrupt */
 			if (hwgroup->poll_timeout != 0) {
@@ -1467,7 +1487,7 @@ void ide_timer_expiry (unsigned long data)
 			}
 			set_recovery_timer(hwif);
 			drive->service_time = jiffies - drive->service_start;
-			enable_irq(hwif->irq);
+			enable_irq(hwif->hw.irq);
 			spin_lock_irq(&io_request_lock);
 			if (startstop == ide_stopped)
 				hwgroup->busy = 0;
@@ -1509,8 +1529,8 @@ static void unexpected_intr (int irq, ide_hwgroup_t *hwgroup)
 	 * handle the unexpected interrupt
 	 */
 	do {
-		if (hwif->irq == irq) {
-			stat = IN_BYTE(hwif->io_ports[IDE_STATUS_OFFSET]);
+		if (hwif->hw.irq == irq) {
+			stat = IN_BYTE(hwif->hw.io_ports[IDE_STATUS_OFFSET]);
 			if (!OK_STAT(stat, READY_STAT, BAD_STAT)) {
 				/* Try to not flood the console with msgs */
 				static unsigned long last_msgtime, count;
@@ -1572,7 +1592,7 @@ void ide_intr (int irq, void *dev_id, struct pt_regs *regs)
 			/*
 			 * Whack the status register, just in case we have a leftover pending IRQ.
 			 */
-			(void) IN_BYTE(hwif->io_ports[IDE_STATUS_OFFSET]);
+			(void) IN_BYTE(hwif->hw.io_ports[IDE_STATUS_OFFSET]);
 #endif /* CONFIG_BLK_DEV_IDEPCI */
 		}
 		spin_unlock_irqrestore(&io_request_lock, flags);
@@ -1621,7 +1641,7 @@ void ide_intr (int irq, void *dev_id, struct pt_regs *regs)
 	if (startstop == ide_stopped) {
 		if (hwgroup->handler == NULL) {	/* paranoia */
 			hwgroup->busy = 0;
-			ide_do_request(hwgroup, hwif->irq);
+			ide_do_request(hwgroup, hwif->hw.irq);
 		} else {
 			printk("%s: ide_intr: huh? expected NULL handler on exit\n", drive->name);
 		}
@@ -1912,31 +1932,31 @@ ide_proc_entry_t generic_subdriver_entries[] = {
 void hwif_unregister (ide_hwif_t *hwif)
 {
 	if (hwif->straight8) {
-		ide_release_region(hwif->io_ports[IDE_DATA_OFFSET], 8);
+		ide_release_region(hwif->hw.io_ports[IDE_DATA_OFFSET], 8);
 		goto jump_eight;
 	}
-	if (hwif->io_ports[IDE_DATA_OFFSET])
-		ide_release_region(hwif->io_ports[IDE_DATA_OFFSET], 1);
-	if (hwif->io_ports[IDE_ERROR_OFFSET])
-		ide_release_region(hwif->io_ports[IDE_ERROR_OFFSET], 1);
-	if (hwif->io_ports[IDE_NSECTOR_OFFSET])
-		ide_release_region(hwif->io_ports[IDE_NSECTOR_OFFSET], 1);
-	if (hwif->io_ports[IDE_SECTOR_OFFSET])
-		ide_release_region(hwif->io_ports[IDE_SECTOR_OFFSET], 1);
-	if (hwif->io_ports[IDE_LCYL_OFFSET])
-		ide_release_region(hwif->io_ports[IDE_LCYL_OFFSET], 1);
-	if (hwif->io_ports[IDE_HCYL_OFFSET])
-		ide_release_region(hwif->io_ports[IDE_HCYL_OFFSET], 1);
-	if (hwif->io_ports[IDE_SELECT_OFFSET])
-		ide_release_region(hwif->io_ports[IDE_SELECT_OFFSET], 1);
-	if (hwif->io_ports[IDE_STATUS_OFFSET])
-		ide_release_region(hwif->io_ports[IDE_STATUS_OFFSET], 1);
+	if (hwif->hw.io_ports[IDE_DATA_OFFSET])
+		ide_release_region(hwif->hw.io_ports[IDE_DATA_OFFSET], 1);
+	if (hwif->hw.io_ports[IDE_ERROR_OFFSET])
+		ide_release_region(hwif->hw.io_ports[IDE_ERROR_OFFSET], 1);
+	if (hwif->hw.io_ports[IDE_NSECTOR_OFFSET])
+		ide_release_region(hwif->hw.io_ports[IDE_NSECTOR_OFFSET], 1);
+	if (hwif->hw.io_ports[IDE_SECTOR_OFFSET])
+		ide_release_region(hwif->hw.io_ports[IDE_SECTOR_OFFSET], 1);
+	if (hwif->hw.io_ports[IDE_LCYL_OFFSET])
+		ide_release_region(hwif->hw.io_ports[IDE_LCYL_OFFSET], 1);
+	if (hwif->hw.io_ports[IDE_HCYL_OFFSET])
+		ide_release_region(hwif->hw.io_ports[IDE_HCYL_OFFSET], 1);
+	if (hwif->hw.io_ports[IDE_SELECT_OFFSET])
+		ide_release_region(hwif->hw.io_ports[IDE_SELECT_OFFSET], 1);
+	if (hwif->hw.io_ports[IDE_STATUS_OFFSET])
+		ide_release_region(hwif->hw.io_ports[IDE_STATUS_OFFSET], 1);
 jump_eight:
-	if (hwif->io_ports[IDE_CONTROL_OFFSET])
-		ide_release_region(hwif->io_ports[IDE_CONTROL_OFFSET], 1);
+	if (hwif->hw.io_ports[IDE_CONTROL_OFFSET])
+		ide_release_region(hwif->hw.io_ports[IDE_CONTROL_OFFSET], 1);
 #if defined(CONFIG_AMIGA) || defined(CONFIG_MAC)
-	if (hwif->io_ports[IDE_IRQ_OFFSET])
-		ide_release_region(hwif->io_ports[IDE_IRQ_OFFSET], 1);
+	if (hwif->hw.io_ports[IDE_IRQ_OFFSET])
+		ide_release_region(hwif->hw.io_ports[IDE_IRQ_OFFSET], 1);
 #endif /* (CONFIG_AMIGA) || (CONFIG_MAC) */
 }
 
@@ -1996,12 +2016,12 @@ void ide_unregister (unsigned int index)
 	 */
 	g = hwgroup->hwif;
 	do {
-		if (g->irq == hwif->irq)
+		if (g->hw.irq == hwif->hw.irq)
 			++irq_count;
 		g = g->next;
 	} while (g != hwgroup->hwif);
 	if (irq_count == 1)
-		free_irq(hwif->irq, hwgroup);
+		free_irq(hwif->hw.irq, hwgroup);
 
 	/*
 	 * Note that we only release the standard ports,
@@ -2095,8 +2115,8 @@ void ide_unregister (unsigned int index)
 	hwif->select_data	= old_hwif.select_data;
 	hwif->proc		= old_hwif.proc;
 #ifndef CONFIG_BLK_DEV_IDECS
-	hwif->irq		= old_hwif.irq;
-#endif /* CONFIG_BLK_DEV_IDECS */
+	hwif->hw.irq		= old_hwif.hw.irq;
+#endif
 	hwif->major		= old_hwif.major;
 	hwif->chipset		= old_hwif.chipset;
 	hwif->autodma		= old_hwif.autodma;
@@ -2116,27 +2136,26 @@ abort:
  * may set up the hw structure yourself OR use this routine to
  * do it for you.
  */
-void ide_setup_ports (	hw_regs_t *hw,
-			ide_ioreg_t base, int *offsets,
-			ide_ioreg_t ctrl, ide_ioreg_t intr,
-			ide_ack_intr_t *ack_intr, int irq)
+void ide_setup_ports(hw_regs_t *hw, ide_ioreg_t base, int *offsets,
+		     ide_ioreg_t ctrl, ide_ioreg_t intr,
+		     ide_ack_intr_t *ack_intr, int irq)
 {
 	int i;
 
 	for (i = 0; i < IDE_NR_PORTS; i++) {
 		if (offsets[i] == -1) {
 			switch(i) {
-				case IDE_CONTROL_OFFSET:
-					hw->io_ports[i] = ctrl;
-					break;
+			case IDE_CONTROL_OFFSET:
+				hw->io_ports[i] = ctrl;
+				break;
 #if defined(CONFIG_AMIGA) || defined(CONFIG_MAC)
-				case IDE_IRQ_OFFSET:
-					hw->io_ports[i] = intr;
-					break;
+			case IDE_IRQ_OFFSET:
+				hw->io_ports[i] = intr;
+				break;
 #endif /* (CONFIG_AMIGA) || (CONFIG_MAC) */
-				default:
-					hw->io_ports[i] = 0;
-					break;
+			default:
+				hw->io_ports[i] = 0;
+				break;
 			}
 		} else {
 			hw->io_ports[i] = base + offsets[i];
@@ -2178,8 +2197,6 @@ found:
 	if (hwif->present)
 		return -1;
 	memcpy(&hwif->hw, hw, sizeof(*hw));
-	memcpy(hwif->io_ports, hwif->hw.io_ports, sizeof(hwif->hw.io_ports));
-	hwif->irq = hw->irq;
 	hwif->noprobe = 0;
 
 	if (!initializing) {
@@ -2203,8 +2220,10 @@ found:
 int ide_register (int arg1, int arg2, int irq)
 {
 	hw_regs_t hw;
+
 	ide_init_hwif_ports(&hw, (ide_ioreg_t) arg1, (ide_ioreg_t) arg2, NULL);
 	hw.irq = irq;
+
 	return ide_register_hw(&hw, NULL);
 }
 
@@ -3103,8 +3122,8 @@ int __init ide_setup (char *s)
 				mate->drives[0].select.all ^= 0x20;
 				mate->drives[1].select.all ^= 0x20;
 				hwif->chipset = mate->chipset = ide_4drives;
-				mate->irq = hwif->irq;
-				memcpy(mate->io_ports, hwif->io_ports, sizeof(hwif->io_ports));
+				mate->hw.irq = hwif->hw.irq;
+				memcpy(mate->hw.io_ports, hwif->hw.io_ports, sizeof(hwif->hw.io_ports));
 				goto do_serialize;
 			}
 #endif /* CONFIG_BLK_DEV_4DRIVES */
@@ -3150,10 +3169,9 @@ int __init ide_setup (char *s)
 			case 2: /* base,ctl */
 				vals[2] = 0;	/* default irq = probe for it */
 			case 3: /* base,ctl,irq */
-				hwif->hw.irq = vals[2];
-				ide_init_hwif_ports(&hwif->hw, (ide_ioreg_t) vals[0], (ide_ioreg_t) vals[1], &hwif->irq);
-				memcpy(hwif->io_ports, hwif->hw.io_ports, sizeof(hwif->io_ports));
-				hwif->irq      = vals[2];
+				ide_init_hwif_ports(&hwif->hw, (ide_ioreg_t)vals[0],
+						    (ide_ioreg_t)vals[1], NULL);
+				hwif->hw.irq   = vals[2];
 				hwif->noprobe  = 0;
 				hwif->chipset  = ide_generic;
 				goto done;
@@ -3168,7 +3186,7 @@ bad_option:
 	printk(" -- BAD OPTION\n");
 	return 1;
 bad_hwif:
-	printk("-- NOT SUPPORTED ON ide%d", hw);
+	printk(" -- NOT SUPPORTED ON ide%d", hw);
 done:
 	printk("\n");
 	return 1;
@@ -3179,87 +3197,61 @@ done:
  */
 static void __init probe_for_hwifs (void)
 {
+	extern void ide_probe_for_rz100x(void);
+	extern void ide_probe_for_cmd640x(void);
+	extern int ide_probe_for_pdc4030(void);
+	extern void pmac_ide_probe(void);
+	extern void icside_init(void);
+	extern void rapide_init(void);
+	extern void gayle_init(void);
+	extern void falconide_init(void);
+	extern void macide_init(void);
+	extern void q40ide_init(void);
+	extern void buddha_init(void);
+	extern void pnpide_init(int enable);
+
 #ifdef CONFIG_PCI
-	if (pci_present())
-	{
-#ifdef CONFIG_BLK_DEV_IDEPCI
+	if (pci_present()) {
+#if defined(CONFIG_BLK_DEV_IDEPCI)
 		ide_scan_pcibus(ide_scan_direction);
-#else
-#ifdef CONFIG_BLK_DEV_RZ1000
-		{
-			extern void ide_probe_for_rz100x(void);
-			ide_probe_for_rz100x();
-		}
-#endif /* CONFIG_BLK_DEV_RZ1000 */
-#endif /* CONFIG_BLK_DEV_IDEPCI */
+#elif defined(CONFIG_BLK_DEV_RZ1000)
+		ide_probe_for_rz100x();
+#endif
 	}
 #endif /* CONFIG_PCI */
 
 #ifdef CONFIG_BLK_DEV_CMD640
-	{
-		extern void ide_probe_for_cmd640x(void);
-		ide_probe_for_cmd640x();
-	}
-#endif /* CONFIG_BLK_DEV_CMD640 */
+	ide_probe_for_cmd640x();
+#endif
 #ifdef CONFIG_BLK_DEV_PDC4030
-	{
-		extern int ide_probe_for_pdc4030(void);
-		(void) ide_probe_for_pdc4030();
-	}
-#endif /* CONFIG_BLK_DEV_PDC4030 */
+	(void) ide_probe_for_pdc4030();
+#endif
 #ifdef CONFIG_BLK_DEV_IDE_PMAC
-	{
-		extern void pmac_ide_probe(void);
-		pmac_ide_probe();
-	}
-#endif /* CONFIG_BLK_DEV_IDE_PMAC */
+	pmac_ide_probe();
+#endif
 #ifdef CONFIG_BLK_DEV_IDE_ICSIDE
-	{
-		extern void icside_init(void);
-		icside_init();
-	}
-#endif /* CONFIG_BLK_DEV_IDE_ICSIDE */
+	icside_init();
+#endif
 #ifdef CONFIG_BLK_DEV_IDE_RAPIDE
-	{
-		extern void rapide_init(void);
-		rapide_init();
-	}
-#endif /* CONFIG_BLK_DEV_IDE_RAPIDE */
+	rapide_init();
+#endif
 #ifdef CONFIG_BLK_DEV_GAYLE
-	{
-		extern void gayle_init(void);
-		gayle_init();
-	}
-#endif /* CONFIG_BLK_DEV_GAYLE */
+	gayle_init();
+#endif
 #ifdef CONFIG_BLK_DEV_FALCON_IDE
-	{
-		extern void falconide_init(void);
-		falconide_init();
-	}
-#endif /* CONFIG_BLK_DEV_FALCON_IDE */
+	falconide_init();
+#endif
 #ifdef CONFIG_BLK_DEV_MAC_IDE
-	{
-		extern void macide_init(void);
-		macide_init();
-	}
-#endif /* CONFIG_BLK_DEV_MAC_IDE */
+	macide_init();
+#endif
 #ifdef CONFIG_BLK_DEV_Q40IDE
-	{
-		extern void q40ide_init(void);
-		q40ide_init();
-	}
-#endif /* CONFIG_BLK_DEV_Q40IDE */
+	q40ide_init();
+#endif
 #ifdef CONFIG_BLK_DEV_BUDDHA
-	{
-		extern void buddha_init(void);
-		buddha_init();
-	}
-#endif /* CONFIG_BLK_DEV_BUDDHA */
+	buddha_init();
+#endif
 #if defined(CONFIG_BLK_DEV_ISAPNP) && defined(CONFIG_ISAPNP)
-	{
-		extern void pnpide_init(int enable);
-		pnpide_init(1);
-	}
+	pnpide_init(1);
 #endif /* CONFIG_BLK_DEV_ISAPNP */
 }
 
@@ -3272,18 +3264,18 @@ void __init ide_init_builtin_drivers (void)
 
 #ifdef CONFIG_BLK_DEV_IDE
 #if defined(__mc68000__) || defined(CONFIG_APUS)
-	if (ide_hwifs[0].io_ports[IDE_DATA_OFFSET]) {
+	if (ide_hwifs[0].hw.io_ports[IDE_DATA_OFFSET]) {
 		ide_get_lock(&ide_lock, NULL, NULL);	/* for atari only */
-		disable_irq(ide_hwifs[0].irq);	/* disable_irq_nosync ?? */
-//		disable_irq_nosync(ide_hwifs[0].irq);
+		disable_irq(ide_hwifs[0].hw.irq);	/* disable_irq_nosync ?? */
+//		disable_irq_nosync(ide_hwifs[0].hw.irq);
 	}
 #endif /* __mc68000__ || CONFIG_APUS */
 
 	(void) ideprobe_init();
 
 #if defined(__mc68000__) || defined(CONFIG_APUS)
-	if (ide_hwifs[0].io_ports[IDE_DATA_OFFSET]) {
-		enable_irq(ide_hwifs[0].irq);
+	if (ide_hwifs[0].hw.io_ports[IDE_DATA_OFFSET]) {
+		enable_irq(ide_hwifs[0].hw.irq);
 		ide_release_lock(&ide_lock);	/* for atari only */
 	}
 #endif /* __mc68000__ || CONFIG_APUS */

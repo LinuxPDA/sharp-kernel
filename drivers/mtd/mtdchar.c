@@ -1,5 +1,5 @@
 /*
- * $Id: mtdchar.c,v 1.38.2.1 2001/06/09 17:31:16 dwmw2 Exp $
+ * $Id: mtdchar.c,v 1.38 2001/06/09 17:29:19 dwmw2 Exp $
  *
  * Character-device access to raw MTD devices.
  *
@@ -28,7 +28,11 @@ static devfs_handle_t devfs_rw_handle[MAX_MTD_DEVICES];
 static devfs_handle_t devfs_ro_handle[MAX_MTD_DEVICES];
 #endif
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,2,0)
 static loff_t mtd_lseek (struct file *file, loff_t offset, int orig)
+#else
+static int mtd_lseek (struct inode *inode, struct file *file, off_t offset, int orig)
+#endif
 {
 	struct mtd_info *mtd=(struct mtd_info *)file->private_data;
 
@@ -74,16 +78,21 @@ static int mtd_open(struct inode *inode, struct file *file)
 	if ((file->f_mode & 2) && (minor & 1))
 		return -EACCES;
 
+	MOD_INC_USE_COUNT;
+
 	mtd = get_mtd_device(NULL, devnum);
 		
-	if (!mtd)
+	if (!mtd) {
+		MOD_DEC_USE_COUNT;
 		return -ENODEV;
+	}
 	
 	file->private_data = mtd;
 		
 	/* You can't open it RW if it's not a writeable device */
 	if ((file->f_mode & 2) && !(mtd->flags & MTD_WRITEABLE)) {
 		put_mtd_device(mtd);
+		MOD_DEC_USE_COUNT;
 		return -EACCES;
 	}
 		
@@ -106,6 +115,7 @@ static release_t mtd_close(struct inode *inode,
 	
 	put_mtd_device(mtd);
 
+	MOD_DEC_USE_COUNT;
 	release_return(0);
 } /* mtd_close */
 
@@ -120,15 +130,20 @@ static release_t mtd_close(struct inode *inode,
 */
 #define MAX_KMALLOC_SIZE 0x20000
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,2,0)
 static ssize_t mtd_read(struct file *file, char *buf, size_t count,loff_t *ppos)
+#else
+static int mtd_read(struct inode *inode,struct file *file, char *buf, int count)
+#endif
 {
 	struct mtd_info *mtd = (struct mtd_info *)file->private_data;
 	size_t retlen=0;
 	size_t total_retlen=0;
 	int ret=0;
+#ifndef NO_MM
 	int len;
 	char *kbuf;
-	
+#endif	
 	DEBUG(MTD_DEBUG_LEVEL0,"MTD_read\n");
 
 	if (FILE_POS + count > mtd->size)
@@ -137,8 +152,17 @@ static ssize_t mtd_read(struct file *file, char *buf, size_t count,loff_t *ppos)
 	if (!count)
 		return 0;
 	
-	/* FIXME: Use kiovec in 2.5 to lock down the user's buffers
-	   and pass them directly to the MTD functions */
+	/* FIXME: Use kiovec in 2.3 or 2.2+rawio, or at
+	 * least split the IO into smaller chunks.
+	 */
+#ifdef NO_MM	
+	ret = MTD_READ(mtd, FILE_POS, count, &retlen, buf);
+	if (!ret) {
+		FILE_POS += retlen;
+		ret = retlen;
+	}
+	total_retlen = ret;
+#else
 	while (count) {
 		if (count > MAX_KMALLOC_SIZE) 
 			len = MAX_KMALLOC_SIZE;
@@ -170,17 +194,24 @@ static ssize_t mtd_read(struct file *file, char *buf, size_t count,loff_t *ppos)
 		kfree(kbuf);
 	}
 	
+#endif	
 	return total_retlen;
 } /* mtd_read */
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,2,0)
 static ssize_t mtd_write(struct file *file, const char *buf, size_t count,loff_t *ppos)
+#else
+static read_write_t mtd_write(struct inode *inode,struct file *file, const char *buf, count_t count)
+#endif
 {
 	struct mtd_info *mtd = (struct mtd_info *)file->private_data;
-	char *kbuf;
 	size_t retlen;
 	size_t total_retlen=0;
 	int ret=0;
+#ifndef NO_MM
 	int len;
+	char *kbuf;
+#endif
 
 	DEBUG(MTD_DEBUG_LEVEL0,"MTD_write\n");
 	
@@ -193,6 +224,14 @@ static ssize_t mtd_write(struct file *file, const char *buf, size_t count,loff_t
 	if (!count)
 		return 0;
 
+#ifdef NO_MM	
+	ret = MTD_WRITE(mtd, FILE_POS, count, &retlen, buf);
+	if (!ret) {
+		FILE_POS += retlen;
+		ret = retlen;
+	}
+	total_retlen = ret;
+#else
 	while (count) {
 		if (count > MAX_KMALLOC_SIZE) 
 			len = MAX_KMALLOC_SIZE;
@@ -224,7 +263,7 @@ static ssize_t mtd_write(struct file *file, const char *buf, size_t count,loff_t
 		
 		kfree(kbuf);
 	}
-
+#endif		
 	return total_retlen;
 } /* mtd_write */
 
@@ -262,7 +301,6 @@ static int mtd_ioctl(struct inode *inode, struct file *file,
 		if (copy_to_user((int *) arg, &(mtd->numeraseregions), sizeof(int)))
 			return -EFAULT;
 		break;
-
 	case MEMGETREGIONINFO:
 	{
 		struct region_info_user ur;
@@ -274,14 +312,13 @@ static int mtd_ioctl(struct inode *inode, struct file *file,
 		}
 
 		if (ur.regionindex >= mtd->numeraseregions)
-			return -EINVAL;
+			return -EFAULT;
 		if (copy_to_user((struct mtd_erase_region_info *) arg, 
 				&(mtd->eraseregions[ur.regionindex]),
 				sizeof(struct mtd_erase_region_info)))
 			return -EFAULT;
 		break;
 	}
-
 	case MEMGETINFO:
 		if (copy_to_user((struct mtd_info *)arg, mtd,
 				 sizeof(struct mtd_info_user)))
@@ -308,7 +345,7 @@ static int mtd_ioctl(struct inode *inode, struct file *file,
 			erase->mtd = mtd;
 			erase->callback = mtd_erase_callback;
 			erase->priv = (unsigned long)&waitq;
-			
+
 			/*
 			  FIXME: Allow INTERRUPTIBLE. Which means
 			  not having the wait_queue head on the stack.
@@ -444,8 +481,14 @@ static int mtd_ioctl(struct inode *inode, struct file *file,
 } /* memory_ioctl */
 
 static struct file_operations mtd_fops = {
+#if LINUX_VERSION_CODE >= 0x20300	/* Someone knows when these made their debut? */
 	owner:		THIS_MODULE,
+#endif
+#if LINUX_VERSION_CODE >=0x20200
 	llseek:		mtd_lseek,     	/* lseek */
+#else
+	lseek:		mtd_lseek,     	/* lseek */
+#endif
 	read:		mtd_read,	/* read */
 	write: 		mtd_write, 	/* write */
 	ioctl:		mtd_ioctl,	/* ioctl */

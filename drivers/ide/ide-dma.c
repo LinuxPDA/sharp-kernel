@@ -90,6 +90,12 @@
 #include <asm/io.h>
 #include <asm/irq.h>
 
+#ifdef CONFIG_PCI
+#define PCIDEV(hwif)	((hwif)->pci_dev)
+#else
+#define PCIDEV(hwif)	NULL
+#endif
+
 #undef CONFIG_BLK_DEV_IDEDMA_TIMEOUT
 
 extern char *ide_dmafunc_verbose(ide_dma_action_t dmafunc);
@@ -240,7 +246,7 @@ static int ide_build_sglist (ide_hwif_t *hwif, struct request *rq)
 		nents++;
 	} while (bh != NULL);
 
-	return pci_map_sg(hwif->pci_dev, sg, nents, hwif->sg_dma_direction);
+	return pci_map_sg(PCIDEV(hwif), sg, nents, hwif->sg_dma_direction);
 }
 
 /*
@@ -282,7 +288,7 @@ int ide_build_dmatable (ide_drive_t *drive, ide_dma_action_t func)
 		while (cur_len) {
 			if (count++ >= PRD_ENTRIES) {
 				printk("%s: DMA table too small\n", drive->name);
-				pci_unmap_sg(HWIF(drive)->pci_dev,
+				pci_unmap_sg(PCIDEV(HWIF(drive)),
 					     HWIF(drive)->sg_table,
 					     HWIF(drive)->sg_nents,
 					     HWIF(drive)->sg_dma_direction);
@@ -317,7 +323,7 @@ int ide_build_dmatable (ide_drive_t *drive, ide_dma_action_t func)
 /* Teardown mappings after DMA has completed.  */
 void ide_destroy_dmatable (ide_drive_t *drive)
 {
-	struct pci_dev *dev = HWIF(drive)->pci_dev;
+	struct pci_dev *dev = PCIDEV(HWIF(drive));
 	struct scatterlist *sg = HWIF(drive)->sg_table;
 	int nents = HWIF(drive)->sg_nents;
 
@@ -401,8 +407,27 @@ static int config_drive_for_dma (ide_drive_t *drive)
 {
 	struct hd_driveid *id = drive->id;
 	ide_hwif_t *hwif = HWIF(drive);
+	int autodma = hwif->autodma;
 
-	if (id && (id->capability & 1) && hwif->autodma) {
+	if (hwif->chipset != ide_trm290 && hwif->chipset != ide_acorn) {
+		/* take note of what the bios did when setting up
+		 * the interface.  If the BIOS didn't configure
+		 * the drive for DMA mode, then we should not use
+		 * it unless we are prepared to configure the
+		 * drive as well.  -- rmk
+		 */
+		byte dma_stat = inb(hwif->dma_base+2);
+
+		if (drive->select.b.unit) {
+			if (!(dma_stat & 0x40))
+				autodma = 0;
+		} else {
+			if (!(dma_stat & 0x20))
+				autodma = 0;
+		}
+	}
+
+	if (id && (id->capability & 1) && autodma) {
 		/* Consult the list of known "bad" drives */
 		if (ide_dmaproc(ide_dma_bad_drive, drive))
 			return hwif->dmaproc(ide_dma_off, drive);
@@ -554,7 +579,7 @@ int ide_dmaproc (ide_dma_action_t func, ide_drive_t *drive)
 int ide_release_dma (ide_hwif_t *hwif)
 {
 	if (hwif->dmatable_cpu) {
-		pci_free_consistent(hwif->pci_dev,
+		pci_free_consistent(PCIDEV(hwif),
 				    PRD_ENTRIES * PRD_BYTES,
 				    hwif->dmatable_cpu,
 				    hwif->dmatable_dma);
@@ -583,7 +608,7 @@ void ide_setup_dma (ide_hwif_t *hwif, unsigned long dma_base, unsigned int num_p
 	}
 	request_region(dma_base, num_ports, hwif->name);
 	hwif->dma_base = dma_base;
-	hwif->dmatable_cpu = pci_alloc_consistent(hwif->pci_dev,
+	hwif->dmatable_cpu = pci_alloc_consistent(PCIDEV(hwif),
 						  PRD_ENTRIES * PRD_BYTES,
 						  &hwif->dmatable_dma);
 	if (hwif->dmatable_cpu == NULL)
@@ -592,7 +617,7 @@ void ide_setup_dma (ide_hwif_t *hwif, unsigned long dma_base, unsigned int num_p
 	hwif->sg_table = kmalloc(sizeof(struct scatterlist) * PRD_ENTRIES,
 				 GFP_KERNEL);
 	if (hwif->sg_table == NULL) {
-		pci_free_consistent(hwif->pci_dev, PRD_ENTRIES * PRD_BYTES,
+		pci_free_consistent(PCIDEV(hwif), PRD_ENTRIES * PRD_BYTES,
 				    hwif->dmatable_cpu, hwif->dmatable_dma);
 		goto dma_alloc_failure;
 	}
@@ -618,7 +643,7 @@ dma_alloc_failure:
 unsigned long __init ide_get_or_set_dma_base (ide_hwif_t *hwif, int extra, const char *name)
 {
 	unsigned long	dma_base = 0;
-	struct pci_dev	*dev = hwif->pci_dev;
+	struct pci_dev	*dev = PCIDEV(hwif);
 
 	if (hwif->mate && hwif->mate->dma_base) {
 		dma_base = hwif->mate->dma_base - (hwif->channel ? 0 : 8);
@@ -636,9 +661,15 @@ unsigned long __init ide_get_or_set_dma_base (ide_hwif_t *hwif, int extra, const
 		hwif->dma_extra = extra;
 
 		switch(dev->device) {
+			/*
+			 * This is buggy.  Device numbers are not unique
+			 * between vendors.  We should be checking
+			 * both dev->vendor and dev->device
+			 */
 			case PCI_DEVICE_ID_AL_M5219:
 			case PCI_DEVICE_ID_AMD_VIPER_7409:
 			case PCI_DEVICE_ID_CMD_643:
+			case PCI_DEVICE_ID_WINBOND_82C105:
 				outb(inb(dma_base+2) & 0x60, dma_base+2);
 				if (inb(dma_base+2) & 0x80) {
 					printk("%s: simplex device: DMA forced\n", name);

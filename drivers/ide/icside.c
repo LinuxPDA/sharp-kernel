@@ -579,9 +579,8 @@ static int __init icside_register_v6(struct expansion_card *ec, int autodma)
 			icside_setup_dma(mate, autodma);
 		}
 	}
-#endif
-
 no_dma:
+#endif
 	return hwif || mate ? 0 : -1;
 }
 

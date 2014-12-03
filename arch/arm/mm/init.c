@@ -542,6 +542,7 @@ void __init paging_init(struct meminfo *mi, struct machine_desc *mdesc)
 	 */
 	memzero(zero_page, PAGE_SIZE);
 	empty_zero_page = virt_to_page(zero_page);
+	flush_dcache_page(empty_zero_page);
 }
 
 /*

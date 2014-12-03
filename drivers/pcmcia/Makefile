@@ -53,10 +53,30 @@ else
   endif
 endif
 
+obj-$(CONFIG_PCMCIA_CLPS6700)	+= clps6700.o
+obj-$(CONFIG_PCMCIA_SA1100)	+= sa1100_cs.o
+
+sa1100_cs-objs-y				:= sa1100_generic.o
+sa1100_cs-objs-$(CONFIG_SA1100_ASSABET)		+= sa1100_assabet.o
+sa1100_cs-objs-$(CONFIG_ASSABET_NEPONSET)	+= sa1100_neponset.o
+sa1100_cs-objs-$(CONFIG_SA1100_BITSY)		+= sa1100_bitsy.o
+sa1100_cs-objs-$(CONFIG_SA1100_CERF)		+= sa1100_cerf.o
+sa1100_cs-objs-$(CONFIG_SA1100_GRAPHICSCLIENT)	+= sa1100_graphicsclient.o
+sa1100_cs-objs-$(CONFIG_SA1100_XP860)		+= sa1100_xp860.o
+sa1100_cs-objs-$(CONFIG_SA1100_PANGOLIN)	+= sa1100_pangolin.o
+sa1100_cs-objs-$(CONFIG_SA1100_YOPY) += sa1100_yopy.o
+sa1100_cs-objs-$(CONFIG_SA1100_FREEBIRD) += sa1100_freebird.o
+sa1100_cs-objs-$(CONFIG_SA1100_PFS168)		+= sa1100_pfs168.o
+sa1100_cs-objs-$(CONFIG_SA1100_JORNADA720)  += sa1100_jornada720.o
+sa1100_cs-objs-$(CONFIG_SA1100_FLEXANET)    += sa1100_flexanet.o
+
 include $(TOPDIR)/Rules.make
 
 pcmcia_core.o:  $(pcmcia_core-objs)
 	$(LD) $(LD_RFLAG) -r -o $@ $(pcmcia_core-objs)
+
+sa1100_cs.o: $(sa1100_cs-objs-y)
+	$(LD) -r -o $@ $(sa1100_cs-objs-y)
 
 yenta_socket.o: $(yenta_socket-objs)
 	$(LD) $(LD_RFLAG) -r -o $@ $(yenta_socket-objs)
