@@ -476,9 +476,7 @@ int i2c_pcf_add_bus(struct i2c_adapter *adap)
 		return i;
 	}
 
-#ifdef MODULE
 	MOD_INC_USE_COUNT;
-#endif
 
 	i2c_add_adapter(adap);
 
@@ -516,13 +514,11 @@ int i2c_pcf_del_bus(struct i2c_adapter *adap)
 		return res;
 	DEB2(printk("i2c-algo-pcf.o: adapter unregistered: %s\n",adap->name));
 
-#ifdef MODULE
 	MOD_DEC_USE_COUNT;
-#endif
 	return 0;
 }
 
-int __init i2c_algo_pcf_init (void)
+static int __init i2c_algo_pcf_init (void)
 {
 	printk("i2c-algo-pcf.o: i2c pcf8584 algorithm module\n");
 	return 0;
@@ -532,7 +528,6 @@ int __init i2c_algo_pcf_init (void)
 EXPORT_SYMBOL(i2c_pcf_add_bus);
 EXPORT_SYMBOL(i2c_pcf_del_bus);
 
-#ifdef MODULE
 MODULE_AUTHOR("Hans Berglund <hb@spacetec.no>");
 MODULE_DESCRIPTION("I2C-Bus PCF8584 algorithm");
 MODULE_LICENSE("GPL");
@@ -544,13 +539,4 @@ MODULE_PARM_DESC(pcf_scan, "Scan for active chips on the bus");
 MODULE_PARM_DESC(i2c_debug,
         "debug level - 0 off; 1 normal; 2,3 more verbose; 9 pcf-protocol");
 
-
-int init_module(void) 
-{
-	return i2c_algo_pcf_init();
-}
-
-void cleanup_module(void) 
-{
-}
-#endif
+module_init(i2c_algo_pcf_init);

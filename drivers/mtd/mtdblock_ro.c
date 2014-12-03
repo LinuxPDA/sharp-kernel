@@ -1,5 +1,5 @@
 /*
- * $Id: mtdblock_ro.c,v 1.9 2001/10/02 15:05:11 dwmw2 Exp $
+ * $Id: mtdblock_ro.c,v 1.10 2001/10/08 09:29:39 dwmw2 Exp $
  *
  * Read-only version of the mtdblock device, without the 
  * read/erase/modify/writeback stuff
@@ -213,10 +213,13 @@ static int mtdblock_ioctl(struct inode * inode, struct file * file,
 
 	switch (cmd) {
 	case BLKGETSIZE:   /* Return device size */
-		return put_user((mtd->size >> 9), (unsigned long *) arg);
+		return put_user((mtd->size >> 9), (long *) arg);
+
+#ifdef BLKGETSIZE64
 	case BLKGETSIZE64:
 		return put_user((u64)mtd->size, (u64 *)arg);
-		
+#endif
+
 	case BLKFLSBUF:
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,2,0)
 		if(!capable(CAP_SYS_ADMIN))  return -EACCES;

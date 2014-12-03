@@ -282,7 +282,8 @@ typedef struct page {
 #define PG_active		 6
 #define PG_inactive_dirty	 7
 #define PG_slab			 8
-#define PG_skip			10
+#define PG_unused_2		 9
+#define PG_arch_2		10
 #define PG_inactive_clean	11
 #define PG_highmem		12
 #define PG_checked		13	/* kill me in 2.5.<early>. */
@@ -622,6 +623,12 @@ static inline struct vm_area_struct * find_vma_intersection(struct mm_struct * m
 }
 
 extern struct vm_area_struct *find_extend_vma(struct mm_struct *mm, unsigned long addr);
+
+#ifndef __arm__
+#define memc_update_addr(x,y,z)
+#define memc_update_mm(x)
+#define memc_clear(x,y)
+#endif
 
 #endif /* __KERNEL__ */
 

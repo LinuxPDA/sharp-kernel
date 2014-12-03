@@ -6,7 +6,7 @@
 # To add an entry into this database, please see Documentation/arm/README,
 # or contact rmk@arm.linux.org.uk
 #
-# Last update: Fri Oct 26 17:37:13 2001
+# Last update: Thu Nov 1 15:39:15 2001
 #
 # machine_is_xxx	CONFIG_xxxx		MACH_TYPE_xxx		number
 #
@@ -137,3 +137,6 @@ puppy			ARCH_PUPPY		PUPPY			125
 elroy			SA1100_ELROY		ELROY			126
 gms720			ARCH_GMS720		GMS720			127
 s24x			ARCH_S24X		S24X			128
+jtel_clep7312		ARCH_JTEL_CLEP7312	JTEL_CLEP7312		129
+cx821xx			ARCH_CX821XX		CX821XX			130
+edb7312			ARCH_EDB7312		EDB7312			131

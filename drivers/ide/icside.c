@@ -27,6 +27,7 @@
 #include <asm/io.h>
 
 extern char *ide_xfer_verbose (byte xfer_rate);
+extern char *ide_dmafunc_verbose(ide_dma_action_t dmafunc);
 
 /*
  * Maximum number of interfaces per card
@@ -414,7 +415,7 @@ static int in_drive_list(struct hd_driveid *id, struct drive_list_entry * drive_
  *  This is setup to be called as an extern for future support
  *  to other special driver code.
  */
-static int check_drive_lists(ide_drive_t *drive, int good_bad)
+static int icside_check_drive_lists(ide_drive_t *drive, int good_bad)
 {
 	struct hd_driveid *id = drive->id;
 
@@ -444,7 +445,7 @@ icside_dma_check(ide_drive_t *drive)
 	/*
 	 * Consult the list of known "bad" drives
 	 */
-	if (check_drive_lists(drive, 0)) {
+	if (icside_check_drive_lists(drive, 0)) {
 		func = ide_dma_off;
 		goto out;
 	}
@@ -469,7 +470,7 @@ icside_dma_check(ide_drive_t *drive)
 	/*
 	 * Consult the list of known "good" drives
 	 */
-	if (check_drive_lists(drive, 1)) {
+	if (icside_check_drive_lists(drive, 1)) {
 		if (id->eide_dma_time > 150)
 			goto out;
 		xfer_mode = XFER_MW_DMA_1;
@@ -553,7 +554,8 @@ icside_dmaproc(ide_dma_action_t func, ide_drive_t *drive)
 
 	case ide_dma_bad_drive:
 	case ide_dma_good_drive:
-		return check_drive_lists(drive, (func == ide_dma_good_drive));
+		return icside_check_drive_lists(drive, (func ==
+						ide_dma_good_drive));
 
 	case ide_dma_verbose:
 		return icside_dma_verbose(drive);

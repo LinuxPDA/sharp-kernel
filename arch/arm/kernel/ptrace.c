@@ -33,7 +33,9 @@
 /*
  * Breakpoint SWI instruction: SWI &9F0001
  */
-#define BREAKINST	0xef9f0001
+#define BREAKINST_ARM	0xef9f0001
+/* fill this in later */
+#define BREAKINST_THUMB	0xdf00
 
 /*
  * Get the address of the live pt_regs for the specified task.
@@ -72,7 +74,7 @@ put_stack_long(struct task_struct *task, int offset, long data)
 
 	newregs = *regs;
 	newregs.uregs[offset] = data;
-	
+
 	if (valid_user_regs(&newregs)) {
 		regs->uregs[offset] = data;
 		ret = 0;
@@ -80,6 +82,52 @@ put_stack_long(struct task_struct *task, int offset, long data)
 
 	return ret;
 }
+
+#ifdef CONFIG_ARM_THUMB
+static inline int
+read_tsk16(struct task_struct *child, unsigned long addr, unsigned short *res)
+{
+	int copied;
+
+	copied = access_process_vm(child, addr, res, sizeof(*res), 0);
+
+	return copied != sizeof(*res) ? -EIO : 0;
+}
+
+static inline int
+write_tsk16(struct task_struct *child, unsigned long addr, unsigned short val)
+{
+	int copied;
+
+	copied = access_process_vm(child, addr, &val, sizeof(val), 1);
+
+	return copied != sizeof(val) ? -EIO : 0;
+}
+
+static int
+add_breakpoint_thumb(struct task_struct *child, struct debug_info *dbg, u32 addr)
+{
+	int nr = dbg->nsaved;
+	int res = -EINVAL;
+
+	if (nr < 2) {
+		u16 insn;
+
+		res = read_tsk16(child, addr, &insn);
+		if (res == 0)
+			res = write_tsk16(child, addr, BREAKINST_THUMB);
+
+		if (res == 0) {
+			dbg->bp[nr].address = addr;
+			dbg->bp[nr].insn = insn;
+			dbg->nsaved += 1;
+		}
+	} else
+		printk(KERN_ERR "ptrace: too many breakpoints\n");
+
+	return res;
+}
+#endif
 
 static inline int
 read_tsk_long(struct task_struct *child, unsigned long addr, unsigned long *res)
@@ -182,6 +230,20 @@ ptrace_getldrop2(struct task_struct *child, unsigned long insn)
 	return val;
 }
 
+#define OP_MASK	0x01e00000
+#define OP_AND	0x00000000
+#define OP_EOR	0x00200000
+#define OP_SUB	0x00400000
+#define OP_RSB	0x00600000
+#define OP_ADD	0x00800000
+#define OP_ADC	0x00a00000
+#define OP_SBC	0x00c00000
+#define OP_RSC	0x00e00000
+#define OP_ORR	0x01800000
+#define OP_MOV	0x01a00000
+#define OP_BIC	0x01c00000
+#define OP_MVN	0x01e00000
+
 static unsigned long
 get_branch_address(struct task_struct *child, unsigned long pc, unsigned long insn)
 {
@@ -202,19 +264,19 @@ get_branch_address(struct task_struct *child, unsigned long pc, unsigned long in
 		aluop2 = ptrace_getaluop2(child, insn);
 		ccbit  = get_stack_long(child, REG_PSR) & CC_C_BIT ? 1 : 0;
 
-		switch (insn & 0x01e00000) {
-		case 0x00000000: alt = aluop1 & aluop2;		break;
-		case 0x00200000: alt = aluop1 ^ aluop2;		break;
-		case 0x00400000: alt = aluop1 - aluop2;		break;
-		case 0x00600000: alt = aluop2 - aluop1;		break;
-		case 0x00800000: alt = aluop1 + aluop2;		break;
-		case 0x00a00000: alt = aluop1 + aluop2 + ccbit;	break;
-		case 0x00c00000: alt = aluop1 - aluop2 + ccbit;	break;
-		case 0x00e00000: alt = aluop2 - aluop1 + ccbit;	break;
-		case 0x01800000: alt = aluop1 | aluop2;		break;
-		case 0x01a00000: alt = aluop2;			break;
-		case 0x01c00000: alt = aluop1 & ~aluop2;	break;
-		case 0x01e00000: alt = ~aluop2;			break;
+		switch (insn & OP_MASK) {
+		case OP_AND: alt = aluop1 & aluop2;		break;
+		case OP_EOR: alt = aluop1 ^ aluop2;		break;
+		case OP_SUB: alt = aluop1 - aluop2;		break;
+		case OP_RSB: alt = aluop2 - aluop1;		break;
+		case OP_ADD: alt = aluop1 + aluop2;		break;
+		case OP_ADC: alt = aluop1 + aluop2 + ccbit;	break;
+		case OP_SBC: alt = aluop1 - aluop2 + ccbit;	break;
+		case OP_RSC: alt = aluop2 - aluop1 + ccbit;	break;
+		case OP_ORR: alt = aluop1 | aluop2;		break;
+		case OP_MOV: alt = aluop2;			break;
+		case OP_BIC: alt = aluop1 & ~aluop2;		break;
+		case OP_MVN: alt = ~aluop2;			break;
 		}
 		break;
 	}
@@ -275,7 +337,7 @@ get_branch_address(struct task_struct *child, unsigned long pc, unsigned long in
 			base = ptrace_getrn(child, insn);
 
 			if (read_tsk_long(child, base + nr_regs, &alt) == 0)
-				alt = pc_pointer (alt);
+				alt = pc_pointer(alt);
 			break;
 		}
 		break;
@@ -304,7 +366,7 @@ get_branch_address(struct task_struct *child, unsigned long pc, unsigned long in
 }
 
 static int
-add_breakpoint(struct task_struct *child, struct debug_info *dbg, unsigned long addr)
+add_breakpoint_arm(struct task_struct *child, struct debug_info *dbg, unsigned long addr)
 {
 	int nr = dbg->nsaved;
 	int res = -EINVAL;
@@ -312,7 +374,7 @@ add_breakpoint(struct task_struct *child, struct debug_info *dbg, unsigned long 
 	if (nr < 2) {
 		res = read_tsk_long(child, addr, &dbg->bp[nr].insn);
 		if (res == 0)
-			res = write_tsk_long(child, addr, BREAKINST);
+			res = write_tsk_long(child, addr, BREAKINST_ARM);
 
 		if (res == 0) {
 			dbg->bp[nr].address = addr;
@@ -342,7 +404,7 @@ int ptrace_set_bpt(struct task_struct *child)
 
 		alt = get_branch_address(child, pc, insn);
 		if (alt)
-			res = add_breakpoint(child, dbg, alt);
+			res = add_breakpoint_arm(child, dbg, alt);
 
 		/*
 		 * Note that we ignore the result of setting the above
@@ -354,7 +416,7 @@ int ptrace_set_bpt(struct task_struct *child)
 		 * loose control of the thread during single stepping.
 		 */
 		if (!alt || predicate(insn) != PREDICATE_ALWAYS)
-			res = add_breakpoint(child, dbg, pc + 4);
+			res = add_breakpoint_arm(child, dbg, pc + 4);
 	}
 
 	return res;
@@ -381,7 +443,7 @@ void __ptrace_cancel_bpt(struct task_struct *child)
 
 		read_tsk_long(child, dbg->bp[i].address, &tmp);
 		write_tsk_long(child, dbg->bp[i].address, dbg->bp[i].insn);
-		if (tmp != BREAKINST)
+		if (tmp != BREAKINST_ARM)
 			printk(KERN_ERR "ptrace_cancel_bpt: weirdness\n");
 	}
 }

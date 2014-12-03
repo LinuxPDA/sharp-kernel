@@ -200,7 +200,6 @@ static int rd_make_request(request_queue_t * q, int rw, struct buffer_head *sbh)
 	unsigned long offset, len;
 	struct buffer_head *rbh;
 	char *bdata;
-
 	
 	minor = MINOR(sbh->b_rdev);
 
@@ -718,6 +717,9 @@ static void __init rd_load_disk(int n)
 	if (MAJOR(ROOT_DEV) != FLOPPY_MAJOR
 #ifdef CONFIG_BLK_DEV_INITRD
 		&& MAJOR(real_root_dev) != FLOPPY_MAJOR
+#endif
+#ifdef CONFIG_MTD_BLOCK
+		&& MAJOR(ROOT_DEV) != 31
 #endif
 	)
 		return;

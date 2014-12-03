@@ -52,7 +52,6 @@ extern int  irda_sysctl_register(void);
 extern void irda_sysctl_unregister(void);
 
 extern int irda_proto_init(void);
-extern void irda_proto_cleanup(void);
 
 extern int irda_device_init(void);
 extern int irlan_init(void);

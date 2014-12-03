@@ -27,8 +27,6 @@ extern struct kmem_cache_s *pae_pgd_cachep;
 extern void *kmem_cache_alloc(struct kmem_cache_s *, int);
 extern void kmem_cache_free(struct kmem_cache_s *, void *);
 
-extern void init_pae_pgd_cache(void);
-
 static inline pgd_t *get_pgd_slow(void)
 {
 	int i;

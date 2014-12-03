@@ -64,7 +64,7 @@
 		kphex	r7, 8		/* architecture id */
 		kputc	#':'
 		mrc	p15, 0, r0, c1, c0
-		kphex	r0, 8		/* control reg
+		kphex	r0, 8		/* control reg */
 		kputc	#'\n'
 		kphex	r5, 8		/* decompressed kernel start */
 		kputc	#'-'

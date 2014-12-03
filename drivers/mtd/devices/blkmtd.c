@@ -1,12 +1,11 @@
 /* 
- * $Id: blkmtd.c,v 1.3 2001/10/02 15:33:20 dwmw2 Exp $
- *  - With alloc_kiovec_sz patches to work in 2.4.x-ac kernels.
+ * $Id: blkmtd.c,v 1.6 2001/11/01 14:40:40 spse Exp $
  *
  * blkmtd.c - use a block device as a fake MTD
  *
  * Author: Simon Evans <spse@secret.org.uk>
  *
- * Copyright (C) 2001 Simon Evans <spse@secret.org.uk>
+ * Copyright (C) 2001 Simon Evans
  * 
  * Licence: GPL
  *
@@ -15,7 +14,7 @@
  *       cache to cache access. Writes update the page cache with the
  *       new data but make a copy of the new page(s) and then a kernel
  *       thread writes pages out to the device in the background. This
- *       ensures tht writes are order even if a page is updated twice.
+ *       ensures that writes are order even if a page is updated twice.
  *       Also, since pages in the page cache are never marked as dirty,
  *       we dont have to worry about writepage() being called on some 
  *       random page which may not be in the write order.
@@ -42,13 +41,11 @@
  *       Reading should read multiple pages at once rather than using 
  *       readpage() for each one. This is easy and will be fixed asap.
  *
- *       Dont run the write_thread if readonly. This is also easy and will
- *       be fixed asap.
- * 
  *       Even though the multiple erase regions are used if the default erase
  *       block size doesnt match the device properly, erases currently wont
  *       work on the last page if it is not a full page.
  */
+
 
 #include <linux/config.h>
 #include <linux/module.h>
@@ -61,9 +58,18 @@
 #include <linux/mtd/compatmac.h>
 #include <linux/mtd/mtd.h>
 
+#ifdef CONFIG_MTD_DEBUG
+#ifdef CONFIG_PROC_FS
+#  include <linux/proc_fs.h>
+#  define BLKMTD_PROC_DEBUG
+   static struct proc_dir_entry *blkmtd_proc;
+#endif
+#endif
+
+
 /* Default erase size in K, always make it a multiple of PAGE_SIZE */
 #define CONFIG_MTD_BLKDEV_ERASESIZE 128
-#define VERSION "1.1"
+#define VERSION "1.6"
 extern int *blk_size[];
 extern int *blksize_size[];
 
@@ -74,7 +80,6 @@ typedef struct mtd_raw_dev_data_s {
   size_t totalsize;
   int readonly;
   struct address_space as;
-  struct file *file;
 } mtd_raw_dev_data_t;
 
 /* Info for each queue item in the write queue */
@@ -87,6 +92,9 @@ typedef struct mtdblkdev_write_queue_s {
 } mtdblkdev_write_queue_t;
 
 
+/* Our erase page - always remains locked. */
+static struct page *erase_page;
+
 /* Static info about the MTD, used in cleanup_module */
 static struct mtd_info *mtd_info;
 
@@ -94,17 +102,18 @@ static struct mtd_info *mtd_info;
 #define WRITE_QUEUE_SZ 512
 
 /* Storage for the write queue */
-static mtdblkdev_write_queue_t write_queue[WRITE_QUEUE_SZ];
+static mtdblkdev_write_queue_t *write_queue;
+static int write_queue_sz = WRITE_QUEUE_SZ;
 static int volatile write_queue_head;
 static int volatile write_queue_tail;
 static int volatile write_queue_cnt;
 static spinlock_t mbd_writeq_lock = SPIN_LOCK_UNLOCKED;
 
 /* Tell the write thread to finish */
-static volatile int write_task_finish = 0;
+static volatile int write_task_finish;
 
 /* ipc with the write thread */
-#if LINUX_VERSION_CODE > 0x020300
+#if LINUX_VERSION_CODE > KERNEL_VERSION(2,3,0)
 static DECLARE_MUTEX_LOCKED(thread_sem);
 static DECLARE_WAIT_QUEUE_HEAD(thr_wq);
 static DECLARE_WAIT_QUEUE_HEAD(mtbd_sync_wq);
@@ -122,6 +131,7 @@ int erasesz;     /* optional default erase size */
 int ro;          /* optional read only flag */
 int bs;          /* optionally force the block size (avoid using) */
 int count;       /* optionally force the block count (avoid using) */
+int wqs;         /* optionally set the write queue size */
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,2,0)
 MODULE_LICENSE("GPL");
@@ -137,6 +147,7 @@ MODULE_PARM(bs, "i");
 MODULE_PARM_DESC(bs, "force the block size in bytes");
 MODULE_PARM(count, "i");
 MODULE_PARM_DESC(count, "force the block count");
+MODULE_PARM(wqs, "i");
 #endif
 
 
@@ -152,14 +163,13 @@ static int blkmtd_writepage(struct page *page)
 
 
 /* readpage() - reads one page from the block device */                 
-static int blkmtd_readpage(struct file *file, struct page *page)
+static int blkmtd_readpage(mtd_raw_dev_data_t *rawdevice, struct page *page)
 {  
   int err;
   int sectornr, sectors, i;
   struct kiobuf *iobuf;
-  mtd_raw_dev_data_t *rawdevice = (mtd_raw_dev_data_t *)file->private_data;
   kdev_t dev;
-  int nbhs = KIO_MAX_SECTORS;
+  unsigned long *blocks;
 
   if(!rawdevice) {
     printk("blkmtd: readpage: PANIC file->private_data == NULL\n");
@@ -171,7 +181,7 @@ static int blkmtd_readpage(struct file *file, struct page *page)
 	bdevname(dev), page, page->index);
 
   if(Page_Uptodate(page)) {
-    DEBUG(1, "blkmtd: readpage page %ld is already upto date\n", page->index);
+    DEBUG(2, "blkmtd: readpage page %ld is already upto date\n", page->index);
     UnlockPage(page);
     return 0;
   }
@@ -187,8 +197,9 @@ static int blkmtd_readpage(struct file *file, struct page *page)
       mtdblkdev_write_queue_t *item = &write_queue[i];
       if(page->index >= item->pagenr && page->index < item->pagenr+item->pagecnt) {
 	/* yes it is */
-	int index = item->pagenr - page->index;
-	DEBUG(1, "blkmtd: readpage: found page %ld in outgoing write queue\n",
+	int index = page->index - item->pagenr;
+		
+	DEBUG(2, "blkmtd: readpage: found page %ld in outgoing write queue\n",
 	      page->index);
 	if(item->iserase) {
 	  memset(page_address(page), 0xff, PAGE_SIZE);
@@ -202,17 +213,33 @@ static int blkmtd_readpage(struct file *file, struct page *page)
 	return 0;
       }
       i++;
-      i %= WRITE_QUEUE_SZ;
+      i %= write_queue_sz;
     }
   }
   spin_unlock(&mbd_writeq_lock);
 
 
   DEBUG(3, "blkmtd: readpage: getting kiovec\n");
-  err = alloc_kiovec_sz(1, &iobuf, &nbhs);
+  err = alloc_kiovec(1, &iobuf);
   if (err) {
+    printk("blkmtd: cant allocate kiobuf\n");
+    SetPageError(page);
     return err;
   }
+
+  /* Pre 2.4.4 doesnt have space for the block list in the kiobuf */ 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,4,4)
+  blocks = kmalloc(KIO_MAX_SECTORS * sizeof(unsigned long));
+  if(blocks == NULL) {
+    printk("blkmtd: cant allocate iobuf blocks\n");
+    free_kiovec(1, &iobuf);
+    SetPageError(page);
+    return -ENOMEM;
+  }
+#else 
+  blocks = iobuf->blocks;
+#endif
+
   iobuf->offset = 0;
   iobuf->nr_pages = 1;
   iobuf->length = PAGE_SIZE;
@@ -222,14 +249,19 @@ static int blkmtd_readpage(struct file *file, struct page *page)
   sectors = 1 << (PAGE_SHIFT - rawdevice->sector_bits);
   DEBUG(3, "blkmtd: readpage: sectornr = %d sectors = %d\n", sectornr, sectors);
   for(i = 0; i < sectors; i++) {
-    iobuf->blocks[i] = sectornr++;
+    blocks[i] = sectornr++;
   }
 
   DEBUG(3, "bklmtd: readpage: starting brw_kiovec\n");
-  err = brw_kiovec(READ, 1, &iobuf, dev, iobuf->blocks, rawdevice->sector_size);
+  err = brw_kiovec(READ, 1, &iobuf, dev, blocks, rawdevice->sector_size);
   DEBUG(3, "blkmtd: readpage: finished, err = %d\n", err);
   iobuf->locked = 0;
-  free_kiovec_sz(1, &iobuf, &nbhs);
+  free_kiovec(1, &iobuf);
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,4,4)
+  kfree(blocks);
+#endif
+
   if(err != PAGE_SIZE) {
     printk("blkmtd: readpage: error reading page %ld\n", page->index);
     memset(page_address(page), 0, PAGE_SIZE);
@@ -249,7 +281,7 @@ static int blkmtd_readpage(struct file *file, struct page *page)
                     
 static struct address_space_operations blkmtd_aops = {
   writepage:     blkmtd_writepage,
-  readpage:      blkmtd_readpage,
+  readpage:      NULL,
 }; 
 
 
@@ -259,7 +291,7 @@ static int write_queue_task(void *data)
   int err;
   struct task_struct *tsk = current;
   struct kiobuf *iobuf;
-  int nbhs = KIO_MAX_SECTORS;
+  unsigned long *blocks;
 
   DECLARE_WAITQUEUE(wait, tsk);
   DEBUG(1, "blkmtd: writetask: starting (pid = %d)\n", tsk->pid);
@@ -272,8 +304,23 @@ static int write_queue_task(void *data)
   spin_unlock_irq(&tsk->sigmask_lock);
   exit_sighand(tsk);
 
-  if(alloc_kiovec_sz(1, &iobuf, &nbhs))
+  if(alloc_kiovec(1, &iobuf)) {
+    printk("blkmtd: write_queue_task cant allocate kiobuf\n");
     return 0;
+  }
+
+  /* Pre 2.4.4 doesnt have space for the block list in the kiobuf */ 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,4,4)
+  blocks = kmalloc(KIO_MAX_SECTORS * sizeof(unsigned long));
+  if(blocks == NULL) {
+    printk("blkmtd: write_queue_task cant allocate iobuf blocks\n");
+    free_kiovec(1, &iobuf);
+    return 0;
+  }
+#else 
+  blocks = iobuf->blocks;
+#endif
+
   DEBUG(2, "blkmtd: writetask: entering main loop\n");
   add_wait_queue(&thr_wq, &wait);
 
@@ -322,17 +369,22 @@ static int write_queue_task(void *data)
 	int cpagecnt = (cursectors << item->rawdevice->sector_bits) + PAGE_SIZE-1;
 	cpagecnt >>= PAGE_SHIFT;
 	
-	for(i = 0; i < cpagecnt; i++) 
+	for(i = 0; i < cpagecnt; i++) {
+	  if(item->iserase) {
+	    iobuf->maplist[i] = erase_page;
+	  } else {
 	    iobuf->maplist[i] = *(pages++);
+	  }
+	}
 	
 	for(i = 0; i < cursectors; i++) {
-	  iobuf->blocks[i] = sectornr++;
+	  blocks[i] = sectornr++;
 	}
 	
 	iobuf->nr_pages = cpagecnt;
 	iobuf->length = cursectors << item->rawdevice->sector_bits;
 	DEBUG(3, "blkmtd: write_task: about to kiovec\n");
-	err = brw_kiovec(WRITE, 1, &iobuf, dev, iobuf->blocks, item->rawdevice->sector_size);
+	err = brw_kiovec(WRITE, 1, &iobuf, dev, blocks, item->rawdevice->sector_size);
 	DEBUG(3, "bklmtd: write_task: done, err = %d\n", err);
 	if(err != (cursectors << item->rawdevice->sector_bits)) {
 	  /* if an error occured - set this to exit the loop */
@@ -349,12 +401,14 @@ static int write_queue_task(void *data)
       spin_lock(&mbd_writeq_lock);
       write_queue_cnt--;
       write_queue_tail++;
-      write_queue_tail %= WRITE_QUEUE_SZ;
-      for(i = 0 ; i < item->pagecnt; i++) {
-	UnlockPage(item->pages[i]);
-	__free_pages(item->pages[i], 0);
+      write_queue_tail %= write_queue_sz;
+      if(!item->iserase) {
+	for(i = 0 ; i < item->pagecnt; i++) {
+	  UnlockPage(item->pages[i]);
+	  __free_pages(item->pages[i], 0);
+	}
+	kfree(item->pages);
       }
-      kfree(item->pages);
       item->pages = NULL;
       spin_unlock(&mbd_writeq_lock);
       /* Tell others there is some space in the write queue */
@@ -364,7 +418,12 @@ static int write_queue_task(void *data)
   }
   remove_wait_queue(&thr_wq, &wait);
   DEBUG(1, "blkmtd: writetask: exiting\n");
-  free_kiovec_sz(1, &iobuf, &nbhs);
+  free_kiovec(1, &iobuf);
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,4,4)
+  kfree(blocks);
+#endif
+
   /* Tell people we have exitd */
   up(&thread_sem);
   return 0;
@@ -376,43 +435,45 @@ static int queue_page_write(mtd_raw_dev_data_t *rawdevice, struct page **pages,
 			    int pagenr, int pagecnt, int iserase)
 {
   struct page *outpage;
-  struct page **new_pages;
+  struct page **new_pages = NULL;
   mtdblkdev_write_queue_t *item;
   int i;
   DECLARE_WAITQUEUE(wait, current);
-  DEBUG(2, "mtdblkdev: queue_page_write: adding pagenr = %d pagecnt = %d\n", pagenr, pagecnt);
+  DEBUG(2, "blkmtd: queue_page_write: adding pagenr = %d pagecnt = %d\n", pagenr, pagecnt);
 
   if(!pagecnt)
     return 0;
 
-  if(pages == NULL)
+  if(pages == NULL && !iserase)
     return -EINVAL;
 
   /* create a array for the list of pages */
-  new_pages = kmalloc(pagecnt * sizeof(struct page *), GFP_KERNEL);
-  if(new_pages == NULL)
-    return -ENOMEM;
-
-  /* make copies of the pages in the page cache */
-  for(i = 0; i < pagecnt; i++) {
-    outpage = alloc_pages(GFP_KERNEL, 0);
-    if(!outpage) {
-      while(i--) {
-	UnlockPage(new_pages[i]);
-	__free_pages(new_pages[i], 0);
-      }
-      kfree(new_pages);
+  if(!iserase) {
+    new_pages = kmalloc(pagecnt * sizeof(struct page *), GFP_KERNEL);
+    if(new_pages == NULL)
       return -ENOMEM;
+
+    /* make copies of the pages in the page cache */
+    for(i = 0; i < pagecnt; i++) {
+      outpage = alloc_pages(GFP_KERNEL, 0);
+      if(!outpage) {
+	while(i--) {
+	  UnlockPage(new_pages[i]);
+	  __free_pages(new_pages[i], 0);
+	}
+	kfree(new_pages);
+	return -ENOMEM;
+      }
+      lock_page(outpage);
+      memcpy(page_address(outpage), page_address(pages[i]), PAGE_SIZE);
+      new_pages[i] = outpage;
     }
-    lock_page(outpage);
-    memcpy(page_address(outpage), page_address(pages[i]), PAGE_SIZE);
-    new_pages[i] = outpage;
   }
 
   /* wait until there is some space in the write queue */
  test_lock:
   spin_lock(&mbd_writeq_lock);
-  if(write_queue_cnt == WRITE_QUEUE_SZ) {
+  if(write_queue_cnt == write_queue_sz) {
     spin_unlock(&mbd_writeq_lock);
     DEBUG(3, "blkmtd: queue_page: Queue full\n");
     current->state = TASK_UNINTERRUPTIBLE;
@@ -421,11 +482,11 @@ static int queue_page_write(mtd_raw_dev_data_t *rawdevice, struct page **pages,
     schedule();
     current->state = TASK_RUNNING;
     remove_wait_queue(&mtbd_sync_wq, &wait);
-    DEBUG(3, "blkmtd: queue_page: Queue has %d items in it\n", write_queue_cnt);
+    DEBUG(3, "blkmtd: queue_page_write: Queue has %d items in it\n", write_queue_cnt);
     goto test_lock;
   }
 
-  DEBUG(3, "blkmtd: queue_write_page: qhead: %d qtail: %d qcnt: %d\n", 
+  DEBUG(3, "blkmtd: queue_page_write: qhead: %d qtail: %d qcnt: %d\n", 
 	write_queue_head, write_queue_tail, write_queue_cnt);
 
   /* fix up the queue item */
@@ -437,9 +498,9 @@ static int queue_page_write(mtd_raw_dev_data_t *rawdevice, struct page **pages,
   item->iserase = iserase;
 
   write_queue_head++;
-  write_queue_head %= WRITE_QUEUE_SZ;
+  write_queue_head %= write_queue_sz;
   write_queue_cnt++;
-  DEBUG(3, "blkmtd: queue_write_page: qhead: %d qtail: %d qcnt: %d\n", 
+  DEBUG(3, "blkmtd: queue_page_write: qhead: %d qtail: %d qcnt: %d\n", 
 	write_queue_head, write_queue_tail, write_queue_cnt);
   spin_unlock(&mbd_writeq_lock);
   DEBUG(2, "blkmtd: queue_page_write: finished\n");
@@ -490,12 +551,14 @@ static int blkmtd_erase(struct mtd_info *mtd, struct erase_info *instr)
     pagenr = from >> PAGE_SHIFT;
     pagecnt = len >> PAGE_SHIFT;
     DEBUG(3, "blkmtd: erase: pagenr = %d pagecnt = %d\n", pagenr, pagecnt);
+
     pages = kmalloc(pagecnt * sizeof(struct page *), GFP_KERNEL);
     if(pages == NULL) {
       err = -ENOMEM;
       instr->state = MTD_ERASE_FAILED;
       goto erase_out;
     }
+
 
     while(pagecnt) {
       /* get the page via the page cache */
@@ -515,7 +578,7 @@ static int blkmtd_erase(struct mtd_info *mtd, struct erase_info *instr)
       i++;
     }
     DEBUG(3, "blkmtd: erase: queuing page write\n");
-    err = queue_page_write(rawdevice, pages, from >> PAGE_SHIFT, len >> PAGE_SHIFT, 1);
+    err = queue_page_write(rawdevice, NULL, from >> PAGE_SHIFT, len >> PAGE_SHIFT, 1);
     pagecnt = len >> PAGE_SHIFT;
     if(!err) {
       while(pagecnt--) {
@@ -571,7 +634,7 @@ static int blkmtd_read(struct mtd_info *mtd, loff_t from, size_t len,
     struct page *page;
     int cpylen;
     DEBUG(3, "blkmtd: read: looking for page: %d\n", pagenr);
-    page = read_cache_page(&rawdevice->as, pagenr, (filler_t *)blkmtd_readpage, rawdevice->file);
+    page = read_cache_page(&rawdevice->as, pagenr, (filler_t *)blkmtd_readpage, rawdevice);
     if(IS_ERR(page)) {
       return PTR_ERR(page);
     }
@@ -687,7 +750,7 @@ static int blkmtd_write(struct mtd_info *mtd, loff_t to, size_t len,
     struct page *page;
     
     DEBUG(3, "blkmtd: write: doing partial start, page = %d len = %d offset = %d\n", pagenr, len1, offset);
-    page = read_cache_page(&rawdevice->as, pagenr, (filler_t *)blkmtd_readpage, rawdevice->file);
+    page = read_cache_page(&rawdevice->as, pagenr, (filler_t *)blkmtd_readpage, rawdevice);
 
     if(IS_ERR(page)) {
       kfree(pages);
@@ -732,7 +795,7 @@ static int blkmtd_write(struct mtd_info *mtd, loff_t to, size_t len,
     /* do the third region */
     struct page *page;
     DEBUG(3, "blkmtd: write: doing partial end, page = %d len = %d\n", pagenr, len3);
-    page = read_cache_page(&rawdevice->as, pagenr, (filler_t *)blkmtd_readpage, rawdevice->file);
+    page = read_cache_page(&rawdevice->as, pagenr, (filler_t *)blkmtd_readpage, rawdevice);
     if(IS_ERR(page)) {
       err = PTR_ERR(page);
       goto write_err;
@@ -770,6 +833,10 @@ static int blkmtd_write(struct mtd_info *mtd, loff_t to, size_t len,
 static void blkmtd_sync(struct mtd_info *mtd)
 {
   DECLARE_WAITQUEUE(wait, current);
+  mtd_raw_dev_data_t *rawdevice = mtd_info->priv;
+  if(rawdevice->readonly)
+    return;
+
   DEBUG(2, "blkmtd: sync: called\n");
 
  stuff_inq:
@@ -788,35 +855,140 @@ static void blkmtd_sync(struct mtd_info *mtd)
   }
   spin_unlock(&mbd_writeq_lock);
 
-  DEBUG(2, "blkmtdL sync: finished\n");
+  DEBUG(2, "blkmtd sync: finished\n");
 }
+
+#ifdef BLKMTD_PROC_DEBUG
+/* procfs stuff */
+static int blkmtd_proc_read(char *page, char **start, off_t off, int count, int *eof, void *data)
+{
+  mtd_raw_dev_data_t *rd = mtd_info->priv;
+  int clean = 0, dirty = 0, locked = 0;
+  struct list_head *temp;
+  int i, len, pages = 0, cnt;
+  MOD_INC_USE_COUNT;
+  spin_lock(&mbd_writeq_lock);
+  cnt = write_queue_cnt;
+  i = write_queue_tail;
+  while(cnt) {
+    if(!write_queue[i].iserase)
+      pages += write_queue[i].pagecnt;
+    i++;
+    i %= write_queue_sz;
+    cnt--;
+  }
+
+  /* Count the size of the page lists */
+  list_for_each(temp, &rd->as.clean_pages) {
+    clean++;
+  }
+  list_for_each(temp, &rd->as.dirty_pages) {
+    dirty++;
+  }
+  list_for_each(temp, &rd->as.locked_pages) {
+    locked++;
+  }
+
+  
+
+  len = sprintf(page, "Write queue head: %d\nWrite queue tail: %d\nWrite queue count: %d\nPages in queue: %d (%dK)\nClean Pages: %d\nDirty Pages: %d\nLocked Pages: %d\nnrpages: %ld\n",
+		write_queue_head, write_queue_tail, write_queue_cnt,
+		pages, pages << (PAGE_SHIFT-10), clean, dirty, locked,rd->as.nrpages);
+  if(len <= count)
+    *eof = 1;
+  spin_unlock(&mbd_writeq_lock);
+  MOD_DEC_USE_COUNT;
+  return len;
+}
+#endif
 
 /* Cleanup and exit - sync the device and kill of the kernel thread */
 static void __exit cleanup_blkmtd(void)
 {
+#ifdef BLKMTD_PROC_DEBUG
+  if(blkmtd_proc) {
+    remove_proc_entry("blkmtd_debug", NULL);
+  }
+#endif
+  if(write_queue)
+    kfree(write_queue);
+
   if (mtd_info) {
     mtd_raw_dev_data_t *rawdevice = mtd_info->priv;
-    // sync the device
-    if (rawdevice) {
+    /* sync the device */
+    if (rawdevice && !rawdevice->readonly) {
       blkmtd_sync(mtd_info);
       write_task_finish = 1;
       wake_up_interruptible(&thr_wq);
       down(&thread_sem);
       if(rawdevice->binding != NULL)
 	blkdev_put(rawdevice->binding, BDEV_RAW);
-      filp_close(rawdevice->file, NULL);
       kfree(mtd_info->priv);
     }
     if(mtd_info->eraseregions)
       kfree(mtd_info->eraseregions);
+    if(mtd_info->name)
+      kfree(mtd_info->name);
     del_mtd_device(mtd_info);
     kfree(mtd_info);
     mtd_info = NULL;
+  }
+  if(erase_page) {
+    UnlockPage(erase_page);
+    __free_pages(erase_page, 0);
   }
   printk("blkmtd: unloaded for %s\n", device);
 }
 
 extern struct module __this_module;
+
+#ifndef MODULE
+
+/* Handle kernel boot params */
+
+
+static int __init param_blkmtd_device(char *str)
+{
+  device = str;
+  return 1;
+}
+
+
+static int __init param_blkmtd_erasesz(char *str)
+{
+  erasesz = simple_strtol(str, NULL, 0);
+  return 1;
+}
+
+
+static int __init param_blkmtd_ro(char *str)
+{
+  ro = simple_strtol(str, NULL, 0);
+  return 1;
+}
+
+
+static int __init param_blkmtd_bs(char *str)
+{
+  bs = simple_strtol(str, NULL, 0);
+  return 1;
+}
+
+
+static int __init param_blkmtd_count(char *str)
+{
+  count = simple_strtol(str, NULL, 0);
+  return 1;
+}
+
+__setup("blkmtd_device=", param_blkmtd_device);
+__setup("blkmtd_erasesz=", param_blkmtd_erasesz);
+__setup("blkmtd_ro=", param_blkmtd_ro);
+__setup("blkmtd_bs=", param_blkmtd_bs);
+__setup("blkmtd_count=", param_blkmtd_count);
+
+#endif
+
 
 /* for a given size and initial erase size, calculate the number and size of each
    erase region */
@@ -846,11 +1018,16 @@ static int __init calc_erase_regions(struct mtd_erase_region_info *info, size_t 
 }
 
 
+extern kdev_t name_to_kdev_t(char *line) __init;
+
 /* Startup */
 static int __init init_blkmtd(void)
 {
+#ifdef MODULE
   struct file *file = NULL;
   struct inode *inode;
+#endif
+
   mtd_raw_dev_data_t *rawdevice = NULL;
   int maj, min;
   int i, blocksize, blocksize_bits;
@@ -865,10 +1042,10 @@ static int __init init_blkmtd(void)
 
   mtd_info = NULL;
 
-  // Check args
+  /* Check args */
   if(device == 0) {
     printk("blkmtd: error, missing `device' name\n");
-    return 1;
+    return -EINVAL;
   }
 
   if(ro)
@@ -877,12 +1054,23 @@ static int __init init_blkmtd(void)
   if(erasesz)
     erase_size = erasesz;
 
-  DEBUG(1, "blkmtd: got device = `%s' erase size = %dK readonly = %s\n", device, erase_size, readonly ? "yes" : "no");
-  // Get a handle on the device
+  if(wqs) {
+    if(wqs < 16) 
+      wqs = 16;
+    if(wqs > 4*WRITE_QUEUE_SZ)
+      wqs = 4*WRITE_QUEUE_SZ;
+    write_queue_sz = wqs;
+  }
+
+  DEBUG(1, "blkmtd: device = `%s' erase size = %dK readonly = %s queue size = %d\n", device, erase_size, readonly ? "yes" : "no", write_queue_sz);
+  /* Get a handle on the device */
   mode = (readonly) ? O_RDONLY : O_RDWR;
+
+#ifdef MODULE
+
   file = filp_open(device, mode, 0);
   if(IS_ERR(file)) {
-    DEBUG(2, "blkmtd: open_namei returned %ld\n", PTR_ERR(file));
+    DEBUG(2, "blkmtd: filp_open returned %ld\n", PTR_ERR(file));
     return 1;
   }
   
@@ -895,11 +1083,19 @@ static int __init init_blkmtd(void)
     return 1;
   }
   rdev = inode->i_rdev;
-  //filp_close(file, NULL);
-  DEBUG(1, "blkmtd: found a block device major = %d, minor = %d\n",
-	 MAJOR(rdev), MINOR(rdev));
+  filp_close(file, NULL);
+#else
+  rdev = name_to_kdev_t(device);
+#endif
+
   maj = MAJOR(rdev);
   min = MINOR(rdev);
+  DEBUG(1, "blkmtd: found a block device major = %d, minor = %d\n", maj, min);
+
+  if(!rdev) {
+    printk("blkmtd: bad block device: `%s'\n", device);
+    return 1;
+  }
 
   if(maj == MTD_BLOCK_MAJOR) {
     printk("blkmtd: attempting to use an MTD device as a block device\n");
@@ -946,7 +1142,7 @@ static int __init init_blkmtd(void)
     goto init_err;
   }
   memset(rawdevice, 0, sizeof(mtd_raw_dev_data_t));
-  // get the block device
+  /* get the block device */
   rawdevice->binding = bdget(kdev_t_to_nr(MKDEV(maj, min)));
   err = blkdev_get(rawdevice->binding, mode, 0, BDEV_RAW);
   if (err) {
@@ -960,6 +1156,12 @@ static int __init init_blkmtd(void)
 
   DEBUG(2, "sector_size = %d, sector_bits = %d\n", rawdevice->sector_size, rawdevice->sector_bits);
 
+  write_queue = kmalloc(write_queue_sz * sizeof(mtdblkdev_write_queue_t), GFP_KERNEL);
+  if(!write_queue) {
+    err = -ENOMEM;
+    goto init_err;
+  }
+
   mtd_info = (struct mtd_info *)kmalloc(sizeof(struct mtd_info), GFP_KERNEL);
   if (mtd_info == NULL) {
     err = -ENOMEM;
@@ -967,8 +1169,13 @@ static int __init init_blkmtd(void)
   }
   memset(mtd_info, 0, sizeof(*mtd_info));
 
-  // Setup the MTD structure
-  mtd_info->name = "blkmtd block device";
+  /* Setup the MTD structure */
+  /* make the name contain the block device in */
+  mtd_info->name = kmalloc(9 + strlen(device), GFP_KERNEL);
+  if(mtd_info->name == NULL)
+    goto init_err;
+
+  sprintf(mtd_info->name, "blkmtd: %s", device);
   if(readonly) {
     mtd_info->type = MTD_ROM;
     mtd_info->flags = MTD_CAP_ROM;
@@ -991,56 +1198,95 @@ static int __init init_blkmtd(void)
   DEBUG(1, "blkmtd: init: found %d erase regions\n", regions);
   mtd_info->eraseregions = kmalloc(regions * sizeof(struct mtd_erase_region_info), GFP_KERNEL);
   if(mtd_info->eraseregions == NULL) {
+    err = -ENOMEM;
+    goto init_err;
   }
   mtd_info->numeraseregions = regions;
   calc_erase_regions(mtd_info->eraseregions, erase_size << 10, size);
 
   /* setup the page cache info */
+  
+  rawdevice->as.nrpages = 0;
   INIT_LIST_HEAD(&rawdevice->as.clean_pages);
   INIT_LIST_HEAD(&rawdevice->as.dirty_pages);
   INIT_LIST_HEAD(&rawdevice->as.locked_pages);
-  rawdevice->as.nrpages = 0;
+  rawdevice->as.host = NULL;
+  spin_lock_init(&(rawdevice->as.i_shared_lock));
+
   rawdevice->as.a_ops = &blkmtd_aops;
-  rawdevice->as.host = inode;
   rawdevice->as.i_mmap = NULL;
   rawdevice->as.i_mmap_shared = NULL;
-  spin_lock_init(&rawdevice->as.i_shared_lock);
   rawdevice->as.gfp_mask = GFP_KERNEL;
-  rawdevice->file = file;
 
-  file->private_data = rawdevice;
+
+  /* Set up the erase page */
+  erase_page = alloc_pages(GFP_KERNEL, 0);
+  if(erase_page == NULL) {
+    err = -ENOMEM;
+    goto init_err;
+  }
+  memset(page_address(erase_page), 0xff, PAGE_SIZE);
+  lock_page(erase_page);
+
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,2,0)
-   mtd_info->module = THIS_MODULE;			
+  mtd_info->module = THIS_MODULE;			
 #endif
-   if (add_mtd_device(mtd_info)) {
-     err = -EIO;
-     goto init_err;
-   }
-   init_waitqueue_head(&thr_wq);
-   init_waitqueue_head(&mtbd_sync_wq);
-   DEBUG(3, "blkmtd: init: kernel task @ %p\n", write_queue_task);
-   DEBUG(2, "blkmtd: init: starting kernel task\n");
-   kernel_thread(write_queue_task, NULL, CLONE_FS | CLONE_FILES | CLONE_SIGHAND);
-   DEBUG(2, "blkmtd: init: started\n");
-   printk("blkmtd loaded: version = %s using %s erase_size = %dK %s\n", VERSION, device, erase_size, (readonly) ? "(read-only)" : "");
-   return 0;
+  if (add_mtd_device(mtd_info)) {
+    err = -EIO;
+    goto init_err;
+  }
 
+  if(!rawdevice->readonly) {
+    init_waitqueue_head(&thr_wq);
+    init_waitqueue_head(&mtbd_sync_wq);
+    DEBUG(3, "blkmtd: init: kernel task @ %p\n", write_queue_task);
+    DEBUG(2, "blkmtd: init: starting kernel task\n");
+    kernel_thread(write_queue_task, NULL, CLONE_FS | CLONE_FILES | CLONE_SIGHAND);
+    DEBUG(2, "blkmtd: init: started\n");
+    printk("blkmtd loaded: version = %s using %s erase_size = %dK %s\n",
+	   VERSION, device, erase_size, (readonly) ? "(read-only)" : "");
+  }
+
+#ifdef BLKMTD_PROC_DEBUG
+  /* create proc entry */
+  DEBUG(2, "Creating /proc/blkmtd_debug\n");
+  blkmtd_proc = create_proc_read_entry("blkmtd_debug", 0444,
+				       NULL, blkmtd_proc_read, NULL);
+  if(blkmtd_proc == NULL) {
+    printk("Cant create /proc/blkmtd_debug\n");
+  } else {
+    blkmtd_proc->owner = THIS_MODULE;
+  }
+#endif
+  
+  /* Everything is ok if we got here */
+  return 0;
+  
  init_err:
-   if(!rawdevice) {
-     if(rawdevice->binding) 
-       blkdev_put(rawdevice->binding, BDEV_RAW);
+  if(write_queue) {
+    kfree(write_queue);
+    write_queue = NULL;
+  }
 
-     kfree(rawdevice);
-     rawdevice = NULL;
-   }
-   if(mtd_info) {
-     if(mtd_info->eraseregions)
-       kfree(mtd_info->eraseregions);
-     kfree(mtd_info);
-     mtd_info = NULL;
-   }
-   return err;
+  if(rawdevice) {
+    if(rawdevice->binding) 
+      blkdev_put(rawdevice->binding, BDEV_RAW);
+    kfree(rawdevice);
+    rawdevice = NULL;
+  }
+
+  if(mtd_info) {
+    if(mtd_info->eraseregions)
+      kfree(mtd_info->eraseregions);
+    if(mtd_info->name)
+      kfree(mtd_info->name);
+    kfree(mtd_info);
+    mtd_info = NULL;
+  }
+  if(erase_page) 
+    __free_pages(erase_page, 0);
+  return err;
 }
 
 module_init(init_blkmtd);

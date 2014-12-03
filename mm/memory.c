@@ -120,6 +120,20 @@ int check_pgt_cache(void)
 	return do_check_pgt_cache(pgt_cache_water[0], pgt_cache_water[1]);
 }
 
+void shrink_pgtcache_memory(int gfp_mask)
+{
+	int low, high;
+
+	low = pgt_cache_water[0];
+	high = pgt_cache_water[1];
+
+	if (gfp_mask == GFP_KSWAPD) {	/* prune it right back */
+		high = 0;
+		low = 0;
+	}
+
+	do_check_pgt_cache(low, high);
+}
 
 /*
  * This function clears all user-level page tables of a process - this
@@ -302,7 +316,7 @@ static inline int zap_pte_range(mmu_gather_t *tlb, pmd_t * pmd, unsigned long ad
 			/* This will eventually call __free_pte on the pte. */
 			tlb_remove_page(tlb, ptep, address + offset);
 		} else {
-			swap_free(pte_to_swp_entry(pte));
+			free_swap_and_swap_cache(pte_to_swp_entry(pte));
 			pte_clear(ptep);
 		}
 	}

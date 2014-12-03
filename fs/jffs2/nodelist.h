@@ -31,7 +31,7 @@
  * provisions above, a recipient may use your version of this file
  * under either the RHEPL or the GPL.
  *
- * $Id: nodelist.h,v 1.46 2001/09/18 23:43:05 dwmw2 Exp $
+ * $Id: nodelist.h,v 1.47 2001/10/02 08:31:26 dwmw2 Exp $
  *
  */
 
@@ -40,6 +40,7 @@
 
 #include <linux/jffs2_fs_sb.h>
 #include <linux/jffs2_fs_i.h>
+#include <linux/mtd/compatmac.h> /* For min/max in older kernels */
 
 #ifndef CONFIG_JFFS2_FS_DEBUG
 #define CONFIG_JFFS2_FS_DEBUG 2

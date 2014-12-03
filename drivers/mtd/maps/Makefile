@@ -1,7 +1,7 @@
 #
 # linux/drivers/maps/Makefile
 #
-# $Id: Makefile,v 1.13 2001/08/16 15:16:58 rmk Exp $
+# $Id: Makefile,v 1.14 2001/09/27 20:28:45 rmk Exp $
 
 O_TARGET	:= mapslink.o
 
@@ -21,6 +21,9 @@ obj-$(CONFIG_MTD_PNC2000)	+= pnc2000.o
 obj-$(CONFIG_MTD_RPXLITE)	+= rpxlite.o
 obj-$(CONFIG_MTD_TQM8XXL)	+= tqm8xxl.o
 obj-$(CONFIG_MTD_SA1100)        += sa1100-flash.o
+ifeq ($(CONFIG_ASSABET_NEPONSET),y)
+  obj-$(CONFIG_MTD_SA1100)      += neponset-flash.o
+endif
 obj-$(CONFIG_MTD_SBC_GXX)	+= sbc_gxx.o
 obj-$(CONFIG_MTD_SC520CDP)	+= sc520cdp.o
 obj-$(CONFIG_MTD_NETSC520)	+= netsc520.o
@@ -29,5 +32,6 @@ obj-$(CONFIG_MTD_VMAX)		+= vmax301.o
 obj-$(CONFIG_MTD_DBOX2)		+= dbox2-flash.o
 obj-$(CONFIG_MTD_OCELOT)	+= ocelot.o
 obj-$(CONFIG_MTD_SOLUTIONENGINE)+= solutionengine.o
+obj-$(CONFIG_MTD_PCI)		+= pci.o
 
 include $(TOPDIR)/Rules.make

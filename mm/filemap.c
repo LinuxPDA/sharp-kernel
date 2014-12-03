@@ -736,12 +736,8 @@ struct page * __find_lock_page (struct address_space *mapping,
 	 * the hash-list needs a held write-lock.
 	 */
 repeat:
-	spin_lock(&pagecache_lock);
-	page = __find_page_nolock(mapping, offset, *hash);
+	page = __find_get_page(mapping, offset, hash);
 	if (page) {
-		page_cache_get(page);
-		spin_unlock(&pagecache_lock);
-
 		lock_page(page);
 
 		/* Is the page still hashed? Ok, good.. */
@@ -753,7 +749,36 @@ repeat:
 		page_cache_release(page);
 		goto repeat;
 	}
-	spin_unlock(&pagecache_lock);
+	return NULL;
+}
+
+/*
+ * Find a page in the page cache and return it to us locked and
+ * with the page count incremented, but only if nobody else has
+ * it locked already.  Used by the VM to opportunistically grab
+ * a page in places where we don't want to sleep.
+ */
+struct page * find_trylock_page (struct address_space *mapping,
+		unsigned long offset)
+{
+	struct page *page;
+
+	page = __find_get_page(mapping, offset, page_hash(mapping, offset));
+	if (page) {
+		/* If we cannot get the page, drop it and return NULL. */
+		if (TryLockPage(page)) {
+			page_cache_release(page);
+			return NULL;
+		}
+
+		/* The page didn't get removed/remapped behind our backs ? */
+		if (page->mapping == mapping && page->index == offset)
+			return page;
+
+		/* Hrrrm, it did; release the page and return NULL. */
+		UnlockPage(page);
+		page_cache_release(page);
+	}
 	return NULL;
 }
 

@@ -64,11 +64,29 @@ ifeq ($(ARCH),m68k)
 endif
 
 ifeq ($(ARCH),arm)
-  ifneq ($(CONFIG_PC_KEYMAP),y)
-    KEYMAP   =
+  KEYMAP     :=
+  KEYBD      :=
+  ifeq ($(CONFIG_PC_KEYMAP),y)
+    KEYMAP   := defkeymap.o
   endif
-  ifneq ($(CONFIG_PC_KEYB),y)
-    KEYBD    =
+  ifeq ($(CONFIG_PC_KEYB),y)
+    KEYBD    += pc_keyb.o
+  endif
+  ifeq ($(CONFIG_KMI_KEYB),y)
+    KEYBD    += amba_kmi_keyb.o
+  endif
+  ifeq ($(CONFIG_SA1111),y)
+    KEYBD    += sa1111_keyb.o
+  endif
+  ifeq ($(CONFIG_ARCH_EDB7211),y)
+    KEYBD    += edb7211_keyb.o
+  endif
+  ifeq ($(CONFIG_SA1100_GRAPHICSCLIENT),y)
+    KEYMAP    = gckeymap.o
+    KEYBD    += gc_keyb.o
+  endif
+  ifeq ($(CONFIG_SA1100_CERF_CPLD),y)
+    KEYBD    += cerf_keyb.o
   endif
 endif
 
@@ -133,9 +151,7 @@ endif
 obj-$(CONFIG_VT) += vt.o vc_screen.o consolemap.o consolemap_deftbl.o $(CONSOLE) selection.o
 obj-$(CONFIG_SERIAL) += $(SERIAL)
 obj-$(CONFIG_SERIAL_ACPI) += acpi_serial.o
-obj-$(CONFIG_SERIAL_21285) += serial_21285.o
-obj-$(CONFIG_SERIAL_SA1100) += serial_sa1100.o
-obj-$(CONFIG_SERIAL_AMBA) += serial_amba.o
+obj-$(CONFIG_TOUCHSCREEN_ANAKIN) += anakin_ts.o
 
 ifndef CONFIG_SUN_KEYBOARD
   obj-$(CONFIG_VT) += keyboard.o $(KEYMAP) $(KEYBD)
@@ -195,6 +211,7 @@ obj-$(CONFIG_ADBMOUSE) += adbmouse.o
 obj-$(CONFIG_PC110_PAD) += pc110pad.o
 obj-$(CONFIG_RTC) += rtc.o
 obj-$(CONFIG_EFI_RTC) += efirtc.o
+obj-$(CONFIG_SA1100_RTC) += sa1100-rtc.o
 ifeq ($(CONFIG_PPC),)
   obj-$(CONFIG_NVRAM) += nvram.o
 endif
@@ -240,11 +257,18 @@ obj-$(CONFIG_I810_TCO) += i810-tco.o
 obj-$(CONFIG_MACHZ_WDT) += machzwd.o
 obj-$(CONFIG_SH_WDT) += shwdt.o
 obj-$(CONFIG_EUROTECH_WDT) += eurotechwdt.o
+obj-$(CONFIG_SA1100_WATCHDOG) += sa1100_wdt.o
 obj-$(CONFIG_SOFT_WATCHDOG) += softdog.o
 
 subdir-$(CONFIG_MWAVE) += mwave
 ifeq ($(CONFIG_MWAVE),y)
   obj-y += mwave/mwave.o
+endif
+
+ifeq ($(CONFIG_ARCH_ACORN),y)
+mod-subdirs	+= ../acorn/char
+subdir-y	+= ../acorn/char
+obj-y		+= ../acorn/char/acorn-char.o
 endif
 
 include $(TOPDIR)/Rules.make

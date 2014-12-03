@@ -60,6 +60,7 @@
    ( (((x)&0x00ffffff) | (((x)&(0x30000000>>VIO_SHIFT))<<VIO_SHIFT)) + PIO_START )
 
 #ifndef __ASSEMBLY__
+#include <asm/types.h>
 
 #if 0
 # define __REG(x)	(*((volatile u32 *)io_p2v(x)))

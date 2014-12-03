@@ -9,7 +9,8 @@
 
 O_TARGET := kernel.o
 
-export-objs = signal.o sys.o kmod.o context.o ksyms.o pm.o printk.o fork.o exec_domain.o
+export-objs = signal.o sys.o kmod.o context.o ksyms.o pm.o printk.o fork.o \
+	      exec_domain.o cpufreq.o
 
 obj-y     = sched.o fork.o exec_domain.o panic.o printk.o \
 	    module.o exit.o itimer.o info.o time.o softirq.o resource.o \
@@ -20,6 +21,7 @@ obj-$(CONFIG_GENERIC_ISA_DMA) += dma.o
 obj-$(CONFIG_UID16) += uid16.o
 obj-$(CONFIG_MODULES) += ksyms.o
 obj-$(CONFIG_PM) += pm.o
+obj-$(CONFIG_CPU_FREQ) += cpufreq.o
 
 ifneq ($(CONFIG_IA64),y)
 # According to Alan Modra <alan@linuxcare.com.au>, the -fno-omit-frame-pointer is

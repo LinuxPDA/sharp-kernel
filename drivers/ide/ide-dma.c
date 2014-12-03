@@ -458,8 +458,27 @@ static int config_drive_for_dma (ide_drive_t *drive)
 {
 	struct hd_driveid *id = drive->id;
 	ide_hwif_t *hwif = HWIF(drive);
+	int autodma = hwif->autodma;
 
-	if (id && (id->capability & 1) && hwif->autodma) {
+	if (hwif->chipset != ide_trm290 && hwif->chipset != ide_acorn) {
+		/* take note of what the bios did when setting up
+		 * the interface.  If the BIOS didn't configure
+		 * the drive for DMA mode, then we should not use
+		 * it unless we are prepared to configure the
+		 * drive as well.  -- rmk
+		 */
+		byte dma_stat = inb(hwif->dma_base+2);
+
+		if (drive->select.b.unit) {
+			if (!(dma_stat & 0x40))
+				autodma = 0;
+		} else {
+			if (!(dma_stat & 0x20))
+				autodma = 0;
+		}
+	}
+
+	if (id && (id->capability & 1) && autodma) {
 		/* Consult the list of known "bad" drives */
 		if (ide_dmaproc(ide_dma_bad_drive, drive))
 			return hwif->dmaproc(ide_dma_off, drive);
@@ -774,9 +793,15 @@ second_chance_to_dma:
 		hwif->dma_extra = extra;
 
 		switch(dev->device) {
+			/*
+			 * This is buggy.  Device numbers are not unique
+			 * between vendors.  We should be checking
+			 * both dev->vendor and dev->device
+			 */
 			case PCI_DEVICE_ID_AL_M5219:
 			case PCI_DEVICE_ID_AMD_VIPER_7409:
 			case PCI_DEVICE_ID_CMD_643:
+			case PCI_DEVICE_ID_WINBOND_82C105:
 				outb(inb(dma_base+2) & 0x60, dma_base+2);
 				if (inb(dma_base+2) & 0x80) {
 					printk("%s: simplex device: DMA forced\n", name);

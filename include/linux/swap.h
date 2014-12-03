@@ -144,6 +144,7 @@ extern int add_to_swap_cache(struct page *, swp_entry_t);
 extern void __delete_from_swap_cache(struct page *page);
 extern void delete_from_swap_cache(struct page *page);
 extern void free_page_and_swap_cache(struct page *page);
+extern void free_swap_and_swap_cache(swp_entry_t);
 extern struct page * lookup_swap_cache(swp_entry_t);
 extern struct page * read_swap_cache_async(swp_entry_t);
 

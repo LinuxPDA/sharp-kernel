@@ -1,7 +1,7 @@
 /* Linux driver for NAND Flash Translation Layer      */
 /* (c) 1999 Machine Vision Holdings, Inc.             */
 /* Author: David Woodhouse <dwmw2@infradead.org>      */
-/* $Id: nftlcore.c,v 1.82 2001/10/02 15:05:11 dwmw2 Exp $ */
+/* $Id: nftlcore.c,v 1.83 2001/10/08 09:29:39 dwmw2 Exp $ */
 
 /*
   The contents of this file are distributed under the GNU General
@@ -804,10 +804,13 @@ static int nftl_ioctl(struct inode * inode, struct file * file, unsigned int cmd
 	}
 	case BLKGETSIZE:   /* Return device size */
 		return put_user(part_table[MINOR(inode->i_rdev)].nr_sects,
-                                (unsigned long *) arg);
+                                (long *) arg);
+
+#ifdef BLKGETSIZE64
 	case BLKGETSIZE64:
 		return put_user((u64)part_table[MINOR(inode->i_rdev)].nr_sects << 9,
                                 (u64 *)arg);
+#endif
 
 	case BLKFLSBUF:
 		if (!capable(CAP_SYS_ADMIN)) return -EACCES;
@@ -1050,7 +1053,7 @@ int __init init_nftl(void)
 	int i;
 
 #ifdef PRERELEASE 
-	printk(KERN_INFO "NFTL driver: nftlcore.c $Revision: 1.82 $, nftlmount.c %s\n", nftlmountrev);
+	printk(KERN_INFO "NFTL driver: nftlcore.c $Revision: 1.83 $, nftlmount.c %s\n", nftlmountrev);
 #endif
 
 	if (register_blkdev(MAJOR_NR, "nftl", &nftl_fops)){

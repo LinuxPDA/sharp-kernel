@@ -1,6 +1,6 @@
 # drivers/mtd/maps/Config.in
 
-# $Id: Config.in,v 1.16 2001/09/19 18:28:37 dwmw2 Exp $
+# $Id: Config.in,v 1.18 2001/09/29 09:53:29 rmk Exp $
 
 mainmenu_option next_comment
 
@@ -58,5 +58,8 @@ if [ "$CONFIG_ARM" = "y" ]; then
    dep_tristate '  CFI Flash device mapped on DC21285 Footbridge' CONFIG_MTD_DC21285 $CONFIG_MTD_CFI $CONFIG_ARCH_FOOTBRIDGE $CONFIG_MTD_PARTITIONS
    dep_tristate '  CFI Flash device mapped on the XScale IQ80310 board' CONFIG_MTD_IQ80310 $CONFIG_MTD_CFI $CONFIG_ARCH_IQ80310
 fi
+
+# This needs CFI or JEDEC, depending on the cards found.
+dep_tristate '  PCI MTD driver' CONFIG_MTD_PCI $CONFIG_MTD $CONFIG_PCI
 
 endmenu

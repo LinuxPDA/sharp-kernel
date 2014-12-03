@@ -162,6 +162,29 @@ void free_page_and_swap_cache(struct page *page)
 }
 
 /*
+ * Like the above, but used to clean up the non-resident pages of
+ * a process. If the page exists but we couldn't get the trylock,
+ * the pageout code will remove the page later.
+ */
+void free_swap_and_swap_cache(swp_entry_t entry)
+{
+	struct page * page;
+
+	/* Free our own reference to the swap space */
+	swap_free(entry);
+
+	/* If the swapcache is the only remaining user, free that too. */
+	page = find_trylock_page(&swapper_space, entry.val);
+	if (page) {
+		if (exclusive_swap_page(page)) {
+			delete_from_swap_cache(page);
+		}
+		UnlockPage(page);
+		page_cache_release(page);
+	}
+}
+
+/*
  * Lookup a swap entry in the swap cache. A found page will be returned
  * unlocked and with its refcount incremented - we rely on the kernel
  * lock getting page table operations atomic even if we drop the page

@@ -16,10 +16,10 @@ obj-  :=
 
 export-objs :=	assabet.o dma-sa1100.o dma-sa1111.o freebird.o generic.o \
 		h3600.o huw_webpanel.o irq.o pcipool.o sa1111-pcibuf.o   \
-		yopy.o
+		yopy.o usb_ctl.o usb_recv.o usb_send.o
 
 # These aren't present yet, and prevents a plain -ac kernel building.
-# hwtimer.o usb_ctl.o usb_recv.o usb_send.o
+# hwtimer.o
 
 # Common support (must be linked before board specific support)
 obj-y += generic.o irq.o dma-sa1100.o
@@ -79,7 +79,18 @@ leds-$(CONFIG_SA1100_PFS168) += leds-pfs168.o
 leds-$(CONFIG_SA1100_SIMPAD) += leds-simpad.o  
 obj-$(CONFIG_LEDS) += $(leds-y)
 
+# SA1110 USB client support
+list-multi += sa1100usb_core.o
+sa1100usb_core-objs := usb_ctl.o usb_ep0.o usb_recv.o usb_send.o
+obj-$(CONFIG_SA1100_USB) += sa1100usb_core.o
+obj-$(CONFIG_SA1100_USB_NETLINK) += usb-eth.o
+obj-$(CONFIG_SA1100_USB_CHAR) += usb-char.o
+
 # Miscelaneous functions
 obj-$(CONFIG_PM) += pm.o sleep.o
 
 include $(TOPDIR)/Rules.make
+
+sa1100usb_core.o: $(sa1100usb_core-objs)
+	$(LD) -r -o $@ $(sa1100usb_core-objs)
+

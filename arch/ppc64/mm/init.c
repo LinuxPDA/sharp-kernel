@@ -680,5 +680,3 @@ void __init mem_init(void)
 	create_virtual_bus_tce_table();
 #endif
 }
-
-

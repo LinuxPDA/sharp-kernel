@@ -231,23 +231,14 @@ static inline void set_recovery_timer (ide_hwif_t *hwif)
 static void init_hwif_data (unsigned int index)
 {
 	unsigned int unit;
-	hw_regs_t hw;
 	ide_hwif_t *hwif = &ide_hwifs[index];
 
 	/* bulk initialize hwif & drive info with zeros */
 	memset(hwif, 0, sizeof(ide_hwif_t));
-	memset(&hw, 0, sizeof(hw_regs_t));
 
 	/* fill in any non-zero initial values */
 	hwif->index     = index;
-	ide_init_hwif_ports(&hw, ide_default_io_base(index), 0, &hwif->irq);
-	memcpy(&hwif->hw, &hw, sizeof(hw));
-	memcpy(hwif->io_ports, hw.io_ports, sizeof(hw.io_ports));
-	hwif->noprobe	= !hwif->io_ports[IDE_DATA_OFFSET];
-#ifdef CONFIG_BLK_DEV_HD
-	if (hwif->io_ports[IDE_DATA_OFFSET] == HD_DATA)
-		hwif->noprobe = 1; /* may be overridden by ide_setup() */
-#endif /* CONFIG_BLK_DEV_HD */
+	hwif->noprobe	= 1;
 	hwif->major	= ide_hwif_to_major[index];
 	hwif->name[0]	= 'i';
 	hwif->name[1]	= 'd';
@@ -270,6 +261,28 @@ static void init_hwif_data (unsigned int index)
 		drive->name[2]			= 'a' + (index * MAX_DRIVES) + unit;
 		drive->max_failures		= IDE_DEFAULT_MAX_FAILURES;
 		init_waitqueue_head(&drive->wqueue);
+	}
+}
+
+/*
+ * Old compatability function - initialise ports using ide_default_io_base
+ */
+static void ide_old_init_default_hwifs(void)
+{
+	unsigned int index;
+	ide_ioreg_t base;
+	ide_hwif_t *hwif;
+
+	for (index = 0; index < MAX_HWIFS; index++) {
+		hwif = &ide_hwifs[index];
+
+		base = ide_default_io_base(index);
+
+		if (base) {
+			ide_init_hwif_ports(&hwif->hw, base, 0, &hwif->hw.irq);
+			memcpy(hwif->io_ports, hwif->hw.io_ports, sizeof(hwif->hw.io_ports));
+			hwif->noprobe = 0;
+		}
 	}
 }
 
@@ -302,7 +315,15 @@ static void __init init_ide_data (void)
 		init_hwif_data(index);
 
 	/* Add default hw interfaces */
+	ide_old_init_default_hwifs();
 	ide_init_default_hwifs();
+
+#ifdef CONFIG_BLK_DEV_HD
+	/* Check for any clashes with hd.c driver */
+	for (index = 0; index < MAX_HWIFS; ++index)
+		if (ide_hwifs[index].hw.io_ports[IDE_DATA_OFFSET] == HD_DATA)
+			hwif->noprobe = 1; /* may be overridden by ide_setup() */
+#endif /* CONFIG_BLK_DEV_HD */
 
 	idebus_parameter = 0;
 	system_bus_speed = 0;

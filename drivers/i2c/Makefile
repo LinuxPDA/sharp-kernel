@@ -7,12 +7,18 @@ O_TARGET := i2c.o
 export-objs	:= i2c-core.o i2c-algo-bit.o i2c-algo-pcf.o \
 		   i2c-algo-ite.o i2c-proc.o
 
+# Init order: core, chardev, bit adapters, pcf adapters
+
 obj-$(CONFIG_I2C)		+= i2c-core.o
 obj-$(CONFIG_I2C_CHARDEV)	+= i2c-dev.o
+
+# Bit adapters
 obj-$(CONFIG_I2C_ALGOBIT)	+= i2c-algo-bit.o
 obj-$(CONFIG_I2C_PHILIPSPAR)	+= i2c-philips-par.o
 obj-$(CONFIG_I2C_ELV)		+= i2c-elv.o
 obj-$(CONFIG_I2C_VELLEMAN)	+= i2c-velleman.o
+
+# PCF adapters
 obj-$(CONFIG_I2C_ALGOPCF)	+= i2c-algo-pcf.o
 obj-$(CONFIG_I2C_ELEKTOR)	+= i2c-elektor.o
 obj-$(CONFIG_ITE_I2C_ALGO)	+= i2c-algo-ite.o

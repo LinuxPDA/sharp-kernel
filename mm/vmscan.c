@@ -196,6 +196,7 @@ drop_pte:
 		if (!page->age)
 			deactivate_page(page);
 		UnlockPage(page);
+		memc_clear(vma->vm_mm, page);
 		page_cache_release(page);
 		return;
 	}
@@ -232,20 +233,18 @@ drop_pte:
 	 * we have the swap cache set up to associate the
 	 * page with that swap entry.
 	 */
-	for (;;) {
-		entry = get_swap_page();
-		if (!entry.val)
-			break;
+	swap_list_lock();
+	entry = get_swap_page();
+	if (entry.val) {
 		/* Add it to the swap cache and mark it dirty */
-		if (add_to_swap_cache(page, entry) == 0) {
-			set_page_dirty(page);
-			goto set_swap_pte;
-		}
-		/* Raced with "speculative" read_swap_cache_async */
-		swap_free(entry);
+		add_to_swap_cache(page, entry);
+		swap_list_unlock();
+		set_page_dirty(page);
+		goto set_swap_pte;
 	}
 
 	/* No swap space left */
+	swap_list_unlock();
 	set_pte(page_table, pte);
 	UnlockPage(page);
 	return;
@@ -1037,6 +1036,7 @@ static int do_try_to_free_pages(unsigned int gfp_mask, int user)
 	shrink_dcache_memory(0, gfp_mask);
 	shrink_icache_memory(0, gfp_mask);
 	shrink_dqcache_memory(DEF_PRIORITY, gfp_mask);
+	shrink_pgtcache_memory(gfp_mask);
 
 	/*
 	 * If needed, we move pages from the active list

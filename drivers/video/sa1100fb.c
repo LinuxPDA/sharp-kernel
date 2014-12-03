@@ -1556,7 +1556,8 @@ static inline int get_pcd(unsigned int pixclock)
 	unsigned int pcd;
 
 	if (pixclock) {
-		pcd = get_cclk_frequency() * pixclock;
+		pcd = cpufreq_get(0) / 100;
+		pcd *= pixclock;
 		pcd /= 10000000;
 		pcd += 1;	/* make up for integer math truncations */
 	} else {

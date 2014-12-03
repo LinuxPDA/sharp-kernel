@@ -44,6 +44,7 @@ endif
 obj-$(CONFIG_FB_ACORN)            += acornfb.o
 obj-$(CONFIG_FB_AMIGA)            += amifb.o
 obj-$(CONFIG_FB_PM2)              += pm2fb.o fbgen.o
+obj-$(CONFIG_FB_PM3)              += pm3fb.o fbgen.o
 obj-$(CONFIG_FB_APOLLO)           += dnfb.o
 obj-$(CONFIG_FB_Q40)              += q40fb.o
 obj-$(CONFIG_FB_ATARI)            += atafb.o
@@ -54,6 +55,7 @@ obj-$(CONFIG_FB_CONTROL)          += controlfb.o
 obj-$(CONFIG_FB_PLATINUM)         += platinumfb.o
 obj-$(CONFIG_FB_VALKYRIE)         += valkyriefb.o
 obj-$(CONFIG_FB_CT65550)          += chipsfb.o
+obj-$(CONFIG_FB_CLPS711X)         += clps711xfb.o
 obj-$(CONFIG_FB_CYBER)            += cyberfb.o
 obj-$(CONFIG_FB_CYBER2000)        += cyber2000fb.o
 obj-$(CONFIG_FB_SGIVW)            += sgivwfb.o
@@ -115,6 +117,7 @@ obj-$(CONFIG_FB_HIT)              += hitfb.o fbgen.o
 obj-$(CONFIG_FB_E1355)            += epson1355fb.o fbgen.o
 obj-$(CONFIG_FB_PVR2)             += pvr2fb.o
 obj-$(CONFIG_FB_VOODOO1)          += sstfb.o
+obj-$(CONFIG_FB_ANAKIN)           += anakinfb.o
 
 # Generic Low Level Drivers
 

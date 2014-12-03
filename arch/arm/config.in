@@ -120,6 +120,10 @@ if [ "$CONFIG_ASSABET_NEPONSET" = "y" -o \
    define_bool CONFIG_SA1111 y
    define_int CONFIG_FORCE_MAX_ZONEORDER 9
 fi
+
+dep_tristate 'SA1100 USB function support' CONFIG_SA1100_USB $CONFIG_ARCH_SA1100
+dep_tristate '  Support for SA11x0 USB network link function' CONFIG_SA1100_USB_NETLINK $CONFIG_SA1100_USB
+dep_tristate '  Support for SA11x0 USB character device emulation' CONFIG_SA1100_USB_CHAR $CONFIG_SA1100_USB
 endmenu
 
 mainmenu_option next_comment
@@ -258,6 +262,21 @@ if [ "$CONFIG_CPU_ARM920T" = "y" ]; then
    bool '  ARM920T D-Cache on' CONFIG_CPU_ARM920_D_CACHE_ON
    if [ "$CONFIG_CPU_ARM920_D_CACHE_ON" = "y" ] ; then
       bool '  Force write through caches on ARM920T' CONFIG_CPU_ARM920_WRITETHROUGH
+   fi
+fi
+
+# ARM922T
+if [ "$CONFIG_ARCH_CAMELOT" = "y" ]; then
+         define_bool CONFIG_CPU_ARM922T y
+else
+         define_bool CONFIG_CPU_ARM922T n
+fi
+if [ "$CONFIG_CPU_ARM922T" = "y" ]; then
+   bool '  ARM922T CPU idle' CONFIG_CPU_ARM922_CPU_IDLE
+   bool '  ARM922T I-Cache on' CONFIG_CPU_ARM922_I_CACHE_ON
+   bool '  ARM922T D-Cache on' CONFIG_CPU_ARM922_D_CACHE_ON
+   if [ "$CONFIG_CPU_ARM922_D_CACHE_ON" = "y" ] ; then
+      bool '  Force write through caches on ARM922T' CONFIG_CPU_ARM922_WRITETHROUGH
    fi
 fi
 

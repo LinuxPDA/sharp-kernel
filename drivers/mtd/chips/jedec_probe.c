@@ -1,7 +1,7 @@
 /* 
    Common Flash Interface probe code.
    (C) 2000 Red Hat. GPL'd.
-   $Id: jedec_probe.c,v 1.3 2001/10/02 15:05:12 dwmw2 Exp $
+   $Id: jedec_probe.c,v 1.6 2001/10/22 10:16:08 dwmw2 Exp $
 */
 
 #include <linux/config.h>
@@ -24,8 +24,9 @@
 #define MANUFACTURER_FUJITSU	0x0004
 #define MANUFACTURER_ATMEL	0x001f
 #define MANUFACTURER_ST		0x0020
-#define MANUFACTURER_SST	0x00BF
+#define MANUFACTURER_INTEL	0x0089
 #define MANUFACTURER_TOSHIBA	0x0098
+#define MANUFACTURER_SST	0x00BF
 
 /* AMD */
 #define AM29F800BB	0x2258
@@ -42,6 +43,25 @@
 /* Fujitsu */
 #define MBM29LV160TE	0x22C4
 #define MBM29LV160BE	0x2249
+
+/* Intel */
+#define I28F004B3T	0x00d4
+#define I28F004B3B	0x00d5
+#define I28F400B3T	0x8894
+#define I28F400B3B	0x8895
+#define I28F008SA	0x00a2
+#define I28F008B3T	0x00d2
+#define I28F008B3B	0x00d3
+#define I28F800B3T	0x8892
+#define I28F800B3B	0x8893
+#define I28F016B3T	0x00d0
+#define I28F016B3B	0x00d1
+#define I28F160B3T	0x8890
+#define I28F160B3B	0x8891
+#define I28F320B3T	0x8896
+#define I28F320B3B	0x8897
+#define I28F640B3T	0x8898
+#define I28F640B3B	0x8899
 
 /* ST - www.st.com */
 #define M29W800T	0x00D7
@@ -64,14 +84,17 @@ struct amd_flash_info {
 	const int DevSize;
 	const int InterfaceDesc;
 	const int NumEraseRegions;
+	const int CmdSet;
 	const ulong regions[4];
 };
 
 #define ERASEINFO(size,blocks) (size<<8)|(blocks-1)
 
-#define SIZE_1MiB 20
-#define SIZE_2MiB 21
-#define SIZE_4MiB 22
+#define SIZE_512KiB 19
+#define SIZE_1MiB   20
+#define SIZE_2MiB   21
+#define SIZE_4MiB   22
+#define SIZE_8MiB   23
 
 static const struct amd_flash_info jedec_table[] = {
 	{
@@ -79,6 +102,7 @@ static const struct amd_flash_info jedec_table[] = {
 		dev_id: AM29LV160DT,
 		name: "AMD AM29LV160DT",
 		DevSize: SIZE_2MiB,
+		CmdSet:	P_ID_AMD_STD,
 		NumEraseRegions: 4,
 		regions: {ERASEINFO(0x10000,31),
 			  ERASEINFO(0x08000,1),
@@ -90,6 +114,7 @@ static const struct amd_flash_info jedec_table[] = {
 		dev_id: AM29LV160DB,
 		name: "AMD AM29LV160DB",
 		DevSize: SIZE_2MiB,
+		CmdSet:	P_ID_AMD_STD,
 		NumEraseRegions: 4,
 		regions: {ERASEINFO(0x04000,1),
 			  ERASEINFO(0x02000,2),
@@ -101,6 +126,7 @@ static const struct amd_flash_info jedec_table[] = {
 		dev_id: TC58FVT160,
 		name: "Toshiba TC58FVT160",
 		DevSize: SIZE_2MiB,
+		CmdSet:	P_ID_AMD_STD,
 		NumEraseRegions: 4,
 		regions: {ERASEINFO(0x10000,31),
 			  ERASEINFO(0x08000,1),
@@ -112,6 +138,7 @@ static const struct amd_flash_info jedec_table[] = {
 		dev_id: MBM29LV160TE,
 		name: "Fujitsu MBM29LV160TE",
 		DevSize: SIZE_2MiB,
+		CmdSet:	P_ID_AMD_STD,
 		NumEraseRegions: 4,
 		regions: {ERASEINFO(0x10000,31),
 			  ERASEINFO(0x08000,1),
@@ -123,6 +150,7 @@ static const struct amd_flash_info jedec_table[] = {
 		dev_id: TC58FVB160,
 		name: "Toshiba TC58FVB160",
 		DevSize: SIZE_2MiB,
+		CmdSet:	P_ID_AMD_STD,
 		NumEraseRegions: 4,
 		regions: {ERASEINFO(0x04000,1),
 			  ERASEINFO(0x02000,2),
@@ -134,6 +162,7 @@ static const struct amd_flash_info jedec_table[] = {
 		dev_id: MBM29LV160BE,
 		name: "Fujitsu MBM29LV160BE",
 		DevSize: SIZE_2MiB,
+		CmdSet:	P_ID_AMD_STD,
 		NumEraseRegions: 4,
 		regions: {ERASEINFO(0x04000,1),
 			  ERASEINFO(0x02000,2),
@@ -145,6 +174,7 @@ static const struct amd_flash_info jedec_table[] = {
 		dev_id: AM29LV800BB,
 		name: "AMD AM29LV800BB",
 		DevSize: SIZE_1MiB,
+		CmdSet:	P_ID_AMD_STD,
 		NumEraseRegions: 4,
 		regions: {ERASEINFO(0x04000,1),
 			  ERASEINFO(0x02000,2),
@@ -156,6 +186,7 @@ static const struct amd_flash_info jedec_table[] = {
 		dev_id: AM29F800BB,
 		name: "AMD AM29F800BB",
 		DevSize: SIZE_1MiB,
+		CmdSet:	P_ID_AMD_STD,
 		NumEraseRegions: 4,
 		regions: {ERASEINFO(0x04000,1),
 			  ERASEINFO(0x02000,2),
@@ -167,6 +198,7 @@ static const struct amd_flash_info jedec_table[] = {
 		dev_id: AM29LV800BT,
 		name: "AMD AM29LV800BT",
 		DevSize: SIZE_1MiB,
+		CmdSet:	P_ID_AMD_STD,
 		NumEraseRegions: 4,
 		regions: {ERASEINFO(0x10000,15),
 			  ERASEINFO(0x08000,1),
@@ -178,6 +210,7 @@ static const struct amd_flash_info jedec_table[] = {
 		dev_id: AM29F800BT,
 		name: "AMD AM29F800BT",
 		DevSize: SIZE_1MiB,
+		CmdSet:	P_ID_AMD_STD,
 		NumEraseRegions: 4,
 		regions: {ERASEINFO(0x10000,15),
 			  ERASEINFO(0x08000,1),
@@ -189,6 +222,7 @@ static const struct amd_flash_info jedec_table[] = {
 		dev_id: AM29LV800BB,
 		name: "AMD AM29LV800BB",
 		DevSize: SIZE_1MiB,
+		CmdSet:	P_ID_AMD_STD,
 		NumEraseRegions: 4,
 		regions: {ERASEINFO(0x10000,15),
 			  ERASEINFO(0x08000,1),
@@ -196,10 +230,197 @@ static const struct amd_flash_info jedec_table[] = {
 			  ERASEINFO(0x04000,1)
 		}
 	}, {
+		mfr_id:			MANUFACTURER_INTEL,
+		dev_id:			I28F004B3B,
+		name:			"Intel 28F004B3B",
+		DevSize:		SIZE_512KiB,
+		CmdSet:			P_ID_INTEL_STD,
+		NumEraseRegions:	2,
+		regions: {
+			ERASEINFO(0x02000, 8),
+			ERASEINFO(0x10000, 7),
+		}
+	}, {
+		mfr_id:			MANUFACTURER_INTEL,
+		dev_id:			I28F004B3T,
+		name:			"Intel 28F004B3T",
+		DevSize:		SIZE_512KiB,
+		CmdSet:			P_ID_INTEL_STD,
+		NumEraseRegions:	2,
+		regions: {
+			ERASEINFO(0x10000, 7),
+			ERASEINFO(0x02000, 8),
+		}
+	}, {
+		mfr_id:			MANUFACTURER_INTEL,
+		dev_id:			I28F400B3B,
+		name:			"Intel 28F400B3B",
+		DevSize:		SIZE_512KiB,
+		CmdSet:			P_ID_INTEL_STD,
+		NumEraseRegions:	2,
+		regions: {
+			ERASEINFO(0x02000, 8),
+			ERASEINFO(0x10000, 7),
+		}
+	}, {
+		mfr_id:			MANUFACTURER_INTEL,
+		dev_id:			I28F400B3T,
+		name:			"Intel 28F400B3T",
+		DevSize:		SIZE_512KiB,
+		CmdSet:			P_ID_INTEL_STD,
+		NumEraseRegions:	2,
+		regions: {
+			ERASEINFO(0x10000, 7),
+			ERASEINFO(0x02000, 8),
+		}
+	}, {
+		mfr_id:			MANUFACTURER_INTEL,
+		dev_id:			I28F008B3B,
+		name:			"Intel 28F008B3B",
+		DevSize:		SIZE_1MiB,
+		CmdSet:			P_ID_INTEL_STD,
+		NumEraseRegions:	2,
+		regions: {
+			ERASEINFO(0x02000, 8),
+			ERASEINFO(0x10000, 15),
+		}
+	}, {
+		mfr_id:			MANUFACTURER_INTEL,
+		dev_id:			I28F008B3T,
+		name:			"Intel 28F008B3T",
+		DevSize:		SIZE_1MiB,
+		CmdSet:			P_ID_INTEL_STD,
+		NumEraseRegions:	2,
+		regions: {
+			ERASEINFO(0x10000, 15),
+			ERASEINFO(0x02000, 8),
+		}
+	}, {
+		mfr_id:			MANUFACTURER_INTEL,
+		dev_id:			I28F008SA,
+		name:			"Intel 28F008SA",
+		DevSize:		SIZE_1MiB,
+		CmdSet:			P_ID_INTEL_STD,
+		NumEraseRegions:	1,
+		regions: {
+			ERASEINFO(0x10000, 16),
+		}
+	}, {
+		mfr_id:			MANUFACTURER_INTEL,
+		dev_id:			I28F800B3B,
+		name:			"Intel 28F800B3B",
+		DevSize:		SIZE_1MiB,
+		CmdSet:			P_ID_INTEL_STD,
+		NumEraseRegions:	2,
+		regions: {
+			ERASEINFO(0x02000, 8),
+			ERASEINFO(0x10000, 15),
+		}
+	}, {
+		mfr_id:			MANUFACTURER_INTEL,
+		dev_id:			I28F800B3T,
+		name:			"Intel 28F800B3T",
+		DevSize:		SIZE_1MiB,
+		CmdSet:			P_ID_INTEL_STD,
+		NumEraseRegions:	2,
+		regions: {
+			ERASEINFO(0x10000, 15),
+			ERASEINFO(0x02000, 8),
+		}
+	}, {
+		mfr_id:			MANUFACTURER_INTEL,
+		dev_id:			I28F016B3B,
+		name:			"Intel 28F016B3B",
+		DevSize:		SIZE_2MiB,
+		CmdSet:			P_ID_INTEL_STD,
+		NumEraseRegions:	2,
+		regions: {
+			ERASEINFO(0x02000, 8),
+			ERASEINFO(0x10000, 31),
+		}
+	}, {
+		mfr_id:			MANUFACTURER_INTEL,
+		dev_id:			I28F016B3T,
+		name:			"Intel 28F016B3T",
+		DevSize:		SIZE_2MiB,
+		CmdSet:			P_ID_INTEL_STD,
+		NumEraseRegions:	2,
+		regions: {
+			ERASEINFO(0x10000, 31),
+			ERASEINFO(0x02000, 8),
+		}
+	}, {
+		mfr_id:			MANUFACTURER_INTEL,
+		dev_id:			I28F160B3B,
+		name:			"Intel 28F160B3B",
+		DevSize:		SIZE_2MiB,
+		CmdSet:			P_ID_INTEL_STD,
+		NumEraseRegions:	2,
+		regions: {
+			ERASEINFO(0x02000, 8),
+			ERASEINFO(0x10000, 31),
+		}
+	}, {
+		mfr_id:			MANUFACTURER_INTEL,
+		dev_id:			I28F160B3T,
+		name:			"Intel 28F160B3T",
+		DevSize:		SIZE_2MiB,
+		CmdSet:			P_ID_INTEL_STD,
+		NumEraseRegions:	2,
+		regions: {
+			ERASEINFO(0x10000, 31),
+			ERASEINFO(0x02000, 8),
+		}
+	}, {
+		mfr_id:			MANUFACTURER_INTEL,
+		dev_id:			I28F320B3B,
+		name:			"Intel 28F320B3B",
+		DevSize:		SIZE_4MiB,
+		CmdSet:			P_ID_INTEL_STD,
+		NumEraseRegions:	2,
+		regions: {
+			ERASEINFO(0x02000, 8),
+			ERASEINFO(0x10000, 63),
+		}
+	}, {
+		mfr_id:			MANUFACTURER_INTEL,
+		dev_id:			I28F320B3T,
+		name:			"Intel 28F320B3T",
+		DevSize:		SIZE_4MiB,
+		CmdSet:			P_ID_INTEL_STD,
+		NumEraseRegions:	2,
+		regions: {
+			ERASEINFO(0x10000, 63),
+			ERASEINFO(0x02000, 8),
+		}
+	}, {
+		mfr_id:			MANUFACTURER_INTEL,
+		dev_id:			I28F640B3B,
+		name:			"Intel 28F640B3B",
+		DevSize:		SIZE_8MiB,
+		CmdSet:			P_ID_INTEL_STD,
+		NumEraseRegions:	2,
+		regions: {
+			ERASEINFO(0x02000, 8),
+			ERASEINFO(0x10000, 127),
+		}
+	}, {
+		mfr_id:			MANUFACTURER_INTEL,
+		dev_id:			I28F640B3T,
+		name:			"Intel 28F640B3T",
+		DevSize:		SIZE_8MiB,
+		CmdSet:			P_ID_INTEL_STD,
+		NumEraseRegions:	2,
+		regions: {
+			ERASEINFO(0x10000, 127),
+			ERASEINFO(0x02000, 8),
+		}
+	}, {
 		mfr_id: MANUFACTURER_ST,
 		dev_id: M29W800T,
 		name: "ST M29W800T",
 		DevSize: SIZE_1MiB,
+		CmdSet:	P_ID_AMD_STD,
 		NumEraseRegions: 4,
 		regions: {ERASEINFO(0x10000,15),
 			  ERASEINFO(0x08000,1),
@@ -211,6 +432,7 @@ static const struct amd_flash_info jedec_table[] = {
 		dev_id: M29W160DT,
 		name: "ST M29W160DT",
 		DevSize: SIZE_2MiB,
+		CmdSet:	P_ID_AMD_STD,
 		NumEraseRegions: 4,
 		regions: {ERASEINFO(0x10000,31),
 			  ERASEINFO(0x08000,1),
@@ -222,6 +444,7 @@ static const struct amd_flash_info jedec_table[] = {
 		dev_id: M29W160DB,
 		name: "ST M29W160DB",
 		DevSize: SIZE_2MiB,
+		CmdSet:	P_ID_AMD_STD,
 		NumEraseRegions: 4,
 		regions: {ERASEINFO(0x04000,1),
 			  ERASEINFO(0x02000,2),
@@ -233,6 +456,7 @@ static const struct amd_flash_info jedec_table[] = {
 		dev_id: AT49BV16X4,
 		name: "Atmel AT49BV16X4",
 		DevSize: SIZE_2MiB,
+		CmdSet:	P_ID_AMD_STD,
 		NumEraseRegions: 3,
 		regions: {ERASEINFO(0x02000,8),
 			  ERASEINFO(0x08000,2),
@@ -243,6 +467,7 @@ static const struct amd_flash_info jedec_table[] = {
                 dev_id: AT49BV16X4T,
                 name: "Atmel AT49BV16X4T",
                 DevSize: SIZE_2MiB,
+		CmdSet:	P_ID_AMD_STD,
                 NumEraseRegions: 3,
                 regions: {ERASEINFO(0x10000,30),
                           ERASEINFO(0x08000,2),
@@ -276,14 +501,28 @@ static int cfi_jedec_setup(struct cfi_private *p_cfi, int index)
 	}
 
 	memset(p_cfi->cfiq,0,sizeof(struct cfi_ident));	
-	
-	p_cfi->cfiq->P_ID = P_ID_AMD_STD;
+
+	p_cfi->cfiq->P_ID = jedec_table[index].CmdSet;
 	p_cfi->cfiq->NumEraseRegions = jedec_table[index].NumEraseRegions;
 	p_cfi->cfiq->DevSize = jedec_table[index].DevSize;
 
 	for (i=0; i<num_erase_regions; i++){
 		p_cfi->cfiq->EraseRegionInfo[i] = jedec_table[index].regions[i];
-	}	
+	}
+
+	if (p_cfi->cfiq->P_ID == P_ID_INTEL_STD ||
+	    p_cfi->cfiq->P_ID == P_ID_INTEL_EXT) {
+		struct cfi_pri_intelext *extp;
+
+		extp = kmalloc(sizeof(*extp), GFP_KERNEL);
+		if (!extp) {
+			kfree(p_cfi->cfiq);
+			return 0;
+		}
+
+		memset(extp, 0, sizeof(*extp));
+		p_cfi->cmdset_priv = extp;
+	}
 	return 1; 	/* ok */
 }
 
@@ -323,22 +562,32 @@ static int jedec_probe_chip(struct map_info *map, __u32 base,
 	/* Reset */
 	cfi_send_gen_cmd(0xF0, 0, base, map, cfi, cfi->device_type, NULL);
 
+	/* Ensure we're in read mode - Intel uses 0xff for this, AMD uses 0xff for NOP */
+	cfi_send_gen_cmd(0xff, 0, base, map, cfi, cfi->device_type, NULL);
+
 	/* Autoselect Mode */
 	cfi_send_gen_cmd(0xaa, cfi->addr_unlock1, base, map, cfi, CFI_DEVICETYPE_X8, NULL);
 	cfi_send_gen_cmd(0x55, cfi->addr_unlock2, base, map, cfi, CFI_DEVICETYPE_X8, NULL);
 	cfi_send_gen_cmd(0x90, cfi->addr_unlock1, base, map, cfi, CFI_DEVICETYPE_X8, NULL);
 
 	if (!cfi->numchips) {
+		__u32 mfr, id;
 		/* This is the first time we're called. Set up the CFI 
 		   stuff accordingly and return */
 		
-		cfi->mfr = jedec_read_mfr(map, base, osf);
-		cfi->id = jedec_read_id(map, base, osf);
+		cfi->mfr = mfr = jedec_read_mfr(map, base, osf);
+		cfi->id = id = jedec_read_id(map, base, osf);
+
+		mfr &= (1 << (cfi->device_type * 8)) - 1;
+		id  &= (1 << (cfi->device_type * 8)) - 1;
 		
 		for (i=0; i<sizeof(jedec_table)/sizeof(jedec_table[0]); i++) {
-			if (cfi->mfr == jedec_table[i].mfr_id &&
-			    cfi->id == jedec_table[i].dev_id)
-				return cfi_jedec_setup(cfi, i);
+			if (mfr == jedec_table[i].mfr_id &&
+			    id == jedec_table[i].dev_id) {
+				if (!cfi_jedec_setup(cfi, i))
+					return 0;
+				goto ok_out;
+			}
 		}
 		if (!retried++) {
 			/* Deal with whichever strange chips these were */
@@ -353,12 +602,13 @@ static int jedec_probe_chip(struct map_info *map, __u32 base,
 	for (i=0; i<cfi->numchips; i++) {
 		/* This chip should be in read mode if it's one
 		   we've already touched. */
-		if (jedec_read_mfr(map, base, osf) == cfi->mfr &&
-		    jedec_read_id(map, base, osf) == cfi->id) {
+		if (jedec_read_mfr(map, chips[i].start, osf) == cfi->mfr &&
+		    jedec_read_id(map, chips[i].start, osf) == cfi->id) {
 			/* Eep. This chip also looks like it's in autoselect mode.
 			   Is it an alias for the new one? */
 			
 			cfi_send_gen_cmd(0xF0, 0, chips[i].start, map, cfi, cfi->device_type, NULL);
+			cfi_send_gen_cmd(0xff, 0, chips[i].start, map, cfi, cfi->device_type, NULL);
 			/* If the device IDs go away, it's an alias */
 			if (jedec_read_mfr(map, base, osf) != cfi->mfr ||
 			    jedec_read_id(map, base, osf) != cfi->id) {
@@ -372,6 +622,7 @@ static int jedec_probe_chip(struct map_info *map, __u32 base,
 			 * too and if it's the same, assume it's an alias. */
 			/* FIXME: Use other modes to do a proper check */
 			cfi_send_gen_cmd(0xF0, 0, base, map, cfi, cfi->device_type, NULL);
+			cfi_send_gen_cmd(0xff, 0, base, map, cfi, cfi->device_type, NULL);
 			if (jedec_read_mfr(map, base, osf) == cfi->mfr &&
 			    jedec_read_id(map, base, osf) == cfi->id) {
 				printk(KERN_DEBUG "%s: Found an alias at 0x%x for the chip at 0x%lx\n",
@@ -392,8 +643,10 @@ static int jedec_probe_chip(struct map_info *map, __u32 base,
 	chips[cfi->numchips].state = FL_READY;
 	cfi->numchips++;
 		
+ok_out:
 	/* Put it back into Read Mode */
 	cfi_send_gen_cmd(0xF0, 0, base, map, cfi, cfi->device_type, NULL);
+	cfi_send_gen_cmd(0xff, 0, base, map, cfi, cfi->device_type, NULL);
 
 	printk(KERN_INFO "%s: Found %d x%d devices at 0x%x in %d-bit mode\n",
 	       map->name, cfi->interleave, cfi->device_type*8, base, 

@@ -1,7 +1,7 @@
 /* 
  * Direct MTD block device access
  *
- * $Id: mtdblock.c,v 1.47 2001/10/02 15:05:11 dwmw2 Exp $
+ * $Id: mtdblock.c,v 1.49 2001/10/25 10:33:02 dwmw2 Exp $
  *
  * 02-nov-2000	Nicolas Pitre		Added read-modify-write with cache
  */
@@ -287,16 +287,17 @@ static int mtdblock_open(struct inode *inode, struct file *file)
 	if (dev >= MAX_MTD_DEVICES)
 		return -EINVAL;
 
+	MOD_INC_USE_COUNT;
+
 	mtd = get_mtd_device(NULL, dev);
 	if (!mtd)
 		return -ENODEV;
 	if (MTD_ABSENT == mtd->type) {
 		put_mtd_device(mtd);
+		MOD_DEC_USE_COUNT;
 		return -ENODEV;
 	}
 	
-	MOD_INC_USE_COUNT;
-
 	spin_lock(&mtdblks_lock);
 
 	/* If it's already open, no need to piss about. */
@@ -539,9 +540,12 @@ static int mtdblock_ioctl(struct inode * inode, struct file * file,
 
 	switch (cmd) {
 	case BLKGETSIZE:   /* Return device size */
-		return put_user((mtdblk->mtd->size >> 9), (unsigned long *) arg);
+		return put_user((mtdblk->mtd->size >> 9), (long *) arg);
+
+#ifdef BLKGETSIZE64
 	case BLKGETSIZE64:
 		return put_user((u64)mtdblk->mtd->size, (u64 *)arg);
+#endif
 		
 	case BLKFLSBUF:
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,2,0)

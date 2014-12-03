@@ -77,6 +77,7 @@ extern struct page * __find_get_page(struct address_space *mapping,
 	__find_get_page(mapping, index, page_hash(mapping, index))
 extern struct page * __find_lock_page (struct address_space * mapping,
 				unsigned long index, struct page **hash);
+extern struct page * find_trylock_page (struct address_space *, unsigned long);
 extern void lock_page(struct page *page);
 #define find_lock_page(mapping, index) \
 	__find_lock_page(mapping, index, page_hash(mapping, index))

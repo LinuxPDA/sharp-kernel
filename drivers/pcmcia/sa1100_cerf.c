@@ -35,7 +35,7 @@ static int cerf_pcmcia_init(struct pcmcia_init *init){
   return 2;
 
 irq_err:
-  printk( KERN_ERR "%s: Request for IRQ %lu failed\n", __FUNCTION__, irq );
+  printk(KERN_ERR "%s: Request for IRQ %u failed\n", __FUNCTION__, irq);
   return -1;
 }
 

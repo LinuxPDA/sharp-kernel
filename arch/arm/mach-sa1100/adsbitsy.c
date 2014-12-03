@@ -166,7 +166,7 @@ static void __init adsbitsy_map_io(void)
 	sa1100_map_io();
 	iotable_init(adsbitsy_io_desc);
 
-	sa1110_register_uart_fns(&adsbitsy_port_fns);
+	sa1100_register_uart_fns(&adsbitsy_port_fns);
 	sa1100_register_uart(0, 3);
 	sa1100_register_uart(1, 1);
 	sa1100_register_uart(2, 2);

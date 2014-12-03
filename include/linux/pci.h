@@ -460,9 +460,11 @@ struct pci_ops {
 
 struct pbus_set_ranges_data
 {
-	int found_vga;
+	int found_vga:1;
+	int prefetch_valid:1;
 	unsigned long io_start, io_end;
 	unsigned long mem_start, mem_end;
+	unsigned long prefetch_start, prefetch_end;
 };
 
 struct pci_device_id {

@@ -727,11 +727,6 @@ static void sa1100_irda_txdma_irq(void *id, int len)
 	netif_wake_queue(dev);
 }
 
-/*
- * Note that we will never build up a backlog of frames; the protocol is a
- * half duplex protocol which basically means we transmit a frame, we
- * receive a frame, we transmit the next frame etc.
- */
 static int sa1100_irda_hard_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct sa1100_irda *si = dev->priv;
@@ -758,6 +753,8 @@ static int sa1100_irda_hard_xmit(struct sk_buff *skb, struct net_device *dev)
 	}
 
 	if (!IS_FIR(si)) {
+		netif_stop_queue(dev);
+
 		si->tx_buff.data = si->tx_buff.head;
 		si->tx_buff.len  = async_wrap_skb(skb, si->tx_buff.data,
 						  si->tx_buff.truesize);

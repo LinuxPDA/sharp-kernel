@@ -37,17 +37,17 @@ static int __init jornada720_init(void)
 	SKCR = JORSKCR_INIT;	/* Turn on the PLL, enable Ready and enable nOE assertion from DC */
 	mdelay(100);
 
-	SKCR = JORSKCR_RCLK;	/* turn on the RCLOCK */
-	SMCR = 0x35;	/* initialize the SMC (debug SA-1111 reset */
-	PCCR = 0;	/* initialize the S2MC (debug SA-1111 reset) */
+	SBI_SKCR = JORSKCR_RCLK;/* turn on the RCLOCK */
+	SBI_SMCR = 0x35;	/* initialize the SMC (debug SA-1111 reset */
+	PCCR = 0;		/* initialize the S2MC (debug SA-1111 reset) */
 
 	/* LDD4 is speaker, LDD3 is microphone */
 	PPSR &= ~(PPC_LDD3 | PPC_LDD4);
 	PPDR |= PPC_LDD3 | PPC_LDD4;
 
 	/* initialize extra IRQs */
-	set_GPIO_IRQ_edge(GPIO_GPIO(1), GPIO_RISING_EDGE);
-	sa1111_init_irq(SA1100_GPIO_TO_IRQ(1));	/* chained on GPIO 1 */
+	set_GPIO_IRQ_edge(GPIO_GPIO1, GPIO_RISING_EDGE);
+	sa1111_init_irq(IRQ_GPIO1));	/* chained on GPIO 1 */
 
 	sa1100_register_uart(0, 3);
 	sa1100_register_uart(1, 1);

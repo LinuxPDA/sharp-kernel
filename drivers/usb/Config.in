@@ -4,7 +4,13 @@
 mainmenu_option next_comment
 comment 'USB support'
 
-dep_tristate 'Support for USB' CONFIG_USB $CONFIG_PCI
+# ARM SA1111 chips have a non-PCI based "OHCI-compatible" USB host interface.
+if [ "$CONFIG_PCI" = "y" -o "$CONFIG_SA1111" = "y" ]; then
+   tristate 'Support for USB' CONFIG_USB
+else
+   define_bool CONFIG_USB n
+fi
+
 if [ "$CONFIG_USB" = "y" -o  "$CONFIG_USB" = "m" ]; then
    bool '  USB verbose debug messages' CONFIG_USB_DEBUG
 
@@ -28,6 +34,7 @@ else
    define_bool CONFIG_USB_UHCI_ALT n
 fi
 dep_tristate '  OHCI (Compaq, iMacs, OPTi, SiS, ALi, ...) support' CONFIG_USB_OHCI $CONFIG_USB
+dep_tristate '  SA1111 OHCI-compatible host interface support' CONFIG_USB_OHCI_SA1111 $CONFIG_USB
 
 comment 'USB Device Class drivers'
 dep_tristate '  USB Audio support' CONFIG_USB_AUDIO $CONFIG_USB $CONFIG_SOUND

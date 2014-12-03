@@ -2330,6 +2330,20 @@ CONFIG_IP_NF_CONNTRACK
   If you want to compile it as a module, say M here and read
   <file:Documentation/modules.txt>.  If unsure, say `N'.
 
+IRC Send/Chat support
+CONFIG_IP_NF_IRC
+  There is a commonly-used extension to IRC called
+  Direct Client-to-Client Protocol (DCC).  This enables users to send
+  files to each other, and also chat to each other without the need
+  of a server.  DCC Sending is used anywhere you send files over IRC,
+  and DCC Chat is most commonly used by Eggdrop bots.  If you are
+  using NAT, this extension will enable you to send files and initiate
+  chats.  Note that you do NOT need this extension to get files or
+  have others initiate chats, or everything else in IRC.
+
+  If you want to compile it as a module, say 'M' here and read
+  Documentation/modules.txt.  If unsure, say 'N'.
+
 FTP protocol support
 CONFIG_IP_NF_FTP
   Tracking FTP connections is problematic: special helpers are
@@ -3828,6 +3842,13 @@ Generic Permedia2 PCI board support
 CONFIG_FB_PM2_PCI
   Say Y to enable support for Permedia2 AGP frame buffer card from
   3Dlabs (aka `Graphic Blaster Exxtreme') on the PCI bus.
+
+Permedia3 support (EXPERIMENTAL)
+CONFIG_FB_PM3
+  This is the frame buffer device driver for the 3DLabs Permedia3
+  chipset, used in Formac ProFormance III, 3DLabs Oxygen VX1 &
+  similar boards, 3DLabs Permedia3 Create!, Appian Jeronimo 2000
+  and maybe other boards.
 
 Phase5 CVisionPPC/BVisionPPC support
 CONFIG_FB_PM2_CVPPC
@@ -9066,7 +9087,7 @@ CONFIG_NET_SCH_CBQ
   whenever you want).  If you want to compile it as a module, say M
   here and read <file:Documentation/modules.txt>.
 
-CSZ packet scheduler
+CSZ packet scheduler (experimental)
 CONFIG_NET_SCH_CSZ
   Say Y here if you want to use the Clark-Shenker-Zhang (CSZ) packet
   scheduling algorithm for some of your network devices.  At the
@@ -11098,6 +11119,17 @@ CONFIG_TMSPCI
   The module will be called tmspci.o. If you want to compile it
   as a module, say M here and read <file:Documentation/modules.txt>.
 
+Altera ether00 support
+CONFIG_ETHER00
+  This is the driver for Altera's ether00 ethernet mac IP core. Say
+  Y here if you want to build support for this into the kernel. It
+  is also available as a module (say M here) that can be inserted/
+  removed from the kernel at the same time as the PLD is configured. 
+  If this driver is running on an epxa10 development board then it 
+  will generate a suitable hw address based on the board serial 
+  number (MTD support is required for this). Otherwise you will 
+  need to set a suitable hw address using ifconfig.
+
 Generic TMS380 ISA support
 CONFIG_TMSISA
   This tms380 module supports generic TMS380-based ISA cards.
@@ -11129,6 +11161,7 @@ CONFIG_MADGEMC
   inserted in and removed from the running kernel whenever you want).
   The module will be called madgemc.o. If you want to compile it
   as a module, say M here and read <file:Documentation/modules.txt>.
+
 
 SMC ISA/MCA Token Ring adapter support
 CONFIG_SMCTR
@@ -12550,6 +12583,16 @@ CONFIG_USB_SERIAL_GENERIC
   using this driver.  It is recommended that the "USB Serial converter
   support" be compiled as a module for this driver to be used
   properly.
+
+Altera's uart00 serial driver
+CONFIG_SERIAL_UART00
+  Say Y here if you want to use the hard logic uart on Excalibur. This 
+  driver also supports soft logic implentations of this uart core.
+
+Serial console on uart00 
+CONFIG_SERIAL_UART00_CONSOLE
+  Say Y here if you want to support a serial console on an Excalibur
+  hard logic uart or uart00 IP core.
 
 USB ConnectTech WhiteHEAT Serial Driver
 CONFIG_USB_SERIAL_WHITEHEAT
@@ -17007,6 +17050,17 @@ CONFIG_SOFT_WATCHDOG
   <file:Documentation/modules.txt>. The module will be called
    softdog.o.
 
+SA1100 Internal Watchdog
+CONFIG_SA1100_WATCHDOG
+  Watchdog timer embedded into SA11x0 chips. This will reboot your
+  system when timeout is reached.
+  NOTE, that once enabled, this timer cannot be disabled.
+
+  This driver is also available as a module ( = code which can be
+  inserted in and removed from the running kernel whenever you want).
+  If you want to compile it as a module, say M here and read
+  Documentation/modules.txt. The module will be called sa1100_wdt.o.
+
 Berkshire Products PC Watchdog
 CONFIG_PCWATCHDOG
   This is the driver for the Berkshire Products PC Watchdog card.
@@ -18424,6 +18478,30 @@ RME Hammerfall (RME96XX) support
 CONFIG_SOUND_RME96XX
   Say Y or M if you have a Hammerfall, Hammerfall light or Hammerfall
   DSP card from RME.
+
+Assabet audio (UDA1341) support
+CONFIG_SOUND_ASSABET_UDA1341
+  Say Y or M if you have an Intel Assabet evaluation board and want to
+  use the Philips UDA 1341 audio chip (the one that drives the stereo
+  audio output) on the SA1100 SSP port.
+
+Compaq iPAQ audio support
+CONFIG_SOUND_H3600_UDA1341
+  Say Y or M if you have a Compaq iPaq handheld computer and want to
+  use its Philips UDA 1341 audio chip.
+
+Audio support for SA1111/UDA1341
+CONFIG_SOUND_SA1111_UDA1341
+  Say Y or M if you have an SA11x0 system with a Philips UDA 1341
+  connected to the SA11x1. An example of such a system is the Intel
+  Assabet evaluation board connected to a Neponset expansion board.
+
+Generic DAC on the SA11x0 SSP port
+CONFIG_SOUND_SA1100SSP
+  Say Y or M if you have an SA-11x0 system with a DAC on the SSP port.
+  The LART has an Burr-Brown PCM 1710 digital to analog convertor on
+  the SSP port, so you want to say Y or M for the LART. It might work
+  on other SA-1100 platforms, too, but this is not tested.
 
 Are you using a crosscompiler
 CONFIG_CROSSCOMPILE
@@ -21742,6 +21820,36 @@ CONFIG_CPU_ARM920T
 
   Say Y if you want support for the ARM920T processor.
   Otherwise, say N.
+
+Support ARM922T processor
+CONFIG_CPU_ARM922T
+  The ARM922T is a version of the ARM920T, but with smaller
+  instruction and data caches. It is used in Altera's 
+  Excalibur XA device family.
+
+  Say Y if you want support for the ARM922T processor.
+  Otherwise, say N.
+
+Support low power wait for interrupt
+CONFIG_CPU_ARM922_CPU_IDLE
+  Saying Y here will allow the processor to enter a low power 
+  mode whilst waiting for an interrupt in idle. If you're unsure
+  say Y.
+
+Enable ARM922T instruction cache
+CONFIG_CPU_ARM922_I_CACHE_ON
+  Say Y here to enable the processor instruction cache. Unless 
+  you have a reason not to, say Y.
+
+Enable ARM922T data cache
+CONFIG_CPU_ARM922_D_CACHE_ON
+  Say Y here to enable the processor data cache. Unless 
+  you have a reason not to, say Y.
+
+Use data cache in writethrough mode
+CONFIG_CPU_ARM922_WRITETHROUGH
+  Say Y here to use the data cache in writethough mode. Unless you 
+  specifically require this, say N.
 
 Support ARM1020 processor
 CONFIG_CPU_ARM1020

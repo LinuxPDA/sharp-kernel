@@ -56,7 +56,7 @@ static const unsigned short cclk_frequency_100khz[NR_FREQS] = {
 /*
  * Return the current CPU clock frequency in units of 100kHz
  */
-unsigned short get_cclk_frequency(void)
+inline unsigned short get_cclk_frequency(void)
 {
 	return cclk_frequency_100khz[PPCR & 0xf];
 }
@@ -64,12 +64,7 @@ unsigned short get_cclk_frequency(void)
 EXPORT_SYMBOL(get_cclk_frequency);
 
 #ifdef CONFIG_CPU_FREQ
-
-/*
- * Validate the speed in khz.  If we can't generate the precise
- * frequency requested, round it down (to be on the safe side).
- */
-unsigned int sa1100_validatespeed(unsigned int khz)
+unsigned int sa11x0_freq_to_ppcr(unsigned int khz)
 {
 	int i;
 
@@ -79,35 +74,34 @@ unsigned int sa1100_validatespeed(unsigned int khz)
 		if (cclk_frequency_100khz[i] <= khz)
 			break;
 
-	return cclk_frequency_100khz[i] * 100;
+	return i;
 }
 
 /*
- * Ok, set the CPU frequency.  Since we've done the validation
- * above, we can match for an exact frequency.  If we don't find
- * an exact match, we will to set the lowest frequency to be safe.
+ * Validate the speed in khz.  If we can't generate the precise
+ * frequency requested, round it down (to be on the safe side).
  */
-void sa1100_setspeed(unsigned int khz)
+unsigned int sa11x0_validatespeed(unsigned int khz)
 {
-	int i;
-
-	khz /= 100;
-
-	for (i = NR_FREQS - 1; i > 0; i--)
-		if (cclk_frequency_100khz[i] == khz)
-			break;
-//printk("setting ppcr to %d\n", i);
-	PPCR = i;
+	return cclk_frequency_100khz[sa11x0_freq_to_ppcr(khz)] * 100;
 }
 
-static int __init sa1100_init_clock(void)
+static int __init sa11x0_init_clock(void)
 {
 	cpufreq_init(get_cclk_frequency() * 100);
-	cpufreq_setfunctions(sa1100_validatespeed, sa1100_setspeed);
 	return 0;
 }
 
-__initcall(sa1100_init_clock);
+__initcall(sa11x0_init_clock);
+#else
+/*
+ * We still need to provide this so building without cpufreq works.
+ */ 
+unsigned int cpufreq_get(int cpu)
+{
+	return get_cclk_frequency() * 100;
+}
+EXPORT_SYMBOL(cpufreq_get);
 #endif
 
 /*

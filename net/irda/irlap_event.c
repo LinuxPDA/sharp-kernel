@@ -467,7 +467,7 @@ static int irlap_state_ndm(struct irlap_cb *self, IRLAP_EVENT event,
 #endif /* CONFIG_IRDA_ULTRA */
 	case RECV_TEST_CMD:
 		/* Remove test frame header */
-		skb_pull(skb, sizeof(struct test_frame));
+		skb_pull(skb, 10 /*sizeof(struct test_frame)*/);
 
 		/* 
 		 * Send response. This skb will not be sent out again, and
@@ -676,7 +676,7 @@ static int irlap_state_conn(struct irlap_cb *self, IRLAP_EVENT event,
 
 	switch (event) {
 	case CONNECT_RESPONSE:
-		skb_pull(skb, sizeof(struct snrm_frame));
+		skb_pull(skb, 11 /*sizeof(struct snrm_frame)*/);
 
 		ASSERT(self->netdev != NULL, return -1;);
 
@@ -805,7 +805,7 @@ static int irlap_state_setup(struct irlap_cb *self, IRLAP_EVENT event,
 
 			ASSERT(self->netdev != NULL, return -1;);
 
-			skb_pull(skb, sizeof(struct snrm_frame));
+			skb_pull(skb, 11 /*sizeof(struct snrm_frame)*/);
 
 			irlap_qos_negotiate(self, skb);
 			
@@ -837,7 +837,7 @@ static int irlap_state_setup(struct irlap_cb *self, IRLAP_EVENT event,
 		/* Negotiate connection parameters */
 		ASSERT(skb->len > 10, return -1;);
 
-		skb_pull(skb, sizeof(struct ua_frame));
+		skb_pull(skb, 10 /*sizeof(struct ua_frame)*/);
 
 		ASSERT(self->netdev != NULL, return -1;);
 

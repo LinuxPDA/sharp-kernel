@@ -53,11 +53,6 @@
 #include <linux/i2c.h>
 #include <linux/i2c-dev.h>
 
-#ifdef MODULE
-extern int init_module(void);
-extern int cleanup_module(void);
-#endif /* def MODULE */
-
 /* struct file_operations changed too often in the 2.1 series for nice code */
 
 #if LINUX_KERNEL_VERSION < KERNEL_VERSION(2,4,9)
@@ -79,13 +74,8 @@ static int i2cdev_detach_client(struct i2c_client *client);
 static int i2cdev_command(struct i2c_client *client, unsigned int cmd,
                            void *arg);
 
-#ifdef MODULE
-static
-#else
-extern
-#endif
-       int __init i2c_dev_init(void);
-static int i2cdev_cleanup(void);
+static int __init i2c_dev_init(void);
+static void i2cdev_cleanup(void);
 
 static struct file_operations i2cdev_fops = {
 #if LINUX_KERNEL_VERSION >= KERNEL_VERSION(2,4,0)
@@ -483,11 +473,11 @@ static int i2cdev_command(struct i2c_client *client, unsigned int cmd,
 	return -1;
 }
 
-int __init i2c_dev_init(void)
+static int __init i2c_dev_init(void)
 {
 	int res;
 
-	printk("i2c-dev.o: i2c /dev entries driver module\n");
+	printk(KERN_DEBUG "i2c-dev.o: i2c /dev entries driver module\n");
 
 	i2cdev_initialized = 0;
 #ifdef CONFIG_DEVFS_FS
@@ -513,7 +503,7 @@ int __init i2c_dev_init(void)
 	return 0;
 }
 
-int i2cdev_cleanup(void)
+static void i2cdev_cleanup(void)
 {
 	int res;
 
@@ -521,9 +511,9 @@ int i2cdev_cleanup(void)
 		if ((res = i2c_del_driver(&i2cdev_driver))) {
 			printk("i2c-dev.o: Driver deregistration failed, "
 			       "module not removed.\n");
-			return res;
+			return;
 		}
-	i2cdev_initialized --;
+		i2cdev_initialized --;
 	}
 
 	if (i2cdev_initialized >= 1) {
@@ -535,30 +525,18 @@ int i2cdev_cleanup(void)
 #endif
 			printk("i2c-dev.o: unable to release major %d for i2c bus\n",
 			       I2C_MAJOR);
-			return res;
+			return;
 		}
 		i2cdev_initialized --;
 	}
-	return 0;
 }
 
 EXPORT_NO_SYMBOLS;
-
-#ifdef MODULE
 
 MODULE_AUTHOR("Frodo Looijaard <frodol@dds.nl> and Simon G. Vogl <simon@tk.uni-linz.ac.at>");
 MODULE_DESCRIPTION("I2C /dev entries driver");
 MODULE_LICENSE("GPL");
 
-int init_module(void)
-{
-	return i2c_dev_init();
-}
-
-int cleanup_module(void)
-{
-	return i2cdev_cleanup();
-}
-
-#endif /* def MODULE */
+module_init(i2c_dev_init);
+module_exit(i2cdev_cleanup);
 

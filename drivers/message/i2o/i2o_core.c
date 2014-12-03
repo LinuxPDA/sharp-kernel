@@ -1686,14 +1686,14 @@ static int i2o_reset_controller(struct i2o_controller *c)
 	}
 	memset(status, 0, 4);
 	
-	msg[0]=EIGHT_WORD_MSG_SIZE|SGL_OFFSET_0;
-	msg[1]=I2O_CMD_ADAPTER_RESET<<24|HOST_TID<<12|ADAPTER_TID;
-	msg[2]=core_context;
-	msg[3]=0;
-	msg[4]=0;
-	msg[5]=0;
-	msg[6]=virt_to_bus(status);
-	msg[7]=0;	/* 64bit host FIXME */
+	writel(EIGHT_WORD_MSG_SIZE|SGL_OFFSET_0, msg + 0);
+	writel(I2O_CMD_ADAPTER_RESET<<24|HOST_TID<<12|ADAPTER_TID, msg + 1);
+	writel(core_context, msg + 2);
+	writel(0, msg + 3);
+	writel(0, msg + 4);
+	writel(0, msg + 5);
+	writel(virt_to_bus(status), msg + 6);
+	writel(0, msg + 7);	/* 64bit host FIXME */
 
 	i2o_post_message(c,m);
 
@@ -1802,15 +1802,15 @@ int i2o_status_get(struct i2o_controller *c)
 		return -ETIMEDOUT;	
 	msg=(u32 *)(c->mem_offset+m);
 
-	msg[0]=NINE_WORD_MSG_SIZE|SGL_OFFSET_0;
-	msg[1]=I2O_CMD_STATUS_GET<<24|HOST_TID<<12|ADAPTER_TID;
-	msg[2]=core_context;
-	msg[3]=0;
-	msg[4]=0;
-	msg[5]=0;
-	msg[6]=virt_to_bus(c->status_block);
-	msg[7]=0;   /* 64bit host FIXME */
-	msg[8]=sizeof(i2o_status_block); /* always 88 bytes */
+	writel(NINE_WORD_MSG_SIZE|SGL_OFFSET_0, msg + 0);
+	writel(I2O_CMD_STATUS_GET<<24|HOST_TID<<12|ADAPTER_TID, msg + 1);
+	writel(core_context, msg + 2);
+	writel(0, msg + 3);
+	writel(0, msg + 4);
+	writel(0, msg + 5);
+	writel(virt_to_bus(c->status_block), msg + 6);
+	writel(0, msg + 7);   /* 64bit host FIXME */
+	writel(sizeof(i2o_status_block), msg + 8); /* always 88 bytes */
 
 	i2o_post_message(c,m);
 
@@ -2214,16 +2214,16 @@ int i2o_init_outbound_q(struct i2o_controller *c)
 	}
 	memset(status, 0, 4);
 
-	msg[0]= EIGHT_WORD_MSG_SIZE| TRL_OFFSET_6;
-	msg[1]= I2O_CMD_OUTBOUND_INIT<<24 | HOST_TID<<12 | ADAPTER_TID;
-	msg[2]= core_context;
-	msg[3]= 0x0106;				/* Transaction context */
-	msg[4]= 4096;				/* Host page frame size */
+	writel(EIGHT_WORD_MSG_SIZE| TRL_OFFSET_6, msg + 0);
+	writel(I2O_CMD_OUTBOUND_INIT<<24 | HOST_TID<<12 | ADAPTER_TID, msg + 1);
+	writel(core_context, msg + 2);
+	writel(0x0106, msg + 3);		/* Transaction context */
+	writel(PAGE_SIZE, msg + 4);		/* Host page frame size */
 	/* Frame size is in words. Pick 128, its what everyone elses uses and
 		other sizes break some adapters. */
-	msg[5]= MSG_FRAME_SIZE<<16|0x80;	/* Outbound msg frame size and Initcode */
-	msg[6]= 0xD0000004;			/* Simple SG LE, EOB */
-	msg[7]= virt_to_bus(status);
+	writel(MSG_FRAME_SIZE<<16|0x80, msg + 5);/* Outbound msg frame size and Initcode */
+	writel(0xD0000004, msg + 6);		/* Simple SG LE, EOB */
+	writel(virt_to_bus(status), msg + 7);
 
 	i2o_post_message(c,m);
 	

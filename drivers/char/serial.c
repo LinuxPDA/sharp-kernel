@@ -2250,7 +2250,7 @@ static int get_lsr_info(struct async_struct * info, unsigned int *value)
 	    ((CIRC_CNT(info->xmit.head, info->xmit.tail,
 		       SERIAL_XMIT_SIZE) > 0) &&
 	     !info->tty->stopped && !info->tty->hw_stopped))
-		result &= TIOCSER_TEMT;
+		result &= ~TIOCSER_TEMT;
 
 	if (copy_to_user(value, &result, sizeof(int)))
 		return -EFAULT;

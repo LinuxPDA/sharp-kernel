@@ -381,6 +381,14 @@ do_alignment_ldmstm(unsigned long addr, unsigned long instr, struct pt_regs *reg
 	if (LDST_P_EQ_U(instr))	/* U = P */
 		eaddr += 4;
 
+	/* 
+	 * For alignment faults on the ARM922T the MMU  makes 
+	 * the FSR (and hence addr) equal to the updated base address
+	 * of the multiple access rather than the restored value.
+	 * Switch this messsage off if we've got a ARM922, otherwise
+	 * [ls]dm alignment faults are noisy!
+	 */
+#if !(defined CONFIG_CPU_ARM922T)  
 	/*
 	 * This is a "hint" - we already have eaddr worked out by the
 	 * processor for us.
@@ -391,6 +399,7 @@ do_alignment_ldmstm(unsigned long addr, unsigned long instr, struct pt_regs *reg
 			 instruction_pointer(regs), instr, addr, eaddr);
 		show_regs(regs);
 	}
+#endif
 
 	for (regbits = REGMASK_BITS(instr), rd = 0; regbits; regbits >>= 1, rd += 1)
 		if (regbits & 1) {

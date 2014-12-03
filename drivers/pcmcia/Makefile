@@ -59,6 +59,7 @@ else
   endif
 endif
 
+obj-$(CONFIG_PCMCIA_CLPS6700)	+= clps6700.o
 obj-$(CONFIG_PCMCIA_SA1100)	+= sa1100_cs.o
 
 sa1100_cs-objs-y				:= sa1100_generic.o
