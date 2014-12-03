@@ -10,6 +10,15 @@
  * $Id: nodelist.h,v 1.83 2002/09/06 16:46:29 dwmw2 Exp $
  *
  * ChangeLog:
+ *     27-Nov-2002 Lineo Japan, Inc.  add effective-gc mode
+ *     23-Nov-2002 Lineo Japan, Inc.  add JFFS2_RESERVED_BLOCKS_DIRTY
+ *				      add JFFS2_RESERVED_BLOCKS_CLEAN
+ *     19-Nov-2002 Lineo Japan, Inc.  add counter of fragtree elements
+ *     18-Nov-2002 Lineo Japan, Inc.  add dynamic construction of fragtree
+ *     11-Nov-2002 Lineo Japan, Inc.  add JFFS2_RESERVED_BLOCKS_ROOT
+ *     29-Oct-2002 Lineo Japan, Inc.  add JFFS2_RESERVED_BLOCKS_BAD and JFFS2_MAX_CONT_GC
+ *
+ * ChangeLog:
  *     05-Dec-2002 SHARP  adjust REVERVED_BLOCKS values for storage-full
  *     27-Nov-2002 Lineo Japan, Inc.  add effective-gc mode
  *     23-Nov-2002 Lineo Japan, Inc.  add JFFS2_RESERVED_BLOCKS_DIRTY

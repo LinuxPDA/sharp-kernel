@@ -25,6 +25,15 @@
 #define RTC_DEF_TRIM            0
 #endif
 
+#ifdef CONFIG_SA1100_COLLIE
+#ifdef CONFIG_COLLIE_UP
+#define COLLIE_DEFAULT_YEAR	2003
+#else
+#define COLLIE_DEFAULT_YEAR	2002
+#endif
+#endif
+
+
 static unsigned long __init sa1100_get_rtc_time(void)
 {
 	/*
@@ -123,11 +132,11 @@ static inline void setup_timer (void)
 	  }
 	  RTTR = RTC_DEF_DIVIDER + (RTC_DEF_TRIM << 16);
 #ifdef CONFIG_COLLIE_G
-	  RCNR = ( mktime(2002,1,1,0,0,0) - ( 1*60*60 ) );
-	  xtime.tv_sec = ( mktime(2002,1,1,0,0,0) - ( 1*60*60 ) );
+	  RCNR = ( mktime(COLLIE_DEFAULT_YEAR,1,1,0,0,0) - ( 1*60*60 ) );
+	  xtime.tv_sec = ( mktime(COLLIE_DEFAULT_YEAR,1,1,0,0,0) - ( 1*60*60 ) );
 #else
-	  RCNR = ( mktime(2002,1,1,0,0,0) + ( 5*60*60 ) );
-	  xtime.tv_sec = ( mktime(2002,1,1,0,0,0) + ( 5*60*60 ) );
+	  RCNR = ( mktime(COLLIE_DEFAULT_YEAR,1,1,0,0,0) + ( 5*60*60 ) );
+	  xtime.tv_sec = ( mktime(COLLIE_DEFAULT_YEAR,1,1,0,0,0) + ( 5*60*60 ) );
 #endif
 	} else {
 	  xtime.tv_sec = sa1100_get_rtc_time();

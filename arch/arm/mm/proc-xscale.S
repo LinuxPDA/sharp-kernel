@@ -816,7 +816,8 @@ ENTRY(cpu_xscale_set_pte)
 	orreq	r2, r2, #PTE_EXT_TEX(1)
 
 #if CACHE_WRITE_THROUGH
-	bic	r2, r2, #L_PTE_BUFFERABLE
+	tst	r1, #L_PTE_CACHEABLE
+	bicne	r2, r2, #L_PTE_BUFFERABLE	@ clear B only if C is set
 #else
 	@
 	@ Errata 40: The B bit must be cleared for a user read-only

@@ -115,6 +115,11 @@ struct vm_area_struct {
 extern int vm_min_readahead;
 extern int vm_max_readahead;
 
+#ifdef CONFIG_ARCH_SHARP_SL
+/* switch to enable vm for no swap system */
+extern int vm_without_swap;
+#endif
+
 /*
  * mapping from the currently active vm_flags protection bits (the
  * low four bits) to a page protection mask..

@@ -11,6 +11,9 @@
  *
  * ChangeLog:
  *     29-Oct-2002 Lineo Japan, Inc.  add member struct jffs2_sb_info#nr_bad_blocks
+ *
+ * ChangeLog:
+ *     29-Oct-2002 Lineo Japan, Inc.  add member struct jffs2_sb_info#nr_bad_blocks
  *     24-Nov-2002 SHARP  add erasing_dirty_size
  *
  */

@@ -243,7 +243,12 @@ static int sharpsl_wakeup_check(void)
 	gplr = GPLR0;
 
 	apm_wakeup_factor = PEDR & WAKEUP_SRC & apm_wakeup_src_mask;
+#if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
+	apm_wakeup_factor &= ~0x80000000;		/* clear ALARM */
+	if ( ( RTSR & 0x1 ) && ( RTSR & RTSR_ALE ) )
+#else
 	if ( RTSR & 0x1 )
+#endif
 		apm_wakeup_factor |= 0x80000000;		/* ALARM */
 	PEDR = WAKEUP_SRC;
 
@@ -1193,10 +1198,12 @@ static int sharpsl_off_thread(void* unused)
 {
 	int time_cnt = 0;
 
+	// daemonize();
 	strcpy(current->comm, "off_thread");
+	sigfillset(&current->blocked);
 
 	while(1) {
-		sleep_on(&wq_off);
+		interruptible_sleep_on(&wq_off);
 		DPRINTK("start off sequence ! \n");
 
 		sharpsl_off_mode = 1;

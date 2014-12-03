@@ -32,8 +32,8 @@
  * and it does the job for code collections of < 20K lines.
  */
 
-#define DBG_ENABLE 1
-// #undef DBG_ENABLE
+//#define DBG_ENABLE 1
+#undef DBG_ENABLE
 
 typedef struct debug_option {
 	int *level;

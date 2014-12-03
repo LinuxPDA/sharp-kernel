@@ -769,6 +769,15 @@ void irlmp_do_discovery(int nslots)
 		nslots = sysctl_discovery_slots = 8;
 	}
 
+
+#if 1
+	/*
+	 * Clear the passive discovery retry flag.
+	 * modified by SHARP
+	 */
+	irlmp->discovery_retry = FALSE;
+#endif
+
 	/* Construct new discovery info to be used by IrLAP, */
 	irlmp->discovery_cmd.hints.word = irlmp->hints.word;
 	

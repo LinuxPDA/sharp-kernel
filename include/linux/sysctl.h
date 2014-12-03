@@ -150,6 +150,10 @@ enum
 	,
 	VM_FREEPG_SIGNAL_PROC=14
 #endif
+#ifdef CONFIG_ARCH_SHARP_SL
+	,
+	VM_WITHOUT_SWAP=15	/* switch to enable vm for no swap */
+#endif
 };
 
 

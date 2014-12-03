@@ -334,7 +334,8 @@ void check_out_of_memory(void)
 		return;
 	}
 }
-#else
+#endif
+
 /**
  * out_of_memory - is the system out of memory?
  */
@@ -420,7 +421,6 @@ reset:
 	retry_count = 0;
 #endif
 }
-#endif
 
 
 #ifdef FREEPG_DEBUG

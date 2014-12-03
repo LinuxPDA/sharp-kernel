@@ -23,6 +23,8 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  *
+ * Change Log
+ *      12-Febn-2003 Sharp Corporation modify for new QT I/F
  */
 
 /*
@@ -61,6 +63,13 @@
 #include "usbd-func.h"
 #include "usbd-bus.h"
 #include "usbd-inline.h"
+
+
+#if 1 // 2003.1.30
+#if defined(CONFIG_SA1100_COLLIE)       // XXX change to 5500
+#include <asm/sharp_apm.h>
+#endif
+#endif
 
 extern int dbgflg_usbdcore_ep0;
 #define dbg_ep0(lvl,fmt,args...) dbgPRINT(dbgflg_usbdcore_ep0,lvl,fmt,##args)
@@ -399,6 +408,11 @@ static int ep0_get_descriptor (struct usb_device_instance *device, struct urb *u
 		return -EINVAL;
 	}
 
+#if 1	// 2003.2.11
+#if defined(CONFIG_SA1100_COLLIE)       // XXX change to 5500
+	change_power_mode(LOCK_FCS_UDC, 1);
+#endif
+#endif
 
 	//dbg_ep0(1, "urb: buffer: %p buffer_length: %2d actual_length: %2d packet size: %2d", 
 	//        urb->buffer, urb->buffer_length, urb->actual_length, device->bus->endpoint_array[0].tx_packetSize);

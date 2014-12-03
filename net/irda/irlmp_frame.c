@@ -397,6 +397,16 @@ void irlmp_link_discovery_confirm(struct lap_cb *self, hashbin_t *log)
 	ASSERT(self->magic == LMP_LAP_MAGIC, return;);
 	
 	irlmp_add_discovery_log(irlmp->cachelog, log);
+#if 1
+	/*
+	 * Retry discovery at passive mode, if it hasn't been done
+	 * because of the media busy.
+	 * modified by SHARP
+	 */
+	if(( log == NULL )&&( irlmp != NULL )){
+		irlmp->discovery_retry = TRUE;
+	}
+#endif
 
 	/* Propagate event to various LSAPs registered for it.
 	 * We bypass the LM_LAP state machine because

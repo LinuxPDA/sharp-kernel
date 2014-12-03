@@ -224,6 +224,9 @@ void write_cis_mem(socket_info_t *s, int attr, u_int addr,
 {
     pccard_mem_map *mem = &s->cis_mem;
     u_char *sys, *buf = ptr;
+#if defined(CONFIG_SABINAL_DISCOVERY)
+    int busy_wait_max_time = 1000*100; /* [10us] */
+#endif
     
     DEBUG(3, "cs: write_cis_mem(%d, %#x, %u)\n", attr, addr, len);
     if (setup_cis_mem(s) != 0) return;

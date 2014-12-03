@@ -34,7 +34,7 @@
 	06-13-2002  Richard Rau
 	30-Jul-2002 Lineo Japan, Inc.  for 2.4.18
 	12-Dec-2002 Sharp Corporation for Poodle and Corgi
-
+    
 ======================================================================*/
 
 #include <linux/module.h>

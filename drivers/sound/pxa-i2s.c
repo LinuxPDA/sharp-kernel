@@ -1963,11 +1963,13 @@ static void poodle_hp_thread(void)
   int state;
   audio_state_t  *audio_state = &pxa_audio_state;
 
+  // daemonize();
   strcpy(current->comm, "snd_hp");
+  sigfillset(&current->blocked);
 
 
   while(1) {
-    sleep_on(&hp_proc);
+    interruptible_sleep_on(&hp_proc);
 
     isChkHPstatus = 1;
 

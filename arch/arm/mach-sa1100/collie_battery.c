@@ -18,6 +18,7 @@
  * ChangeLog:
  *	12-Nov-2001 Lineo Japan, Inc.
  *	30-Jul-2002 Lineo Japan, Inc.  for 2.4.18
+ *      29-Jan-2003 Sharp Corporation  modify for new QT I/F
  *
  */
 
@@ -233,6 +234,11 @@ static int charge_off_mode = 0;		/* charge : check volt or non     */
 
 static DECLARE_WAIT_QUEUE_HEAD(wq_on);
 static DECLARE_WAIT_QUEUE_HEAD(wq_off);
+#if 1 // 2003.1.29
+static DECLARE_WAIT_QUEUE_HEAD(battery_waitqueue);
+static int collie_change_battery_status = 0;
+static int collie_battery_status = -1;
+#endif
 
 static int collie_backup_battery_flag = 0;	// 0 : init    1: passed 10min
 static int collie_fatal_off = 1;
@@ -250,8 +256,26 @@ int collie_apm_get_power_status(u_char *ac_line_status,
         // set ac status
 	*ac_line_status = collie_ac_status;
 
+#if 1 // 2003.2.10
+        // get ac status. if change ac status , chk main battery.
+        if ( back_ac_status != collie_ac_status ) {
+	   MainCntWk = COLLIE_MAIN_GOOD_COUNT;        // chk battery
+	   collie_change_battery_status = 1;	    // change status
+	   wake_up_interruptible(&battery_waitqueue);
+        }
+        back_ac_status = collie_ac_status;
+#endif
+
 	// set battery_status  main
 	*battery_status = collie_main_battery;
+
+#if 1 // 2003.1.29
+	if ( collie_battery_status != *battery_status ) {
+	  collie_change_battery_status = 1;	    // change status
+	  wake_up_interruptible(&battery_waitqueue);
+	}
+	collie_battery_status = *battery_status;
+#endif
 
 	// main battery status to percentage
 	switch (*battery_status)
@@ -334,6 +358,12 @@ static void collie_charge_on(void)
 	charge_status = 1;
       }
 
+#if 1 // 2003.1.29
+      collie_ac_status =  COLLIE_AC_LINE_STATUS;
+      collie_change_battery_status = 1;	    // change status
+      wake_up_interruptible(&battery_waitqueue);
+#endif
+
     }
 }
 
@@ -360,6 +390,12 @@ static void collie_charge_off(void)
       /* charge status flag reset */
       charge_status = 0;
 
+#if 1 // 2003.1.29
+      collie_ac_status =  COLLIE_AC_LINE_STATUS;
+      collie_change_battery_status = 1;	    // change status
+      wake_up_interruptible(&battery_waitqueue);
+#endif
+
     }
 
 }
@@ -372,12 +408,18 @@ static void collie_pm(void)
     while(1) {
       interruptible_sleep_on_timeout((wait_queue_head_t*)&queue, COLLIE_APO_TICKTIME );
 
+#if 0
       // get ac status. if change ac status , chk main battery.
       collie_ac_status =  COLLIE_AC_LINE_STATUS;
       if ( back_ac_status != collie_ac_status ) {
 	 MainCntWk = COLLIE_MAIN_GOOD_COUNT;        // chk battery
+#if 1 // 2003.1.29
+	 collie_change_battery_status = 1;	    // change status
+	 wake_up_interruptible(&battery_waitqueue);
+#endif
       }
       back_ac_status = collie_ac_status;
+#endif
 
       // get main battery
       collie_get_main_battery();
@@ -451,7 +493,6 @@ static void Collie_ac_interrupt(int irq, void *dummy, struct pt_regs *fp)
     /* Low->High  : assert */
     wake_up(&wq_on);
   }
-
 }
 
 static void Collie_co_interrupt(int irq, void *dummy, struct pt_regs *fp)
@@ -464,6 +505,7 @@ static void Collie_co_interrupt(int irq, void *dummy, struct pt_regs *fp)
     charge_off_mode = 1;
     wake_up(&wq_off);
   }
+
 }
 
 
@@ -694,6 +736,7 @@ static int Collie_battery_pm_callback(struct pm_dev *pm_dev, pm_request_t req, v
 	switch (req) {
 	case PM_SUSPEND:
 	  battery_off_flag = 1;
+	  collie_battery_status = -1;
 	  Collie_battery_power_off();
 	  ucb1200_cancel_get_adc_value(ADC_REQ_ID);
 	  apm_wakeup_src_mask |= ( GPIO_AC_IN | GPIO_CO );
@@ -706,6 +749,12 @@ static int Collie_battery_pm_callback(struct pm_dev *pm_dev, pm_request_t req, v
 	  ucb1200_cancel_get_adc_value(ADC_REQ_ID);
 	  Collie_battery_power_on();
 	  MainCntWk = COLLIE_MAIN_GOOD_COUNT + 1;
+#if 1 // 2003.1.29
+	  collie_ac_status =  COLLIE_AC_LINE_STATUS;
+	  collie_change_battery_status = 1;	    // change status
+	  wake_up_interruptible(&battery_waitqueue);
+#endif
+
 	  break;
 	}
 	return 0;
@@ -842,6 +891,12 @@ void suspend_collie_charge_on(void)
 
   DPRINTK("call suspend charge on \n");
 
+#if 1 // 2003.1.29
+      collie_ac_status =  COLLIE_AC_LINE_STATUS;
+      collie_change_battery_status = 1;	    // change status
+      wake_up_interruptible(&battery_waitqueue);
+#endif
+
   if ( suspend_collie_check_temp() ) {
     /* error led on */
     CHARGE_LED_ERR();
@@ -933,7 +988,11 @@ void battery_init(void)
   ucb1200_set_io_direction(TC35143_GPIO_BBAT_ON, TC35143_IODIR_OUTPUT);
 
   /* Set transition detect */
+#if 1	// 2003.2.10
+  set_GPIO_IRQ_edge( GPIO_AC_IN  , GPIO_BOTH_EDGES );
+#else
   set_GPIO_IRQ_edge( GPIO_AC_IN  , GPIO_RISING_EDGE );
+#endif
   set_GPIO_IRQ_edge( GPIO_CO     , GPIO_RISING_EDGE );
 
   /* Register interrupt handler. */
@@ -978,10 +1037,18 @@ typedef struct collie_battery_entry {
 	unsigned short	low_ino;
 } collie_battery_entry_t;
 
+#if 1 // 2003.1.29
+static collie_battery_entry_t collie_battery_params[] = {
+/*  { addr,	def_value,	name,	    description }*/
+  { &msglevel,	0,		"msglevel",    "debug message output level" },
+  { &collie_change_battery_status , 0 , "chg_status", "Change status" }
+};
+#else
 static collie_battery_entry_t collie_battery_params[] = {
 /*  { addr,	def_value,	name,	    description }*/
   { &msglevel,	0,		"msglevel",    "debug message output level" }
 };
+#endif
 #define NUM_OF_BATTERY_ENTRY	(sizeof(collie_battery_params)/sizeof(collie_battery_entry_t))
 
 static ssize_t collie_battery_read_params(struct file *file, char *buf,
@@ -1042,10 +1109,29 @@ static ssize_t collie_battery_write_params(struct file *file, const char *buf,
 	return nbytes+endp-buf;
 }
 
+#if 1 // 2003.1.29
+static unsigned int collie_battery_poll(struct file *fp, poll_table * wait)
+{
+  poll_wait(fp, &battery_waitqueue, wait);
+  if ( collie_change_battery_status ) {
+    collie_change_battery_status = 0;
+    return POLLIN | POLLRDNORM;
+  } else {
+    return 0;
+  }
+}
+
+static struct file_operations proc_params_operations = {
+	read:	collie_battery_read_params,
+	write:	collie_battery_write_params,
+	poll:	collie_battery_poll,
+};
+#else
 static struct file_operations proc_params_operations = {
 	read:	collie_battery_read_params,
 	write:	collie_battery_write_params,
 };
+#endif
 #endif
 
 

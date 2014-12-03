@@ -870,8 +870,7 @@ static int audio_ioctl(struct inode *inode, struct file *file,
 		break;
 
 	case SNDCTL_DSP_SETFRAGMENT:
-#if 0
-		if (output_stream.buffers)
+		if (input_stream.buffers)
 			return -EBUSY;
 		get_user(val, (long *) arg);
 		audio_fragsize = 1 << (val & 0xFFFF);
@@ -884,12 +883,9 @@ static int audio_ioctl(struct inode *inode, struct file *file,
 			audio_nbfrags = 2;
 		if (audio_nbfrags * audio_fragsize > 128 * 1024)
 			audio_nbfrags = 128 * 1024 / audio_fragsize;
-		if (audio_setup_buf(&output_stream))
+		if (audio_setup_buf(&input_stream))
 			return -ENOMEM;
 		break;
-#else
-		return -ENOSYS;
-#endif
 
 	case SNDCTL_DSP_SYNC:
 #if 0

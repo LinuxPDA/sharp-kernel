@@ -7,6 +7,7 @@
  *
  * ChangLog:
  *	30-Jul-2002 Lineo Japan, Inc.  for 2.4.18
+ *      29-Jan-2003 Sharp Corporation
  */
 
 #include "hardware.h"
@@ -27,6 +28,11 @@ extern void sa1100_setup( int arch_id );
 static void puts( const char *s )
 {
 	unsigned long serial_port;
+
+
+#if defined(CONFIG_SA1100_COLLIE)
+  return;
+#endif
 
 	do {
 		serial_port = _Ser3UTCR0;

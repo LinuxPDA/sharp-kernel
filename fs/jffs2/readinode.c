@@ -10,6 +10,11 @@
  * $Id: readinode.c,v 1.90 2002/09/06 16:46:29 dwmw2 Exp $
  *
  * ChangeLog:
+ *   19-Nov-2002 Lineo Japan, Inc.  add counter of fragtree elements
+ *   18-Nov-2002 Lineo Japan, Inc.  add dynamic construction of fragtree
+ *   15-Nov-2002 Lineo Japan, Inc.  add nodemerge facility
+ *
+ * ChangeLog:
  *   05-Dec-2002 SHARP  nodemerge-thershold is changable
  *   19-Nov-2002 Lineo Japan, Inc.  add counter of fragtree elements
  *   18-Nov-2002 Lineo Japan, Inc.  add dynamic construction of fragtree

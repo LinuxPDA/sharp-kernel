@@ -23,6 +23,9 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  *
+ * Change Log
+ *      30-Jan-2003 Sharp Corporation modify for new QT I/F
+ *      02-Apr-2003 Sharp Corporation modify ep1_int_hndlr
  */
 
 /*
@@ -102,6 +105,9 @@ USBD_MODULE_INFO ("sa1100_bi 0.2");
 #include <asm-arm/arch-sa1100/collie.h>
 #include <asm/ucb1200.h>
 #include <asm/arch/tc35143.h>
+#if 1 // 2003.1.30
+#include <asm/sharp_apm.h>
+#endif
 #endif
 
 
@@ -432,6 +438,7 @@ static void int_hndlr_device (int irq, void *dev_id, struct pt_regs *regs)
 		if (status & UDCSR_RSTIR) {
 			dbg_intr (1, "[%d] DEVICE_RESET: CSR: %02x CS0: %02x CAR: %02x", 
                                         udc_interrupts, *(UDCSR), *(UDCCS0), *(UDCAR));
+
 			usbd_device_event (udc_device, DEVICE_RESET, 0);
 		}
 
@@ -439,6 +446,9 @@ static void int_hndlr_device (int irq, void *dev_id, struct pt_regs *regs)
 			dbg_intr (1, "[%d] SUSPEND address: %02x irq: %02x status: %02x", 
                                         udc_interrupts, *(UDCAR), irq, status);
 			sus_interrupts++;
+#if 1 // 2003.1.30
+			change_power_mode(LOCK_FCS_UDC, 0);
+#endif
 #if defined(CONFIG_SA1100_COLLIE)	// XXX change to 5500
 			usbd_device_event (udc_device, DEVICE_BUS_INACTIVE, 0);
 #else
@@ -1086,6 +1096,11 @@ void udc_disable (void)
 
 	// reset device pointer
 	udc_device = NULL;
+
+#if 1 // 2003.1.30
+	change_power_mode(LOCK_FCS_UDC, 0);
+#endif
+
 }
 
 
@@ -1930,7 +1945,8 @@ void ep1_int_hndlr (unsigned int status)
 
 	if (!((udccs1 = *(UDCCS1)) & UDCCS1_RPC)) {
 		SET_AND_TEST (*(UDCCS1) = UDCCS1_SST, _udc (UDCCS1) & UDCCS1_SST, ok);
-		SET_AND_TEST (*(UDCCS1) = UDCCS1_RPC, _udc (UDCCS1) & UDCCS1_RPC, ok);
+		// ???
+		//SET_AND_TEST (*(UDCCS1) = UDCCS1_RPC, _udc (UDCCS1) & UDCCS1_RPC, ok);
 		return;
 	}
 	//dbg_rx(4, "udccs1: %02x", udccs1);

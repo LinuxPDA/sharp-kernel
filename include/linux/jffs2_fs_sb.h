@@ -3,6 +3,15 @@
 /*
  * ChangeLog:
  *     27-Nov-2002 Lineo Japan, Inc.  add effective-gc mode
+ *     15-Nov-2002 Lineo Japan, Inc.  add nodemerge facility
+ *     05-Nov-2002 Lineo Japan, Inc.  modify nr_bad_blocks type
+ *     29-Oct-2002 Lineo Japan, Inc.  add member nr_bad_blocks and cont_gc_count
+ *
+ */
+
+/*
+ * ChangeLog:
+ *     27-Nov-2002 Lineo Japan, Inc.  add effective-gc mode
  *     24-Nov-2002 SHARP  add erasing_dirty_size
  *     15-Nov-2002 Lineo Japan, Inc.  add nodemerge facility
  *     05-Nov-2002 Lineo Japan, Inc.  modify nr_bad_blocks type

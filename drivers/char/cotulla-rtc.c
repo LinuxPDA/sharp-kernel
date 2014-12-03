@@ -344,6 +344,37 @@ static int rtc_ioctl(struct inode *inode, struct file *file,
 		decodetime (RTAR, &tm);
 		break;
 	case RTC_ALM_SET:
+#ifdef CONFIG_ARCH_SHARP_SL
+	{
+		struct rtc_time rtc_tm;
+		unsigned char mon, day, hrs, min, sec;
+		unsigned int yrs;
+
+		if (copy_from_user(&rtc_tm, (struct rtc_time*)arg,
+				sizeof(struct rtc_time)))
+			return -EFAULT;
+
+		yrs = rtc_tm.tm_year + 1900;
+		mon = rtc_tm.tm_mon + 1;   /* tm_mon starts at zero */
+		day = rtc_tm.tm_mday;
+		hrs = rtc_tm.tm_hour;
+		min = rtc_tm.tm_min;
+		sec = rtc_tm.tm_sec;
+
+		if ((yrs < 1970) || (yrs > 2037)) 
+			return -EINVAL;
+		if ((mon > 12) || (day == 0))
+			return -EINVAL;
+		if (day > (days_in_mo[mon-1] + ((mon == 2) && is_leap(yrs))))
+			return -EINVAL;
+		if ((hrs >= 24) || (min >= 60) || (sec >= 60))
+			return -EINVAL;
+
+		RTAR = mktime(yrs, mon, day, hrs, min, sec);
+
+		return 0;
+	}
+#else	
 		if (copy_from_user (&tm2, (struct rtc_time*)arg, sizeof (tm2)))
 			return -EFAULT;
 		decodetime (RCNR, &tm);
@@ -356,6 +387,7 @@ static int rtc_ioctl(struct inode *inode, struct file *file,
 		RTAR = mktime (	tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
 				tm.tm_hour, tm.tm_min, tm.tm_sec);
 		return 0;
+#endif
 	case RTC_RD_TIME:
 		decodetime (RCNR, &tm);
 		break;

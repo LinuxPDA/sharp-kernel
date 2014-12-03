@@ -1043,7 +1043,7 @@ static int apm_do_idle(void)
     //	   clock_slowed = 1;
     //}
 
-	if (!ICPR) {
+	if (!ICPR && (((signed long)(OSCR - OSMR0)) < 0)) {
 		MDREFR |= MDREFR_APD;
 		cpu_xscale_idle_sl();
 	}
@@ -1115,7 +1115,7 @@ static void apm_do_busy(void)
 		signed long passcount;
 		int i = 0;
 		passcount = OSCR - OSMR0;
-		if (passcount >= 0) {
+		if ((passcount >= 0) || ( ( idletick != 0) && (passcount < -(idletick+1) * LATCH)) ) {
 			// timer irq has occured
 			(*(unsigned long *)&jiffies)+=idletick;
 			if ((OSSR & OSSR_M0) == 0) {
@@ -1124,15 +1124,15 @@ static void apm_do_busy(void)
 				oscr = OSCR;
 				osmr0 = OSMR0;
 				ossr = OSSR;
-				printk("OS timer IRQ error !!!\n");
-				printk("-- OSCR %x OSMR0 %x OSSR %x\n", (unsigned int)oscr, (unsigned int)osmr0, (unsigned int)ossr);
+				//printk("OS timer IRQ error !!!\n");
+				//printk("-- OSCR %x OSMR0 %x OSSR %x\n", (unsigned int)oscr, (unsigned int)osmr0, (unsigned int)ossr);
 				while ((passcount >= 0) && ((OSSR & OSSR_M0) == 0)) {
 					OSMR0 += LATCH;
 					(*(unsigned long *)&jiffies)++;
 					i++;
 					passcount = OSCR - OSMR0;
 				}
-				printk("-- added OSMR0 %d ticks\n", i);
+				//printk("-- added OSMR0 %d ticks\n", i);
 			}
 			idletick = 1;
 		}
@@ -1143,7 +1143,7 @@ static void apm_do_busy(void)
 			passtick = idletick + (passcount / LATCH);
 			(*(unsigned long *)&jiffies)+=passtick;
 			OSMR0 += LATCH * (passtick - idletick);
-			while ((unsigned long)(OSMR0 - OSCR) < 0) {
+			while (((signed long)(OSMR0 - OSCR)) < 0) {
 				OSMR0 = OSCR + LATCH;
 				(*(unsigned long *)&jiffies)++;
 			}
@@ -2434,9 +2434,13 @@ static int apm_bp_get_info(char *buf, char **start, off_t fpos, int length)
 static int discovery_key_check(void *unused)
 {
 
+    daemonize();
+    strcpy(current->comm, "kkeychkd");
+    sigfillset(&current->blocked);
+
     while(1) {
 
-      sleep_on(&fl_key);
+      interruptiblee_sleep_on(&fl_key);
 
       while(1) {
           interruptible_sleep_on_timeout((wait_queue_head_t*)&queue, KEY_TICK );

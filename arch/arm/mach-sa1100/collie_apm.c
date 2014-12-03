@@ -26,6 +26,7 @@
  * ChangeLog:
  *	14-Nov-2001 SHARP Corporation
  *	30-Nov-2001 SHARP Corporation for SL-5500
+ *      30-Jan-2003 Sharp Corporation modify for new QT I/F
  */
 
 #include <linux/config.h>
@@ -285,6 +286,289 @@ int collie_apm_get_power_status(u_char *ac_line_status, u_char *battery_status, 
 extern int collie_backup_battery;
 extern int collie_main_battery;
 #endif
+
+
+#if 1	////// 2003.1.30 ////////////////////////////////////////
+
+static spinlock_t locklockFCS = SPIN_LOCK_UNLOCKED;
+static unsigned long lockFCS = 0;
+static int change_lockFCS = 0;
+static spinlock_t lock_power_mode = SPIN_LOCK_UNLOCKED;
+static unsigned long power_mode = 0;
+static unsigned long unavailable_module = 0;
+static DECLARE_WAIT_QUEUE_HEAD(lock_fcs_waitqueue);
+
+//#define POWER_MODE_LOG
+
+int change_power_mode(unsigned long module, int set)
+{
+	unsigned long flag;
+	unsigned short	dx;
+	int		error;
+	unsigned char  ac_line_status = 0xff;
+	unsigned char  battery_status = 0xff;
+	unsigned char  battery_flag   = 0xff;
+	unsigned char   percentage     = 0xff;
+	int retval = 1;
+#if defined(POWER_MODE_LOG)
+	static const char module_name[33][8] = {
+			"MMC", "FFUART", "STUART", "BTUART", "IRDA", "SSP", "UDC", "AC97",
+			"PCMCIA", "SOUND", "?", "?", "?", "?", "?", "?",
+			"?", "?", "?", "?", "?", "?", "?", "?",
+			"?", "?", "?", "?", "?", "?", "?", "?",
+			"NO"
+	};
+	int i;
+	unsigned long bit;
+#endif
+			
+	spin_lock_irqsave(&lock_power_mode, flag);
+	if (set) {
+#if defined(POWER_MODE_LOG)
+		bit = 1;
+		for (i = 0; i < 32; i++) {
+			if (module & (bit << i)) break;
+		}
+		printk("set power_mode by %s\n", module_name[i]);
+#endif
+#if defined(CONFIG_ARCH_PXA_CORGI)
+		if (module & POWER_MODE_CAUTION_MASK) {
+			// check caution battery
+			if (!(error = apm_get_power_status(&ac_line_status,
+											   &battery_status,
+											   &battery_flag,
+											   &percentage,
+											   &dx))) {
+				if ((ac_line_status == APM_AC_ONLINE) || 
+					(battery_status == APM_BATTERY_STATUS_HIGH) ||
+					(battery_status == APM_BATTERY_STATUS_LOW)) {
+					// sensitive battery check
+					sharpsl_kick_battery_check(0,0,0);
+					unavailable_module &= ~module;
+					power_mode |= module;
+				}
+				else {
+					unavailable_module |= module;
+					// not return error (temporary)
+					//retval = 0;
+				}
+			}
+			else {
+				printk("power_mode : can't read power status\n");
+			}
+		}
+		else {
+#endif
+			unavailable_module &= ~module;
+			power_mode |= module;
+#if defined(CONFIG_ARCH_PXA_CORGI)
+		}
+#endif
+	}
+	else {
+#if defined(POWER_MODE_LOG)
+		bit = 1;
+		for (i = 0; i < 32; i++) {
+			if (module & (bit << i)) break;
+		}
+		printk("reset power_mode by %s\n", module_name[i]);
+#endif
+		power_mode &= ~module;
+	}
+	spin_unlock_irqrestore(&lock_power_mode, flag);
+	if (module & LOCK_FCS_POWER_MODE_CORRESPOND_MASK) {
+		lock_FCS(module, set);
+	}
+	return retval;
+}
+
+int sharpsl_is_power_mode_sensitive_battery(void)
+{
+	return (power_mode & POWER_MODE_CAUTION_MASK);
+}
+
+static ssize_t power_mode_read_params(struct file *file, char *buf,
+									size_t nbytes, loff_t *ppos)
+{
+	char outputbuf[256];
+	int count;
+	static const char module_name[33][10] = {
+			" MMC", " FFUART", " STUART", " BTUART", " IRDA", " SSP", " UDC", " AC97",
+			" PCMCIA", " SOUND", " ?", " ?", " ?", " ?", " ?", " ?",
+			" ?", " ?", " ?", " ?", " ?", " ?", " ?", " ?",
+			" ?", " ?", " ?", " ?", " ?", " ?", " ?", " ?",
+			" NO"
+	};
+	int i;
+	unsigned long bit;
+
+	if (*ppos>0) /* Assume reading completed in previous read*/
+		return 0;
+	if (unavailable_module) {
+		count = sprintf(outputbuf, "0x%08X unavailable", (unsigned int)power_mode);
+		bit = 1;
+		for (i = 0; i < 32; i++) {
+			if (unavailable_module & (bit << i)) {
+				strcat(outputbuf, module_name[i]);
+				count += strlen(module_name[i]);
+			}
+		}
+		strcat(outputbuf, "\n");
+		count += strlen("\n");
+	}
+	else {
+		count = sprintf(outputbuf, "0x%08X\n", (unsigned int)power_mode);
+	}
+	count++;
+	*ppos += count;
+	if (count>nbytes)	/* Assume output can be read at one time */
+		return -EINVAL;
+	if (copy_to_user(buf, outputbuf, count+1))
+		return -EFAULT;
+	return count;
+}
+
+static struct file_operations proc_power_mode_params_operations = {
+	read:	power_mode_read_params,
+};
+
+EXPORT_SYMBOL(change_power_mode);
+
+//#define LOCK_FCS_LOG
+
+int lock_FCS(unsigned long module, int lock)
+{
+	unsigned long flag;
+#if defined(LOCK_FCS_LOG)
+	static const char module_name[33][8] = {
+			"MMC", "FFUART", "STUART", "BTUART", "IRDA", "SSP", "UDC", "AC97",
+			"PCMCIA", "SOUND", "?", "?", "?", "?", "?", "?",
+			"?", "?", "?", "?", "?", "?", "?", "?",
+			"USR0", "USR1", "USR2", "USR3", "USR4", "USR5", "USR6", "USR7",
+			"NO"
+	};
+	int i;
+	unsigned long bit;
+#endif
+			
+	spin_lock_irqsave(&locklockFCS, flag);
+	if (lock) {
+#if defined(LOCK_FCS_LOG)
+		bit = 1;
+		for (i = 0; i < 32; i++) {
+			if (module & (bit << i)) break;
+		}
+		if (i != 0) {
+			printk("lock_FCS() by %s\n", module_name[i]);
+		}
+#endif
+		if (((lockFCS         ) & LOCK_FCS_SYNC_MSK) !=
+			((lockFCS | module) & LOCK_FCS_SYNC_MSK)) {
+			change_lockFCS = 1;
+			wake_up_interruptible(&lock_fcs_waitqueue);
+		}
+		lockFCS |= module;
+	}
+	else {
+#if defined(LOCK_FCS_LOG)
+		bit = 1;
+		for (i = 0; i < 32; i++) {
+			if (module & (bit << i)) break;
+		}
+		if (i != 0) {
+			printk("unlock_FCS() by %s\n", module_name[i]);
+		}
+#endif
+		if (((lockFCS          ) & LOCK_FCS_SYNC_MSK) !=
+			((lockFCS & ~module) & LOCK_FCS_SYNC_MSK)) {
+			change_lockFCS = 1;
+			wake_up_interruptible(&lock_fcs_waitqueue);
+		}
+		lockFCS &= ~module;
+	}
+	spin_unlock_irqrestore(&locklockFCS, flag);
+	return 1;
+}
+
+static ssize_t lock_fcs_read_params(struct file *file, char *buf,
+									size_t nbytes, loff_t *ppos)
+{
+	char outputbuf[32];
+	int count;
+
+	if (*ppos>0) /* Assume reading completed in previous read*/
+		return 0;
+	if ((lockFCS & LOCK_FCS_UDC) && (lockFCS & LOCK_FCS_FFUART)) {
+		count = sprintf(outputbuf, "0x%08X USB serial\n", (unsigned int)lockFCS);
+	}
+	else if (lockFCS & LOCK_FCS_UDC) {
+		count = sprintf(outputbuf, "0x%08X USB\n", (unsigned int)lockFCS);
+	}
+	else if (lockFCS & LOCK_FCS_FFUART) {
+		count = sprintf(outputbuf, "0x%08X serial\n", (unsigned int)lockFCS);
+	}
+	else {
+		count = sprintf(outputbuf, "0x%08X\n", (unsigned int)lockFCS);
+	}
+	count++;
+	*ppos += count;
+	if (count>nbytes)	/* Assume output can be read at one time */
+		return -EINVAL;
+	if (copy_to_user(buf, outputbuf, count+1))
+		return -EFAULT;
+	return count;
+}
+
+#define LOCK_FCS_PROC_CONTROLABLE_BIT_START	24
+#define LOCK_FCS_PROC_CONTROLABLE_BIT_END	31
+
+static ssize_t lock_fcs_write_params(struct file *file, const char *buf,
+				       size_t nbytes, loff_t *ppos)
+{
+	const char *endp;
+	int i;
+	unsigned long bit;
+
+	endp = buf;
+	for (i  = LOCK_FCS_PROC_CONTROLABLE_BIT_END;
+		 i >= LOCK_FCS_PROC_CONTROLABLE_BIT_START; i--) {
+		if (*endp == '\0') {
+			break;
+		}
+		bit = 1 << i;
+		if      ((*endp == '1') && (!(lockFCS & bit))) {
+			lock_FCS(bit, 1);
+		}
+		else if ((*endp == '0') &&   (lockFCS & bit) ) {
+			lock_FCS(bit, 0);
+		}
+		endp++;
+	}
+	return nbytes+endp-buf;
+}
+
+static unsigned int lock_fcs_poll(struct file *fp, poll_table * wait)
+{
+	poll_wait(fp, &lock_fcs_waitqueue, wait);
+	if (change_lockFCS) {
+		change_lockFCS = 0;
+		return POLLIN | POLLRDNORM;
+	}
+	else {
+		return 0;
+	}
+}
+
+static struct file_operations proc_lock_fcs_params_operations = {
+	read:	lock_fcs_read_params,
+	write:	lock_fcs_write_params,
+	poll:	lock_fcs_poll,
+};
+
+EXPORT_SYMBOL(lock_FCS);
+
+#endif	///////////////////////////////////////////////////////////////
+
 
 static int __init apm_driver_version(u_short *val)
 {
@@ -1320,6 +1604,18 @@ static int do_ioctl(struct inode * inode, struct file *filp,
 			apm_event_mask = arg;
 			return tmp;
 		}
+
+#if 1 // 2003.1.29
+	case APM_IOC_RESET_PM:
+	case APM_IOC_SFREQ:
+	case APM_IOC_GFREQ:
+	case APM_IOC_GETRTC:
+	case APM_IOC_SETRTC:
+	case APM_IOC_KICK_BATTERY_CHECK:
+		printk("This function is not support %8x\n",cmd);
+		break;
+#endif
+
 #endif
 	default:
 		return -EINVAL;
@@ -1659,7 +1955,10 @@ static struct miscdevice apm_device = {
 static int __init apm_init(void)
 {
 	struct proc_dir_entry *apm_proc;
-
+#if 1	// 2003.1.30
+	struct proc_dir_entry *lock_fcs_proc;
+	struct proc_dir_entry *power_mode_proc;
+#endif
 	apm_info.bios = apm_bios_info;
 	if (apm_info.bios.version == 0) {
 		printk(KERN_INFO "apm: BIOS not found.\n");
@@ -1717,6 +2016,19 @@ static int __init apm_init(void)
 	apm_proc = create_proc_info_entry("apm", 0, NULL, apm_get_info);
 	if (apm_proc)
 		SET_MODULE_OWNER(apm_proc);
+
+
+#if 1	// 2003.1.30
+	lock_fcs_proc = create_proc_entry("lock_fcs", 0, NULL);
+	if (lock_fcs_proc) {
+		lock_fcs_proc->proc_fops = &proc_lock_fcs_params_operations;
+	}
+
+	power_mode_proc = create_proc_entry("power_mode", 0, NULL);
+	if (power_mode_proc) {
+		power_mode_proc->proc_fops = &proc_power_mode_params_operations;
+	}
+#endif
 
 	kernel_thread(apm, NULL, CLONE_FS | CLONE_FILES | CLONE_SIGHAND | SIGCHLD);
 

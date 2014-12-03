@@ -24,6 +24,7 @@
  *	23-Oct-2001 SHARP
  *		tune hardware control method
  *	12-Nov-2001 Lineo Japan, Inc.
+ *	14-Feb-2003 Sharp Corporation 8bit , GETOSPACE
  */
 #include <linux/module.h>
 #include <linux/sched.h>
@@ -685,7 +686,8 @@ static ssize_t collie_ct_s8(const u_char *userPtr, size_t userCount,
 {
 	ssize_t count, used;
 	short *p = (short *) &frame[*frameUsed];
-	int val, stereo = sound.soft.stereo;
+	int stereo = sound.soft.stereo;
+	short val;
 
 	ENTER(TRACE_ON,"collie_ct_s8");
 	frameLeft >>= 2;
@@ -700,14 +702,14 @@ static ssize_t collie_ct_s8(const u_char *userPtr, size_t userCount,
 				LEAVE(TRACE_ON,"collie_ct_s8");
 				return -EFAULT;
 			}
-			val = ( data - 0x80 );
+			val = ( data - 0x80 ) << 8;
 			*p++ = val;		/* Left Ch. */
 			if ( stereo ) {
 				if ( get_user(data, userPtr++)) {
 					LEAVE(TRACE_ON,"collie_ct_s8");
 					return -EFAULT;
 				}
-				val = ( data - 0x80 );
+				val = ( data - 0x80 ) << 8;
 			}
 			*p++ = val;		/* Right Ch. */
 			count--;
@@ -721,14 +723,14 @@ static ssize_t collie_ct_s8(const u_char *userPtr, size_t userCount,
 				LEAVE(TRACE_ON,"collie_ct_s8");
 				return -EFAULT;
 			}
-			val = ( data - 0x80 );
+			val = ( data - 0x80 ) << 8;
 			ave = val;		/* Left Ch. */
 			if ( stereo ) {
 				if ( get_user(data, userPtr++)) {
 					LEAVE(TRACE_ON,"collie_ct_s8");
 					return -EFAULT;
 				}
-				val = ( data - 0x80 );
+				val = ( data - 0x80 ) << 8;
 			}
 			ave += val;		/* Right Ch. */
 			ave >>= 1;
@@ -749,7 +751,8 @@ static ssize_t collie_ct_u8(const u_char *userPtr, size_t userCount,
 {
 	ssize_t count, used;
 	short *p = (short *) &frame[*frameUsed];
-	int val, stereo = sound.soft.stereo;
+	int stereo = sound.soft.stereo;
+	short val;
 
 	ENTER(TRACE_ON,"collie_ct_u8");
 	frameLeft >>= 2;
@@ -765,7 +768,7 @@ static ssize_t collie_ct_u8(const u_char *userPtr, size_t userCount,
 				return -EFAULT;
 			}
 			val = data;
-			*p++ = (val ^ 0x80);		/* Left Ch. */
+			*p++ = (val ^ 0x80) << 8;		/* Left Ch. */
 			if ( stereo ) {
 				if ( get_user(data, userPtr++)) {
 					LEAVE(TRACE_ON,"collie_ct_u8");
@@ -773,7 +776,7 @@ static ssize_t collie_ct_u8(const u_char *userPtr, size_t userCount,
 				}
 				val = data;
 			}
-			*p++ = (val ^ 0x80);		/* Right Ch. */
+			*p++ = (val ^ 0x80) << 8;		/* Right Ch. */
 			count--;
 		}
 	} else {
@@ -786,7 +789,7 @@ static ssize_t collie_ct_u8(const u_char *userPtr, size_t userCount,
 				return -EFAULT;
 			}
 			val = data;
-			ave = (val ^ 0x80);		/* Left Ch. */
+			ave = (val ^ 0x80) << 8;		/* Left Ch. */
 			if ( stereo ) {
 				if ( get_user(data, userPtr++)) {
 					LEAVE(TRACE_ON,"collie_ct_u8");
@@ -794,7 +797,7 @@ static ssize_t collie_ct_u8(const u_char *userPtr, size_t userCount,
 				}
 				val = data;
 			}
-			ave += (val ^ 0x80);		/* Right Ch. */
+			ave += (val ^ 0x80) << 8;		/* Right Ch. */
 			ave >>= 1;
 			*p++ = 0;			/* Left Ch. */
 			*p++ = ave;			/* Right Ch. */
@@ -2719,6 +2722,30 @@ static int sq_ioctl(struct inode *inode, struct file *file, u_int cmd,
 		}
 		LEAVE(TRACE_ON,"sq_ioctl");
 		return 0;
+
+#if 1 // 2003.2.14
+	case SNDCTL_DSP_GETOSPACE:
+	    {
+		audio_buf_info inf = { 0, };
+		int i;
+
+		if (!(file->f_mode & FMODE_WRITE))
+			return -EINVAL;
+		if (!output_stream.buffers && sq_allocate_buffers(&output_stream))
+			return -ENOMEM;
+		for (i = 0; i < output_stream.nbfrags; i++) {
+			if (atomic_read(&output_stream.buffers[i].sem.count) > 0) {
+				if (output_stream.buffers[i].size == 0)
+					inf.fragments++;
+				inf.bytes += output_stream.fragsize - output_stream.buffers[i].size;
+			}
+		}
+		inf.fragstotal = output_stream.nbfrags;
+		inf.fragsize = output_stream.fragsize;
+		return copy_to_user((void *)arg, &inf, sizeof(inf));
+	    }
+#endif
+
 
 	default:
 		LEAVE(TRACE_ON,"sq_ioctl");

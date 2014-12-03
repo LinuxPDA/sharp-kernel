@@ -181,6 +181,7 @@ struct irlmp_cb {
 	int running;
 
 	__u16_host_order hints; /* Hint bits */
+	int	discovery_retry;	/* Discovery retry flag at media busy */
 };
 
 /* Prototype declarations */

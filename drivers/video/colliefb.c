@@ -14,6 +14,8 @@
  * ChangeLog:
  *	14-Nov-2001 SHARP Corporation
  *	30-Jul-2002 Lineo Japan, Inc.  for 2.4.18
+ *      29-Jan-2003 Sharp Corporation  change opening screen
+ *      10-Feb-2003 Sharp Corporation  support quick blank
  */
 
 #include <linux/config.h>
@@ -827,6 +829,52 @@ void colliefb_disable_lcd_controller_emergency(void)
 }
 
 
+static void colliefb_disable_lcd_controller_blank(void)
+{
+
+	if ((current_par.controller_state == LCD_MODE_DISABLED) ||
+	    (!(LCCR0 & LCCR0_LDM))) {
+		return;
+	}
+
+	current_par.controller_state = LCD_MODE_DISABLED;
+
+	LCM_TC   = ( 0x06 ); /* TFTCRST=1 | CPSOUT=1 | CPSEN = 0 */
+
+	udelay(1000); /* 1ms */
+
+	LCM_GPO &= ~LCM_GPIO4;
+
+	mdelay(110);
+
+	LCM_GPO &= ~LCM_GPIO6;
+
+	//mdelay(700);
+	mdelay(300);
+
+	/* AMP OFF */
+	if (!collie_fb_blank) {
+		ucb1200_set_io_direction(TC35143_GPIO_AMP_ON, TC35143_IODIR_OUTPUT);
+		ucb1200_set_io(TC35143_GPIO_AMP_ON, TC35143_IODAT_LOW);
+		SCP_REG_GPWR &= ~SCP_AMP_ON;
+	}
+
+        LCM_TC   = ( 0x00 ); /* TFTCRST=0 | CPSOUT=0 | CPSEN = 0 */
+
+	LCM_GPO &= ~LCM_GPIO7;
+
+	LCSR = 0;		/* Clear LCD Status Register */
+	LCCR0 &= ~(LCCR0_LDM);	/* Enable LCD Disable Done Interrupt */
+	enable_irq(IRQ_LCD);	/* Enable LCD IRQ */
+	LCCR0 &= ~(LCCR0_LEN);	/* Disable LCD Controller */
+	while(!(LCSR & LCSR_LDD));
+
+	LCM_GPO &= ~LCM_GPIO5;		// LCD Controler Off
+
+}
+
+
+
 
 u_long colliefb_get_comadj()
 {
@@ -942,7 +990,8 @@ static void colliefb_blank(int blank, struct fb_info* info)
 		colliefl_blank(1);
 		if (!is_collie_fb_blank) {
 			is_collie_fb_blank = 1;
-			colliefb_disable_lcd_controller();
+			//colliefb_disable_lcd_controller();
+			colliefb_disable_lcd_controller_blank();
 		}
 	}
 	else {
@@ -1034,7 +1083,11 @@ static int screen_restore(void)
 }
 
 #ifdef CONFIG_SHARP_LOGO_SCREEN
+#if 0 // def CONFIG_COLLIE_UP
+#include "discoveryLogoScreen.c"
+#else
 #include "collieLogoScreen.c"
+#endif
 static void __init draw_logo_screen(void)
 {
 	int		x,y;
@@ -1045,7 +1098,11 @@ static void __init draw_logo_screen(void)
 	for (y=0; y<current_par.max_yres; y++) {
 #if 1
 		for (x=8; x<current_par.max_xres; x++) {
-			p[x] = 0x7bef;
+#if 0 // def CONFIG_COLLIE_UP
+		  p[x] = 0xffff;
+#else
+		  p[x] = 0x7bef;
+#endif
 		}
 #else
 		for (x=0; x<current_par.max_xres; x++) {

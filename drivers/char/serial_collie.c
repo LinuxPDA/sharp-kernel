@@ -41,6 +41,7 @@
  *
  * Change Log
  *	30-Jul-2002 Lineo Japan, Inc.  for 2.4.18
+ *      30-Jan-2003 Sharp Corporation modify for new QT I/F
  */
 
 /*
@@ -103,7 +104,10 @@
 #include <linux/sysrq.h>
 #endif
 
+#ifdef CONFIG_PM
 #include <linux/pm.h>
+#include <linux/apm_bios.h>
+#endif
 
 #if defined(CONFIG_SA1100_HUW_WEBPANEL) || defined(CONFIG_SA1100_COLLIE)
 #define SERIAL_FULL
@@ -2209,8 +2213,17 @@ static void rs_close(struct tty_struct *tty, struct file * filp)
 	if (info->line == 2) {
 		irda_open = 0;
 		sa1100_irda_set_power_collie(0);	/* power off */
+#if 1 // 2003.1.30
+		change_power_mode(LOCK_FCS_STUART, 0);
+#endif
 	}
 #endif
+#if 1 // 2003.1.30
+	if (info->line == 0) {
+		change_power_mode(LOCK_FCS_FFUART, 0);
+	}
+#endif
+
 }
 
 /*
@@ -2558,7 +2571,15 @@ static int rs_open(struct tty_struct *tty, struct file * filp)
 	if (line == 2) {
 		irda_open = 1;
 		sa1100_irda_set_power_collie(3);	/* power on */
+#if 1 // 2003.1.30
+		change_power_mode(LOCK_FCS_STUART, 1);
+#endif
 	}
+#if 1 // 2003.1.30
+	if (line == 0) {
+		change_power_mode(LOCK_FCS_FFUART, 1);
+	}
+#endif
 #endif
 
 #ifdef SERIAL_DEBUG_OPEN
@@ -2935,6 +2956,7 @@ static int sa1100_rs_pm_callback(struct pm_dev *pm_dev,
 	ser_save.ser2utcr2 = Ser2UTCR2;
 	ser_save.ser2utcr3 = Ser2UTCR3;
 #ifdef CONFIG_SA1100_COLLIE
+
 	if (irda_open)
 	    sa1100_irda_set_power_collie(0);	/* power off */
 #endif
@@ -2969,8 +2991,10 @@ static int sa1100_rs_pm_callback(struct pm_dev *pm_dev,
 	}
 #endif
 #ifdef CONFIG_SA1100_COLLIE
+
 	if (irda_open)
 	    sa1100_irda_set_power_collie(3);	/* power on */
+
 	if( machine_is_collie() ){
 	    Ser2UTCR4 = UTCR4_HSE;
 	    Ser2HSCR0 = 0;

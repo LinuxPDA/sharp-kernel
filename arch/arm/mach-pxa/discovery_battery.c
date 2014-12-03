@@ -460,6 +460,10 @@ static void discovery_charge_off(void)
 
 static void discovery_minute(void)
 {
+	daemonize();
+	strcpy(current->comm, "kminuted");
+	//sigfillset(&current->blocked);
+
 	while(1)
 	{
 		interruptible_sleep_on_timeout((wait_queue_head_t*)&minute_cnt, DISCOVERY_MINUTE_TICKTIME );
@@ -537,6 +541,10 @@ static void discovery_battery_main_thread(void)
 	unsigned long	Voltage, Imin, Temper;
 	unsigned long	period;
 	
+	// daemonize();
+	strcpy(current->comm, "kbattd");
+	// sigfillset(&current->blocked);
+
 	while(1) 
 	{
 		short		dTx,nowTx=0,Pd_k; /* maybe negative */
@@ -1362,8 +1370,11 @@ static void bp_power_off()
 
 static int backpack_detect_check(void *unused)
 {
+	daemonize();
+	strcpy(current->comm, "kbpchkd");
+	sigfillset(&current->blocked);
 	while(1){
-		sleep_on(&bp_detect);
+		interruptible_sleep_on(&bp_detect);
 		if (need_delay)
 			mdelay(500);
 

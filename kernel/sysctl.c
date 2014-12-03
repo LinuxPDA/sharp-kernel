@@ -284,6 +284,10 @@ static ctl_table vm_table[] = {
 	{VM_FREEPG_SIGNAL_PROC, "freepg_signal_proc", freepg_signal_proc,
 	 sizeof freepg_signal_proc, 0644, NULL, &proc_dostring},
 #endif
+#ifdef CONFIG_ARCH_SHARP_SL
+	{VM_WITHOUT_SWAP, "vm-without-swap",
+	&vm_without_swap, sizeof(int), 0644, NULL, &proc_dointvec},
+#endif
 	{0}
 };
 

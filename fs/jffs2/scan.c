@@ -10,7 +10,6 @@
  * $Id: scan.c,v 1.91 2002/09/09 07:47:53 dwmw2 Exp $
  *
  * ChangeLog:
- *     24-Nov-2002 SHARP  add erasing_dirty_size
  *     29-Oct-2002 Lineo Japan, Inc.  add member struct jffs2_sb_info#nr_bad_blocks
  *     01-Oct-2002 Lineo Japan, Inc.  remove double reads from NAND flash
  *     13-Sep-2002 Lineo Japan, Inc.  remove warning message for NAND flash
