@@ -9,6 +9,9 @@
  * This file is subject to the terms and conditions of the GNU General Public
  * License.  See the file COPYING in the main directory of this archive
  * for more details.
+ *
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
  */
 
 #include <linux/config.h>
@@ -128,6 +131,10 @@ extern int e1355fb_init(void);
 extern int e1355fb_setup(char*);
 extern int dcfb_init(void);
 extern int anakinfb_init(void);
+extern int l7200fb_init(void);
+extern int irisfb_init(void);
+extern int irisfb_setup(char*);
+extern int colliefb_init(void);
   
 static struct {
 	const char *name;
@@ -280,6 +287,15 @@ static struct {
 #endif
 #ifdef CONFIG_FB_HIT
 	{ "hitfb", hitfb_init, NULL },
+#endif
+#ifdef CONFIG_FB_L7200
+	{ "l7200fb", l7200fb_init, NULL },
+#endif
+#ifdef CONFIG_FB_IRIS
+	{ "irisfb", irisfb_init, irisfb_setup },
+#endif
+#ifdef CONFIG_FB_COLLIE
+	{ "colliefb", colliefb_init, NULL },
 #endif
 #ifdef CONFIG_FB_ANAKIN
 	{ "anakinfb", anakinfb_init, NULL },

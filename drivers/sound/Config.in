@@ -16,6 +16,13 @@ if [ "$CONFIG_SA1100_ASSABET" = "y" -o "$CONFIG_SA1100_BITSY" = "y" -o \
      "$CONFIG_SA1100_YOPY" = "y" -o "$CONFIG_SA1100_JORNADA720" = "y" ]; then
     dep_tristate '  Old Assabet/Bitsy/Pangolin/Yopy/Freebird/Jornada720 audio support (UDA1341)' CONFIG_SOUND_UDA1341 $CONFIG_SOUND
   fi
+dep_tristate '  Collie sound support' CONFIG_SOUND_COLLIE_SSP $CONFIG_SOUND $CONFIG_SA1100_COLLIE
+if [ "$CONFIG_SOUND_COLLIE_SSP" = "y" -o "$CONFIG_SOUND_COLLIE_SSP" = "m" ]; then
+    choice 'Collie D/A Converter Type' \
+      "PCM1741       CONFIG_COLLIE_PCM1741 \
+       PCM1717       CONFIG_COLLIE_PCM1717" PCM1741
+fi
+dep_tristate '  Collie TC35143 sound support' CONFIG_SOUND_COLLIE_TC35143 $CONFIG_SOUND $CONFIG_SA1100_COLLIE
 
 dep_tristate '  C-Media PCI (CMI8338/8378)' CONFIG_SOUND_CMPCI $CONFIG_SOUND $CONFIG_PCI
 if [ "$CONFIG_SOUND_CMPCI" = "y" -o "$CONFIG_SOUND_CMPCI" = "m" ]; then

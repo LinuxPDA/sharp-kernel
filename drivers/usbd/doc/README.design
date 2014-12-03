@@ -1,0 +1,68 @@
+
+
+Design Goals:
+
+1. Layered architecture
+
+	Function Driver
+	---
+	USB Device Core
+	---
+	Bus Interface Drivers
+
+
+The Function Driver implements the actual function of the device. It
+corresponds to the USB Host Class driver and typically is independant of the
+bus interface implementation except that it may have endpoint requirements
+that are incompatible with some bus interface implemenations.
+
+
+The USB Device Core provides the basic device support. Function and Bus
+interface drivers register with the Device core layer.
+
+
+The Bus Interface Driver implements the actual device access to the USB bus
+through the physical layer. 
+
+
+2. Reference Function Drivers
+
+	SA-1100 Network
+	SA-1100 Serial
+	ACM
+	RNDIS
+	Pegasus
+
+
+3. Reference Bus Interface Drivers
+
+	SA-1100
+	NetChips PCI Reference Design
+
+
+4. Reference Linux Class Drivers
+
+	SA-1100 Network
+	SA-1100 Serial 
+
+	Pegasus		
+	ACM
+	RNDIS
+
+
+5. Reference Windows Class Drivers
+
+	SA-1100 Network
+	SA-1100 Serial
+
+	Pegasus
+	ACM
+	RNDIS
+
+
+6. PDA Support
+
+	jpilot/pilotsync daemon
+
+	
+

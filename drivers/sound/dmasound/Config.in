@@ -12,16 +12,21 @@ fi
 if [ "$CONFIG_Q40" = "y" ]; then
    dep_tristate '  Q40 sound support' CONFIG_DMASOUND_Q40 $CONFIG_SOUND
 fi
+if [ "$CONFIG_IRIS" = "y" ]; then
+   dep_tristate '  IRIS DMA sound support' CONFIG_DMASOUND_IRIS $CONFIG_SOUND
+fi
 if [ "$CONFIG_DMASOUND_ATARI" = "y" -o \
      "$CONFIG_DMASOUND_AWACS" = "y" -o \
      "$CONFIG_DMASOUND_PAULA" = "y" -o \
-     "$CONFIG_DMASOUND_Q40" = "y" ]; then
+     "$CONFIG_DMASOUND_Q40" = "y" -o \
+     "$CONFIG_DMASOUND_IRIS" = "y" ]; then
    define_tristate CONFIG_DMASOUND y
 else
    if [ "$CONFIG_DMASOUND_ATARI" = "m" -o \
 	"$CONFIG_DMASOUND_AWACS" = "m" -o \
 	"$CONFIG_DMASOUND_PAULA" = "m" -o \
-	"$CONFIG_DMASOUND_Q40" = "m" ]; then
+	"$CONFIG_DMASOUND_Q40" = "m" -o \
+        "$CONFIG_DMASOUND_IRIS" = "m" ]; then
       define_tristate CONFIG_DMASOUND m
    fi
 fi

@@ -347,6 +347,9 @@ static void pcnet_detach(dev_link_t *link)
 
     del_timer(&link->release);
     if (link->state & DEV_CONFIG) {
+#ifdef CONFIG_SA1100_COLLIE
+	link->state &= ~DEV_STALE_CONFIG;
+#endif
 	pcnet_release((u_long)link);
 	if (link->state & DEV_STALE_CONFIG) {
 	    link->state |= DEV_STALE_LINK;

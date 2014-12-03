@@ -13,37 +13,38 @@
  * Changelog:
  *   07-18-2000	SAM	Created file
  *   07-28-2000	SJH	Complete rewrite
+ *   03-04-2001 Lineo Japan, Inc.       Changed for L7205SDB and IRIS.
+ *
  */
+#ifndef __ASM_ARCH_KEYBOARD_H
+#define __ASM_ARCH_KEYBOARD_H
+
+#if defined(CONFIG_IRIS)
+#include <asm/arch/keyboard_iris.h>
+#else
 
 #include <asm/irq.h>
 
-/*
- * Layout of L7200 keyboard registers
- */
-struct KBD_Port {       
-	unsigned int KBDR;
-	unsigned int KBDMR;
-	unsigned int KBSBSR;
-	unsigned int Reserved;
-	unsigned int KBKSR;
-};
+#define SYSRQ_KEY 13
 
-#define KBD_BASE        IO_BASE_2 + 0x4000
-#define l7200kbd_hwregs ((volatile struct KBD_Port *) (KBD_BASE))
-
-extern void l7200kbd_init_hw(void);
-extern int l7200kbd_translate(unsigned char scancode, unsigned char *keycode,
-			      char raw_mode);
+extern void l7200_kbd_init_hw(void);
+extern void l7200_kbd_disable_irq(void);
+extern void l7200_kbd_enable_irq(void);
+extern int  l7200_kbd_translate(unsigned char, unsigned char*, int);
 
 #define kbd_setkeycode(sc,kc)		(-EINVAL)
 #define kbd_getkeycode(sc)		(-EINVAL)
 
-#define kbd_translate(sc, kcp, rm)      ({ *(kcp) = (sc); 1; })
 #define kbd_unexpected_up(kc)           (0200)
 #define kbd_leds(leds)                  do {} while (0)
-#define kbd_init_hw()                   l7200kbd_init_hw()
-#define kbd_sysrq_xlate                 ((unsigned char *)NULL)
-#define kbd_disable_irq()               disable_irq(IRQ_GCTC2)
-#define kbd_enable_irq()                enable_irq(IRQ_GCTC2)
+#define kbd_init_hw()                   l7200_kbd_init_hw()
+#define kbd_sysrq_xlate                 do {} while (0)
 
-#define SYSRQ_KEY	13
+#define kbd_disable_irq()               l7200_kbd_disable_irq()
+#define kbd_enable_irq()                l7200_kbd_enable_irq()
+
+#define kbd_translate(sc, kcp, rm)      l7200_kbd_translate((sc), (kcp), (rm))
+
+#endif
+
+#endif

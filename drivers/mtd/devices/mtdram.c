@@ -7,6 +7,9 @@
  *
  * This code is GPL
  *
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
+ *
  */
 
 #include <linux/config.h>
@@ -16,24 +19,24 @@
 #include <linux/mtd/compatmac.h>
 #include <linux/mtd/mtd.h>
 
-#ifndef CONFIG_MTDRAM_ABS_POS
-  #define CONFIG_MTDRAM_ABS_POS 0
+#ifndef CONFIG_TMTDRAM_ABS_POS
+  #define CONFIG_TMTDRAM_ABS_POS 0
 #endif
 
-#if CONFIG_MTDRAM_ABS_POS > 0
+#if CONFIG_TMTDRAM_ABS_POS > 0
   #include <asm/io.h>
 #endif
 
 #ifdef MODULE
-static unsigned long total_size = CONFIG_MTDRAM_TOTAL_SIZE;
-static unsigned long erase_size = CONFIG_MTDRAM_ERASE_SIZE;
+static unsigned long total_size = CONFIG_TMTDRAM_TOTAL_SIZE;
+static unsigned long erase_size = CONFIG_TMTDRAM_ERASE_SIZE;
 MODULE_PARM(total_size,"l");
 MODULE_PARM(erase_size,"l");
 #define MTDRAM_TOTAL_SIZE (total_size * 1024)
 #define MTDRAM_ERASE_SIZE (erase_size * 1024)
 #else
-#define MTDRAM_TOTAL_SIZE (CONFIG_MTDRAM_TOTAL_SIZE * 1024)
-#define MTDRAM_ERASE_SIZE (CONFIG_MTDRAM_ERASE_SIZE * 1024)
+#define MTDRAM_TOTAL_SIZE (CONFIG_TMTDRAM_TOTAL_SIZE * 1024)
+#define MTDRAM_ERASE_SIZE (CONFIG_TMTDRAM_ERASE_SIZE * 1024)
 #endif
 
 
@@ -115,7 +118,7 @@ mod_exit_t cleanup_mtdram(void)
   if (mtd_info) {
     del_mtd_device(mtd_info);
     if (mtd_info->priv)
-#if CONFIG_MTDRAM_ABS_POS > 0
+#if CONFIG_TMTDRAM_ABS_POS > 0
       iounmap(mtd_info->priv);
 #else
       vfree(mtd_info->priv);
@@ -139,14 +142,14 @@ mod_init_t init_mtdram(void)
    mtd_info->flags = MTD_CAP_RAM;
    mtd_info->size = MTDRAM_TOTAL_SIZE;
    mtd_info->erasesize = MTDRAM_ERASE_SIZE;
-#if CONFIG_MTDRAM_ABS_POS > 0
-   mtd_info->priv = ioremap(CONFIG_MTDRAM_ABS_POS, MTDRAM_TOTAL_SIZE);
+#if CONFIG_TMTDRAM_ABS_POS > 0
+   mtd_info->priv = ioremap(CONFIG_TMTDRAM_ABS_POS, MTDRAM_TOTAL_SIZE);
 #else
    mtd_info->priv = vmalloc(MTDRAM_TOTAL_SIZE);
 #endif
 
    if (!mtd_info->priv) {
-     DEBUG(MTD_DEBUG_LEVEL1, "Failed to vmalloc(/ioremap) memory region of size %ld (ABS_POS:%ld)\n", (long)MTDRAM_TOTAL_SIZE, (long)CONFIG_MTDRAM_ABS_POS);
+     DEBUG(MTD_DEBUG_LEVEL1, "Failed to vmalloc(/ioremap) memory region of size %ld (ABS_POS:%ld)\n", (long)MTDRAM_TOTAL_SIZE, (long)CONFIG_TMTDRAM_ABS_POS);
      kfree(mtd_info);
      mtd_info = NULL;
      return -ENOMEM;
@@ -161,7 +164,7 @@ mod_init_t init_mtdram(void)
    mtd_info->write = ram_write;
 
    if (add_mtd_device(mtd_info)) {
-#if CONFIG_MTDRAM_ABS_POS > 0
+#if CONFIG_TMTDRAM_ABS_POS > 0
      iounmap(mtd_info->priv);
 #else
      vfree(mtd_info->priv);

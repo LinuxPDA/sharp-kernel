@@ -45,6 +45,9 @@
  *		Tigran Aivazian	:	Made listen(2) backlog sanity checks 
  *					protocol-independent
  *
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
+ *
  *
  *		This program is free software; you can redistribute it and/or
  *		modify it under the terms of the GNU General Public License
@@ -107,6 +110,10 @@ static ssize_t sock_writev(struct file *file, const struct iovec *vector,
 			  unsigned long count, loff_t *ppos);
 static ssize_t sock_sendpage(struct file *file, struct page *page,
 			     int offset, size_t size, loff_t *ppos, int more);
+
+#if defined(CONFIG_SA1100_COLLIE)
+  extern int autoPowerCancel;
+#endif
 
 
 /*
@@ -512,6 +519,10 @@ int sock_sendmsg(struct socket *sock, struct msghdr *msg, int size)
 		err = sock->ops->sendmsg(sock, msg, size, &scm);
 		scm_destroy(&scm);
 	}
+#if defined(CONFIG_SA1100_COLLIE)
+	if (sock->sk->daddr != 0 && sock->sk->daddr != 0x0100007f)
+		autoPowerCancel = 0;
+#endif
 	return err;
 }
 
@@ -525,6 +536,10 @@ int sock_recvmsg(struct socket *sock, struct msghdr *msg, int size, int flags)
 	if (size >= 0)
 		scm_recv(sock, msg, &scm, flags);
 
+#if defined(CONFIG_SA1100_COLLIE)
+	if (sock->sk->daddr != 0 && sock->sk->daddr != 0x0100007f)
+		autoPowerCancel = 0;
+#endif
 	return size;
 }
 

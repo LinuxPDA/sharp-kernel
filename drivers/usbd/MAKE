@@ -1,0 +1,26 @@
+#!/bin/sh
+
+DEST=/tftpboot/tmp/sl11/tmp
+
+set -x
+(cd ../../; make modules) || exit
+
+[ -d "$DEST" ] || exit
+
+echo COPYING 
+cp usbdcore.o  "$DEST"
+
+for i in serial_fd/serial_fd.o sa1100_bi/sa1100_bi.o sa1100_bi/sa1100_cradle.o net_fd/net_fd.o sl11_bi/sl11_bi.o ../../arch/arm/mach-sa1100/sa1100_usbd.o ; do
+	[ -s "$i" ] && cp "$i" "$DEST"
+done
+
+exit
+
+cp {Config.in,Makefile,*.[hc]} /tftpboot/tmp/calypso/linux/drivers/usbd
+cp net_fd/{Config.in,Makefile,*.[hc]} /tftpboot/tmp/calypso/linux/drivers/usbd/net_fd
+cp serial_fd/{Config.in,Makefile,*.[hc]} /tftpboot/tmp/calypso/linux/drivers/usbd/serial_fd
+cp cdsp_bi/{Config.in,Makefile,*.[hc]} /tftpboot/tmp/calypso/linux/drivers/usbd/cdsp_bi
+cp l7200_bi/{Config.in,Makefile,*.[hc]} /tftpboot/tmp/calypso/linux/drivers/usbd/l7200_bi
+cp sa1100_bi/{Config.in,Makefile,*.[hc]} /tftpboot/tmp/calypso/linux/drivers/usbd/sa1100_bi
+cp sa1100_bi/{Config.in,Makefile,*.[hc]} /tftpboot/tmp/calypso/linux/drivers/usbd/sa1100_bi
+

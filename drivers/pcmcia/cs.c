@@ -28,6 +28,9 @@
     and other provisions required by the GPL.  If you do not delete
     the provisions above, a recipient may use your version of this
     file under either the MPL or the GPL.
+
+    Change Log
+	12-Nov-2001 Lineo Japan, Inc.
     
 ======================================================================*/
 
@@ -571,6 +574,11 @@ static void reset_socket(socket_info_t *s)
 #define EVENT_MASK \
 (SOCKET_SETUP_PENDING|SOCKET_SUSPEND|SOCKET_RESET_PENDING)
 
+#ifdef CONFIG_SA1100_COLLIE
+int ide_resume_handling = 0;
+int pcmcia_resume_handling = 0;
+#endif
+
 static void unreset_socket(socket_info_t *s)
 {
 	int setup_timeout = unreset_limit;
@@ -595,10 +603,37 @@ static void unreset_socket(socket_info_t *s)
 	DEBUG(1, "cs: reset done on socket %p\n", s);
 	if (s->state & SOCKET_SUSPEND) {
 	    s->state &= ~EVENT_MASK;
+#ifdef CONFIG_SA1100_COLLIE
+	    if (verify_cis_cache(s) != 0) {
+		if (is_pcmcia_card_present(0))
+		    ide_resume_handling = 2;
+		parse_events(s, SS_DETECT);
+	    } else {
+		cisparse_t parse;
+		send_event(s, CS_EVENT_PM_RESUME, CS_EVENT_PRI_LOW);
+		read_tuple(s->clients, CISTPL_FUNCID, &parse);
+		ide_resume_handling = 1;
+		if (parse.funcid.func == CISTPL_FUNCID_FIXED &&
+		    proc_ide_verify_identify() != 0) {
+		    ide_resume_handling = 2;
+		    parse_events(s, SS_DETECT);
+		} else {
+		    ide_resume_handling = 0;
+		}
+		/* power off serial card */
+		if (parse.funcid.func == CISTPL_FUNCID_SERIAL &&
+		    pcmcia_resume_handling) {
+		    send_event(s, CS_EVENT_PM_SUSPEND, CS_EVENT_PRI_LOW);
+		    suspend_socket(s);
+		    s->state |= SOCKET_SUSPEND;
+		}
+	    }
+#else
 	    if (verify_cis_cache(s) != 0)
 		parse_events(s, SS_DETECT);
 	    else
 		send_event(s, CS_EVENT_PM_RESUME, CS_EVENT_PRI_LOW);
+#endif
 	} else if (s->state & SOCKET_SETUP_PENDING) {
 #ifdef CONFIG_CARDBUS
 	    if (s->state & SOCKET_CARDBUS)
@@ -744,6 +779,9 @@ static int handle_pm_event(struct pm_dev *dev, pm_request_t rqst, void *data)
     switch (rqst) {
     case PM_SUSPEND:
 	DEBUG(1, "cs: received suspend notification\n");
+#ifdef CONFIG_SA1100_COLLIE
+	sys_sync();
+#endif
 	for (i = 0; i < sockets; i++) {
 	    s = socket_table [i];
 	    if (!s->use_bus_pm)
@@ -752,11 +790,17 @@ static int handle_pm_event(struct pm_dev *dev, pm_request_t rqst, void *data)
 	break;
     case PM_RESUME:
 	DEBUG(1, "cs: received resume notification\n");
+#ifdef CONFIG_SA1100_COLLIE
+	pcmcia_resume_handling = 1;
+#endif
 	for (i = 0; i < sockets; i++) {
 	    s = socket_table [i];
 	    if (!s->use_bus_pm)
 		pcmcia_resume_socket (socket_table [i]);
 	}
+#ifdef CONFIG_SA1100_COLLIE
+	pcmcia_resume_handling = 0;
+#endif
 	break;
     }
     return 0;
@@ -2193,6 +2237,23 @@ int pcmcia_report_error(client_handle_t handle, error_info_t *err)
 
     return CS_SUCCESS;
 } /* report_error */
+
+/*====================================================================*/
+
+#ifdef CONFIG_SA1100_COLLIE
+void pcmcia_set_detect_interrupt(int sock, int enable, int setting)
+{
+    socket_info_t *s;
+
+    s = socket_table[sock];
+    if (enable)
+	s->socket.csc_mask |= SS_DETECT;
+    else
+	s->socket.csc_mask &= ~SS_DETECT;
+    if (setting)
+	set_socket(s, &s->socket);
+}
+#endif
 
 /*====================================================================*/
 

@@ -1,0 +1,373 @@
+.\"
+.\"
+.\"
+.TH net_fd 8 "\n[year]-\n[mo]-\n[dy]", Lineo "Lineo USBD Developer's Guide"
+.\"
+.\"
+.SH SYNOPSIS
+.TP
+insmod net_fd [vendor_id=nnnn] [product_id=nnnn] [dbg=
+.I dbgstring
+]
+.TP
+/etc/hotplug/usbd.agent
+.\"
+.\"
+.SH DESCRIPTION
+This module is a USB
+.I function
+module.  It operates 802.3 over USB in conjunction with a cooperating 
+.SM USB
+.I Class
+driver. Depending on the way the module is built, it may support two
+configurations: safe and CDC (communications device class). The latter
+cooperates better with the typical MS Windows 
+.I Class
+drivers.
+.\"
+.\"
+.PP
+This driver implements a 32 bit CRC across all 
+.I Bulk Data Transfers.
+The CRC is appended to the end of the
+.I Bulk Data Transfer.
+.PP
+While 
+.SM USB
+has a CRC guarding all 
+.SM USB 
+packet sent across the bus this has proved insufficent to guard against
+all errors on an end-to-end basis. For example some systems can corrupt data
+being loaded or unloaded from the transmit and receive FIFO's. Adding the
+CRC allows the receiving driver to drop frames that are received
+incorrectly. This is the correct behaviour for a network device. Higher
+level protocols (such as TCP) will ensure that the data is retransmitted.
+.\"
+.\"
+.PP
+A Linux 
+.I Class
+driver, safe-net.c, is available to use with this 
+.I Function
+driver.
+.\"
+.\"
+.SH HOTPLUG AGENT
+.PP
+The 
+.I hotplug
+agent script
+.I /etc/hotplug/usbd.agent
+is called with two parameters:
+.RS
+.TP
+INTERFACE = interface name
+.\"
+.TP
+ACTION = register
+Called when the network interface is registered.
+.TP
+ACTION = unregister
+called when the network interface is unregistered.
+.TP
+ACTION = attach
+Called when the usb device is attached to the network interface.
+.TP
+ACTION = detach
+Called when the usb device is detached from the network interface.
+.TP
+ACTION = configured
+Called when the configure setup packet has been processed.
+.TP
+ACTION = set_interface
+Called when the configure set interface setup packet has been processed.
+.TP
+ACTION = bus_inactive
+Called when the bus is inactive (no SOF frames for 3ms).
+.TP
+ACTION = bus_activity
+Called when the bus is active again.
+.TP
+ACTION = device_destroy
+Called when the 
+.sm USB
+device is destroyed.
+.\"
+.RE
+.\"
+.\"
+.SH SAFENET USB CONFIGURATION
+.\"
+.PP
+For the default safe configuration the following 
+.SM USB
+device and interface configuration variables are used:
+.RS
+.nf 
+bDeviceClass        0xff	Vendor Device Class
+bInterfaceClass     0x01	Lineo Interface Class
+bInterfaceSubClass  0x01	Lineo Safe Net Subclass
+.fi
+.RE
+.PP
+The bInterfaceProtocol field is used to control the following:
+.RS
+.nf
+bInterfaceProtocol  0x01	CRC
+bInterfaceProtocol  0x01	CRC and padding
+.fi
+.RE
+.\"
+.\"
+.SH CDC USB CONFIGURATION
+.\"
+.PP
+For the CDC safe configuration the following 
+.SM USB
+device configuration variables are used:
+.RS
+.nf 
+bDeviceClass        0x02	Communications Device Class
+.fi
+.RE
+.PP
+The bInterfaceProtocol field is used to control the following:
+.RS
+.nf
+bInterfaceProtocol  0x01	CRC
+bInterfaceProtocol  0x01	CRC and padding
+.fi
+.RE
+.\"
+.\"
+.SH LINUX CONFIGURATION PARAMETERS
+.PP
+These compilation parameters can be used to control the detailed behaviour of the net module.
+.\"
+.\"
+.TP 
+CONFIG_USBD_NET_VENDORID
+This 
+.I hex 
+parameter
+.I Override VendorID
+, can be used to set a idVendor device descriptor value which supersedes the default value
+from the master USB configuration. However, this value itself can be superseded
+by the vendor_id parameter when the module is loaded.
+Specific architectures with a known vendor id are pre-set (itsy, calypso, collie, iris).
+.\"
+.\"
+.TP 
+CONFIG_USD_NET_PRODUCTID
+This 
+.I hex 
+parameter
+.I Override ProductID, 
+can be used to set a idProduct device descriptor value which supersedes the default value
+from the master USB configuration. However, this value itself is superseded
+by the product_id parameter when the module is loaded.
+Specific architectures with a known product id are pre-set (itsy, calypso, collie, iris).
+.\"
+.\"
+.TP 
+CONFIG_USBD_NET_IFNAME
+This 
+.I string 
+parameter specifies the interface prefix for the network interface. The
+default and recommended value is "usb".  This creates an interface called
+usb0. if this value is set to "eth", then the name of the interface is not
+predictable.
+.\"
+.\"
+.TP
+CONFIG_USBD_NET_CDC
+This 
+.I boolean 
+parameter controls whether the 
+.I Network Function
+driver will implement the 
+.I Communications Device Class
+configuration. This is used to when support is required for Windows
+host drivers that implement this. 
+.\"
+.\"
+.TP
+CONFIG_USBD_NET_OUT_ENDPOINT
+This 
+.I int 
+parameter is used to set the address of the 
+.I OUT
+endpoint. Bulk data is received from the 
+.I USB
+host on this endpoint.
+.\"
+.\"
+.TP
+CONFIG_USBD_NET_IN_ENDPOINT
+This 
+.I int 
+parameter is used to set the address of the 
+.I IN
+endpoint. Bulk data is transmitted to the 
+.I USB
+host on this endpoint.
+.\"
+.\"
+.TP
+CONFIG_USBD_NET_INT_ENDPOINT
+This 
+.I int 
+parameter is used to set the address of the 
+.I OUT
+endpoint. Interrupt data is transmitted and received from the 
+.I USB
+host on this endpoint.
+.\"
+.\"
+.TP
+CONFIG_USBD_NET_OUT_PKTSIZE
+This 
+.I int
+parameter sets 
+the maximum size of packets to use on the 
+.I OUT
+endpoint.
+.\"
+.\"
+.TP
+CONFIG_USBD_NET_IN_PKTSIZE
+This 
+.I int
+parameter sets 
+the maximum size of packets to use on the 
+.I IN
+endpoint.
+.\"
+.\"
+.TP
+CONFIG_USBD_NET_INT_PKTSIZE
+This 
+.I int
+parameter sets 
+the maximum size of packets to use on the 
+.I INT
+endpoint.
+.\"
+.\"
+.TP
+CONFIG_USBD_NO_ZLP_SUPPORT
+This 
+.I boolean
+parameter enables 
+the addition of a extra null byte to terminate 
+.I Bulk Transfers
+that are an exact multiple of the packetsize.
+.\"
+.\"
+.\"
+.\"
+.SH MODULE PARAMETERS
+The following parameters can be set at the time this module is loaded:
+.\"
+.\"
+.TP
+dbg
+This parameter as the format of a colon-separated list of debug levels for
+various items. There is a sample: dbg="2:init=3:rx"  This example sets the
+default debug level to 2 (normally it is 0), the debug level to 3 for the
+init (setup) phase and the debug level for rx to 1 (instead of 2, the
+default set earlier). The exact meaning of the debug output can be
+determined by comparing the debug output to the source code. By default,
+this information goes to the console. This behaviour may be changed by
+appropriate setup of klog(8)and syslog(8). 
+.\"
+.\"
+.TP
+vendor_id
+This parameter, if supplied, supersedes both the override Vendor ID
+specified as part of this module, and the master USB vendor ID. 
+.\"
+.\"
+.TP
+product_id
+This parameter, if supplied, supersedes both the override Product ID
+specified as part of this module, and the master USB Product ID. Different
+product ID's should be used to distinguish amongst variants of the net_fd
+module created by certain kernel configuration parameters (see below). 
+.\"
+.\"
+.TP
+if_name
+This parameter, if specified, overrides the name of the network device
+specified. Otherwise, the parameter is taken from the Linux kernel
+configuration. See below for more information
+.\"
+.\"
+.TP
+out_pk_sz
+This sets the maximum size of the received 
+.I USB
+data packets.
+.\"
+.\"
+.TP
+in_pk_sz
+This sets the maximum size of the transmited
+.I USB
+data packets.
+.\"
+.\"
+.TP
+remote_mac_address
+This is the MAC address that the host assigns the interface
+.\"
+.\"
+.TP
+local_mac_address
+The USB cable is viewed as a bridge, with the remote_mac_address at the far
+(host) end,and local_mac_address at the near (peripheral) end.
+
+.\"
+.\"
+.SH EXAMPLE
+.PP
+.nf
+CONFIG_USBD_NET=m
+CONFIG_USBD_NET_VENDORID=03f0
+CONFIG_USBD_NET_PRODUCTID=2101
+CONFIG_USBD_NET_IFNAME="usbd"
+CONFIG_USBD_NET_OUT_ENDPOINT=1
+CONFIG_USBD_NET_IN_ENDPOINT=2
+CONFIG_USBD_NET_INT_ENDPOINT=3
+CONFIG_USBD_NET_OUT_PKTSIZE=64
+CONFIG_USBD_NET_IN_PKTSIZE=64
+CONFIG_USBD_NET_INT_PKTSIZE=16
+CONFIG_USBD_NET_CDC=y
+.fi
+.\"
+.\"
+.SH BUGS
+
+.\"
+.\"
+.SH AUTHOR
+.TP
+Stuart Lynne <sl@lineo.com>
+.TP
+Bruce Balden <balden@lineo.com>
+.TP
+Tom Rushworth <tbr@lineo.com>
+.\"
+.\"
+.SH SEE ALSO
+.PP
+usbdcore(7), usbdfunc(7), usbdbus(7)
+.PP
+Universal Serial Bus Specification, Revision 2.0
+.PP
+Universal Serial Bus Class Definitions for Communications Devices, Version 1.1
+.PP
+
+.\"
+.\"
+

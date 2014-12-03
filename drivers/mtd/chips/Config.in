@@ -35,6 +35,8 @@ dep_tristate '    CFI support for Intel/Sharp Basic/Extended Commands' CONFIG_MT
 dep_tristate '    CFI support for AMD/Fujitsu Standard Commands' CONFIG_MTD_CFI_AMDSTD $CONFIG_MTD_CFI
 dep_tristate '  AMD compatible flash chip support (non-CFI)' CONFIG_MTD_AMDSTD $CONFIG_MTD
 dep_tristate '  pre-CFI Sharp chip support' CONFIG_MTD_SHARP $CONFIG_MTD
+dep_tristate '  pre-CFI Sharp (16) chip support (Iris)' CONFIG_MTD_SHARP16 $CONFIG_MTD
+dep_tristate '  pre-CFI Sharp (32) chip support (Collie)' CONFIG_MTD_COLLIE $CONFIG_MTD
 dep_tristate '  Support for RAM chips in bus mapping' CONFIG_MTD_RAM $CONFIG_MTD
 dep_tristate '  Support for ROM chips in bus mapping' CONFIG_MTD_ROM $CONFIG_MTD
 dep_tristate '  JEDEC device support' CONFIG_MTD_JEDEC $CONFIG_MTD

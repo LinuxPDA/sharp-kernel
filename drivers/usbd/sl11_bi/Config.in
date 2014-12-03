@@ -1,0 +1,12 @@
+#
+# SL11 USB Device bus interface configuration
+#
+# Copyright (C) 2001 Lineo, Inc.
+# Copyright (C) 2001 Hewlett-Packard Co.
+
+mainmenu_option next_comment
+comment "Scanlogic SL11 Bus Interface Driver"
+
+dep_tristate '  Scanlogic SL11 Device support' CONFIG_USBD_SL11_BUS $CONFIG_USBD
+
+endmenu

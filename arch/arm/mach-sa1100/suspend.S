@@ -10,6 +10,9 @@
  *
  * 2001-12-06: Cliff Brake         Initial code
  *
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
+ *
  */
 
 #include <linux/linkage.h>
@@ -24,7 +27,11 @@
  * 
  */
 
+#ifdef CONFIG_XIP_ROM
+	.bss
+#else
 	.text
+#endif
 
 
 	.global	sleep_param
@@ -33,13 +40,27 @@
 sleep_param:	.word	0		@ virtual address of parameter array
 sleep_param_p:	.word	0		@ physical address of parameter array
 
+#ifdef CONFIG_XIP_ROM
 
+	.align 5
+
+mmu_switch:	.space	8
+
+	.text
+#endif
+
+	
 ENTRY(cpu_sa1100_do_suspend)
 	@ save registers on stack
 	stmfd	sp!, {r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, lr}
 
 	@ load virtual address for sleep_param array
+#ifdef CONFIG_XIP_ROM
+	ldr	r0, =sleep_param
+	ldr	r0, [r0]
+#else
 	ldr	r0, sleep_param
+#endif
 
 	@ save cpsr
 	mrs	r1, cpsr
@@ -197,8 +218,14 @@ ENTRY(cpu_sa1100_do_suspend)
 
         ldr     r9, =MDCNFG
         ldr     r10, [r9]
+
+#if defined(CONFIG_SA1100_COLLIE) || defined(CONFIG_SA1100_ASSABET)
+        bic     r10, r10, #(MDCNFG_SA1110_DE0+MDCNFG_SA1110_DE1)
+        bic     r10, r10, #(MDCNFG_SA1110_DE2+MDCNFG_SA1110_DE3)  
+#else
         bic     r10, r10, #(MDCNFG_DE0+MDCNFG_DE1)
         bic     r10, r10, #(MDCNFG_DE2+MDCNFG_DE3)  
+#endif
 
         bic     r11, r8, #MDREFR_SLFRSH
         bic     r11, r11, #MDREFR_E1PIN
@@ -249,8 +276,17 @@ sa1110_sdram_controller_fix:
 	.align 5
 ENTRY(cpu_sa1100_resume)
 
+#ifdef CONFIG_SA1100_COLLIE
+        @ enable clock switching
+	mcr	p15, 0, r0, c15, c1, 2
+#endif
+
 	@ load physical address of sleep_param into r0
+#ifdef CONFIG_XIP_ROM
+	ldr	r0, =sleep_param_p
+#else
 	adr	r0, sleep_param_p
+#endif
 	ldr	r0, [r0]
 
 	@ restore cp15_r3, domain id
@@ -271,9 +307,20 @@ ENTRY(cpu_sa1100_resume)
 	@ get address to jump to after turning on MMU
 	ldr	r2, =resume_after_mmu 
 
+#ifdef	CONFIG_XIP_ROM
+	adr	r3, resume_turn_on_mmu
+	ldr	r4, =mmu_switch
+	ldr	r0, [r3]
+	str	r0, [r4]
+	ldr	r0, [r3, #4]
+	str	r0, [r4, #4]
+	cmp	r2, #0				
+	mov	pc, r4
+#else
 	cmp	r2, #0				
 
 	b	resume_turn_on_mmu
+#endif
 
 	.align 5
 resume_turn_on_mmu:
@@ -290,7 +337,12 @@ resume_turn_on_mmu:
 resume_after_mmu:
 	
 	@ load virtual address for sleep_param array
+#ifdef CONFIG_XIP_ROM
+	ldr	r0, =sleep_param
+	ldr	r0, [r0]
+#else
 	ldr	r0, sleep_param
+#endif
 
 	ldr	r1, [r0, #(SLEEP_PARAM_CP15_R13*4)]
 	mcr	p15, 0, r1, c13, c0, 0
@@ -376,4 +428,31 @@ resume_after_mmu:
 	@ return to caller
 	ldmfd	sp!, {r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, pc}
 
+
+	
+#ifdef CONFIG_APM_CPU_IDLE
+	.align 5
+	.text
+
+ENTRY(cpu_sa1100_idle)
+
+	ldr	r1, =0xf0000000
+	mcr	p15, 0, r0, c15, c2, 2
+	ldr	r0,[r1]
+	mcr	p15, 0, r0, c15, c8, 2
+	nop
+
+	mov	pc ,lr	
+
+	
+	.align 5
+	.text
+
+ENTRY(cpu_sa1100_idle_exit)
+
+	mcr     p15, 0, r0, c15, c1, 2
+
+	mov	pc ,lr	
+	
+#endif
 

@@ -2,6 +2,9 @@
  *  linux/kernel/sys.c
  *
  *  Copyright (C) 1991, 1992  Linus Torvalds
+ * 
+ * Change Log
+ *	12-Mar-2002 Lineo Japan, Inc.
  */
 
 #include <linux/module.h>
@@ -1201,6 +1204,8 @@ asmlinkage long sys_umask(int mask)
 	return mask;
 }
     
+#define SHRT_MAX ((short)(((unsigned short)(~0U))>>1))
+
 asmlinkage long sys_prctl(int option, unsigned long arg2, unsigned long arg3,
 			  unsigned long arg4, unsigned long arg5)
 {
@@ -1257,6 +1262,23 @@ asmlinkage long sys_prctl(int option, unsigned long arg2, unsigned long arg3,
 			}
 			current->keep_capabilities = arg2;
 			break;
+
+		case PR_GET_OOM_KILL_SURVIVAL_LEVEL:
+			error = put_user(is_oom_kill_survival_inherit(current), (int*)arg2);
+			error = put_user(oom_kill_survival_get(current), (int*)arg3);
+			break;
+		case PR_SET_OOM_KILL_SURVIVAL_LEVEL:
+			sig = arg3;
+			if (sig < 0 || sig > SHRT_MAX)
+				error = -EINVAL;
+			else if (capable(CAP_SYS_NICE) ||
+				 (is_oom_kill_survival_process(current) &&
+				  oom_kill_survival_get(current) <= sig) )
+				error = -oom_kill_survival_set(current, arg2, sig);
+			else
+				error = -EPERM;
+			break;
+		
 		default:
 			error = -EINVAL;
 			break;

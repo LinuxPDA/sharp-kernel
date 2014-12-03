@@ -15,6 +15,9 @@
  *
  * 2001-06-03	Nicolas Pitre	Made this file a separate module, based on
  * 				the former sa1100-uda1341.c driver.
+ *
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
  */
 
 #include <linux/module.h>
@@ -435,14 +438,18 @@ static int __init assabet_uda1341_init(void)
 		return -ENODEV;
 
 	/* Acquire and initialize DMA */
-	if (sa1100_request_dma(&output_stream.dma_ch, "UDA1341 out") < 0 ||
-	    sa1100_request_dma(&input_stream.dma_ch, "UDA1341 in") < 0) {
+	if (sa1100_request_dma(&output_stream.dma_ch, "UDA1341 out",
+			       DMA_Ser4SSPWr) < 0 ||
+	    sa1100_request_dma(&input_stream.dma_ch, "UDA1341 in",
+			       DMA_Ser4SSPRd) < 0) {
 		sa1100_free_dma(output_stream.dma_ch);
 		printk( KERN_ERR AUDIO_NAME ": unable to get DMA channels\n" );
 		return -EBUSY;
 	}
+#if 0
 	sa1100_dma_set_device(output_stream.dma_ch, DMA_Ser4SSPWr);
 	sa1100_dma_set_device(input_stream.dma_ch, DMA_Ser4SSPRd);
+#endif
 
 	/* register devices */
 	audio_dev_id = register_sound_dsp(&assabet_audio_fops, -1);

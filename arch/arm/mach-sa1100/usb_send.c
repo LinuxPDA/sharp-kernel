@@ -164,9 +164,10 @@ sa1100_usb_send(char *buf, int len, usb_callback_t callback)
 {
 	int flags;
 	
+/*
 	if (usbd_info.state != USB_STATE_CONFIGURED)
 		return -ENODEV;
-
+*/
 	if (ep2_len)
 		return -EBUSY;
 	

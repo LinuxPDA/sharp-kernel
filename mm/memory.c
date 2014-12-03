@@ -102,9 +102,9 @@ static inline void free_one_pgd(pgd_t * dir)
 		return;
 	}
 	pmd = pmd_offset(dir, 0);
-	pgd_clear(dir);
 	for (j = 0; j < PTRS_PER_PMD ; j++)
 		free_one_pmd(pmd+j);
+	pgd_clear(dir);
 	pmd_free(pmd);
 }
 

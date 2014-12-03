@@ -1,0 +1,134 @@
+USB Device Pullup Resistor Control				Stuart Lynne
+Lineo Vancouver					Tue Jun 05 17:02:42 PDT 2001 
+
+
+USB Devices are detected by a USB Host when they are plugged in by detecting
+an electrical connection. 
+
+The USB Host can determine both that a USB device has been connected to the
+USB bus and whether it is a low speed or full speed device.
+
+
+The USB Device must be able to do two things:
+
+    - determine when it is connected to the USB Host or a USB Hub
+
+    - control the pullup resistor so it can control when the USB Host thinks
+      it is available.
+
+
+Being able to get an interrupt when it is connected or disconnected 
+allows the USB Device to conditionally load and unload the appropriate
+driver software.
+
+
+Being able to control the pullup resistor allows the USB Device to control
+when the USB Host attempts to enumerate (when first attached) and to
+simulate a disconnect if it needs to (for example) go into power-down mode.
+
+
+Overview
+********
+
+See section 7.1.5.1 of the USB Specification for details.
+
+Nominally for a high speed device a 1.5kohm resistor connects the D+ line to
++3.3VDC.
+
+
+		      +3.3VDC
+			|
+			R 
+			|   +----------+
+			|   |          |
+			|   |          |
+	D+ -------------+---| USB      |
+                            | Function |
+	D- -----------------|          |
+			    |          |
+       Gnd -----------------|          |
+			    |          |
+      Vbus -----------------|          |
+                            +----------+
+
+
+
+Modified
+********
+
+For most applications it will be important that your device be able to both
+detect when it is connected to the cable AND be able to control when the
+pullup resistor is enabled.
+
+For something like the ARM architecture GPIO pins can be programmed for
+either data in or data out. Two GPIO pins are allocated: 
+
+    - GPIO-detect is programmed as an input pin with interrupts enabled for
+      any state transition.  
+
+    - GPIO-control is programmed as an output pin and is used to control the
+      external circuit that controls the pullup resistor
+
+
+		      +3.3VDC
+			|
+			#-------+
+			|       |
+			R       | GPIO-control
+			|   +----------+
+			|   |          |
+			|   |          |
+	D+ -------------+---| USB      |
+                            | Function |
+	D- -----------------|          |
+			    |          |
+       Gnd -----------------|          |
+			    |          |
+      Vbus -------------+---|          |
+                        |   +----------+
+                        |      | GPIO-detect
+                        |      |
+			+------+
+
+
+Circuit 1 - the circuit connected to GPIO-detect must see logical true IFF
+the device is connected to a USB Host (or USB Hub). This can be done by
+sensing when the Vbus voltage (nominally +5VDC).
+
+Circuit 2 - the circuit controlled by GPIO-control must connect the 1.5kohm
+resistor to +3.3V IFF GPIO-control is logical true. 
+
+
+Note 1 - USB Spec section 7.1.5.1 states that the power may only be supplied
+to D+ via the pullup resistor while Vbus is active. 
+
+Note 2 - the above suggestions are for self-powered devices only. Power must
+not be drawn from Vbus unless the pullup resistor is enabled. 
+
+
+Suspend/Resume
+**************
+
+The above circuits are not related to the USB Suspend and Resume functions.
+
+The USB Host must emit an SOF packet once per milli-second. If this is not
+seen for 3ms the USB Device treats this as a USB Suspend. At this point it
+may wish to partially shut down the USB bus interface. 
+
+It must not turnoff the pullup resistor and it must retain the ability to
+receive and recognize SOF packets so that it can resume functioning when
+the USB Host restarts sending SOF packets.
+
+
+USB Device Power Management
+***************************
+
+If the USB Device implements power management functions that will turn off
+the USB bus interface it must use the pullup resistor to disconnect from
+the host before disabling the USB bus interface. 
+
+When restarting the USB bus interface it stay disconnected until the bus 
+interface is ready. The pullup resistor can then be used to reconnect the
+bus and notify the host that it is connected.
+
+

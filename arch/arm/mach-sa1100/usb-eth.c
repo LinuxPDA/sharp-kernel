@@ -47,6 +47,9 @@
 #include <linux/skbuff.h>
 #include <linux/random.h>
 
+#include <linux/miscdevice.h>
+#include "usb-char.h"
+
 #include "sa1100_usb.h"
 
 
@@ -58,6 +61,8 @@
 // Should be global, so that insmod can change these
 int usb_rsize=64;
 int usb_wsize=64;
+
+static const char pszMe[] = "usbnet: ";
 
 static struct usbe_info_t {
   struct net_device *dev;
@@ -298,6 +303,12 @@ usb_xmit_timeout(struct net_device *dev )
 static int 
 usb_eth_open(struct net_device *dev)
 {
+	return 0;
+}
+
+static int 
+_usb_eth_open(struct net_device *dev)
+{
 	terminating = 0;
 	cur_tx_skb = next_tx_skb = NULL;
 	cur_rx_skb = usb_new_recv_skb();
@@ -323,6 +334,12 @@ usb_eth_open(struct net_device *dev)
 
 static int 
 usb_eth_release(struct net_device *dev)
+{
+	return 0;
+}
+
+static int 
+_usb_eth_release(struct net_device *dev)
 {
 	terminating = 1;
 	sa1100_usb_send_reset();
@@ -394,21 +411,27 @@ MODULE_PARM(usb_wsize, "1i");
 MODULE_PARM_DESC(usb_wsize, "number of bytes in packets from sa1100 to host");
 #endif
 
-static int __init
-usb_eth_init(void)
+/////////////////////////////////////////////
+int 
+setup_net_device( struct inode *pInode, struct file * pFile )
 {
-	int rc; 
+	if (pFile->f_flags == 1)
+		return open_net_device();
+	else
+		return close_net_device();
+}
 
-#ifndef DMA_NO_COPY
-	dmabuf = kmalloc( usb_rsize, GFP_KERNEL | GFP_DMA );
-	if (!dmabuf)
-		return -ENOMEM;
-#endif
-	strncpy(usb_eth_device.name, usb_eth_name, IFNAMSIZ);
-	usb_eth_device.init = usb_eth_probe;
-	if (register_netdev(&usb_eth_device) != 0)
-		return -EIO;
+int
+open_net_device(void)
+{
+	int rc;
+	
+	if (get_net_device_status() == 1)
+		return 0;
 
+	if (get_ser_device_status() == 1)
+		close_ser_device();
+		
 	rc = sa1100_usb_open( "usb-eth" );
 	if ( rc == 0 ) {
 		 string_desc_t * pstr;
@@ -425,6 +448,96 @@ usb_eth_init(void)
 		 }
 		 rc = sa1100_usb_start();
 	}
+	sa1100_usb_recv_reset();	   	
+	sa1100_usb_send_reset();
+
+	_usb_eth_open(0);
+
+	set_open_net_device();
+	return 0;
+}
+
+int 
+close_net_device(void)
+{
+	string_desc_t * pstr;
+
+	if (get_net_device_status() == 0)
+		return 0;
+
+	_usb_eth_release(0);
+
+	sa1100_usb_recv_reset();	   	
+	sa1100_usb_send_reset();
+
+	sa1100_usb_stop();
+	sa1100_usb_close();
+	if ( (pstr = sa1100_usb_get_string_descriptor(1)) != NULL )
+		kfree( pstr );
+
+	set_close_net_device();
+	return 0;
+}
+	
+
+
+static struct file_operations usbc_fops1 = {
+		owner:      THIS_MODULE,
+		open:		setup_net_device,
+};
+
+static struct miscdevice usbc_misc_device1 = {
+    USBC_MINOR + 1, "usb_net", &usbc_fops1
+};
+
+static int __init
+usb_eth_init(void)
+{
+	int rc; 
+
+#ifndef DMA_NO_COPY
+	dmabuf = kmalloc( usb_rsize, GFP_KERNEL | GFP_DMA );
+	if (!dmabuf)
+		return -ENOMEM;
+#endif
+	strncpy(usb_eth_device.name, usb_eth_name, IFNAMSIZ);
+	usb_eth_device.init = usb_eth_probe;
+	if (register_netdev(&usb_eth_device) != 0)
+		return -EIO;
+/*
+	rc = sa1100_usb_open( "usb-eth" );
+	if ( rc == 0 ) {
+		 string_desc_t * pstr;
+		 desc_t * pd = sa1100_usb_get_descriptor_ptr();
+
+		 pd->b.ep1.wMaxPacketSize = make_word( usb_rsize );
+		 pd->b.ep2.wMaxPacketSize = make_word( usb_wsize );
+		 pd->dev.idVendor	  = ETHERNET_VENDOR_ID;
+		 pd->dev.idProduct     = ETHERNET_PRODUCT_ID;
+		 pstr = sa1100_usb_kmalloc_string_descriptor( "SA1100 USB NIC" );
+		 if ( pstr ) {
+			  sa1100_usb_set_string_descriptor( 1, pstr );
+			  pd->dev.iProduct = 1;
+		 }
+		 rc = sa1100_usb_start();
+	}
+*/
+	if ( (rc = misc_register( &usbc_misc_device1 )) != 0 ) {
+		  printk( KERN_WARNING "%sCould not register device 10, "
+				  "%d. (%d)\n", pszMe, USBC_MINOR + 1, rc );
+		  return -EBUSY;
+	}
+
+	set_net_device();
+
+
+#if 0
+	/////////// for test ///////////
+	open_net_device();
+#endif
+	
+	printk( KERN_INFO "USB Function Network Driver Interface"
+			  " - %s, (C) 2001, Extenex Corp.\n", "1.0" );
 	return rc;
 }
 
@@ -433,11 +546,16 @@ module_init(usb_eth_init);
 static void __exit
 usb_eth_cleanup(void)
 {
+/*
 	string_desc_t * pstr;
 	sa1100_usb_stop();
 	sa1100_usb_close();
 	if ( (pstr = sa1100_usb_get_string_descriptor(1)) != NULL )
 		kfree( pstr );
+*/
+	close_net_device();
+	clear_net_device();
+
 #ifndef DMA_NO_COPY
 	kfree(dmabuf);
 #endif
@@ -445,3 +563,11 @@ usb_eth_cleanup(void)
 }
 
 module_exit(usb_eth_cleanup);
+
+
+
+
+
+//EXPORT_NO_SYMBOLS;
+EXPORT_SYMBOL( open_net_device );
+EXPORT_SYMBOL( close_net_device );

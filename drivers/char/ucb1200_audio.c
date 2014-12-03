@@ -21,6 +21,11 @@
  * These changes are generic UCB1300 support features which
  * may be used on other SA-11xx targets.
  *
+ * Revision 1.1.1.1  2001/04/03 06:02:33  yata
+ *
+ * imported from embedix 2001-04002
+ *
+ *
  * Revision 2.2  1999/03/05 21:38:35  caw
  * Added support for output mixing and sampling-rate conversion.
  * Other minor improvements.

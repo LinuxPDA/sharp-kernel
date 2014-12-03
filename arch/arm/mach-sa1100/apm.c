@@ -107,6 +107,7 @@ struct apm_user {
 static int			suspends_pending;
 static int			standbys_pending;
 static int			ignore_normal_resume;
+static int			bounce_interval = DEFAULT_BOUNCE_INTERVAL;
 
 #ifdef CONFIG_APM_RTC_IS_GMT
 #	define	clock_cmos_diff	0
@@ -306,7 +307,8 @@ static void reinit_timer(void)
 
 }
 
-extern void pm_do_suspend(void);
+extern int pm_do_suspend(void);
+extern int sa1110_suspend(void);
 
 static int suspend(void)
 {

@@ -1,0 +1,81 @@
+#!/bin/bash
+#
+# Network hotplug policy agent for Linux 2.4 kernels
+#
+# Kernel NET hotplug params include:
+#	
+#	ACTION=%s [register or unregister]
+#	INTERFACE=%s
+#
+# HISTORY:
+#
+# 25-Feb-2001	Special case ppp and similar (redhat)
+# 23-Jan-2001	Log invocation of "ifup" if debugging
+# 04-Jan-2001	Initial version of "new" hotplug agent.
+#
+# $Id: net.agent,v 1.1 2001/06/07 21:53:06 jamey Exp $
+#
+
+. hotplug.functions
+DEBUG=yes export DEBUG
+
+if [ -z "$INTERFACE" ]; then
+    mesg Bad NET invocation
+    exit 1
+fi
+
+case $ACTION in
+register)
+
+    # NOTE:  network configuration relies on administered state,
+    # we can't do much here without distro-specific knowledge
+    # such as whether/how to invoke DHCP, set up bridging, etc.
+
+    if [ -x /sbin/ifup ]; then
+	case $INTERFACE in
+
+	    # interfaces that are registered after being "up" (?)
+	    ppp*|ippp*|isdn*|plip*|lo*)
+		if [ -n "$DEBUG" ]; then
+		    mesg assuming $INTERFACE is already up
+		fi
+		exit 0
+		;;
+
+	    # interfaces that are registered then brought up
+	    usbd0)
+		ifconfig usbd0 up
+
+		# rarpc needs to retry for at least twenty seconds, linux hosts
+		# doing hotplug discovery during startup can take many seconds
+		# from USB startup to when rarpd has been started and can 
+		# provide an address
+
+	        eval `rarpc -t 10000 -n 2000 usbd0`
+		if [ -n "${IPADDR}" ]; then
+			ifconfig usbd0 ${IPADDR}
+			route add default gw 192.168.1.254
+			rdate -s 192.168.1.254
+		fi
+		exit 0
+		;;
+
+	    *)
+		if [ -n "$DEBUG" ]; then
+		    mesg invoke ifup $INTERFACE
+		fi
+		exec /sbin/ifup $INTERFACE
+		;;
+	esac
+    fi
+    mesg $1 $ACTION event not handled
+    ;;
+
+*)
+    if [ -n "$DEBUG" ]; then
+	mesg NET $ACTION event not supported
+    fi
+    exit 1 ;;
+
+esac
+

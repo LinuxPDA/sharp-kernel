@@ -10,8 +10,8 @@
  *  License. See the file COPYING in the main directory of this archive for
  *  more details.
  */
-
-/****************************************************************************/
+#ifndef __ASM_ARCH_SIB_H
+#define __ASM_ARCH_SIB_H
 
 #define SIB_OFF   0x00040000  /* Offset from IO_START to the SIB reg's. */
 
@@ -24,8 +24,8 @@
 
 /* Define the SIB registers for use by device drivers and the kernel. */
 
-typedef struct
-{
+#if 0
+typedef struct {
      unsigned int MCCR;    /* SIB Control Register           Offset: 0x00 */
      unsigned int RES1;    /* Reserved                       Offset: 0x04 */
      unsigned int MCDR0;   /* SIB Data Register 0            Offset: 0x08 */
@@ -34,8 +34,8 @@ typedef struct
      unsigned int RES2;    /* Reserved                       Offset: 0x14 */
      unsigned int MCSR;    /* SIB Status Register            Offset: 0x18 */
 } SIB_Interface;
-
 #define SIB ((volatile SIB_Interface *) (SIB_BASE))
+#endif
 
 /* MCCR */
 
@@ -117,3 +117,12 @@ typedef struct
 #define INITIATE_MCDR2_READ(reg) (SIB->MCDR2 = (reg << 17))
 #define MCDR2_READ_COMPLETE      GET_CRC
 #define MCDR2_READ               (SIB->MCDR2 & 0xffff)
+
+#define MCSR_CWC	(1 <<12)
+#define MCSR_CRC	(1 <<13)
+
+#define MCDR2_ADDR(n)	( ((n)&0xf) << 17)
+#define MCDR2_RW	(1 << 16)
+#define MCDR2_VAL(n)	((n) & 0xffff)
+
+#endif

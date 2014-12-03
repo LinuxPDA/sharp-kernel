@@ -12,6 +12,9 @@
  *
  *  Note:  there is a StrongARM bug in the STMIA rn, {regs}^ instruction that causes
  *  it to save wrong values...  Be aware!
+ *
+ * Change Log
+ *   12-Nov-2001 Lineo Japan, Inc.
  */
 #include <linux/config.h>
 #include "entry-header.S"
@@ -406,8 +409,18 @@ ENTRY(soft_irq_mask)
 #elif defined(CONFIG_ARCH_L7200)
 	
 		.equ	irq_base_addr,	IO_BASE_2
+#ifdef CONFIG_IRIS
+		.equ	fiq_base_addr,	IO_BASE_2
+#endif CONFIG_IRIS
 
 		.macro  disable_fiq
+#ifdef CONFIG_IRIS
+		mov	r12, #fiq_base_addr
+		add	r12, r12, #0x00001000
+		mov	r11, #0
+		mvn	r11, r11
+		str	r11, [r12, #0x10c]
+#endif /* CONFIG_IRIS */
 		.endm
  
 		.macro  get_irqnr_and_base, irqnr, irqstat, base, tmp
@@ -415,12 +428,32 @@ ENTRY(soft_irq_mask)
 		add	\irqstat, \irqstat, #0x00001000		@ Status reg
 		ldr     \irqstat, [\irqstat, #0]		@ get interrupts
 		mov     \irqnr, #0
+#if 0
 1001:		tst     \irqstat, #1
 		addeq   \irqnr, \irqnr, #1
 		moveq   \irqstat, \irqstat, lsr #1
 		tsteq   \irqnr, #32
 		beq     1001b
 		teq     \irqnr, #32
+#else
+1001:		tst	\irqstat, #1
+		bne	1003f
+		add	\irqnr, \irqnr, #1
+		mov	\irqstat, \irqstat, lsr #1
+		cmp	\irqnr, #32
+		bcc	1001b
+		mov     \irqstat, #irq_base_addr
+		add	\irqstat, \irqstat, #0x00001000		@ Status reg
+		add	\irqstat, \irqstat, #0x84		@ Status reg
+		ldr     \irqstat, [\irqstat, #0]		@ get interrupts
+1002:		tst	\irqstat, #1
+		bne	1003f
+		add	\irqnr, \irqnr, #1
+		mov	\irqstat, \irqstat, lsr #1
+		cmp	\irqnr, #36
+		bcc	1002b
+1003:
+#endif
 		.endm
 
 		.macro  irq_prio_table
@@ -549,6 +582,14 @@ __irq_invalid:	sub	sp, sp, #S_FRAME_SIZE		@ Allocate space on stack for frame
 		ldr	r4, .LCirq
 		mov	r1, #BAD_IRQ
 		b	1f
+
+#ifdef CONFIG_IRIS
+__fiq_invalid:	sub	sp, sp, #S_FRAME_SIZE		@ Allocate space on stack for frame
+		stmfd	sp, {r0 - lr}			@ Save r0 - lr
+		ldr	r4, .LCfiq
+		mov	r1, #BAD_IRQ
+		b	1f
+#endif
 
 __und_invalid:	sub	sp, sp, #S_FRAME_SIZE
 		stmia	sp, {r0 - lr}
@@ -705,10 +746,87 @@ __pabt_svc:	sub	sp, sp, #S_FRAME_SIZE
 		msr	spsr, r0
 		ldmia	sp, {r0 - pc}^			@ load r0 - pc, cpsr
 
+#ifdef CONFIG_IRIS
+		.align 5
+__fiq_svc:
+		mov	r8,#0x04
+		mov     r9,#led_base_addr
+		strb	r8,[r9]
+	
+		sub	sp, sp, #S_FRAME_SIZE
+		stmia	sp, {r0 - r12}			@ save r0 - r12
+		ldr	r7, .LCfiq
+		add	r5, sp, #S_FRAME_SIZE
+		ldmia	r7, {r7 - r9}
+		add	r4, sp, #S_SP
+		mov	r6, lr
+		stmia	r4, {r5, r6, r7, r8, r9}	@ save sp_SVC, lr_SVC, pc, cpsr, old_ro
+		adrsvc	al, lr, ret_from_exception
+		b	emerge_off
+		nop
+		nop
+		nop
+
+		.align	5
+__fiq_usr:	sub	sp, sp, #S_FRAME_SIZE
+		stmia	sp, {r0 - r12}			@ save r0 - r12
+		ldr	r4, .LCfiq
+		add	r8, sp, #S_PC
+		ldmia	r4, {r5 - r7}			@ get saved PC, SPSR
+		stmia	r8, {r5 - r7}			@ save pc, psr, old_r0
+		stmdb	r8, {sp, lr}^
+		alignment_trap r4, r7, __temp_fiq
+		zero_fp
+
+		adrsvc	al, lr, ret_from_exception
+		b	emerge_off
+		nop
+		nop
+		nop
+
+
+#if 0	
+__fiq_svc:	mov	r8,#0x04
+		mov     r9,#led_base_addr
+		strb	r8,[r9]
+#endif
+
+#if 0
+		adr	r8,__emergency_tab
+		ldr	pc,[r8]
+		nop
+		nop
+1:
+		mov	r8,#0x80
+		mov     r9,#led_base_addr
+		strb	r8,[r9]
+		b	1b
+		nop
+		nop
+__emergency_tab:
+		.word	emerge_off
+#endif
+	
+#if 1
+1:	
+		adrsvc	al, lr, ret_from_exception
+		b	emerge_off
+#endif
+#if 0
+		b	1b
+#endif
+		nop
+		nop
+		nop
+#endif /* CONFIG_IRIS */
+	
 		.align	5
 .LCirq:		.word	__temp_irq
 .LCund:		.word	__temp_und
 .LCabt:		.word	__temp_abt
+#ifdef CONFIG_IRIS
+.LCfiq:		.word	__temp_fiq
+#endif
 #ifdef MULTI_CPU
 .LCprocfns:	.word	SYMBOL_NAME(processor)
 #endif
@@ -1020,8 +1138,73 @@ vector_undefinstr:
  * other mode than FIQ...  Ok you can switch to another mode, but you can't
  * get out of that mode without clobbering one register.
  */
+#ifndef CONFIG_IRIS
 vector_FIQ:	disable_fiq
 		subs	pc, lr, #4
+#else /* CONFIG_IRIS */
+		.equ	led_base_addr,	AUX_BASE
+vector_FIQ:
+		.align 5
+	
+		mov	r8,#0x02
+		mov     r9,#led_base_addr
+		strb	r8,[r9]
+	
+		@
+		@ save mode specific registers
+		@
+		ldr	r13, .LCsfiq
+		sub	lr, lr, #4
+		str	lr, [r13]			@ save lr_IRQ
+		mrs	lr, spsr
+		str	lr, [r13, #4]			@ save spsr_IRQ
+
+		mov	r8,#0x08
+		mov     r9,#led_base_addr
+		strb	r8,[r9]
+	
+		@
+		@ now branch to the relevent MODE handling routine
+		@
+		mov	r13, #I_BIT | F_BIT | MODE_SVC
+		msr	spsr_c, r13			@ switch to SVC_32 mode
+
+		mov	r8,#0x20
+		mov     r9,#led_base_addr
+		strb	r8,[r9]
+
+		and	lr, lr, #15
+		ldr	lr, [pc, lr, lsl #2]
+		movs	pc, lr				@ Changes mode and branches
+
+.LCtab_fiq:	.word	__fiq_usr			@  0  (USR_26 / USR_32)
+		.word	__fiq_invalid			@  1  (FIQ_26 / FIQ_32)
+		.word	__fiq_invalid			@  2  (IRQ_26 / IRQ_32)
+		.word	__fiq_svc			@  3  (SVC_26 / SVC_32)
+		.word	__fiq_invalid			@  4
+		.word	__fiq_invalid			@  5
+		.word	__fiq_invalid			@  6
+		.word	__fiq_invalid			@  7
+		.word	__fiq_invalid			@  8
+		.word	__fiq_invalid			@  9
+		.word	__fiq_invalid			@  a
+		.word	__fiq_invalid			@  b
+		.word	__fiq_invalid			@  c
+		.word	__fiq_invalid			@  d
+		.word	__fiq_invalid			@  e
+		.word	__fiq_invalid			@  f
+	
+		.align 5
+
+#if 0			
+		adr	r8,__fiq_tab
+		ldr	pc,[r8]
+__fiq_tab:
+		.word	__fiq_svc
+
+#endif
+	
+#endif
 
 /*=============================================================================
  * Address exception handler
@@ -1044,6 +1227,9 @@ vector_addrexcptn:
 .LCsirq:	.word	__temp_irq
 .LCsund:	.word	__temp_und
 .LCsabt:	.word	__temp_abt
+#ifdef CONFIG_IRIS
+.LCsfiq:	.word	__temp_fiq
+#endif
 
 __stubs_end:
 
@@ -1089,6 +1275,11 @@ __temp_und:	.word	0				@ Saved lr_und
 __temp_abt:	.word	0				@ Saved lr_abt
 		.word	0				@ Saved spsr_abt
 		.word	-1				@ old_r0
+#ifdef CONFIG_IRIS
+__temp_fiq:	.word	0				@ saved lr_fiq
+		.word	0				@ saved spsr_fiq
+		.word	-1				@ old_r0
+#endif
 
 		.globl	SYMBOL_NAME(cr_alignment)
 		.globl	SYMBOL_NAME(cr_no_alignment)

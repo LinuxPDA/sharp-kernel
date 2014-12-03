@@ -28,11 +28,19 @@ comment 'Ethernet (10 or 100Mbit)'
 
 bool 'Ethernet (10 or 100Mbit)' CONFIG_NET_ETHERNET
 if [ "$CONFIG_NET_ETHERNET" = "y" ]; then
-   if [ "$CONFIG_ARCH_EBSA110" = "y" ]; then
-      bool '  ARM EBSA110 AM79C961A support' CONFIG_ARM_AM79C961A
-   fi
-   if [ "$CONFIG_ARCH_ACORN" = "y" ]; then
-      source drivers/acorn/net/Config.in
+   if [ "$CONFIG_ARM" = "y" ]; then
+      if [ "$CONFIG_ARCH_EBSA110" = "y" ]; then
+         bool '  ARM EBSA110 AM79C961A support' CONFIG_ARM_AM79C961A
+      fi
+      if [ "$CONFIG_ARCH_ACORN" = "y" ]; then
+         source drivers/acorn/net/Config.in
+      fi
+      if [ "$CONFIG_SA1100_CERF" = "y" ]; then
+         tristate '  CerfBoard onboard CS8900A support' CONFIG_CERF_CS8900A
+      fi
+      if [ "$CONFIG_L7205SDB" = "y" -o "$CONFIG_IRIS" = "y" ]; then
+         tristate '  CS89x0 support' CONFIG_CS89x0
+      fi
    fi
    if [ "$CONFIG_PPC" = "y" ]; then
       tristate '  MACE (Power Mac ethernet) support' CONFIG_MACE
@@ -89,9 +97,6 @@ if [ "$CONFIG_NET_ETHERNET" = "y" ]; then
       dep_tristate '    3c527 "EtherLink/MC 32" support (EXPERIMENTAL)' CONFIG_ELMC_II $CONFIG_MCA $CONFIG_EXPERIMENTAL
       if [ "$CONFIG_PCI" = "y" -o "$CONFIG_EISA" = "y" ]; then
          tristate '    3c590/3c900 series (592/595/597) "Vortex/Boomerang" support' CONFIG_VORTEX
-      fi
-      if [ "$CONFIG_SA1100_CERF" = "y" ]; then
-         tristate '  CerfBoard onboard CS8900A support' CONFIG_CERF_CS8900A
       fi
    fi
    dep_tristate '  AMD LANCE and PCnet (AT1500 and NE2100) support' CONFIG_LANCE $CONFIG_ISA

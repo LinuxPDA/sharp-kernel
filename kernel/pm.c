@@ -16,6 +16,9 @@
  *  You should have received a copy of the GNU General Public License
  *  along with this program; if not, write to the Free Software
  *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
  */
 
 #include <linux/module.h>
@@ -232,13 +235,21 @@ static void pm_undo_all(struct pm_dev *last)
 int pm_send_all(pm_request_t rqst, void *data)
 {
 	struct list_head *entry;
+	int direction = (rqst == PM_RESUME) ? 1 : 0;
 	
 	down(&pm_devs_lock);
-	entry = pm_devs.next;
+	if (!direction)
+		entry = pm_devs.next;
+	else
+		entry = pm_devs.prev;
 	while (entry != &pm_devs) {
 		struct pm_dev *dev = list_entry(entry, struct pm_dev, entry);
 		if (dev->callback) {
 			int status = pm_send(dev, rqst, data);
+#if 0
+			printk("pm: %d type=%08x id=%08x callback=%08x status=%d\n",
+				rqst, dev->type, dev->id, dev->callback, status);
+#endif
 			if (status) {
 				/* return devices to previous state on
 				 * failed suspend request
@@ -249,7 +260,10 @@ int pm_send_all(pm_request_t rqst, void *data)
 				return status;
 			}
 		}
-		entry = entry->next;
+		if (!direction)
+			entry = entry->next;
+		else
+			entry = entry->prev;
 	}
 	up(&pm_devs_lock);
 	return 0;

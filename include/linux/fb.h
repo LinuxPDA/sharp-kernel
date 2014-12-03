@@ -1,3 +1,8 @@
+/*
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
+ */
+
 #ifndef _LINUX_FB_H
 #define _LINUX_FB_H
 
@@ -104,6 +109,7 @@ struct fb_fix_screeninfo {
 	__u32 visual;			/* see FB_VISUAL_*		*/ 
 	__u16 xpanstep;			/* zero if no hardware panning  */
 	__u16 ypanstep;			/* zero if no hardware panning  */
+	__u16 xwrapstep;		/* zero if no hardware xwrap    */
 	__u16 ywrapstep;		/* zero if no hardware ywrap    */
 	__u32 line_length;		/* length of a line in bytes    */
 	unsigned long mmio_start;	/* Start of Memory Mapped I/O   */
@@ -153,7 +159,11 @@ struct fb_bitfield {
 #define FB_VMODE_DOUBLE		2	/* double scan */
 #define FB_VMODE_MASK		255
 
+#if defined(CONFIG_FBCON_ROTATE_R) || defined(CONFIG_FBCON_ROTATE_L)
+#define FB_VMODE_XWRAP		256	/* ywrap instead of panning     */
+#else
 #define FB_VMODE_YWRAP		256	/* ywrap instead of panning     */
+#endif
 #define FB_VMODE_SMOOTH_XPAN	512	/* smooth xpan possible (internally used) */
 #define FB_VMODE_CONUPDATE	512	/* don't update x/yoffset	*/
 

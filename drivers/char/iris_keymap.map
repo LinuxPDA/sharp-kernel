@@ -1,0 +1,263 @@
+# =======================================================
+#     Iris-1 Default Kernel Keymap for Console Driver
+# =======================================================
+#
+# Default kernel keymap. This uses 7 modifier combinations.
+#
+#  0 for no modifier
+#  1 for [SHIFT]
+#  4 for [CTRL]                 , to symbol input for debug
+#  5 for [CTRL] [SHIFT]         , to symbol input for debug
+#
+keymaps 0,1,4,5
+#
+#  loadkeys --mktable iris_keymap.map
+#
+# !!!!!! CAUTION !!!!!!
+# This Keymap Defines Conversion to Console-Key from Soft-Keycode.
+# Soft-Keycode is created from Hard-Keycode , using iris_rawkey_conv.c
+#
+#
+keycode 1 = a
+	control		keycode 1 = less
+	control shift	keycode 1 = equal
+keycode 2 = b
+	control		keycode 2 = apostrophe
+	control shift	keycode 2 = asciicircum
+keycode 3 = c
+	control		keycode 3 = braceleft
+	control shift	keycode 3 = dollar
+keycode 4 = d
+	control		keycode 4 = bracketleft
+	control shift	keycode 4 = underscore
+keycode 5 = e
+keycode 6 = f
+	control		keycode 6 = bracketright
+	control shift	keycode 6 = plus
+keycode 7 = g
+	control		keycode 7 = period
+	control shift	keycode 7 = asciitilde
+keycode 8 = h
+	control		keycode 8 = comma
+	control shift	keycode 8 = question
+keycode 9 = i
+keycode 10 = j
+	control		keycode 10 = grave
+	control shift	keycode 10 = slash
+keycode 11 = k
+	control		keycode 11 = exclam
+	control shift	keycode 11 = parenleft
+keycode 12 = l
+	control		keycode 12 = backslash
+	control shift	keycode 12 = parenright
+keycode 13 = m
+	control		keycode 13 = bar
+	control shift	keycode 13 = asterisk
+keycode 14 = n
+	control		keycode 14 = quotedbl
+	control shift	keycode 14 = ampersand
+keycode 15 = o
+keycode 16 = p
+keycode 17 = q
+keycode 18 = r
+keycode 19 = s
+	control		keycode 19 = greater
+	control shift	keycode 19 = minus
+keycode 20 = t
+keycode 21 = u
+keycode 22 = v
+	control		keycode 22 = braceright
+	control shift	keycode 22 = percent
+keycode 23 = w
+keycode 24 = x
+	control		keycode 24 = colon
+	control shift	keycode 24 = numbersign
+keycode 25 = y
+	control		keycode 25 = semicolon
+	control shift	keycode 25 = at
+keycode 26 = z
+keycode 27 = Shift
+keycode 28 = Return
+keycode 29 = F2
+keycode 30 = 
+keycode 31 = BackSpace
+# for Debug , keycode 32(F3, Sym) --> Control
+keycode 32 = Control
+#keycode 32 = 
+keycode 33 = 
+keycode 34 = F9
+keycode 35 = Left
+keycode 36 = Up
+keycode 37 = Down
+keycode 38 = Right
+keycode 39 = F4
+keycode 40 = 
+keycode 41 = one
+keycode 42 = two
+keycode 43 = three
+keycode 44 = four
+keycode 45 = five
+keycode 46 = six
+keycode 47 = seven
+keycode 48 = eight
+keycode 49 = nine
+keycode 50 = zero
+keycode 51 = +adiaeresis
+keycode 52 = +udiaeresis
+keycode 53 = +odiaeresis
+keycode 54 = +Adiaeresis
+keycode 55 = +Udiaeresis
+keycode 56 = +Odiaeresis
+keycode 57 = +ssharp
+keycode 58 = minus
+keycode 59 = plus
+keycode 60 = Shift_Lock
+keycode 61 = at
+keycode 62 = question
+keycode 63 = comma
+keycode 64 = period
+keycode 65 = Tab
+keycode 66 = F5
+keycode 67 = F6
+keycode 68 = F7
+keycode 69 = slash
+keycode 70 = apostrophe
+keycode 71 = semicolon
+keycode 72 = quotedbl
+keycode 73 = colon
+keycode 74 = numbersign
+keycode 75 = dollar
+keycode 76 = percent
+keycode 77 = asciicircum
+keycode 78 = ampersand
+keycode 79 = asterisk
+keycode 80 = parenleft
+keycode 81 = Delete
+keycode 82 = F10
+keycode 83 = equal
+keycode 84 = parenright
+keycode 85 = asciitilde
+keycode 86 = less
+keycode 87 = greater
+keycode 88 = 
+keycode 89 = 
+keycode 90 = 
+keycode 91 = F11
+keycode 92 = space
+keycode 93 = 
+keycode 94 = exclam
+keycode 95 = 
+keycode 96 = 
+keycode 97 = 
+keycode 98 = 
+keycode 99 = 
+keycode 100 = 
+keycode 101 = 
+keycode 102 = 
+keycode 103 = Shift
+keycode 104 = Control
+keycode 105 = Control
+keycode 106 = Alt
+keycode 107 = Alt
+keycode 108 = 
+keycode 109 = 
+keycode 110 = 
+keycode 111 = 
+
+
+string F1 = "\033[[A"
+string F2 = "\033[[B"
+string F3 = "\033[[C"
+string F4 = "\033[[D"
+string F5 = "\033[[E"
+string F6 = "\033[17~"
+string F7 = "\033[18~"
+string F8 = "\033[19~"
+string F9 = "\033[20~"
+string F10 = "\033[21~"
+string F11 = "\033[23~"
+string F12 = "\033[24~"
+string F13 = "\033[25~"
+string F14 = "\033[26~"
+string F15 = "\033[28~"
+string F16 = "\033[29~"
+string F17 = "\033[31~"
+string F18 = "\033[32~"
+string F19 = "\033[33~"
+string F20 = "\033[34~"
+string Find = "\033[1~"
+string Insert = "\033[2~"
+string Remove = "\033[3~"
+string Select = "\033[4~"
+string Prior = "\033[5~"
+string Next = "\033[6~"
+string Macro = "\033[M"
+string Pause = "\033[P"
+compose '`' 'A' to 'À'
+compose '`' 'a' to 'à'
+compose '\'' 'A' to 'Á'
+compose '\'' 'a' to 'á'
+compose '^' 'A' to 'Â'
+compose '^' 'a' to 'â'
+compose '~' 'A' to 'Ã'
+compose '~' 'a' to 'ã'
+compose '"' 'A' to 'Ä'
+compose '"' 'a' to 'ä'
+compose 'O' 'A' to 'Å'
+compose 'o' 'a' to 'å'
+compose '0' 'A' to 'Å'
+compose '0' 'a' to 'å'
+compose 'A' 'A' to 'Å'
+compose 'a' 'a' to 'å'
+compose 'A' 'E' to 'Æ'
+compose 'a' 'e' to 'æ'
+compose ',' 'C' to 'Ç'
+compose ',' 'c' to 'ç'
+compose '`' 'E' to 'È'
+compose '`' 'e' to 'è'
+compose '\'' 'E' to 'É'
+compose '\'' 'e' to 'é'
+compose '^' 'E' to 'Ê'
+compose '^' 'e' to 'ê'
+compose '"' 'E' to 'Ë'
+compose '"' 'e' to 'ë'
+compose '`' 'I' to 'Ì'
+compose '`' 'i' to 'ì'
+compose '\'' 'I' to 'Í'
+compose '\'' 'i' to 'í'
+compose '^' 'I' to 'Î'
+compose '^' 'i' to 'î'
+compose '"' 'I' to 'Ï'
+compose '"' 'i' to 'ï'
+compose '-' 'D' to 'Ð'
+compose '-' 'd' to 'ð'
+compose '~' 'N' to 'Ñ'
+compose '~' 'n' to 'ñ'
+compose '`' 'O' to 'Ò'
+compose '`' 'o' to 'ò'
+compose '\'' 'O' to 'Ó'
+compose '\'' 'o' to 'ó'
+compose '^' 'O' to 'Ô'
+compose '^' 'o' to 'ô'
+compose '~' 'O' to 'Õ'
+compose '~' 'o' to 'õ'
+compose '"' 'O' to 'Ö'
+compose '"' 'o' to 'ö'
+compose '/' 'O' to 'Ø'
+compose '/' 'o' to 'ø'
+compose '`' 'U' to 'Ù'
+compose '`' 'u' to 'ù'
+compose '\'' 'U' to 'Ú'
+compose '\'' 'u' to 'ú'
+compose '^' 'U' to 'Û'
+compose '^' 'u' to 'û'
+compose '"' 'U' to 'Ü'
+compose '"' 'u' to 'ü'
+compose '\'' 'Y' to 'Ý'
+compose '\'' 'y' to 'ý'
+compose 'T' 'H' to 'Þ'
+compose 't' 'h' to 'þ'
+compose 's' 's' to 'ß'
+compose '"' 'y' to 'ÿ'
+compose 's' 'z' to 'ß'
+compose 'i' 'j' to 'ÿ'

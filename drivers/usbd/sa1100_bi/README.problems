@@ -1,0 +1,72 @@
+SA-1110 Known Problems                                          Stuart Lynne
+Lineo                                           Wed Jun 06 22:54:10 PDT 2001 
+
+Here are the extant SA-1100 UDC problems ranked in order of severity.
+
+
+1. EP2 FIFO
+***********
+
+It is not possible to start a transmit without having a short window where
+the UDC may respond to an IN packet with a STALL instead of a NAK or data
+plus ACK. Once the host sees the STALL it must respond with a clear
+endpoint.
+
+This behaviour is minimized by reducing the time between setting the TPC bit
+in UDCCS2 and starting the DMA engine. For example by moving the DMA engine
+setup to before setting TPC so that the time taken to enable DMA after TPC
+is shorter.
+
+
+2. EP1 FIFO
+***********
+
+Typically the DMA co-processor does not completely empty the receive FIFO.
+
+This is probably because the DMA co-processor works on the RFS bit in UDCCS1
+which does not get set until 12 bytes of data are in the FIFO. 
+
+Unfortunately there is no reliable way to read the data from the FIFO
+because the UDC co-processor sometimes ignores reads to the FIFO. This
+appears to be the same as the documented problem with reading and writing
+the EP0 FIFO, but with no count available, there is no reliable mechanism
+for reading the data out. 
+
+For full sized (64 byte) packets we will need to read 8 bytes. If we
+incorrectly read a byte twice then the resulting length will be greater than
+64 and the error condition can be noted but not corrected. 
+
+For less than full sized packets we may read a byte twice but because the
+resulting packet may still be less than or equal to the full packet size we
+cannot detect the error.
+
+To minimize this problem we add a small amount of delay between reads.  This
+seems to be required on slower (133Mhz) systems. 
+
+A CRC is used across bulk data transfers to verify they are correctly
+received.
+
+
+3. USB Address Errors
+*********************
+
+The DMA co-processor will occasionally set the USB Address register to a
+random value. 
+
+This has been fixed by simply setting the correct address at the end of each
+UDC interrupt. This catches almost all of these errors but very
+occassionally (once in many hours of continous download tests) it may fail
+to catch one resulting in all USB traffic stalling. This condition is tested
+for with an additional stall watchdog test.
+
+We assume that it is the DMA engine that is causing the problem for two
+reasons. First implementing a no DMA solution demonstrated that there where
+no errors when DMA is not in use. Second we reduced the number of errors by
+re-writing the DMA software to minize the use of DMA.
+
+
+4. Packet Sizes
+***************
+
+Packet sizes larger than 64 cause problems with receive.
+

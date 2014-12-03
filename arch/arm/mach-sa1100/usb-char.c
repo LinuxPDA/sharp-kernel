@@ -218,6 +218,9 @@ static void twiddle_descriptors( void )
 	 pDesc->b.ep2.wMaxPacketSize = make_word_c( TX_PACKET_SIZE );
 	 pDesc->b.ep2.bmAttributes   = USB_EP_BULK;
 
+		  pDesc->dev.idVendor = make_word_c( 0x5f9 );
+		  pDesc->dev.idProduct = 0xffff;
+
 	 if ( machine_is_extenex1() ) {
 #ifdef CONFIG_SA1100_EXTENEX1
 		  pDesc->dev.idVendor = make_word_c( 0xC9F );
@@ -272,6 +275,7 @@ static void free_string_descriptors( void )
 //////////////////////////////////////////////////////////////////////////////
 static  void kick_start_rx( void )
 {
+
 	 if ( usb_ref_count ) {
 		  int total_space  = CIRC_SPACE( rx_ring.in, rx_ring.out, RBUF_SIZE );
 		  if ( total_space >= RX_PACKET_SIZE ) {
@@ -361,61 +365,9 @@ static void tx_done_callback( int flags, int size )
 
 static int usbc_open( struct inode *pInode, struct file *pFile )
 {
-	 int retval = 0;
-
-	 PRINTK( KERN_DEBUG "%sopen()\n", pszMe );
-
-	 /* start usb core */
-	 retval = sa1100_usb_open( "usb-char" );
-	 if ( retval ) return retval;
-
-	 /* allocate memory */
-	 if ( usb_ref_count == 0 ) {
-		  tx_buf = (char*) kmalloc( TX_PACKET_SIZE, GFP_KERNEL | GFP_DMA );
-		  if ( tx_buf == NULL ) {
-			   printk( "%sARGHH! COULD NOT ALLOCATE TX BUFFER\n", pszMe );
-			   goto malloc_fail;
-		  }
-		  rx_ring.buf = 
-			(char*) kmalloc( RBUF_SIZE, GFP_KERNEL );
-
-		  if ( rx_ring.buf == NULL ) {
-			   printk( "%sARGHH! COULD NOT ALLOCATE RX BUFFER\n", pszMe );
-			   goto malloc_fail;
-		  }
-
-		  packet_buffer = 
-			(char*) kmalloc( RX_PACKET_SIZE, GFP_KERNEL | GFP_DMA  );
-
-		  if ( packet_buffer == NULL ) {
-			   printk( "%sARGHH! COULD NOT ALLOCATE RX PACKET BUFFER\n", pszMe );
-			   goto malloc_fail;
-		  }
-		  rx_ring.in = rx_ring.out = 0;
-		  memset( &charstats, 0, sizeof( charstats ) );
-		  sending = 0;
-		  last_tx_result = 0;
-		  last_tx_size = 0;
-	 }
-	 
-	 /* modify default descriptors */
-	 twiddle_descriptors();
-
-	 retval = sa1100_usb_start();
-	 if ( retval ) {
-		  printk( "%sAGHH! Could not USB core\n", pszMe );
-		  free_txrx_buffers();
-		  return retval;
-	 }
-	 usb_ref_count++;   /* must do _before_ kick_start() */
-	 MOD_INC_USE_COUNT;
-	 kick_start_rx();
-	 return 0;
-
- malloc_fail:
-	 free_txrx_buffers();
-	 return -ENOMEM;
+	return 0;
 }
+
 
 /*
  * Read endpoint. Note that you can issue a read to an 
@@ -498,8 +450,11 @@ static ssize_t usbc_read( struct file *pFile, char *pUserBuffer,
 	 set_current_state( TASK_RUNNING );
 	 remove_wait_queue( &wq_read, &wait );
 
-	 if ( retval < 0 )
+	 if ( retval < 0 ) {
 		  printk( "%sread error %d - %s\n", pszMe, retval, what_the_f( retval ) ); 
+		retval = 0;
+	}
+	
 	 return retval;
 }
 
@@ -530,7 +485,7 @@ static ssize_t  usbc_write( struct file *pFile, const char * pUserBuffer,
 
 	 DECLARE_WAITQUEUE( wait, current );
 
-	 PRINTK( KERN_DEBUG "%swrite() %d bytes\n", pszMe, stCount );
+//	 PRINTK( KERN_DEBUG "%swrite() %d bytes\n", pszMe, stCount );
 
 	 down( &xmit_sem );  // only one thread onto the hardware at a time
 
@@ -632,16 +587,105 @@ static int usbc_ioctl( struct inode *pInode, struct file *pFile,
 
 static int usbc_close( struct inode *pInode, struct file * pFile )
 {
+	return;
+}
+
+///////////////////////////////
+
+static int _usbc_open( void )
+{
+	 int retval = 0;
+/*
+	if (get_ser_device_status() == -1)
+		return -ENOMEM;
+*/
+	 PRINTK( KERN_DEBUG "%sopen()\n", pszMe );
+
+	 /* start usb core */
+/*
+	 retval = sa1100_usb_open( "usb-char" );
+	 if ( retval ) return retval;
+*/
+	 /* allocate memory */
+	
+//printk("usbc_open usb_ref_count = %d\n", usb_ref_count);
+//	 if ( usb_ref_count == 0 ) {
+		  tx_buf = (char*) kmalloc( TX_PACKET_SIZE, GFP_KERNEL | GFP_DMA );
+		  if ( tx_buf == NULL ) {
+			   printk( "%sARGHH! COULD NOT ALLOCATE TX BUFFER\n", pszMe );
+			   goto malloc_fail;
+		  }
+		  rx_ring.buf = 
+			(char*) kmalloc( RBUF_SIZE, GFP_KERNEL );
+
+		  if ( rx_ring.buf == NULL ) {
+			   printk( "%sARGHH! COULD NOT ALLOCATE RX BUFFER\n", pszMe );
+			   goto malloc_fail;
+		  }
+
+		  packet_buffer = 
+			(char*) kmalloc( RX_PACKET_SIZE, GFP_KERNEL | GFP_DMA  );
+
+		  if ( packet_buffer == NULL ) {
+			   printk( "%sARGHH! COULD NOT ALLOCATE RX PACKET BUFFER\n", pszMe );
+			   goto malloc_fail;
+		  }
+		  rx_ring.in = rx_ring.out = 0;
+		  memset( &charstats, 0, sizeof( charstats ) );
+		  sending = 0;
+		  last_tx_result = 0;
+		  last_tx_size = 0;
+//	 }
+	 
+	 /* modify default descriptors */
+/*
+	 twiddle_descriptors();
+
+	 retval = sa1100_usb_start();
+	 if ( retval ) {
+		  printk( "%sAGHH! Could not USB core\n", pszMe );
+		  free_txrx_buffers();
+		  return retval;
+	 }
+*/
+/*
+	 if ( usb_ref_count ) {
+		  int total_space  = CIRC_SPACE( rx_ring.in, rx_ring.out, RBUF_SIZE );
+*/
+//printk("usbc_open usb_ref_count = %d\n", usb_ref_count);
+
+	 usb_ref_count++;   /* must do _before_ kick_start() */
+	 MOD_INC_USE_COUNT;
+	 kick_start_rx();
+
+	sa1100_usb_recv_init( packet_buffer,	RX_PACKET_SIZE,
+				rx_done_callback_packet_buffer );
+
+	 return 0;
+
+ malloc_fail:
+	 free_txrx_buffers();
+	 return -ENOMEM;
+}
+
+static int _usbc_close( void )
+{
 	PRINTK( KERN_DEBUG "%sclose()\n", pszMe );
-	if ( --usb_ref_count == 0 ) {
+		  sa1100_usb_recv_reset();	   	
+		  rx_ring.in = rx_ring.out = 0; 
+		  sa1100_usb_send_reset();
+
+//	if ( --usb_ref_count == 0 ) {
+//printk("usbc_close free buffer\n");
+
 		 down( &xmit_sem );
-		 sa1100_usb_stop();
+//		 sa1100_usb_stop();
 		 free_txrx_buffers();
-		 free_string_descriptors();
+//		 free_string_descriptors();
 		 del_timer( &tx_timer );
-		 sa1100_usb_close();
+//		 sa1100_usb_close();
 		 up( &xmit_sem );
-	}
+//	}
     MOD_DEC_USE_COUNT;  
     return 0;
 }
@@ -672,6 +716,84 @@ static struct miscdevice usbc_misc_device = {
     USBC_MINOR, "usb_char", &usbc_fops
 };
 
+/////////////////////////////////////////////
+int 
+setup_ser_device( struct inode *pInode, struct file * pFile )
+{
+//printk("setup_ser_device sr_status = %d  net_status = %d\n", get_ser_device_status(),get_net_device_status());
+
+	if (pFile->f_flags == 1)
+		return open_ser_device();
+	else
+		return close_ser_device();
+}
+
+int
+open_ser_device(void)
+{
+	int ret = 0;
+		
+	if (get_ser_device_status() == 1)
+		return 0;
+
+	if (get_net_device_status() == 1)
+		close_net_device();
+		
+	if ( usb_ref_count ) {
+		usbc_close(0,0);
+		usb_ref_count = 0;
+		rx_ring.in = rx_ring.out = 0; 
+	}
+	sa1100_usb_open( "usb-char" );
+	twiddle_descriptors();
+	sa1100_usb_start();
+
+//	sa1100_usb_recv_reset();	   	
+//	sa1100_usb_send_reset();
+
+/*	
+	usb_ref_count = 0;
+	rx_ring.in = rx_ring.out = 0; 
+	kick_start_rx();
+*/
+
+	ret = _usbc_open();
+	
+	set_open_ser_device();
+	
+	return ret;
+}
+
+int 
+close_ser_device(void)
+{
+	if (get_ser_device_status() == 0)
+		return 0;
+
+	_usbc_close();
+
+	 free_string_descriptors();
+
+	sa1100_usb_recv_reset();	   	
+	sa1100_usb_send_reset();
+
+	sa1100_usb_stop();
+	sa1100_usb_close();
+
+	set_close_ser_device();
+	return 0;
+}
+	
+
+
+static struct file_operations usbc_fops1 = {
+		owner:      THIS_MODULE,
+		open:		setup_ser_device,
+};
+
+static struct miscdevice usbc_misc_device1 = {
+    USBC_MINOR + 2, "usb_ser", &usbc_fops1
+};
 /*
  * usbc_init()
  */
@@ -690,6 +812,12 @@ int __init usbc_init( void )
 		  return -EBUSY;
 	 }
 
+	 if ( (rc = misc_register( &usbc_misc_device1 )) != 0 ) {
+		  printk( KERN_WARNING "%sCould not register device 10, "
+				  "%d. (%d)\n", pszMe, USBC_MINOR + 2, rc );
+		  return -EBUSY;
+	 }
+
 	 // initialize wait queues
 	 init_waitqueue_head( &wq_read );
 	 init_waitqueue_head( &wq_write );
@@ -698,7 +826,22 @@ int __init usbc_init( void )
 	 // initialize tx timeout timer
 	 init_timer( &tx_timer );
 	 tx_timer.function = tx_timeout;
+/*
+	 sa1100_usb_open( "usb-char" );
+	 twiddle_descriptors();
+	 sa1100_usb_start();
+*/
+	set_ser_device();
 
+#if 0
+	/////////// for test ///////////
+	if (!get_net_device())
+		open_ser_device();
+#endif
+		
+//	set_open_ser_device();
+	
+	
 	  printk( KERN_INFO "USB Function Character Driver Interface"
 				  " - %s, (C) 2001, Extenex Corp.\n", VERSION 
 		   );
@@ -708,9 +851,16 @@ int __init usbc_init( void )
 
 void __exit usbc_exit( void )
 {
+	close_ser_device();
+	clear_ser_device();
 }
 
-EXPORT_NO_SYMBOLS;
+
+
+
+//EXPORT_NO_SYMBOLS;
+EXPORT_SYMBOL( open_ser_device );
+EXPORT_SYMBOL( close_ser_device );
 
 module_init(usbc_init);
 module_exit(usbc_exit);

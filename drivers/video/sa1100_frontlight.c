@@ -127,6 +127,10 @@
  *		
  *	4/3/2001 - Tim Wu <timwu@coventive.com)
  *	    Make physical backlight in hardware consistent with counters   
+ *
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
+ *
  *************************************************************/
 
 #include <linux/config.h>
@@ -437,12 +441,16 @@ static int lcd_pm_callback(struct pm_dev *pm_dev, pm_request_t req, void *data)
     		case PM_SUSPEND:
 			back_bl = counter_bl;
 			back_cr = counter_contrast;
+#ifdef CONFIG_SA1100_FREEBIRD
 			sync_backlight();
+#endif
 			sa1100_fl_disable();
 			break;
 		case PM_RESUME:
 			sa1100_fl_enable();
+#ifdef CONFIG_SA1100_FREEBIRD
 			set_brightness_contrast( back_bl, back_cr);	    
+#endif
 			break;
 	}
 	return 0;

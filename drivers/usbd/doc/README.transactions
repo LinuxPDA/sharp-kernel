@@ -1,0 +1,158 @@
+
+USB Transfers Mapped to bus interface driver and usbdcore API calls
+
+
+1. Control Transfers (c.f. 8.5.3)
+
+
+1.1 No-Data Control
+
+1.1.a SETUP STAGE
+
+   TOKEN             SETUP                   3       Host --> Dev                    
+   DATA              DATA0 8 bytes, CRC      11      Host --> Dev --> bi_recv() --> urb->setup = setup 
+   HANDSHAKE         ACK                     1       Host <-- Dev                   usb_recv_urb(urb)
+                                                                                    ep0_recv_urb(urb)-+
+                                                                                                      |
+1.1.b STATUS STAGE                                                                                    |
+                                                                                                      |
+   TOKEN             IN                      3       Host --> Dev                                     |
+   DATA              DATA1 zero length, CRC  3       Host <-- Dev <-- bi_recv() <---------------------+
+   HANDSHAKE         ACK or STALL            1       Host <-- Dev  
+
+
+
+1.2 Control Write 
+
+1.2.a SETUP STAGE
+
+   TOKEN             SETUP                   3       Host --> Dev               
+   DATA              DATA0 N bytes, CRC      11      Host --> Dev --> bi_recv() 
+   HANDSHAKE         ACK                     1       Host <-- Dev 
+
+1.2.b DATA STAGE
+
+   TOKEN             OUT                     3       Host --> Dev               
+   DATA              DATAN N bytes, CRC      N+3     Host --> Dev --> bi_recv()                        
+   HANDSHAKE         ACK                     1       Host --> Dev 
+
+   ....
+
+   TOKEN             OUT                     3       Host --> Dev               
+   DATA              DATAN N bytes, CRC      N+3     Host --> Dev --> bi_recv() --> urb->setup = setup 
+   HANDSHAKE         ACK                     1       Host --> Dev                   usb_recv_urb(urb)
+                                                                                    ep0_recv_urb(urb)-+
+                                                                                                      |
+1.2.c STATUS STAGE                                                                                    |
+                                                                                                      |
+   TOKEN             IN                      3       Host --> Dev                                     |
+   DATA              DATA1 zero length, CRC  3       Host <-- Dev <-- bi_recv() <---------------------+
+   HANDSHAKE         ACK or STALL            1       Host --> Dev               
+
+
+
+
+1.3 TRANSFER    Control Read  - one or more data transactions 
+
+1.3.a SETUP STAGE
+
+   TOKEN             SETUP                   3       Host --> Dev               
+   DATA              DATA0 8 bytes, CRC      11      Host --> Dev --> bi_recv() --> urb->data = device data
+   HANDSHAKE         ACK                     1       Host --> Dev                   urb->setup = setup
+                                                                                    usb_recv_urb(urb)
+                                                                                    ep0_recv_urb(urb)-+
+1.3.b DATA STAGE                                                                                      |
+                                                                                                      |
+   TOKEN             IN                      3       Host --> Dev                                     |
+   DATA              DATA N bytes, CRC       N+3     Host <-- Dev <-- bi_recv() <---------------------+
+   HANDSHAKE         ACK or STALL            1       Host --> Dev               
+
+   ....
+
+   TOKEN             IN                      3       Host --> Dev               
+   DATA              DATA N bytes, CRC       N+3     Host <-- Dev <-- bi_recv()              
+   HANDSHAKE         ACK or STALL            1       Host --> Dev               
+
+1.3.e STATUS STAGE
+
+   TOKEN             OUT                     3       Host --> Dev               
+   DATA              DATA1 zero length, CRC  3       Host --> Dev <-- bi_recv()             
+   HANDSHAKE         ACK or STALL            1       Host --> Dev
+
+
+
+2. Bulk Transfers (c.f. 8.5.2)
+
+2.1 Bulk Write 
+
+2.1.a DATA STAGE
+
+   TOKEN             OUT                     3       Host --> Dev               
+   DATA              DATA0 N data, CRC       N+3     Host --> Dev --> bi_recv()                   
+   HANDSHAKE         ACK,NAK,STALL           1       Host <-- Dev 
+
+   TOKEN             OUT                     3       Host --> Dev               
+   DATA              DATA1 N data, CRC       N+3     Host --> Dev --> bi_recv()                                
+   HANDSHAKE         ACK,NAK,STALL           1       Host <-- Dev 
+
+   ....
+
+
+   TOKEN             OUT                     3       Host --> Dev               
+   DATA              DATA N data, CRC        N+3     Host --> Dev --> bi_recv() --> urb->data = host data
+   HANDSHAKE         ACK,NAK,STALL           1       Host <-- Dev                   usb_recv_urb(urb)
+                                                                                    epn_recv_urb(urb)
+                                                                                           |
+                                                                                           V
+                                                                                    data = urb->data
+
+
+2.2 Bulk Read
+
+2.2.a DATA STAGE
+                                                                                    urb->data = device data
+                                                                                    usb_send_urb(urb)
+                                                                                           |
+   TOKEN             IN                      3       Host --> Dev                          V
+   DATA              DATA0 N data, CRC       N+3     Host <-- Dev <-- bi_send() <-- usb_send_urb(urb)
+   HANDSHAKE         ACK,NAK,STALL           1       Host --> Dev               
+
+   TOKEN             IN                      3       Host --> Dev               
+   DATA              DATA1 N data, CRC       N+3     Host <-- Dev <-- bi_send() 
+   HANDSHAKE         ACK,NAK,STALL           1       Host --> Dev               
+
+   ....
+
+
+   TOKEN             IN                      3       Host --> Dev               
+   DATA              DATAN N data, CRC       N+3     Host <-- Dev <-- bi_send() 
+   HANDSHAKE         ACK,NAK,STALL           1       Host --> Dev --> bi_send() --> usb_urb_sent(urb)
+                                                                                    epN_urb_sent(urb)
+ 
+
+3. Interrupt Transfers (c.f. 8.5.4)
+
+3.1 Interrupt Write
+
+3.1.a DATA STAGE
+
+   TOKEN             OUT                     3       Host --> Dev               
+   DATA              DATA N data, CRC        N+3     Host --> Dev --> bi_recv() --> urb->data = host data
+   HANDSHAKE         ACK,NAK,STALL           1       Host <-- Dev                  usb_recv_urb(urb)
+                                                                                   epn_recv_urb(urb)
+                                                                                           |
+                                                                                           V
+                                                                                    data = urb->data
+
+3.2 Interrupt Read
+
+3.2.a DATA STAGE
+                                                                                    urb->data = device data
+                                                                                    usb_send_urb(urb)
+                                                                                           |
+   TOKEN             IN                      3       Host --> Dev                          V
+   DATA              DATA N data, CRC        N+3     Host <-- Dev --> bi_send() <-- usb_send_urb(urb)
+   HANDSHAKE         ACK,NAK,STALL           1       Host --> Dev --> bi_send() --> usb_urb_sent(urb)
+                                                                                    epN_urb_sent(urb)
+
+

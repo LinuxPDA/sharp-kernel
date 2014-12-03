@@ -1,0 +1,50 @@
+#!/bin/sh
+
+BUS=`egrep "^CONFIG_USBD_.*_BUS" ../../.config`
+
+case $BUS in
+CONFIG_USBD_CDSP_BUS*) 		export DEST=/tftpboot/tmp/cdsp/tmp;;
+CONFIG_USBD_L7205_BUS*) 	export DEST=/tftpboot/tmp/l7205/tmp;;
+CONFIG_USBD_SA1100_BUS*) 	export DEST=/tftpboot/tmp/sa1100/tmp;;
+CONFIG_USBD_SL11_BUS*) 		export DEST=/tftpboot/tmp/sl11/tmp;;
+esac
+
+case $BUS in
+CONFIG_USBD_CDSP_BUS*) 		export SRC=cdsp_bi;;
+CONFIG_USBD_L7205_BUS*) 	export SRC=l7205_bi;;
+CONFIG_USBD_SA1100_BUS*) 	export SRC=sa1100_bi;;
+CONFIG_USBD_SL11_BUS*) 		export SRC=sl11_bi;;
+esac
+
+case $BUS in
+CONFIG_USBD_CDSP_BUS*) 		export NAME=cdsp;;
+CONFIG_USBD_L7205_BUS*) 	export NAME=l7205;;
+CONFIG_USBD_SA1100_BUS*) 	export NAME=sa1100;;
+CONFIG_USBD_SL11_BUS*) 		export NAME=sl11;
+esac
+
+BUS=`expr $BUS : '\(.*\)=.*'`
+
+
+echo BUS: $BUS
+echo SRC: $SRC
+echo DEST: $DEST
+
+egrep USBD ../../.config > $BUS
+
+if [ ! -f "usbd-build.h" ] ; then
+	echo "#define USBD_BUILD          \"000\"" > usbd-build.h
+else
+	sed < usbd-build.h '/USBD_BUILD/s/^#define.*USBD_BUILD.*"\(.*\)"/XX \1/' |
+	awk '{ if ($1 == "XX") printf "#define USBD_BUILD   \"%03d\"\n", $2+1 ; else print $0 }' > usbd-build.h-new
+	mv usbd-build.h-new usbd-build.h
+fi
+
+(cd ../../; make modules) || exit
+
+
+set -x
+for i in usbdcore usbdmonitor serial_fd/serial_fd net_fd/net_fd $SRC/$SRC gen_bi/gen_bi  ; do
+	[ -s "$i.o" ] && cp "$i.o" "$DEST"
+done
+

@@ -156,6 +156,16 @@ asmlinkage void do_IRQ(int irq, struct pt_regs * regs)
 	struct irqaction * action;
 	int cpu;
 
+#if 0 /* CONFI_IRIS */
+#define ALTD_EN_BITS  (1 << 9)  /* means ALTD_EN at idle */
+#define ALTD_SEL_BITS  (1 << 13)  /* means PLLCLKRAW / 4 at ALTD_EN */
+	{
+	  IO_SYS_CLOCK_ENABLE &= ~ALTD_EN_BITS;
+	  //IO_SYS_CLOCK_SELECT |= ALTD_SEL_BITS;
+	  IO_IRIS1_DEBUG_LED = 0x08;
+	}
+#endif
+
 	irq = fixup_irq(irq);
 
 	/*
@@ -166,6 +176,17 @@ asmlinkage void do_IRQ(int irq, struct pt_regs * regs)
 		goto bad_irq;
 
 	desc = irq_desc + irq;
+
+#ifdef CONFIG_IRIS
+	{
+	  extern void emerge_off(void);
+	  if( irq == IRQ_BAT_LO ) emerge_off();
+	}
+#if 0
+	if( irq == IRQ_BAT_LO )
+	  desc->action->handler(irq, action->dev_id, regs);
+#endif
+#endif
 
 	spin_lock(&irq_controller_lock);
 	desc->mask_ack(irq);

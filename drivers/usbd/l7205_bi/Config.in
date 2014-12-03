@@ -1,0 +1,14 @@
+#
+#  L7205 Linkup USB device bus interface configuration
+#
+# Copyright (C) 2001 Lineo, Inc.
+# Copyright (C) 2001 Hewlett-Packard Co.
+
+dep_tristate '  L7205 (Linkup) support' CONFIG_USBD_L7205_BUS $CONFIG_USBD
+
+
+if [ ! "$CONFIG_USBD_L7205_BUS" = "n" ]; then
+
+    	bool    '    L7210-AB fix' CONFIG_USBD_L7210AB_FIX
+
+fi

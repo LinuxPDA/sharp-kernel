@@ -11,12 +11,32 @@ if [ "$CONFIG_MTD_PMC551" = "y" -o  "$CONFIG_MTD_PMC551" = "m" ]; then
    bool '    PMC551 Debugging' CONFIG_MTD_PMC551_DEBUG
 fi
 dep_tristate '  Uncached system RAM' CONFIG_MTD_SLRAM $CONFIG_MTD
+dep_tristate '  ROM mapped driver for LinkUp 7200' CONFIG_MTD_MTDROM_L7200 $CONFIG_ARCH_L7200
+dep_tristate '  RAM mapped driver for LinkUp 7200' CONFIG_MTD_MTDRAM_L7200 $CONFIG_ARCH_L7200
+if [ "$CONFIG_MTD_MTDRAM_L7200" = "y" ]; then
+     int 'Device size in kB' CONFIG_MTDRAM_TOTAL_SIZE 4096
+     int 'Size of the erase sectors in kB' CONFIG_MTDRAM_ERASE_SIZE 128
+   hex 'SRAM Hexadecimal Absolute position or 0' CONFIG_MTDRAM_ABS_POS 2000000
+fi
+dep_tristate '  ROM mapped driver for StrongARM SA11x0' CONFIG_MTD_MTDROM_SA1100 $CONFIG_ARCH_SA1100
+if [ "$CONFIG_MTD_MTDROM_SA1100" = "y" ]; then
+   int 'Device size in kB' CONFIG_MTDROM_TOTAL_SIZE 4096
+   int 'Size of the erase sectors in kB' CONFIG_MTDROM_ERASE_SIZE 128
+   hex 'ROM Hexadecimal Absolute position or 0' CONFIG_MTDROM_ABS_POS 2000000
+fi
+dep_tristate '  RAM mapped driver for StrongARM SA11x0' CONFIG_MTD_MTDRAM_SA1100 $CONFIG_ARCH_SA1100
+if [ "$CONFIG_MTD_MTDRAM_SA1100" = "y" ]; then
+   int 'Device size in kB' CONFIG_MTDRAM_TOTAL_SIZE 4096
+   int 'Size of the erase sectors in kB' CONFIG_MTDRAM_ERASE_SIZE 128
+   hex 'SRAM Hexadecimal Absolute position or 0' CONFIG_MTDRAM_ABS_POS 2000000
+fi
 dep_tristate '  Test driver using RAM' CONFIG_MTD_MTDRAM $CONFIG_MTD
 if [ "$CONFIG_MTD_MTDRAM" = "y" -o "$CONFIG_MTD_MTDRAM" = "m" ]; then
-   int 'MTDRAM device size in KiB' CONFIG_MTDRAM_TOTAL_SIZE 4096
-   int 'MTDRAM erase block size in KiB' CONFIG_MTDRAM_ERASE_SIZE 128
+   int 'MTDRAM device size in KiB' CONFIG_TMTDRAM_TOTAL_SIZE 4096
+   int 'MTDRAM erase block size in KiB' CONFIG_TMTDRAM_ERASE_SIZE 128
    if [ "$CONFIG_MTD_MTDRAM" = "y" ]; then #If not a module (I don't want to test it as a module)
       hex 'SRAM Hexadecimal Absolute position or 0' CONFIG_MTDRAM_ABS_POS 0
+      hex 'SRAM Hexadecimal Absolute position or 0' CONFIG_TMTDRAM_ABS_POS 2000000
    fi
 fi
 

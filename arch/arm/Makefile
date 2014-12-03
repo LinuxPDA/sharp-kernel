@@ -121,6 +121,7 @@ MACHINE		 = sa1100
 endif
 
 ifeq ($(CONFIG_ARCH_L7200),y)
+TEXTADDR	 = 0xc0038000
 MACHINE		 = l7200
 endif
 
@@ -129,7 +130,7 @@ MACHINE		 = integrator
 endif
 
 ifeq ($(CONFIG_ARCH_CLPS711X),y)
-TEXTADDR	 = 0xc0018000
+TEXTADDR	 = 0xc0038000
 MACHINE		 = clps711x
 endif
 
@@ -137,7 +138,23 @@ ifeq ($(CONFIG_ARCH_ANAKIN),y)
 MACHINE		 = anakin
 endif
 
+ifeq ($(CONFIG_XIP_ROM),y)
+  ifeq ($(CONFIG_ARCH_SA1100),y)
+    DATAADDR	 = 0x$(CONFIG_LINK_DATA)
+    TEXTADDR	 = 0x$(CONFIG_LINK_TEXT)
+    LDSCRIPT	 = arch/arm/vmlinux-armv-xip.lds.in
+  endif
+  ifeq ($(CONFIG_ARCH_L7200),y)
+    DATAADDR	 = 0x$(CONFIG_LINK_DATA)
+    TEXTADDR	 = 0x$(CONFIG_LINK_TEXT)
+    LDSCRIPT	 = arch/arm/vmlinux-armv-xip.lds.in
+  endif
+endif
+
 export	LIBGCC MACHINE PROCESSOR TEXTADDR GZFLAGS
+ifeq ($(CONFIG_XIP_ROM),y)
+  export DATAADDR
+endif
 
 # Only set INCDIR if its not already defined above
 # Grr, ?= doesn't work as all the other assignment operators do.  Make bug?

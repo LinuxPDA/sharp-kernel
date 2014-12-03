@@ -28,6 +28,11 @@
 
 /* async buffer flushing, 1999 Andrea Arcangeli <andrea@suse.de> */
 
+/* 
+ * Change Log
+ *	12-Mar-2002 Lineo Japan, Inc.
+ */
+
 #include <linux/config.h>
 #include <linux/sched.h>
 #include <linux/fs.h>
@@ -307,7 +312,11 @@ int fsync_super(struct super_block *sb)
 
 int fsync_dev(kdev_t dev)
 {
+#ifdef CONFIG_IRIS
+	sync_buffers(dev, 1);
+#else /* CONFIG_IRIS */
 	sync_buffers(dev, 0);
+#endif /* CONFIG_IRIS */
 
 	lock_kernel();
 	sync_supers(dev);
@@ -330,6 +339,13 @@ void sync_dev(kdev_t dev)
 asmlinkage long sys_sync(void)
 {
 	fsync_dev(0);
+	return 0;
+}
+
+long sync_card(dev_t dev)
+{
+	if (MAJOR(dev) == 3 || MAJOR(dev) == 60)
+		fsync_dev(dev);
 	return 0;
 }
 

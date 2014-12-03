@@ -1,0 +1,13 @@
+#
+#  Generic Bus Interface
+#
+# Copyright (C) 2001 Lineo, Inc.
+# Copyright (C) 2001 Hewlett-Packard Co.
+
+mainmenu_option next_comment
+
+comment "Generic Bus Interface"
+
+dep_tristate '  Generic Bus Interfade support' CONFIG_USBD_GENERIC_BUS $CONFIG_USBD
+
+endmenu

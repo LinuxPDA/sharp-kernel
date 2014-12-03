@@ -16,6 +16,8 @@
 #define __raw_writeb(v,p)	(*(volatile unsigned char *)(p) = (v))
 #define __raw_readb(p)		(*(volatile unsigned char *)(p))
 
+#ifndef CONFIG_IRIS
+
 static __inline__ void putc(char c)
 {
 	while(__raw_readb(IO_UART + 0x18) & 0x20 ||
@@ -40,5 +42,27 @@ static __inline__ void arch_decomp_setup(void)
 	__raw_writeb(0x00, IO_UART + 0x20);	/* Disable IRQs */
 	__raw_writeb(0x01, IO_UART + 0x14);	/* Enable UART */
 }
+
+
+#else /* CONFIG_IRIS */
+
+static __inline__ void putc(char c)
+{
+}
+
+static void puts(const char *s)
+{
+}
+
+static __inline__ void arch_decomp_setup(void)
+{
+	__raw_writeb(0x00, IO_UART + 0x08);	/* Set HSB */
+	__raw_writeb(0x00, IO_UART + 0x0c);	/* Set MSB */ /* 9600bps */
+	__raw_writeb(0x17, IO_UART + 0x10);	/* Set LSB */ /* 9600bps */
+	__raw_writeb(0x00, IO_UART + 0x20);	/* Disable IRQs */
+	__raw_writeb(0x01, IO_UART + 0x14);	/* Enable UART */
+}
+
+#endif
 
 #define arch_decomp_wdog()

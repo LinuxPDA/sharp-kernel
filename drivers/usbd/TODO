@@ -1,0 +1,67 @@
+
+
+1. Network Driver - RNDIS Support
+
+	Add optional extension to allow the network driver to be used with
+	Microsoft Windows RNDIS driver. 
+	
+	This requires a bus interface driver which has a complete compliment
+	of endpoints (two bulk and one interrupt) and a fully featured ep0
+	implementation that can read setup data packets. The Scanlogic SL11
+	should work.
+
+	A test parser for the setup packets has been written.
+
+
+2. Network Driver - non safe mode
+
+	Allow the network driver to work with generic host class drivers
+	(such as usbnet, plusb etc).
+
+
+3. Hitachi SuperH - implement
+
+	Implement SuperH bus interface driver.
+
+
+4. Scanlogic SL11 - port
+
+	Port to Solutions Engine.
+
+
+5. Scanlogic SL11 - bug
+
+	Fix bug where short packets can arrive out of order.
+
+
+6. Serial - CDC mode
+
+	Add CDC mode to serial driver. Test against linux acm driver.
+
+
+7. Linkup L7205/L7210 - ongoing 
+
+	Continue to work with linkup to find problems.
+
+
+8. Monitor - test
+
+	Test the monitor module.
+
+
+9. safe_net - find bug
+
+	Find and fix bug causing occasional hangs.
+
+
+10. Documentation
+
+	Document all of the USB Device software.
+
+
+11. Network Driver - early vs late 
+
+        Optionally allow the network interface to be permanent instead of existing
+        only when enumerated.
+
+

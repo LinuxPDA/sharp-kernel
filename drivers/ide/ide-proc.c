@@ -54,6 +54,9 @@
  * utilities for your favorite PCI chipsets.  I'll be working on
  * one for the Promise 20246 someday soon.  -ml
  *
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
+ *
  */
 
 #include <linux/config.h>
@@ -451,6 +454,11 @@ static int proc_ide_get_identify(ide_drive_t *drive, byte *buf)
 	return ide_wait_cmd(drive, (drive->media == ide_disk) ? WIN_IDENTIFY : WIN_PIDENTIFY, 0, 0, 1, buf);
 }
 
+#ifdef CONFIG_SA1100_COLLIE
+static ide_drive_t *drive_save = NULL;
+static u8 ide_info_buf[SECTOR_WORDS * 4 + 4];
+#endif
+
 static int proc_ide_read_identify
 	(char *page, char **start, off_t off, int count, int *eof, void *data)
 {
@@ -460,6 +468,10 @@ static int proc_ide_read_identify
 	if (drive && !proc_ide_get_identify(drive, page)) {
 		unsigned short *val = ((unsigned short *)page) + 2;
 		char *out = ((char *)val) + (SECTOR_WORDS * 4);
+#ifdef CONFIG_SA1100_COLLIE
+		drive_save = drive;
+		memcpy(ide_info_buf, page, SECTOR_WORDS * 4);
+#endif
 		page = out;
 		do {
 			out += sprintf(out, "%04x%c", le16_to_cpu(*val), (++i & 7) ? ' ' : '\n');
@@ -471,6 +483,19 @@ static int proc_ide_read_identify
 		len = sprintf(page, "\n");
 	PROC_IDE_READ_RETURN(page,start,off,count,eof,len);
 }
+
+#ifdef CONFIG_SA1100_COLLIE
+
+int proc_ide_verify_identify()
+{
+    u8 buf[SECTOR_WORDS * 4 + 4];
+
+    if (drive_save == NULL || proc_ide_get_identify(drive_save, buf))
+	return 0;
+    return memcmp(ide_info_buf, buf, SECTOR_WORDS * 4);
+}
+
+#endif
 
 static int proc_ide_read_settings
 	(char *page, char **start, off_t off, int count, int *eof, void *data)
@@ -750,6 +775,9 @@ void destroy_proc_ide_drives(ide_hwif_t *hwif)
 		remove_proc_entry(drive->name, hwif->proc);
 		drive->proc = NULL;
 	}
+#ifdef CONFIG_SA1100_COLLIE
+	drive_save = NULL;
+#endif
 }
 
 static ide_proc_entry_t hwif_entries[] = {

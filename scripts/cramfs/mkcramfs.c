@@ -314,7 +314,7 @@ static void set_data_offset(struct entry *entry, char *base, unsigned long offse
  * entries, using a stack to remember the directories
  * we've seen.
  */
-#define MAXENTRIES (100)
+#define MAXENTRIES (1000)
 static unsigned int write_directory_structure(struct entry *entry, char *base, unsigned int offset)
 {
 	int stack_entries = 0;

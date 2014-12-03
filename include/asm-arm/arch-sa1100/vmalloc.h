@@ -1,6 +1,11 @@
 /*
  * linux/include/asm-arm/arch-sa1100/vmalloc.h
+ *
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
  */
+
+#include <linux/config.h>
 
 /*
  * Just any arbitrary offset to the start of the vmalloc VM area: the
@@ -13,4 +18,8 @@
 #define VMALLOC_OFFSET	  (8*1024*1024)
 #define VMALLOC_START	  (((unsigned long)high_memory + VMALLOC_OFFSET) & ~(VMALLOC_OFFSET-1))
 #define VMALLOC_VMADDR(x) ((unsigned long)(x))
+#if defined(CONFIG_SA1100_COLLIE)
+#define VMALLOC_END       (0xe0000000)
+#else
 #define VMALLOC_END       (0xe8000000)
+#endif

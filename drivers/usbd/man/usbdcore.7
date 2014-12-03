@@ -1,0 +1,613 @@
+.\" 
+.\" Copyright (c) 2001 Lineo
+.\"
+.TH usbdcore 7 "\n[year]-\n[mo]-\n[dy]" Lineo "USBD Developer's Guide"
+.\"
+.\"
+.SH SYNOPSIS
+usbd
+.\"
+.\"
+.SH DESCRIPTION
+This page gives an overview of the USB Device support system from a programmer's perspective. 
+.PP
+The USB Device subsystem is divided into three layers: 
+.I bus interface 
+(lowest)
+.I core
+(middle)
+.I function
+(highest)
+
+.\"
+.\"
+.SH USB TERMINOLOGY
+This section stnadardizes USB architecture elements for the purposes of the
+Lineo USB Device Framework. This terminology is largely consistent with the
+relevant documents of the USB Forum and of usage elswehere.
+
+.P
+Since USB is an asymmetrical protocol, with greatly differing architecture at
+the host (PC) side and device (peripheral) side, it is convenient to use 
+different terms for parallel layers of the architecture at each end.
+.P
+This document gives only the briefest overview of how standard USB architecture
+is reflected in the framework. Refer to standards documents and other 
+publications for more detailed information.
+.P
+The basic idea of USB architecture is the same at both the host and device ends.
+There is a low layer, which is mostly a data pump, and a high layer, which is
+shielded from most but not all aspects ofthe lower layer.  
+.P
+On the host side, the host sees a 
+.I root hub
+which has 0 or more devices connected to it.
+Certain conditions, such as conmnecting or detaching a USB device, will
+trigger an
+.I enumeration.
+This is the process by which the host determines what devices are physically
+present, which
+.I configurations
+the devices offer, and matches (if possible) the devices with suitable
+.I class drivers
+on the host side.
+.P
+USB multiplexes multiple data streams known as 
+.I endpoints
+which may be of four types: isochronous, control, bulk, and interrupt
+The first, isochronous, is special-purpose and will not be discussed further.
+Each device has exactly 1 control endpoint, also known as endpoint 0. 
+Most devices will also have two bulk endpoints, one in each direction, for 
+normal data flow. This may include setup activity above the USB layer.
+Finally, there may be a fourth interrupt endpoint available on some devices for
+out-of-band data. The principal use of this is flow control. Many particular
+USB architectures of interest do not support this type of endpoint.
+.P
+USB data is sent over the wire in short packets,  During the setup 
+(enumeration) phase, packets are limited in size to what will  fit into 
+1 packet.
+For
+The enumeration phase takes place over this endpoint. In some USB
+architectures, the USB interface chip assumes all responsibility for
+this.
+.\"
+.\"
+.SH GENERAL
+Originally, the idea of USB was that devices would be divided into a small
+number of classes (human interface device [mouse/trackball], communications, 
+storage, etc) and that the host would only need support for 1 mouse device,
+1 network device.  and so on.  Thus, 
+.I function ids
+were envisaged as a mechanism for host 
+.I class drivers
+to match
+
+.P
+However, the USB standard was rushed into use before the definitions of the
+ device classes were complete, and with respect to 802.3 network and
+serial drivers, the situation has not improved. Therefore, 
+currently available host drivers recognize cooperating peripherals soley on
+the basis of vendorid and productid. This requires a new generation of
+host drivers to be issued when a new product is issued,  From this point of
+view, a firmware upgrade can look like a different product.
+
+.\"
+.\"
+.SH ARCHITECTURE
+.nf
+
+       USB Host                      USB Device
+----------------+                  +-------------------
+   Class driver | <-- logical  --> | Function driver
+----------------|                  |-------------------
+       USB Host |                  | USB Device
+     Core layer |                  | Core layer
+----------------|                  |-------------------
+ Host interface |                  | Bus interface 
+         driver | <-- physical --> | driver
+----------------+                  +------------------
+
+.fi
+.\"
+.\"
+.PP
+.\"
+.\"
+.SH FUNCTION LAYER
+.PP
+To implement a 
+.I Function
+to work with a corresponding
+.I Class
+driver on the 
+.SM USB
+host.
+.PP
+Generally speaking the 
+.I Function
+driver sits between the 
+.SM USB Device
+support and the rest of the operating system implementing
+some other type of driver. For example it might implement 
+a serial or network driver that allows it to pass data to
+the 
+.SM USB
+host in either a serial data stream or as network frames.
+.PP
+.\"
+.\"
+.\"
+.\"
+.SH BUS INTERFACE LAYER
+.PP
+To support USB on a new hardware architecture, 
+.\"
+.\"
+.SH ENDPOINT ZERO
+.PP
+A special limited function driver is builtin to the 
+.I USB Device
+core layer to handle 
+.I Standard Device Requests
+sent to 
+.I Endpoint Zero.
+(See 
+.I Section 9.4 Standard Device Requests
+in the 
+.SM USB
+Specification.)
+.PP
+This function driver handles typically handles all requests sent by the 
+.SM USB
+host during the enumeration process.
+.PP
+It cannot by definition handle 
+.I Vendor 
+requests. Any 
+.I Function
+that requires support for 
+.I Vendor
+requests must implement the 
+.I Function
+driver function
+.I recv_setup().
+.\"
+.\"
+.\"
+.SH ENDPOINT ARCHITECTURE
+.PP
+The
+.I Function
+driver defines and describes the 
+.I Endpoints
+that it requires. 
+.PP
+For each 
+.I endpoint
+the 
+.I USB Device
+core maintains transmit and receive queues for
+.I urbs
+for each 
+.I endpoint.
+.PP
+An 
+.I urb
+is a structure containing data that is to be sent to
+the 
+.SM USB
+host when requested (the host sent an 
+.I IN
+token), or data that was sent from the
+.SM USB
+host (the sent an
+.I OUT
+token followed by data).
+.PP
+For sending the
+.I Function
+driver prepares an 
+.I urb
+and gives it to the 
+.I USB Device
+core layer using the 
+.I usbd_send_urb()
+function. This simply places the 
+.I urb
+into the transmit queue for the specified 
+.I endpoint 
+and notifies the
+.I Bus Interface
+driver using the 
+.I send_urb()
+function. The 
+.I Bus Interface
+driver transmit interrupt handler will manage the sending of the data
+and signal that the
+.I urb
+has been sent using the
+.I usbd_urb_sent_irq()
+function.
+.PP
+For receiving the 
+.I Bus Interface
+driver will fill an
+.I urb
+until it sees the end of a bulk transfer (signalled by a 
+.SM USB
+packet less than the full packetsize or by reaching the maximum
+transfer size for the endpoint). It will then call the
+.I usbd_rcv_complete_irq()
+function. This function will put the 
+.I urb
+into the receive queue and schedule the 
+.I USB Device
+core layer bottom half handler 
+.I usbd_device_bh().
+.PP
+The bottom half handler runs as kernel task process (the equivalent of
+an interrupt context but at a lower priority).
+The bottom half handler will remove 
+.I urbs
+from the receive queue and pass them to the 
+.I Function 
+driver using it's
+.I recv_urb()
+function.
+.\"
+.\"
+.SH USBCORE SERVICES TO FUNCTION MODULES
+.\"
+.\" ---------------------------------------------------------------------------
+.TP
+.B Function Driver Registration
+.PP
+.nf
+int 
+usbd_register_function(struct usb_function_driver *);
+.fi
+.RS
+.PP
+Called by a
+.I Function
+driver to register with the
+.I USB Device
+core layer.
+.RE
+.\"
+.\"
+.PP
+.nf
+void 
+usbd_deregister_function(struct usb_function_driver *);
+.fi
+.RS
+.PP
+Called by a
+.I Function
+driver to deregister with the
+.I USB Device
+core layer.
+.RE
+.\"
+.\"
+.\" ---------------------------------------------------------------------------
+.TP
+.B Bus Interface Driver Registration
+.PP
+.nf
+struct usb_bus_instance * 
+usbd_register_bus(struct usb_bus_driver *);
+.fi
+.RS
+.PP
+Called by a
+.I Bus Interface
+driver to register with the
+.I USB Device
+core layer.
+.RE
+.\"
+.\"
+.PP
+.nf
+void 
+usbd_deregister_bus(struct usb_bus_driver *);
+.fi
+.RS
+.PP
+Called by a
+.I Bus Interface
+driver to deregister with the
+.I USB Device
+core layer.
+.RE
+.\"
+.\"
+.\" ---------------------------------------------------------------------------
+.TP
+.B USB Device Registration
+.PP
+.nf
+struct usb_device_instance *
+usbd_register_device(char *, struct usb_bus_instance *, int);
+.fi
+.RS
+.PP
+Called by a
+.I Bus Interface
+driver to register with the
+.I USB Device
+core layer.
+.RE
+.\"
+.\"
+.PP
+.nf
+void 
+usbd_deregister_device(struct usb_bus_instance *);
+.fi
+.RS
+.PP
+Called by a
+.I Bus Interface
+driver to deregister with the
+.I USB Device
+core layer.
+.RE
+.\"
+.\"
+.\" ---------------------------------------------------------------------------
+.TP
+.B Commonly Used Functions
+.PP
+.nf
+struct urb * 
+usbd_alloc_urb(struct usb_device_instance *, 
+	struct usb_function_instance *, 
+	__u8 endpoint, 
+	int length );
+.fi
+.RS
+.PP
+Called to allocate an
+.I URB.
+The 
+.I USB Device
+core layer will call the 
+.I Function 
+driver
+.I alloc_urb_data()
+function if defined to allocate required data storage.
+.RE
+.\"
+.PP
+.nf
+void
+usbd_dealloc_urb(struct urb *);
+.fi
+.RS
+.PP
+Called to deallocate an
+.I URB.
+The 
+.I USB Device
+core layer will call the 
+.I Function 
+driver
+.I dealloc_urb_data()
+function if defined to deallocate the data storage.
+.RE
+.\"
+.\"
+.\" ---------------------------------------------------------------------------
+.TP
+.B Functions Used by Endpoint Zero Driver 
+.PP
+.nf
+int 
+usbd_endpoint_halted(struct usb_device_instance *, int);
+.fi
+.RS
+.PP
+Called by a
+.I Endpoint Zero
+driver to check if an endpoint is halted in response to a 
+.I Standard Device Request
+(see section 9.4 Standard Device Requests and 9.4.5 Get Status in the USB specification).
+The
+.I USB Device
+core layer will call the 
+.I Bus 
+driver 
+.I endpoint_halted()
+function.
+.RE
+.\"
+.PP
+.nf
+int 
+usbd_device_feature(struct usb_device_instance *, int, int);
+.fi
+.RS
+.PP
+Called by a
+.I Endpoint Zero
+driver to set a feature as requested by the 
+.I USB
+host with a
+.I Standard Device Request
+(see section 9.4 Standard Device Requests and 9.4.r Set Feature in the USB specification).
+.I USB Device
+core layer.
+The
+.I USB Device
+core layer will call the 
+.I Bus 
+driver 
+.I device_feature()
+function.
+.RE
+.\"
+.\"
+.\"
+.\"
+.\"
+.\" ---------------------------------------------------------------------------
+.TP
+.B Functions Used by Function Drivers 
+.PP
+.nf
+int usbd_send_urb(struct urb *);
+.fi
+.RS
+.PP
+Called by a
+.I Function
+driver to send an 
+.I urb.
+.RE
+.\"
+.\"
+.PP
+.nf
+int usbd_cancel_urb(struct urb *);
+.fi
+.RS
+.PP
+Called by a
+.I Function
+driver to cancel a previously sent
+.I urb.
+.RE
+.\"
+.\"
+.\" ---------------------------------------------------------------------------
+.TP
+.B Functions Used by Bus Interface Drivers
+.PP
+.nf
+void 
+usbd_device_event_irq(struct usb_device_instance *conf, usb_device_event_t);
+
+void 
+usbd_device_event(struct usb_device_instance *conf, usb_device_event_t);
+.fi
+.RS
+.PP
+Called by a
+.I Bus Interface
+driver to notify the
+.I USB Device
+core layer of an event.  The 
+.I USB Device
+core layer will pass the event to the 
+.I Bus
+driver
+.I driver_event()
+function and 
+.I Function
+driver 
+.I event()
+functions.
+.PP
+The _irq version can be used from interrupt context or where interrupts
+are disabled.
+.RE
+.\"
+.\"
+.PP
+.nf
+struct urb *
+usbd_next_rcv_urb(struct usb_endpoint_instance *);
+.fi
+.RS
+.PP
+Called by a
+.I Bus  Interface
+to get the next available 
+.I urb
+for receiving into.
+.RE
+.\"
+.\"
+.PP
+.nf
+ int usbd_recv_setup(struct urb *);
+.fi
+.RS
+.PP
+Called by a
+.I Bus Interface
+driver to pass a setup packet up to the
+.I USB Device
+core layer which will call the 
+.I Function
+driver 
+.I recv_setup() 
+function.
+.RE
+.\"
+.\"
+.PP
+.nf
+void usbd_rcv_complete_irq(struct usb_endpoint_instance *, int );
+.fi
+.RS
+.PP
+Called by a
+.I Bus Interface
+driver to tell the 
+.I USB Device
+core layer that it has received some data. The
+.I USB Device
+core layer will determine if the end of a bulk transfer has
+been detected and setup the endpoint to receive more data.
+.RE
+.\"
+.\"
+.PP
+.nf
+ void usbd_tx_complete_irq(struct usb_endpoint_instance *, int );
+.fi
+.RS
+.PP
+Called by a
+.I Bus Interface
+driver to tell the
+.I USB Device
+core layer that it has finished transmitting all of the data in
+an 
+.I urb.
+The 
+.I USB Device
+core layer will notify the 
+.I Function
+driver using the 
+.I recv_urb() 
+function.
+.RE
+.\"
+.\"
+.\" ---------------------------------------------------------------------------
+.\"
+
+
+.\"
+.\"
+.SH AUTHOR
+.TP
+Stuart Lynne <sl@lineo.com>
+.TP
+Bruce Balden <balden@lineo.com>
+.TP
+Tom Rushworth <tbr@lineo.com>
+.\"
+.SH SEE ALSO
+.PP
+usbdbus(7), usbdfunc(7), usbd(8), usbdcore(8)
+.PP
+Universal Serial Bus Specification, Revision 2.0
+.PP
+Universal Serial Bus Class Definitions for Communications Devices, Version 1.1
+

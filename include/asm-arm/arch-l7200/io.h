@@ -74,5 +74,6 @@ extern __inline__ void __arch_putw(unsigned int value, unsigned long a)
 #define outl(v,p)		outl_t(v,p)
 
 #define __arch_ioremap		__ioremap
+#define __arch_iounmap		__iounmap
 
 #endif

@@ -109,6 +109,9 @@
  *
  * 2001/07/02: <rmk@arm.linux.org.uk>
  *	- Fix colourmap problems.
+ *
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
  */
 
 #include <linux/config.h>
@@ -480,7 +483,7 @@ static struct sa1100fb_mach_info assabet_info __initdata = {
 	lccr0:		LCCR0_Color | LCCR0_Sngl | LCCR0_Act,
 	lccr3:		LCCR3_OutEnH | LCCR3_PixRsEdg |	LCCR3_ACBsDiv(512),
 #else
-	pixclock:	171521,		bpp:		8,
+	pixclock:	171521,		bpp:		16,
 	xres:		320,		yres:		240,
 
 	hsync_len:	5,		vsync_len:	1,

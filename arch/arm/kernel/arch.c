@@ -2,6 +2,9 @@
  *  linux/arch/arm/kernel/arch.c
  *
  *  Architecture specific fixups.
+ *
+ *  Changelog:
+ *    03-19-2001 Lineo Japan, Inc.
  */
 #include <linux/config.h>
 #include <linux/tty.h>
@@ -87,41 +90,6 @@ MACHINE_START(A5K, "Acorn-A5000")
 	INITIRQ(genarch_init_irq)
 MACHINE_END
 #endif
-#endif
-
-#ifdef CONFIG_ARCH_L7200
-extern void __init l7200_map_io(void);
-
-static void __init
-fixup_l7200(struct machine_desc *desc, struct param_struct *unused,
-             char **cmdline, struct meminfo *mi)
-{
-        mi->nr_banks      = 1;
-        mi->bank[0].start = PHYS_OFFSET;
-        mi->bank[0].size  = (32*1024*1024);
-        mi->bank[0].node  = 0;
-
-        ROOT_DEV = MKDEV(RAMDISK_MAJOR,0);
-        setup_ramdisk( 1, 0, 0, CONFIG_BLK_DEV_RAM_SIZE);
-        setup_initrd( __phys_to_virt(0xf1000000), 0x005dac7b);
-
-        /* Serial Console COM2 and LCD */
-	strcpy( *cmdline, "console=tty0 console=ttyLU1,115200");
-
-        /* Serial Console COM1 and LCD */
-	//strcpy( *cmdline, "console=tty0 console=ttyLU0,115200");
-
-        /* Console on LCD */
-	//strcpy( *cmdline, "console=tty0");
-}
-
-MACHINE_START(L7200, "LinkUp Systems L7200")
-	MAINTAINER("Steve Hill / Scott McConnell")
-	BOOT_MEM(0xf0000000, 0x80040000, 0xd0000000)
-	FIXUP(fixup_l7200)
-	MAPIO(l7200_map_io)
-	INITIRQ(genarch_init_irq)
-MACHINE_END
 #endif
 
 #ifdef CONFIG_ARCH_NEXUSPCI

@@ -60,7 +60,7 @@
 /* names */
 #define	AUDIO_NAME			"ucb1200_audio.c"
 #define	AUDIO_NAME_VERBOSE		"UCB1200 audio driver"
-#define	AUDIO_VERSION_STRING		"2.2-rad"/*"$Revision: 1.1 $"*/
+#define	AUDIO_VERSION_STRING		"$Revision: 1.1.1.1 $"
 
 /* device numbers */
 #define	AUDIO_MAJOR			(42)

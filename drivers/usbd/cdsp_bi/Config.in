@@ -1,0 +1,6 @@
+#
+# CDSP USB Device bus interface configuration
+#
+# Copyright (C) 2001 Lineo, Inc.
+
+dep_tristate '  CDSP (TI, ...) support' CONFIG_USBD_CDSP_BUS $CONFIG_USBD

@@ -106,6 +106,9 @@ obj-$(CONFIG_FB_EPSON1356)        += epson1356fb.o
 obj-$(CONFIG_FB_MQ200)            += mq200fb.o
 obj-$(CONFIG_FB_DC)               += dcfb.o fbgen.o
 obj-$(CONFIG_FB_ANAKIN)           += anakinfb.o
+obj-$(CONFIG_FB_L7200)            += l7200fb.o
+obj-$(CONFIG_FB_IRIS)             += irisfb.o iris_frontlight.o
+obj-$(CONFIG_FB_COLLIE)           += colliefb.o collie_frontlight.o
 
 # Generic Low Level Drivers
 

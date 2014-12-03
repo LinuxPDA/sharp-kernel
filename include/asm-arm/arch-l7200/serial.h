@@ -13,14 +13,19 @@
  *  05-09-2000	SJH	Stripped out architecture specific serial stuff
  *                      and placed it in a separate file
  *  07-28-2000	SJH	Moved base baud rate variable
+ *  11-12-2001  Lineo Japan, Inc.
  */
 #ifndef __ASM_ARCH_SERIAL_H
 #define __ASM_ARCH_SERIAL_H
 
+#include <asm/arch/serial_l7200.h>
+
 /*
  * This assumes you have a 3.6864 MHz clock for your UART.
  */
+#ifndef BASE_BAUD
 #define BASE_BAUD	3686400
+#endif
 
 /*
  * Standard COM flags
@@ -31,8 +36,8 @@
 
 #define STD_SERIAL_PORT_DEFNS		\
 	/* MAGIC UART CLK   PORT       IRQ     FLAGS */			\
-	{ 0, BASE_BAUD, UART1_BASE, IRQ_UART_1, STD_COM_FLAGS },  /* ttyLU0 */ \
-	{ 0, BASE_BAUD, UART2_BASE, IRQ_UART_2, STD_COM_FLAGS },  /* ttyLU1 */ \
+	{ 0, BASE_BAUD, UART1_REG_BASE, IRQ_UART_1, STD_COM_FLAGS },  /* ttyLU0 */ \
+	{ 0, BASE_BAUD, UART2_REG_BASE, IRQ_UART_2, STD_COM_FLAGS },  /* ttyLU1 */ \
 
 #define EXTRA_SERIAL_PORT_DEFNS
 

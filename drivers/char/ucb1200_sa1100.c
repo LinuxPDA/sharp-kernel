@@ -10,13 +10,16 @@
  * published by the Free Software Foundation.
  *
  * 19 December 2000	: created.
+ * 14 November 2001     : modify for SL-5000D Sharp Corporation
  */
 #include <linux/config.h>
 #include <linux/init.h>
 #include <linux/module.h>
+#include <linux/delay.h>
 
 #include <asm/hardware.h>
 #include <asm/ucb1200.h>
+
 
 
 /* ---------- */
@@ -68,7 +71,9 @@ static void sa1100_mcp_enable(void)
 
 static void sa1100_mcp_disable(void)
 {
+#ifndef CONFIG_SA1100_COLLIE
 	Ser4MCCR0 &= ~MCCR0_MCE;
+#endif
 }
 
 static u16 sa1100_mcp_read_codec(u16 addr)
@@ -81,7 +86,7 @@ static u16 sa1100_mcp_read_codec(u16 addr)
 static void sa1100_mcp_write_codec(u16 addr, u16 data)
 {
 	Ser4MCDR2 = ((addr & 0xf) << FShft(MCDR2_ADD))
-		  | MCDR2_Wr | (data & 0xffff);
+      		  | MCDR2_Wr | (data & 0xffff);
 	/* We'd better wait here so that we can disable sib after writing. */
 	while (!(Ser4MCSR & MCSR_CWC));
 }
@@ -100,8 +105,24 @@ static int sa1100_ucb1200_init(struct ucb1200_arch_info *arch)
 		arch->flags |= UCB1200_ADC_SYNC;
 #endif
 	}
+	else if (machine_is_collie()) {
+#ifdef CONFIG_SA1100_COLLIE
+		GAFR &= ~GPIO_UCB1200_RESET;
+		GPDR |= GPIO_UCB1200_RESET;
+		GPSR |= GPIO_UCB1200_RESET;
+	  
+		MCCR0 = MCCR0_ExtClk | MCCR0_SmpCnt;
+		gpio = GPIO_UCB1200_IRQ;
+		irq = IRQ_GPIO_UCB1200_IRQ;
+
+		mdelay(500);
+#if 1
+		arch->flags |= UCB1200_ADC_SYNC;
+#endif
+#endif
+	}
 	else if (machine_is_yopy()) {
-#ifdef CONFIG_SA1100_YOPY
+#ifdef CONFIG_SA1100_YOP
 		GAFR &= ~GPIO_UCB1200_RESET;
 		GPDR |= GPIO_UCB1200_RESET;
 		GPSR |= GPIO_UCB1200_RESET;
@@ -175,8 +196,10 @@ static int sa1100_ucb1200_init(struct ucb1200_arch_info *arch)
 		/* initialize MCP */
 		Ser4MCCR1 = 0;
 		Ser4MCSR = 0xffffffff;
+#if defined(CONFIG_SA1100_COLLIE)
+		Ser4MCCR0 = MCCR0;
+#else
 		Ser4MCCR0 = 127 | (127 << 8) | MCCR0;
-
 		if (arch->flags & UCB1200_ADC_SYNC) {
 			/* Set ADCSYNC to be out with SIB_ZERO set */
 			sa1100_mcp_enable();
@@ -184,6 +207,7 @@ static int sa1100_ucb1200_init(struct ucb1200_arch_info *arch)
 			sa1100_mcp_write_codec(0, 0x0200);
 			sa1100_mcp_disable();
 		}
+#endif
 		arch->irq = irq;
 	}
 
@@ -192,7 +216,9 @@ static int sa1100_ucb1200_init(struct ucb1200_arch_info *arch)
 
 static void sa1100_set_adc_sync(int flag)
 {
+#if !defined(CONFIG_SA1100_COLLIE)
 	ucb1200_set_io(9, flag);
+#endif
 }
 
 static void sa1100_ucb1200_exit(void)

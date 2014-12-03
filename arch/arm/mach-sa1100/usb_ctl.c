@@ -11,6 +11,9 @@
  *
  *  Please see linux/Documentation/arm/SA1100/SA1100_USB for details.
  *
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
+ *
  */
 #include <linux/config.h>
 #include <linux/module.h>
@@ -104,6 +107,7 @@ static char * device_state_names[] =
   "address", "configured", "suspended" };
 
 static int sm_state = kStateZombie;
+
 
 //////////////////////////////////////////////////////////////////////////////
 // Async
@@ -705,20 +709,26 @@ int __init usbctl_init( void )
 #endif
 
 	/* setup rx dma */
-	retval = sa1100_request_dma(&usbd_info.dmach_rx, "USB receive");    
+	retval = sa1100_request_dma(&usbd_info.dmach_rx, "USB receive",
+				    DMA_Ser0UDCRd);    
 	if (retval) {
 		printk("%sunable to register for rx dma rc=%d\n", pszMe, retval );
 		goto err_rx_dma;
 	}
+#if 0
 	sa1100_dma_set_device(usbd_info.dmach_rx, DMA_Ser0UDCRd);
+#endif
 	
 	/* setup tx dma */
-	retval = sa1100_request_dma(&usbd_info.dmach_tx, "USB transmit");    
+	retval = sa1100_request_dma(&usbd_info.dmach_tx, "USB transmit",
+				    DMA_Ser0UDCWr);    
 	if (retval) {
 		printk("%sunable to register for tx dma rc=%d\n",pszMe,retval);
 		goto err_tx_dma;
 	}
+#if 0
 	sa1100_dma_set_device(usbd_info.dmach_tx, DMA_Ser0UDCWr);
+#endif
 	
 	/* now allocate the IRQ. */
 	retval = request_irq(IRQ_Ser0UDC, udc_int_hndlr, SA_INTERRUPT, 
@@ -758,6 +768,106 @@ void __exit usbctl_exit( void )
     sa1100_free_dma(usbd_info.dmach_tx);
     free_irq(IRQ_Ser0UDC, NULL); 
 }
+
+////////////
+static int _usb_device[2] = {0,0};
+static int _usb_device_opened[2] = {0,0};
+
+void 
+set_net_device(void)
+{
+	_usb_device[0] = 1;
+}
+
+void 
+clear_net_device(void)
+{
+	_usb_device[0] = 0;
+}
+
+int 
+get_net_device(void)
+{
+	return _usb_device[0];
+}
+
+void 
+set_open_net_device(void)
+{
+	_usb_device_opened[0] = 1;
+}
+
+void 
+set_close_net_device(void)
+{
+	_usb_device_opened[0] = 0;
+}
+
+int 
+get_net_device_status(void)
+{
+	if ( _usb_device[0] )
+		return _usb_device_opened[0];
+	else
+		return -1;
+}
+
+void 
+set_ser_device(void)
+{
+	_usb_device[1] = 1;
+}
+
+void 
+clear_ser_device(void)
+{
+	_usb_device[1] = 0;
+}
+
+int 
+get_ser_device(void)
+{
+	return _usb_device[1];
+}
+
+void
+set_open_ser_device(void)
+{
+	_usb_device_opened[1] = 1;
+}
+
+void 
+set_close_ser_device(void)
+{
+	_usb_device_opened[1] = 0;
+}
+
+int 
+get_ser_device_status(void)
+{
+	if ( _usb_device[1] )
+		return _usb_device_opened[1];
+	else
+		return -1;
+}
+
+
+		
+EXPORT_SYMBOL(set_net_device);
+EXPORT_SYMBOL(clear_net_device);
+EXPORT_SYMBOL(get_net_device);
+EXPORT_SYMBOL(set_open_net_device);
+EXPORT_SYMBOL(set_close_net_device);
+EXPORT_SYMBOL(get_net_device_status);
+EXPORT_SYMBOL(set_ser_device);
+EXPORT_SYMBOL(clear_ser_device);
+EXPORT_SYMBOL(get_ser_device);
+EXPORT_SYMBOL(set_open_ser_device);
+EXPORT_SYMBOL(set_close_ser_device);
+EXPORT_SYMBOL(get_ser_device_status);
+
+
+
 
 EXPORT_SYMBOL( sa1100_usb_open );
 EXPORT_SYMBOL( sa1100_usb_start );

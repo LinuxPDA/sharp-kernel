@@ -31,6 +31,10 @@
 #include <asm/machdep.h>
 #endif
 
+#if defined(CONFIG_IRIS) || defined(CONFIG_SA1100_COLLIE)
+#include <asm/sharp_machdep.h>
+#endif
+
 #include <linux/kbd_kern.h>
 #include <linux/vt_kern.h>
 #include <linux/kbd_diacr.h>
@@ -497,13 +501,12 @@ int vt_ioctl(struct tty_struct *tty, struct file * file,
 				  (cmd == KDENABIO)) ? -ENXIO : 0;
 #endif
 
-#if defined(__mc68000__) || defined(CONFIG_APUS)
+#if defined(__mc68000__) || defined(CONFIG_APUS) || defined(CONFIG_IRIS) || defined(CONFIG_SA1100_COLLIE)
 	/* Linux/m68k interface for setting the keyboard delay/repeat rate */
 		
 	case KDKBDREP:
 	{
 		struct kbd_repeat kbrep;
-		
 		if (!mach_kbdrate) return( -EINVAL );
 		if (!suser()) return( -EPERM );
 

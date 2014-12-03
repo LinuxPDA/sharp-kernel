@@ -6,6 +6,9 @@
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
+ *
+ * Change Log
+ *	12-Mar-2002 Lineo Japan, Inc.
  */
 #include <linux/config.h>
 #include <linux/module.h>
@@ -253,3 +256,6 @@ EXPORT_SYMBOL_NOVERS(__down_trylock_failed);
 EXPORT_SYMBOL_NOVERS(__up_wakeup);
 
 EXPORT_SYMBOL(get_wchan);
+
+extern void __do_softirq;
+EXPORT_SYMBOL(__do_softirq);

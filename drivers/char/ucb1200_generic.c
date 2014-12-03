@@ -10,6 +10,7 @@
  * published by the Free Software Foundation.
  *
  * 18 December 2000	: created.
+ * 14 November 2001     : modify for SL-5000D SHARP Corporation
  */
 #include <linux/config.h>
 #include <linux/module.h>
@@ -23,6 +24,10 @@
 
 #include <asm/hardware.h>
 #include <asm/ucb1200.h>
+
+#ifdef CONFIG_SA1100_COLLIE
+#include <asm/arch/tc35143.h>
+#endif
 
 
 #define DPRINTK(s...)	printk(s)
@@ -51,6 +56,7 @@ static struct irqdesc irq_desc[UCB1200_NR_IRQS];
 static u16 ucb1200_irq_enabled = 0;
 static u16 ucb1200_irq_rising_edge = 0;
 static u16 ucb1200_irq_falling_edge = 0;
+
 
 
 #define ucb1200_arch_init(arch)	ucb1200_low_level->arch_init(arch)
@@ -421,7 +427,26 @@ void ucb1200_set_io(int io, int level)
 	else
 		data &= ~mask;
 
+#ifdef CONFIG_SA1100_COLLIE
+	if( !( data & TC35143_GPIO_AMP_ON ) ) {
+	  //	  printk("error! force on %8x\n",data);
+	  data |= TC35143_GPIO_AMP_ON;
+	}
+#endif
+
 	sib_write_codec(UCB1200_REG_IO_DATA, data);
+
+#ifdef CONFIG_SA1100_COLLIE
+	{
+	  u16 data2;
+	  data2 = sib_read_codec(UCB1200_REG_IO_DATA);
+	  if ( data != data2 ) {
+	    //	    printk("error %8x\n",data2);
+	    sib_write_codec(UCB1200_REG_IO_DATA, data);
+	  }
+	}
+#endif
+
 
 	ucb1200_unlock_disable(flags);
 }
@@ -451,6 +476,16 @@ void ucb1200_write_reg(u16 reg, u16 data)
 	ucb1200_unlock_disable(flags);
 }
 
+void ucb1200_enable_adc_sync()
+{
+	ucb1200_arch.flags |= UCB1200_ADC_SYNC;
+}
+
+void ucb1200_disable_adc_sync()
+{
+	ucb1200_arch.flags &= ~UCB1200_ADC_SYNC;
+}
+
 void ucb1200_start_adc(u16 input)
 {
 	u16 reg = (input & 0x001c) | ADC_ENA;
@@ -458,18 +493,32 @@ void ucb1200_start_adc(u16 input)
 
 	ucb1200_lock_enable(flags);
 
+#ifdef CONFIG_SA1100_COLLIE
+	if (ucb1200_arch.flags & UCB1200_ADC_SYNC & !( reg & 0x0010 ) )
+#else
 	if (ucb1200_arch.flags & UCB1200_ADC_SYNC)
+#endif
 		reg |= ADC_SYNC_ENA;
 
 	sib_write_codec(UCB1200_REG_ADC_CTL, reg);
 	udelay(50);
+
+#ifdef CONFIG_SA1100_COLLIE
+	if ( input == ADC_INPUT_AD1 )
+	  //	  udelay(700);
+	  udelay(1500);
+#endif
 
 	/* 0->1 transition of the ADC_START bit arms the ADC */
 	sib_write_codec(UCB1200_REG_ADC_CTL, reg | ADC_START);
 
 	sib_write_codec(UCB1200_REG_ADC_CTL, reg);
 
+#ifdef CONFIG_SA1100_COLLIE
+	if (ucb1200_arch.flags & UCB1200_ADC_SYNC & !( reg & 0x0010 ) ) {
+#else
 	if (ucb1200_arch.flags & UCB1200_ADC_SYNC) {
+#endif
 		ucb1200_set_adc_sync(1);
 		ucb1200_set_adc_sync(0);
 	}
@@ -584,6 +633,11 @@ int __init ucb1200_init(void)
 {
 	int irq, ret, i;
 	unsigned long flags;
+	static int ucb1200_initialized = 0;
+
+
+	if (ucb1200_initialized)
+		return 0;
 
 	ucb1200_low_level = &arch_ucb1200_ops;
 
@@ -626,22 +680,28 @@ int __init ucb1200_init(void)
 	/* Init all registers to reasonable defaults */
 	ucb1200_lock_enable(flags);
 
-	for (i = 2; i <= 10; i++)
+	for (i = 2; i <= 10; i++) {
 		sib_write_codec(i, 0);
+	}
 	sib_write_codec(UCB1200_REG_INT_STATUS, 0xffff);
+#ifndef CONFIG_SA1100_COLLIE
 	sib_write_codec(UCB1200_REG_TELECOM_CTL_A, 127);
 	sib_write_codec(UCB1200_REG_AUDIO_CTL_A, 127);
+#endif
 	sib_write_codec(UCB1200_REG_MODE, 0);
 
 	ucb1200_unlock_disable(flags);
-
+	
 	printk("UCB1200 generic module installed\n");
+
+	ucb1200_initialized = 1;
 
 	return 0;
 }
 
 void __init ucb1200_cleanup(void)
 {
+
 	free_irq(ucb1200_arch.irq, NULL);
 
 	ucb1200_arch_exit();
@@ -653,13 +713,51 @@ void __init ucb1200_cleanup(void)
 	remove_proc_entry("driver/ucb1200", NULL);
 #endif
 	printk("UCB1200 generic module removed\n");
+
 }
+
+void ucb1200_suspend(void)
+{
+	ucb1200_arch_exit();
+}
+
+
+int ucb1200_resume(void)
+{
+	int i;
+	unsigned long flags;
+
+
+	/* Initialize arch specific SIB(Serial Interface Bus) */
+	if (ucb1200_arch_init(&ucb1200_arch) || (ucb1200_arch.irq == NO_IRQ)) {
+		return -ENODEV;
+	}
+
+	/* Init all registers to reasonable defaults */
+	ucb1200_lock_enable(flags);
+
+	for (i = 2; i <= 10; i++) {
+		sib_write_codec(i, 0);
+	}
+	sib_write_codec(UCB1200_REG_INT_STATUS, 0xffff);
+	sib_write_codec(UCB1200_REG_TELECOM_CTL_A, 127);
+	sib_write_codec(UCB1200_REG_AUDIO_CTL_A, 127);
+	sib_write_codec(UCB1200_REG_MODE, 0);
+
+	ucb1200_unlock_disable(flags);
+
+
+	return 0;
+}
+
+
 
 module_init(ucb1200_init);
 module_exit(ucb1200_cleanup);
 
+EXPORT_SYMBOL(ucb1200_suspend);
+EXPORT_SYMBOL(ucb1200_resume);
 
-EXPORT_SYMBOL(ucb1200_set_irq_edge);
 EXPORT_SYMBOL(ucb1200_disable_irq);
 EXPORT_SYMBOL(ucb1200_enable_irq);
 EXPORT_SYMBOL(ucb1200_request_irq);

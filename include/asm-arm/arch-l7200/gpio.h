@@ -10,9 +10,14 @@
  *  This file is subject to the terms and conditions of the GNU General Public
  *  License. See the file COPYING in the main directory of this archive for
  *  more details.
+ *  
+ *  Change Log:
+ *    11-12-2001  Lineo Japan, Inc.
+ *  
  */
 
-/****************************************************************************/
+#ifndef __ASM_ARCH_GPIO_H
+#define __ASM_ARCH_GPIO_H 1
 
 #define GPIO_OFF   0x00005000  /* Offset from IO_START to the GPIO reg's. */
 
@@ -61,45 +66,11 @@
 #define PEIMR_OFF    0x098
 #define PEINT_OFF    0x09c
 
-/* Define the GPIO registers for use by device drivers and the kernel. */
-#define PADR   (*(volatile unsigned long *)(GPIO_BASE+PADR_OFF))
-#define PADDR  (*(volatile unsigned long *)(GPIO_BASE+PADDR_OFF))
-#define PASBSR (*(volatile unsigned long *)(GPIO_BASE+PASBSR_OFF))
-#define PAEENR (*(volatile unsigned long *)(GPIO_BASE+PAEENR_OFF))
-#define PAESNR (*(volatile unsigned long *)(GPIO_BASE+PAESNR_OFF))
-#define PAESTR (*(volatile unsigned long *)(GPIO_BASE+PAESTR_OFF))
-#define PAIMR  (*(volatile unsigned long *)(GPIO_BASE+PAIMR_OFF))
-#define PAINT  (*(volatile unsigned long *)(GPIO_BASE+PAINT_OFF))
-
-#define PBDR   (*(volatile unsigned long *)(GPIO_BASE+PBDR_OFF))
-#define PBDDR  (*(volatile unsigned long *)(GPIO_BASE+PBDDR_OFF))
-#define PBSBSR (*(volatile unsigned long *)(GPIO_BASE+PBSBSR_OFF))
-#define PBIMR  (*(volatile unsigned long *)(GPIO_BASE+PBIMR_OFF))
-#define PBINT  (*(volatile unsigned long *)(GPIO_BASE+PBINT_OFF))
-
-#define PCDR   (*(volatile unsigned long *)(GPIO_BASE+PCDR_OFF))
-#define PCDDR  (*(volatile unsigned long *)(GPIO_BASE+PCDDR_OFF))
-#define PCSBSR (*(volatile unsigned long *)(GPIO_BASE+PCSBSR_OFF))
-#define PCIMR  (*(volatile unsigned long *)(GPIO_BASE+PCIMR_OFF))
-#define PCINT  (*(volatile unsigned long *)(GPIO_BASE+PCINT_OFF))
-
-#define PDDR   (*(volatile unsigned long *)(GPIO_BASE+PDDR_OFF))
-#define PDDDR  (*(volatile unsigned long *)(GPIO_BASE+PDDDR_OFF))
-#define PDSBSR (*(volatile unsigned long *)(GPIO_BASE+PDSBSR_OFF))
-#define PDEENR (*(volatile unsigned long *)(GPIO_BASE+PDEENR_OFF))
-#define PDESNR (*(volatile unsigned long *)(GPIO_BASE+PDESNR_OFF))
-#define PDESTR (*(volatile unsigned long *)(GPIO_BASE+PDESTR_OFF))
-#define PDIMR  (*(volatile unsigned long *)(GPIO_BASE+PDIMR_OFF))
-#define PDINT  (*(volatile unsigned long *)(GPIO_BASE+PDINT_OFF))
-
-#define PEDR   (*(volatile unsigned long *)(GPIO_BASE+PEDR_OFF))
-#define PEDDR  (*(volatile unsigned long *)(GPIO_BASE+PEDDR_OFF))
-#define PESBSR (*(volatile unsigned long *)(GPIO_BASE+PESBSR_OFF))
-#define PEEENR (*(volatile unsigned long *)(GPIO_BASE+PEEENR_OFF))
-#define PEESNR (*(volatile unsigned long *)(GPIO_BASE+PEESNR_OFF))
-#define PEESTR (*(volatile unsigned long *)(GPIO_BASE+PEESTR_OFF))
-#define PEIMR  (*(volatile unsigned long *)(GPIO_BASE+PEIMR_OFF))
-#define PEINT  (*(volatile unsigned long *)(GPIO_BASE+PEINT_OFF))
-
 #define VEE_EN         0x02
 #define BACKLIGHT_EN   0x04
+
+#if defined(CONFIG_IRIS)
+#include <asm/arch/gpio_iris.h>
+#endif
+
+#endif

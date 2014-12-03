@@ -1,0 +1,590 @@
+.\" 
+.\" Prototype man page
+.\"
+.\" Man:
+.\"
+.\"
+.\" tmac Macros:
+.\"
+.\"	.TH
+.\"	.SH
+.\"
+.\"
+.\"	.B	Bold
+.\"	.BI	Bold alternating with italics
+.\"	.BR	Bold alternating with roman
+.\"	.I	Italics
+.\"	.IB	Italics alternating with bold
+.\"	.IR	Italics alternating with roman
+.\"	.R	Roman
+.\"	.RB	Roman alternating with bold
+.\"	.RI	Roman alternating with italics 
+.\"
+.\"	.RE
+.\"	.IP
+.\"	.RS
+.\"
+.\"
+.\" roff Macros:
+.\"
+.\"	.I	include
+.\"
+.\"
+.\"	.P
+.\"	.TP	Paragraph with hanging tag
+.\"	.PP
+.\"	.sp
+.\"	.nf
+.\"	.fi
+.\"
+.\"	.SM	Small Type face
+.\"
+.\"	\fB
+.\"	\fI
+.\"	\fP
+.\"	\fR
+.\"
+.\"
+.\"
+.\"
+.TH usbdfunc 7 "\n[year]-\n[mo]-\n[dy]" "Lineo" "Lineo Embedix Guide"
+.\"
+.\"
+.SH SYNPOSIS
+.PP
+.nf
+#include "usbd.h"
+#include "usbd-func.h"
+.fi
+.\"
+.\"
+.SH DESCRIPTION
+.\"
+.PP
+This man page documents the interface that the 
+.I USB Function Driver
+uses to connect to the 
+.I USB Device 
+core layer.
+.\"
+.PP
+In the 
+.B USB Device Architecture 
+the 
+.I Function Driver
+implements a matching function for a specific 
+.SM USB
+host 
+.I Class Driver.
+.\"
+.\"
+Typically this implements or emulates a standard Unix driver such as 
+a network or character device. 
+.PP
+Specifically the top layer of the 
+.I Function Driver
+implements the standard interface for some function. 
+It encapsulates the data given it and sends it to the 
+.SM USB
+host 
+.I Class Driver via the 
+.SM USB
+bus.
+.PP
+Similarily data received from 
+.SM USB
+host is given to the user of the device.
+.\"
+.\"
+.PP
+The main interface to the 
+.I USB Device
+core layer is through two routines:
+.RS
+.TP
+usbd_register_function(struct *usb_function_driver)
+.TP
+usbd_deregister_function(struct *usb_function_driver)
+.RE
+.PP
+These pass a pointer to a 
+.I struct usb_function_driver.
+.PP
+This structure contains information required by the 
+.I USB Device
+core layer to identify the 
+.I Function 
+being implemented and the various functions required to send and
+receive data.
+.\"
+.PP
+.RS
+.nf
+struct usb_function_driver {
+    const char *name;
+
+    struct usb_function_operations 
+	*ops;
+                                        
+    struct usb_device_description     
+	*device_description;
+
+    struct usb_configuration_description 
+	*configuration_description;
+
+    int configurations;
+                                        
+    ....
+};
+.fi
+.RE
+.RS
+.TP
+ops 
+ this is a list of C functions this module implements
+to perform the operations required by the 
+.I USB Device
+core layer.
+.TP
+device_description 
+ this is a pointer to a structure 
+that contains information used by the 
+.I USB Device
+core layer to create a 
+.I Device Descriptor.
+This is passed to the 
+.SM USB
+host during the 
+.I enumeration process.
+.TP
+configuration description 
+ this is a pointer to a structure
+that contains information used by the 
+.I USB Device
+core layer to create a 
+.I Configuration Descriptors.
+These are passed to the 
+.SM USB
+host during the
+.I enumeration process.
+.TP
+configurations 
+ the number of different configurations that
+the configuration description describes.
+.RE
+.\"
+.\"
+.PP
+The 
+.I usb_function_operations
+structure is used to pass pointers to the functions implemented
+by the 
+.I Function
+driver.
+.\"
+.PP
+.\"
+.RS
+.nf
+struct usb_function_operations {
+    void (* event)(struct usb_device_instance *, usb_device_event_t);
+    int (* urb_sent) (struct urb *, int);
+    int (* recv_urb) (struct urb *);
+    int (* recv_setup) (struct urb *);
+    int (* alloc_urb_data) (struct urb *, int );
+    void (* dealloc_urb_data) (struct urb *);
+    void (* function_init) (struct usb_bus_instance *, 
+	struct usb_device_instance *, struct usb_function_driver *);
+    void (* function_exit) (struct usb_bus_instance *);
+};
+.fi
+.RE
+.\"
+.PP
+.\"
+.RS
+.TP
+event
+This function is called by the
+.I USB Device
+core layer to pass various events to the 
+.I Function 
+driver. 
+These match the changes defined in the
+state diagram defined in 
+.I chapter 9 USB Device Framework, section 9.1.1, 
+in the 
+.SM USB
+specification.
+The events are passed through a 
+.I task queue.
+This means that these functions are not executing in an interrupt
+context and may call other kernel functions that may sleep.
+.TP
+urb_sent
+The 
+.I Function 
+driver sends data in a structure called an 
+.I urb
+using a function called
+.I usbd_send_urb().
+When the 
+.I urb
+has been sent the 
+.I USB Device
+core layer will call the 
+.I urb_sent 
+function to notify the 
+.I Function 
+driver that it has finished sending the data or
+has stopped attempting to send the data.
+.TP
+recv_urb
+The 
+.I USB Device
+core layer will use the
+.I recv_urb 
+function to pass received (from the
+.SM USB
+host via an 
+.SM OUT
+transaction) to the 
+.I Function
+driver.
+.TP
+recv_setup
+The 
+.I USB Device
+core layer will use the
+.I recv_setup 
+function to pass received setup packets (from the
+.SM USB
+host via an 
+.SM OUT
+transaction) to the 
+.I Function
+driver.
+.TP
+alloc_urb_data
+The 
+.I USB Device
+core layer implements a function called
+.I usbd_alloc_urb
+which is used to allocate an 
+.I urb
+structure with associated data storage. 
+The data storage can optionally be allocated by the
+.I Function
+driver if it implements the
+.I usbd_alloc_urb
+function.
+.TP
+dealloc_urb_data
+The 
+.I USB Device
+core layer implements a function called
+.I usbd_dealloc_urb
+which is used to deallocate an 
+.I urb
+structure and associated data storage. 
+The data storage can optionally be deallocated by the
+.I Function
+driver if it implements the
+.I usbd_dealloc_urb
+function.
+.TP
+function_init
+The 
+.I USB Device
+core layer will call 
+.I function_init
+after a 
+.SM USB
+bus interface driver has called
+.i usbd_register_device
+to create a new logical 
+.SM USB
+device.
+.TP
+function_exit
+The 
+.I USB Device
+core layer will call 
+.I function_exit
+after a 
+.SM USB
+bus interface driver has called
+.i usbd_unregister_device
+to destroy a new logical 
+.SM USB
+device.
+.RE
+.\"
+.PP
+The 
+.I usb_device_description
+struture describes the 
+.I Function
+device sufficently for the 
+.I USB Device
+core layer to construct a 
+.I device descriptor.
+The definition of the device descriptor is given 
+.I chapter 9 USB Device Framework, section 9.6.1 
+in the 
+.SM USB
+specification.
+.\"
+.PP
+.\"
+.RS
+.nf
+struct usb_device_description {
+    __u8                bDeviceClass;
+    __u8                bDeviceSubClass;
+    __u8                bDeviceProtocol;
+
+    __u16               idVendor;
+    __u16               idProduct;
+
+    char               *iManufacturer;
+    char               *iProduct;
+    char               *iSerialNumber;
+};
+.fi
+.RE
+.\"
+.\"
+.PP
+The 
+.I usb_configuration_description
+struture describes the 
+.I Function
+device configurations sufficently for the 
+.I USB Device
+core layer to construct a set of
+.I configuration descriptors.
+The definition of the configuration descriptor is given 
+.I chapter 9 USB Device Framework, section 9.6.3 
+in the 
+.SM USB
+specification.
+.\"
+.PP
+.\"
+.RS
+.nf
+struct usb_configuration_description {
+    char               *iConfiguration;
+    __u8                bmAttributes;
+    __u8                bMaxPower;
+                                                
+    __u8                interfaces;            
+    struct usb_interface_description *interface_list;
+    int                 configuration_type;
+};
+.fi
+.RE
+.\"
+.\"
+.PP
+The 
+.I usb_interface_description
+struture describes the 
+.I Function
+device sufficently for the 
+.I USB Device
+core layer to construct an 
+.I interface descriptor.
+The definition of the interface descriptor is given 
+.I chapter 9 USB Device Framework, section 9.6.5
+in the 
+.SM USB
+specification.
+.\"
+.PP
+.\"
+.RS
+.nf
+struct usb_interface_description {
+
+    __u8                bInterfaceClass;
+    __u8                bInterfaceSubClass;
+    __u8                bInterfaceProtocol;
+    char               *iInterface;
+    __u8                alternates;
+    struct usb_alternate_description *alternate_list;
+};
+.fi
+.RE
+.\"
+.\"
+.\"
+.PP
+The 
+.I usb_alternate_description
+struture describes the 
+.I Function
+device sufficently for the 
+.I USB Device
+core layer to construct alternate versions of 
+.I interface descriptors.
+.\"
+.RS
+.nf
+struct usb_alternate_description {
+    char               *iInterface;
+    __u8                bAlternateSetting;
+    
+    __u8                classes;
+    struct usb_class_description *class_list;
+    
+    __u8                endpoints;
+    struct usb_endpoint_description *endpoint_list;
+};
+.fi
+.RE
+.\"
+.\"
+.\"
+.PP
+The 
+.I usb_endpoint_description
+struture describes an 
+.I Function
+device endpoint sufficently for the 
+.I USB Device
+core layer to construct an 
+.I endpoint descriptor.
+The definition of the endpoint descriptor is given 
+.I chapter 9 USB Device Framework, section 9.6.6
+in the 
+.SM USB
+specification.
+.\"
+.PP
+.\"
+.RS
+.nf
+struct usb_endpoint_description {
+    __u8                bEndpointAddress;
+    __u8                bmAttributes;
+    __u16               wMaxPacketSize;
+    __u8                bInterval;
+    __u8                direction;
+    __u32               transferSize;
+};
+.fi
+.RE
+.\"
+.RS
+.TP
+transferSize
+This is additional information provided by the
+.I Function
+driver to tell the 
+.I Bus Interface
+driver that maximum size of 
+.I Bulk Data Transfers.
+.\"
+.\"
+.RS
+.nf
+.fi
+.RE
+.\"
+.\"
+.\"
+.SH EXAMPLES
+.PP
+This is a the descriptions for a simple serial device.
+.PP
+.nf
+
+static struct usb_endpoint_description serial_default[] = 
+{
+    { bEndpointAddress: 1, bmAttributes: BULK,
+        wMaxPacketSize: 64, bInterval: 0,
+        direction: OUT, transferSize: 64, },
+
+    { bEndpointAddress: 2, bmAttributes: BULK,
+        wMaxPacketSize: 64, bInterval: 0,
+        direction: IN, transferSize: 64, },
+
+    { bEndpointAddress: 3, bmAttributes: INTERRUPT,
+        wMaxPacketSize: 16, bInterval: 0,
+        direction: IN, transferSize: 16, },
+};
+
+static __initdata struct usb_alternate_description 
+	serial_data_alternate_descriptions[] =
+{
+    {   iInterface: "Simple Serial Data Interface - Bulk mode",
+        bAlternateSetting: 0,
+        endpoints: sizeof(serial_default)/
+		sizeof(struct usb_endpoint_description),
+        endpoint_list: serial_default, },
+};
+
+static __initdata struct usb_interface_description serial_interfaces[] = 
+{
+    {   iInterface: "Simple Serial Data Interface",
+        bInterfaceClass: 0xff,
+        bInterfaceSubClass: 0xff,
+        bInterfaceProtocol: 0xff,
+        alternates: sizeof(serial_data_alternate_descriptions)/
+		sizeof(struct usb_alternate_description),
+        alternate_list: serial_data_alternate_descriptions, },
+};
+
+struct __initdata usb_configuration_description serial_description[] = 
+{
+    {   iConfiguration: "USB Simple Serial Configuration",
+        bmAttributes: BMATTRIBUTE,
+        bMaxPower: BMAXPOWER,
+        interfaces: sizeof(serial_interfaces)/sizeof(struct usb_interface_description),
+        interface_list: serial_interfaces, },
+};
+
+struct __initdata usb_device_description serial_device_description = 
+{
+    bDeviceClass:       VENDOR,
+    bDeviceSubClass:    0,
+    bDeviceProtocol:    0,
+    idVendor:           0x555,
+    idProduct:          0x666,
+    iManufacturer:      "USB Products Co.",
+    iProduct:           "USB Dummy Serial Device",
+    iSerialNumber:      "01234",
+};
+
+.fi
+.\"
+.\"
+.\"
+.SH BUGS
+.\"
+.PP
+.\"
+.SH AUTHOR
+.TP
+Stuart Lynne <sl@lineo.com>
+.TP
+Bruce Balden <balden@lineo.com>
+.TP
+Tom Rushworth <tbr@lineo.com>
+.\"
+.\"
+.\"
+.SH SEE ALSO
+.\"
+.PP
+.TP
+usbd(7), usbdfunc(7)
+.PP
+.PP
+Universal Serial Bus Specification, Revision 2.0
+.PP
+Universal Serial Bus Class Definitions for Communications Devices, Version 1.1
+.\"
+.\"

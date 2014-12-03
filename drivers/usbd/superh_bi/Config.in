@@ -1,0 +1,12 @@
+#
+# SuperH USB Device bus interface configuration
+#
+# Copyright (C) 2001 Lineo, Inc.
+# Copyright (C) 2001 Hewlett-Packard Co.
+
+mainmenu_option next_comment
+comment "SuperH Bus Interface Driver"
+
+dep_tristate '  SuperH Device support' CONFIG_USBD_SUPERH_BUS $CONFIG_USBD
+
+endmenu

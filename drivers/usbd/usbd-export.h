@@ -1,0 +1,1 @@
+#define USBD_EXPORT_DATE    "2001-12-09 00:57"

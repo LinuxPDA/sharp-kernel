@@ -10,13 +10,16 @@
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
  *
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
+ *
  */
 
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/sched.h>
 #include <linux/spinlock.h>
-#include <linux/malloc.h>
+#include <linux/slab.h>
 #include <linux/errno.h>
 
 #include <asm/system.h>
@@ -36,13 +39,6 @@
 
 
 /*
- * Maximum physical DMA buffer size
- */
-#define MAX_DMA_SIZE		0x1fff
-#define MAX_DMA_ORDER		12
-
-
-/*
  * DMA control register structure
  */
 typedef struct {
@@ -56,37 +52,16 @@ typedef struct {
 	volatile u_long DBTB;
 } dma_regs_t;
 
-
-/*
- * DMA buffer structure
- */
-struct dma_buf_s {
-	int size;		/* buffer size */
-	dma_addr_t dma_start;	/* starting DMA address */
-	dma_addr_t dma_ptr;	/* current DMA pointer position */
-	int ref;		/* number of DMA references */
-	void *id;		/* to identify buffer from outside */
-	struct dma_buf_s *next;	/* next buffer to process */
-};
-
-
 #include "dma.h"
 
 sa1100_dma_t dma_chan[MAX_SA1100_DMA_CHANNELS];
 
-#ifdef CONFIG_PM
-typedef struct {
-        u_long DDAR;
-        u_long SetDCSR;
-	u_long ClrDCSR;
-        dma_addr_t DBSA;
-        u_long DBTA;
-        dma_addr_t DBSB;
-        u_long DBTB;
-} dma_shadow_regs_t;
+/*
+ * Maximum physical DMA buffer size
+ */
+#define MAX_DMA_SIZE		0x1fff
+#define MAX_DMA_ORDER		12
 
-dma_shadow_regs_t shadow_regs[MAX_SA1100_DMA_CHANNELS];
-#endif
 
 /*
  * DMA processing...
@@ -101,21 +76,26 @@ static inline int start_sa1100_dma(sa1100_dma_t * dma, dma_addr_t dma_ptr, int s
 	status = regs->RdDCSR;
 
 	/* If both DMA buffers are started, there's nothing else we can do. */
-	if ((status & DCSR_STRTA) && (status & DCSR_STRTB)) {
+	if ((status & (DCSR_STRTA | DCSR_STRTB)) == (DCSR_STRTA | DCSR_STRTB)) {
 		DPRINTK("start: st %#x busy\n", status);
 		return -EBUSY;
 	}
 
-	use_bufa = (((status & DCSR_BIU) && (status & DCSR_STRTB)) ||
-		    (!(status & DCSR_BIU) && !(status & DCSR_STRTA)));
-	if (use_bufa) {
-		regs->ClrDCSR = DCSR_DONEA | DCSR_STRTA;
+	if (((status & DCSR_BIU) && (status & DCSR_STRTB)) ||
+	    (!(status & DCSR_BIU) && !(status & DCSR_STRTA))) {
+		if (status & DCSR_DONEA) {
+			/* give a chance for the interrupt to be processed */
+			goto irq_pending;
+		}
 		regs->DBSA = dma_ptr;
 		regs->DBTA = size;
 		regs->SetDCSR = DCSR_STRTA | DCSR_IE | DCSR_RUN;
 		DPRINTK("start a=%#x s=%d on A\n", dma_ptr, size);
 	} else {
-		regs->ClrDCSR = DCSR_DONEB | DCSR_STRTB;
+		if (status & DCSR_DONEB) {
+			/* give a chance for the interrupt to be processed */
+			goto irq_pending;
+		}
 		regs->DBSB = dma_ptr;
 		regs->DBTB = size;
 		regs->SetDCSR = DCSR_STRTB | DCSR_IE | DCSR_RUN;
@@ -123,6 +103,9 @@ static inline int start_sa1100_dma(sa1100_dma_t * dma, dma_addr_t dma_ptr, int s
 	}
 
 	return 0;
+
+irq_pending:
+	return -EAGAIN;
 }
 
 
@@ -143,7 +126,7 @@ static void process_dma(sa1100_dma_t * dma)
 	for (;;) {
 		buf = dma->tail;
 
-		if (!buf) {
+		if (!buf || dma->stopped) {
 			/* no more data available */
 			DPRINTK("process: no more buf (dma %s)\n",
 				dma->curr ? "active" : "inactive");
@@ -177,7 +160,6 @@ static void process_dma(sa1100_dma_t * dma)
 		DPRINTK("process: b=%#x s=%d\n", (int) buf->id, buf->size);
 		if (start_dma(dma, buf->dma_ptr, chunksize) != 0)
 			break;
-		dma->active = 1;
 		if (!dma->curr)
 			dma->curr = buf;
 		buf->ref++;
@@ -214,9 +196,10 @@ void sa1100_dma_done (sa1100_dma_t *dma)
 				dma->spin_ref = -dma->spin_ref;
 			if (dma->head == buf)
 				dma->head = NULL;
-			buf->size = buf->dma_ptr - buf->dma_start;
-			if (dma->callback)
-				dma->callback(buf->id, buf->size);
+			if (dma->callback) {
+				int size = buf->dma_ptr - buf->dma_start;
+				dma->callback(buf->id, size);
+			}
 			kfree(buf);
 		}
 	}
@@ -232,11 +215,16 @@ static void dma_irq_handler(int irq, void *dev_id, struct pt_regs *regs)
 
 	DPRINTK("IRQ: b=%#x st=%#x\n", (int) dma->curr->id, status);
 
-	dma->regs->ClrDCSR = DCSR_ERROR | DCSR_DONEA | DCSR_DONEB;
-	if (!(status & (DCSR_DONEA | DCSR_DONEB)))
-		return;
+	if (status & (DCSR_ERROR)) {
+		printk(KERN_ERR "DMA on \"%s\" caused an error\n", dma->device_id);
+		dma->regs->ClrDCSR = DCSR_ERROR;
+	}
 
-	sa1100_dma_done (dma);
+	dma->regs->ClrDCSR = status & (DCSR_DONEA | DCSR_DONEB);
+	if (status & DCSR_DONEA)
+		sa1100_dma_done (dma);
+	if (status & DCSR_DONEB)
+		sa1100_dma_done (dma);
 }
 
 
@@ -244,62 +232,59 @@ static void dma_irq_handler(int irq, void *dev_id, struct pt_regs *regs)
  * DMA interface functions
  */
 
-/*
- * Get dma list
- * for /proc/dma
- */
-int sa1100_get_dma_list(char *buf)
-{
-	int i, len = 0;
+static spinlock_t dma_list_lock;
 
-	for (i = 0; i < MAX_SA1100_DMA_CHANNELS; i++) {
-		if (dma_chan[i].lock)
-			len += sprintf(buf + len, "%2d: %s\n",
-				       i, dma_chan[i].device_id);
-	}
-	return len;
-}
-
-int sa1100_request_dma(dmach_t * channel, const char *device_id)
+int sa1100_request_dma (dmach_t * channel, const char *device_id,
+			dma_device_t device)
 {
 	sa1100_dma_t *dma = NULL;
 	dma_regs_t *regs;
-	int ch, err;
+	int i, err;
 
 	*channel = -1;		/* to be sure we catch the freeing of a misregistered channel */
 
-	for (ch = 0; ch < SA1100_DMA_CHANNELS; ch++) {
-		dma = &dma_chan[ch];
-		if (xchg(&dma->lock, 1) == 0)
-			break;
+	err = 0;
+	spin_lock(&dma_list_lock);
+	for (i = 0; i < SA1100_DMA_CHANNELS; i++) {
+		if (dma_chan[i].in_use) {
+			if (dma_chan[i].device == device) {
+				err = -EBUSY;
+				break;
+			}
+		} else if (!dma) {
+			dma = &dma_chan[i];
+		}
 	}
-	if (ch >= SA1100_DMA_CHANNELS) {
-		printk(KERN_ERR "%s: no free DMA channel available\n",
-		       device_id);
-		return -EBUSY;
+	if (!err) {
+	       if (dma)
+		       dma->in_use = 1;
+	       else
+		       err = -ENOSR;
 	}
+	spin_unlock(&dma_list_lock);
+	if (err)
+		return err;
 
 	err = request_irq(dma->irq, dma_irq_handler, SA_INTERRUPT,
 			  device_id, (void *) dma);
 	if (err) {
 		printk(KERN_ERR
-		       "%s: unable to request IRQ %d for DMA channel %d\n",
-		       device_id, dma->irq, ch);
-		dma->lock = 0;
+		       "%s: unable to request IRQ %d for DMA channel\n",
+		       device_id, dma->irq);
 		return err;
 	}
 
-	*channel = ch;
+	*channel = dma - dma_chan;
 	dma->device_id = device_id;
+	dma->device = device;
 	dma->callback = NULL;
 	dma->spin_size = 0;
 
 	regs = dma->regs;
 	regs->ClrDCSR =
-	    (DCSR_DONEA | DCSR_DONEB | DCSR_STRTA | DCSR_STRTB |
-	     DCSR_IE | DCSR_ERROR | DCSR_RUN);
-	regs->DDAR = 0;
-
+		(DCSR_DONEA | DCSR_DONEB | DCSR_STRTA | DCSR_STRTB |
+		 DCSR_IE | DCSR_ERROR | DCSR_RUN);
+	regs->DDAR = device;
 	DPRINTK("requested\n");
 	return 0;
 }
@@ -309,24 +294,11 @@ int sa1100_dma_set_callback(dmach_t channel, dma_callback_t cb)
 {
 	sa1100_dma_t *dma = &dma_chan[channel];
 
-	dma->callback = cb;
-	DPRINTK("cb = %p\n", cb);
-	return 0;
-}
-
-
-int sa1100_dma_set_device(dmach_t channel, dma_device_t device)
-{
-	sa1100_dma_t *dma = &dma_chan[channel];
-	dma_regs_t *regs = dma->regs;
-
-	if (dma->ready)
+	if ((unsigned)channel >= MAX_SA1100_DMA_CHANNELS || !dma->in_use)
 		return -EINVAL;
 
-	regs->ClrDCSR = DCSR_STRTA | DCSR_STRTB | DCSR_IE | DCSR_RUN;
-	regs->DDAR = device;
-	DPRINTK("DDAR = %#x\n", device);
-	dma->ready = 1;
+	dma->callback = cb;
+	DPRINTK("cb = %p\n", cb);
 	return 0;
 }
 
@@ -336,7 +308,7 @@ int sa1100_dma_set_spin(dmach_t channel, dma_addr_t addr, int size)
 	sa1100_dma_t *dma = &dma_chan[channel];
 	int flags;
 
-	if (channel >= SA1100_DMA_CHANNELS)
+	if ((unsigned)channel >= MAX_SA1100_DMA_CHANNELS || !dma->in_use)
 		return -EINVAL;
 
 	DPRINTK("set spin %d at %#x\n", size, addr);
@@ -358,7 +330,7 @@ int sa1100_dma_queue_buffer(dmach_t channel, void *buf_id,
 	int flags;
 
 	dma = &dma_chan[channel];
-	if (!dma->ready)
+	if ((unsigned)channel >= MAX_SA1100_DMA_CHANNELS || !dma->in_use)
 		return -EINVAL;
 
 	buf = kmalloc(sizeof(*buf), GFP_ATOMIC);
@@ -388,12 +360,16 @@ int sa1100_dma_queue_buffer(dmach_t channel, void *buf_id,
 int sa1100_dma_get_current(dmach_t channel, void **buf_id, dma_addr_t *addr)
 {
 	sa1100_dma_t *dma = &dma_chan[channel];
-	dma_regs_t *regs = dma->regs;
+	dma_regs_t *regs;
 	int flags, ret;
+
+	if ((unsigned)channel >= MAX_SA1100_DMA_CHANNELS || !dma->in_use)
+		return -EINVAL;
 
 	if (channel_is_sa1111_sac(channel))
 		return sa1111_dma_get_current(channel, buf_id, addr);
 
+	regs = dma->regs;
 	local_irq_save(flags);
 	if (dma->curr && dma->spin_ref <= 0) {
 		dma_buf_t *buf = dma->curr;
@@ -428,11 +404,16 @@ int sa1100_dma_get_current(dmach_t channel, void **buf_id, dma_addr_t *addr)
 			*addr = buf->dma_ptr;
 		DPRINTK("curr_pos: b=%#x a=%#x\n", (int)dma->curr->id, *addr);
 		ret = 0;
+	} else if (dma->tail && dma->stopped) {
+		dma_buf_t *buf = dma->tail;
+		if (buf_id)
+			*buf_id = buf->id;
+		*addr = buf->dma_ptr;
+		ret = 0;
 	} else {
 		if (buf_id)
 			*buf_id = NULL;
 		*addr = 0;
-		DPRINTK("curr_pos: spinning\n");
 		ret = -ENXIO;
 	}
 	local_irq_restore(flags);
@@ -443,12 +424,40 @@ int sa1100_dma_get_current(dmach_t channel, void **buf_id, dma_addr_t *addr)
 int sa1100_dma_stop(dmach_t channel)
 {
 	sa1100_dma_t *dma = &dma_chan[channel];
-	dma_regs_t *regs = dma->regs;
+	int flags;
 
 	if (channel_is_sa1111_sac(channel))
 		return sa1111_dma_stop(channel);
 
-	regs->ClrDCSR = DCSR_RUN | DCSR_IE;
+	if (dma->stopped)
+		return 0;
+	local_irq_save(flags);
+	dma->stopped = 1;
+	/*
+	 * Stop DMA and tweak state variables so everything could restart
+	 * from there when resume/wakeup occurs.
+	 */
+	dma->regs->ClrDCSR = DCSR_RUN | DCSR_IE;
+	if (dma->curr) {
+		dma_buf_t *buf = dma->curr;
+		if (dma->spin_ref <= 0) {
+			dma_addr_t curpos;
+			sa1100_dma_get_current(channel, NULL, &curpos);
+			buf->size += buf->dma_ptr - curpos;
+			buf->dma_ptr = curpos;
+		}
+		buf->ref = 0;
+#ifdef CONFIG_SA1100_COLLIE
+		if (buf->next != NULL)
+		  buf->next->ref = 0;
+#endif
+		dma->tail = buf;
+		dma->curr = NULL;
+	}
+	dma->spin_ref = 0;
+	dma->regs->ClrDCSR = DCSR_STRTA|DCSR_STRTB|DCSR_DONEA|DCSR_DONEB;
+	process_dma(dma);
+	local_irq_restore(flags);
 	return 0;
 }
 
@@ -456,36 +465,46 @@ int sa1100_dma_stop(dmach_t channel)
 int sa1100_dma_resume(dmach_t channel)
 {
 	sa1100_dma_t *dma = &dma_chan[channel];
-	dma_regs_t *regs = dma->regs;
+
+	if ((unsigned)channel >= MAX_SA1100_DMA_CHANNELS || !dma->in_use)
+		return -EINVAL;
 
 	if (channel_is_sa1111_sac(channel))
 		return sa1111_dma_resume(channel);
 
-	regs->SetDCSR = DCSR_RUN | DCSR_IE;
+	if (dma->stopped) {
+		int flags;
+		save_flags_cli(flags);
+		dma->stopped = 0;
+		dma->spin_ref = 0;
+		process_dma(dma);
+		restore_flags(flags);
+	}
 	return 0;
 }
 
 
 int sa1100_dma_flush_all(dmach_t channel)
 {
-	sa1100_dma_t *dma;
+	sa1100_dma_t *dma = &dma_chan[channel];
 	dma_buf_t *buf, *next_buf;
 	int flags;
 
-	dma = &dma_chan[channel];
+	if ((unsigned)channel >= MAX_SA1100_DMA_CHANNELS || !dma->in_use)
+		return -EINVAL;
+
 	local_irq_save(flags);
 	if (channel_is_sa1111_sac(channel))
 		sa1111_reset_sac_dma(channel);
 	else
-		dma->regs->ClrDCSR = DCSR_STRTA|DCSR_STRTB|DCSR_RUN|DCSR_IE;
+		dma->regs->ClrDCSR = DCSR_STRTA|DCSR_STRTB|DCSR_DONEA|DCSR_DONEB|DCSR_RUN|DCSR_IE;
 	buf = dma->curr;
 	if (!buf)
 		buf = dma->tail;
 	dma->head = dma->tail = dma->curr = NULL;
-	dma->active = 0;
+	dma->stopped = 0;
 	dma->spin_ref = 0;
-	if (dma->spin_size)
-		process_dma(dma);
+	process_dma(dma);
 	local_irq_restore(flags);
 	while (buf) {
 		next_buf = buf->next;
@@ -501,79 +520,31 @@ void sa1100_free_dma(dmach_t channel)
 {
 	sa1100_dma_t *dma;
 
-	if ((unsigned) channel >= MAX_SA1100_DMA_CHANNELS)
+	if ((unsigned)channel >= MAX_SA1100_DMA_CHANNELS)
 		return;
 
 	dma = &dma_chan[channel];
-	if (!dma->lock) {
+	if (!dma->in_use) {
 		printk(KERN_ERR "Trying to free free DMA%d\n", channel);
 		return;
 	}
 
 	sa1100_dma_set_spin(channel, 0, 0);
 	sa1100_dma_flush_all(channel);
-	dma->ready = 0;
 
 	if (channel_is_sa1111_sac(channel)) {
 		sa1111_cleanup_sac_dma(channel);
 	} else {
 		free_irq(IRQ_DMA0 + channel, (void *) dma);
 	}
-	dma->lock = 0;
+	dma->in_use = 0;
 
 	DPRINTK("freed\n");
 }
 
-#ifdef CONFIG_PM
-/* Should be called by device that uses DMA when sleep & wake-up */
-int sa1100_dma_sleep(dmach_t channel)
-{
-        sa1100_dma_t *dma = &dma_chan[channel];
-        dma_regs_t *regs = dma->regs;
-	dma_shadow_regs_t* shadow = &shadow_regs[channel];
-	
-	shadow->SetDCSR = regs->RdDCSR &
-		(DCSR_RUN | DCSR_IE | DCSR_STRTA | DCSR_STRTB);
-	shadow->ClrDCSR = ~(regs->RdDCSR) & 
-		(DCSR_RUN | DCSR_IE | DCSR_STRTA | DCSR_STRTB); 
-
-	sa1100_dma_stop(channel);	
-
-	shadow->DDAR = regs->DDAR;
-	shadow->DBSA = regs->DBSA;
-	shadow->DBTA = regs->DBTA;
-	shadow->DBSB = regs->DBSB;
-	shadow->DBTB = regs->DBTB;
-
-	return 0;
-}
-int sa1100_dma_wakeup(dmach_t channel)
-{
-        sa1100_dma_t *dma = &dma_chan[channel];
-        dma_regs_t *regs = dma->regs;
-	dma_shadow_regs_t* shadow = &shadow_regs[channel];
-
-        regs->DDAR = shadow->DDAR;
-        regs->DBSA = shadow->DBSA;
-        regs->DBTA = shadow->DBTA;
-        regs->DBSB = shadow->DBSB;
-        regs->DBTB = shadow->DBTB;
-
-	if (shadow->SetDCSR | DCSR_RUN) {
-		regs->ClrDCSR = (shadow->ClrDCSR | DCSR_RUN | DCSR_IE);
-		regs->SetDCSR = (shadow->SetDCSR & ~(DCSR_RUN | DCSR_IE));
-		sa1100_dma_resume(channel);
-	} else {	
-		regs->ClrDCSR = shadow->ClrDCSR;
-		regs->SetDCSR = shadow->SetDCSR;
-	}
-	return 0;
-}
-#endif
 
 EXPORT_SYMBOL(sa1100_request_dma);
 EXPORT_SYMBOL(sa1100_dma_set_callback);
-EXPORT_SYMBOL(sa1100_dma_set_device);
 EXPORT_SYMBOL(sa1100_dma_set_spin);
 EXPORT_SYMBOL(sa1100_dma_queue_buffer);
 EXPORT_SYMBOL(sa1100_dma_get_current);
@@ -582,10 +553,73 @@ EXPORT_SYMBOL(sa1100_dma_resume);
 EXPORT_SYMBOL(sa1100_dma_flush_all);
 EXPORT_SYMBOL(sa1100_free_dma);
 
+
 #ifdef CONFIG_PM
+/* Drivers should call this from their PM callback function */
+
+int sa1100_dma_sleep(dmach_t channel)
+{
+        sa1100_dma_t *dma = &dma_chan[channel];
+	int orig_state;
+
+	if ((unsigned)channel >= MAX_SA1100_DMA_CHANNELS || !dma->in_use)
+		return -EINVAL;
+
+	if (channel_is_sa1111_sac(channel)) {
+		/* We'll cheat a little until someone actually
+		 * write the real thing.
+		 */
+		sa1111_reset_sac_dma(channel);
+		return 0;
+	}
+
+#ifndef CONFIG_SA1100_COLLIE
+	orig_state = dma->stopped;
+#endif
+	sa1100_dma_stop(channel);
+	dma->regs->ClrDCSR = DCSR_RUN | DCSR_IE | DCSR_STRTA | DCSR_STRTB;
+#ifndef CONFIG_SA1100_COLLIE
+	dma->stopped = orig_state;
+#endif
+	dma->spin_ref = 0;
+	return 0;
+}
+
+int sa1100_dma_wakeup(dmach_t channel)
+{
+        sa1100_dma_t *dma = &dma_chan[channel];
+	dma_regs_t *regs;
+	int flags;
+
+	if ((unsigned)channel >= MAX_SA1100_DMA_CHANNELS || !dma->in_use)
+		return -EINVAL;
+
+	if (channel_is_sa1111_sac(channel)) {
+		/* We'll cheat a little until someone actually
+		 * write the real thing.
+		 */
+		return 0;
+	}
+
+	regs = dma->regs;
+	regs->ClrDCSR =
+		(DCSR_DONEA | DCSR_DONEB | DCSR_STRTA | DCSR_STRTB |
+		 DCSR_IE | DCSR_ERROR | DCSR_RUN);
+	regs->DDAR = dma->device;
+#ifdef CONFIG_SA1100_COLLIE
+	sa1100_dma_resume(channel);
+#endif
+	local_irq_save(flags);
+	process_dma(dma);
+	local_irq_restore(flags);
+	return 0;
+}
+
 EXPORT_SYMBOL(sa1100_dma_sleep);
 EXPORT_SYMBOL(sa1100_dma_wakeup);
+
 #endif
+
 
 static int __init sa1100_init_dma(void)
 {

@@ -7,6 +7,8 @@
  *
  * 2000/05/23 John Dorsey <john+@cs.cmu.edu>
  *      Definitions for SA1111 added.
+ * 2001/11/12 Lineo Japan, Inc.
+ *      Definitions for collie added.
  */
 
 #ifndef __ASM_ARCH_HARDWARE_H
@@ -96,6 +98,9 @@ extern unsigned short get_cclk_frequency(void);
 #define machine_has_neponset()	(0)
 #endif
 
+#ifdef CONFIG_SA1100_COLLIE
+#include "collie.h"
+#endif
 
 #ifdef CONFIG_SA1100_HUW_WEBPANEL
 #include "huw_webpanel.h"

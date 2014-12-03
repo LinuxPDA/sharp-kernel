@@ -28,6 +28,9 @@
  *
  *	0.01	2000-10-01	Nils Faerber <nils@@kernelconcepts.de>
  *	- initial release
+ *
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
  */
 
 #include <linux/module.h>
@@ -88,15 +91,10 @@ static void decodetime (unsigned long t, struct rtc_time *tval)
 	tval->tm_sec = rem % 60;
 	tval->tm_wday = (4 + days) % 7;
 
-#define LEAPS_THRU_END_OF(y) ((y)/4 - (y)/100 + (y)/400)
-
 	year = epoch;
 	while (days >= (365 + is_leap(year))) {
-		unsigned long yg = year + days / 365;
-		days -= ((yg - year) * 365
-				+ LEAPS_THRU_END_OF (yg - 1)
-				- LEAPS_THRU_END_OF (year - 1));
-		year = yg;
+		days -= 365 + is_leap(year);
+		year++;
 	}
 	tval->tm_year = year - 1900;
 	tval->tm_yday = days + 1;
@@ -312,6 +310,46 @@ static int rtc_ioctl(struct inode *inode, struct file *file,
 	case RTC_ALM_READ:
 		decodetime (RTAR, &tm);
 		break;
+#ifdef CONFIG_SA1100_COLLIE
+	case RTC_ALM_SET:
+	{
+		struct rtc_time rtc_tm;
+		unsigned char mon, day, hrs, min, sec;
+		unsigned int yrs;
+
+		if (copy_from_user(&rtc_tm, (struct rtc_time*)arg,
+				sizeof(struct rtc_time)))
+			return -EFAULT;
+
+		yrs = rtc_tm.tm_year + 1900;
+		mon = rtc_tm.tm_mon + 1;   /* tm_mon starts at zero */
+		day = rtc_tm.tm_mday;
+		hrs = rtc_tm.tm_hour;
+		min = rtc_tm.tm_min;
+		sec = rtc_tm.tm_sec;
+		//printk("RTC_ALM_SET: %4d/%02d/%02d %02d:%02d:%02d\n",
+		//				yrs,mon,day,hrs,min,sec);
+
+		if ((yrs < 1970) || (yrs > 2037)) 
+			return -EINVAL;
+		if ((mon > 12) || (day == 0))
+			return -EINVAL;
+		if (day > (days_in_mo[mon-1] + ((mon == 2) && is_leap(yrs))))
+			return -EINVAL;
+		if ((hrs >= 24) || (min >= 60) || (sec >= 60))
+			return -EINVAL;
+#if 0
+		if ((yrs -= epoch) > 255)    /* They are unsigned */
+			return -EINVAL;
+#else
+		yrs -= 1900;
+#endif
+
+		RTAR = mktime(yrs + 1900, mon, day, hrs, min, sec);
+
+		return 0;
+	}
+#else	
 	case RTC_ALM_SET:
 		if (copy_from_user (&tm2, (struct rtc_time*)arg, sizeof (tm2)))
 			return -EFAULT;
@@ -325,6 +363,7 @@ static int rtc_ioctl(struct inode *inode, struct file *file,
 		RTAR = mktime (	tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
 				tm.tm_hour, tm.tm_min, tm.tm_sec);
 		return 0;
+#endif
 	case RTC_RD_TIME:
 		decodetime (RCNR, &tm);
 		break;
@@ -434,6 +473,15 @@ static int __init rtc_init(void)
 	}
 
 	printk (KERN_INFO "SA1100 Real Time Clock driver v" DRIVER_VERSION "\n");
+
+#if 0
+	{
+	  extern int sys_stime(time_t*);
+
+	    long time_t = RCNR;
+	    sys_stime(&time_t);
+	}
+#endif
 
 	/*
 	 * According to the manual we should be able to let RTTR be zero

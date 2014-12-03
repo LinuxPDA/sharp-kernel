@@ -6,6 +6,9 @@
  *  Mar 1999. AV. Changed cache, so that it uses the starting cluster instead
  *	of inode number.
  *  May 1999. AV. Fixed the bogosity with FAT32 (read "FAT28"). Fscking lusers.
+ *
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
  */
 
 #include <linux/msdos_fs.h>
@@ -57,7 +60,9 @@ int default_fat_access(struct super_block *sb,int nr,int new_value)
 	}
 	b = MSDOS_SB(sb)->fat_start + (first >> sb->s_blocksize_bits);
 	if (!(bh = fat_bread(sb, b))) {
+#ifndef CONFIG_SA1100_COLLIE
 		printk("bread in fat_access failed\n");
+#endif
 		return 0;
 	}
 	if ((first >> sb->s_blocksize_bits) == (last >> sb->s_blocksize_bits)) {

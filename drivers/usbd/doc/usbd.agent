@@ -1,0 +1,68 @@
+#!/bin/sh
+
+#(
+#echo
+#date
+#echo $0: ${*}
+#env
+#) >> /tmp/HOT
+
+
+#set -x
+#ACTION=$2
+
+ARG0=`basename $0`
+
+[ -z ${INTERFACE} ] && exit 1
+[ -z ${ACTION} ] && exit 1
+
+case ${INTERFACE} in
+monitor)
+	case ${ACTION} in
+
+		# called to load all usb device modules
+	load)	
+		#echo LOAD >> /tmp/HOT
+		modprobe usbdcore
+		modprobe net_fd
+		modprobe sa1100_bi
+		;;
+
+		# called to handle power management event
+	suspend) 
+		#echo SUSPEND >> /tmp/HOT
+		rmmod sa1100_bi
+		;;
+
+		# called to reload after power management event
+	restore-loaded)
+		#echo RESTORE-LOADED >> /tmp/HOT
+		modprobe sa1100_bi
+		sleep 2
+		;;
+
+		# called to unload after power management event
+	restore-unloaded)
+		#echo RESTORE-UNLOADED >> /tmp/HOT
+		rmmod net_fd
+		rmmod usbdcore
+		;;
+
+		# called to unload all usb device modules
+	unload)
+		#echo UNLOAD >> /tmp/HOT
+		rmmod sa1100_bi
+		rmmod net_fd
+		rmmod usbdcore
+		;;
+
+	*)
+		exit 1
+		;;
+	esac
+	;;
+
+esac
+
+exit 0
+

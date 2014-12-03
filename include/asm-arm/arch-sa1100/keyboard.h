@@ -154,6 +154,8 @@ extern unsigned char sa1111_sysrq_xlate[128];
 #define MSE_STAT_STP	(1<<8)
 
 
+#elif defined(CONFIG_SA1100_COLLIE)
+#include <asm/arch/keyboard_collie.h>
 #else
 
 /* dummy i.e. no real keyboard */

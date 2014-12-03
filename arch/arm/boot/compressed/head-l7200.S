@@ -16,6 +16,7 @@
 		.section        ".start", #alloc, #execinstr
 
 __L7200_start:
+#ifndef CONFIG_IRIS /* This is not needed on Iris... */
 		mov	r0, #0x00100000		@ FLASH address of initrd
 		mov	r2, #0xf1000000		@ RAM address of initrd
 		add	r3, r2, #0x00700000	@ Size of initrd 
@@ -24,6 +25,7 @@ __L7200_start:
 		stmia   r2!, {r4, r5, r6, r7}
 		cmp	r2, r3
 		ble	1b
+#endif /* ! CONFIG_IRIS */ /* This is not needed on Iris... */
 
 		mov	r8, #0			@ Zero it out
 		mov	r7, #19			@ Set architecture ID

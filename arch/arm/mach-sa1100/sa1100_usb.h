@@ -39,6 +39,7 @@ void sa1100_usb_send_reset(void);
 
 /* in usb_recev.c */
 int sa1100_usb_recv(char *buf, int len, usb_callback_t callback);
+int sa1100_usb_recv_init(char *buf, int len, usb_callback_t callback);
 void sa1100_usb_recv_reset(void);
 
 //////////////////////////////////////////////////////////////////////////////
@@ -186,6 +187,57 @@ string_desc_t *
 sa1100_usb_kmalloc_string_descriptor( const char * p );
 
 
+
+
+////////////////////////////
+
+void 
+set_net_device(void);
+
+void 
+clear_net_device(void);
+
+int 
+get_net_device(void);
+
+void 
+set_open_net_device(void);
+
+void 
+set_close_net_device(void);
+
+int 
+get_net_device_status(void);
+
+void 
+set_ser_device(void);
+
+void 
+clear_ser_device(void);
+
+int 
+get_ser_device(void);
+
+void
+set_open_ser_device(void);
+
+void 
+set_close_ser_device(void);
+
+int 
+get_ser_device_status(void);
+
+int
+open_ser_device(void);
+
+int 
+close_ser_device(void);
+
+int
+open_net_device(void);
+
+int 
+close_net_device(void);
 
 
 

@@ -8,6 +8,9 @@
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
+ *
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
  */
 
 #include <linux/config.h>
@@ -134,9 +137,15 @@ fixup_assabet(struct machine_desc *desc, struct param_struct *params,
 
 static struct map_desc assabet_io_desc[] __initdata = {
  /* virtual     physical    length      domain     r  w  c  b */
+#ifdef CONFIG_XIP_ROM
+  { 0xe8000000, 0x00000000, 0x02000000, DOMAIN_IO, 1, 1, 1, 0 }, /* Flash bank 0 */
+#else
   { 0xe8000000, 0x00000000, 0x02000000, DOMAIN_IO, 1, 1, 0, 0 }, /* Flash bank 0 */
+#endif
+  { 0xf0000000, 0x10000000, 0x00100000, DOMAIN_IO, 1, 1, 0, 0 }, /* System Registers */
   { 0xf1000000, 0x12000000, 0x00100000, DOMAIN_IO, 1, 1, 0, 0 }, /* Board Control Register */
   { 0xf2800000, 0x4b800000, 0x00800000, DOMAIN_IO, 1, 1, 0, 0 }, /* MQ200 */
+  { 0xf4000000, 0x40000000, 0x00100000, DOMAIN_IO, 1, 1, 0, 0 }, /* SA-1111 */
   LAST_DESC
 };
 

@@ -1,0 +1,70 @@
+.TH sl11_bi 8 "\n[year]-\n[mo]-\n[dy]", Lineo "Lineo USBD Developer's Guide"
+.\"
+.SH SYNOPSIS
+.\"
+insmod sl11_bi [dbg=
+.I dbgstring
+]
+.\"
+.SH DESCRIPTION
+.\"
+.PP
+This module is a 
+.I Bus Interface
+driver for the ScanLogic SL11S.
+.\"
+.PP
+.SH MODULE PARAMETERS
+.\"
+The following parameters can be set at the time this module is loaded:
+.\"
+.\"
+.TP
+dbg
+This parameter as the format of a colon-separated list of debug levels for
+various items. There is a sample: dbg="2:init=3:rx" This example sets the
+default debug level to 2 (normally it is 0), the debug level to 3 for the
+init (setup) phase and the debug level for rx to 1 (instead of 2, the
+default set earlier). The exact meaning of the debug output can be
+determined by comparing the debug output to the source code. By default,
+this information goes to the console. This behaviour may be changed by
+appropriate setup of klog(8)and syslog(8)
+
+
+.\"
+.\"
+.SH BUGS
+.\"
+.PP
+On the SL11S ISA prototype board IO is done with 
+.I inb/outb to low ISA ports.
+These are very slow on the x86 architecture, about 1ms each. The result
+is that the system cannot empty or fill the SL11 FIFOs fast enough to 
+get the best throughput. Typical speed for network file transfers is about
+400kbytes/second (compared to about 900kbytes/second theoretical max).
+.PP
+On the SL11S ISA prototype board the probe routine sometimes fails to
+find and initialize the device.
+.PP
+On the SL11S ISA prototype board the interrupt register sometimes fails to
+clear properly.
+.\"
+.SH LINUX CONFIGURATION PARAMETERS
+.\"
+.SH AUTHOR
+.TP
+Stuart Lynne <sl@lineo.com>
+.TP
+Bruce Balden <balden@lineo.com>
+.TP
+Tom Rushworth <tbr@lineo.com>
+.\"
+.\"
+.SH SEE ALSO
+.PP
+usbdbus(7), usbdfunc(7), usbd(8), usbdcore(8)
+.PP
+Universal Serial Bus Specification, Revision 2.0
+.PP
+Universal Serial Bus Class Definitions for Communications Devices, Version 1.1
+

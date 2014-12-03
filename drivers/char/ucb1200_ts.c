@@ -34,6 +34,15 @@
  * On sa1100_ts_init() error, resouces are freed.
  * Jordi Colomer <jco@ict.es>
  *
+ * Add proc fs for pen pressure threshold on SHARP SL5000D
+ * 09-08-2001 SHARP
+ *
+ * Enable ring buffer on SHARP SL5000D
+ * 09-20-2001 SHARP
+ * 
+ * Add noize reduction for SHARP SL5000D
+ * 10-01-2001 SHARP
+ *
  * Todo:
  * support other button driver controlled by UCB-1300
  *
@@ -52,6 +61,7 @@
 #include <linux/module.h>
 #include <linux/sched.h>
 #include <linux/kernel.h>
+#include <linux/proc_fs.h>
 #include <linux/init.h>
 #include <linux/fs.h>
 #include <linux/delay.h>
@@ -63,8 +73,21 @@
 #include <asm/hardware.h>
 #include <asm/irq.h>
 #include <asm/ucb1200.h>
+#include <asm/ts.h>
+#if defined(CONFIG_SA1100_COLLIE)
+#include <asm/arch/tc35143.h>
+#endif
 
 #include "ucb1200_ts.h"
+
+#ifdef CONFIG_PM
+static struct pm_dev* ucb1200_ts_pm_dev;
+#endif
+
+#ifdef CONFIG_PM
+#include <linux/pm.h>
+static struct pm_dev* ucb1200_ts_pm_dev;
+#endif
 
 /*
  * UCB1200 register 9: Touchscreen control register
@@ -86,6 +109,20 @@
 #define TSMX_LOW (1 << 13)
 
 
+#if defined(CONFIG_SA1100_COLLIE)
+extern int idleCancel;
+typedef struct {
+	long x;
+	long y;
+  	long pressure;
+	long long millisecs;
+} TS_EVENT;
+#define	PRESSURE_THRESHOLD	350
+static int	threshold = PRESSURE_THRESHOLD;
+
+static int	noFlDim = 1;
+#define		flDim		(! noFlDim)
+#else
 /* From Compaq's Touch Screen Specification version 0.2 (draft) */
 typedef struct {
     short pressure;
@@ -93,10 +130,12 @@ typedef struct {
     short y;
     short millisecs;
 } TS_EVENT;
+#endif
 
 static int raw_max_x, raw_max_y, res_x, res_y, raw_min_x, raw_min_y, xyswap;
 
 static int cal_ok, x_rev, y_rev;
+static int smooth;
 
 static char *dev_id = "ucb1200-ts";
 
@@ -104,11 +143,26 @@ static DECLARE_WAIT_QUEUE_HEAD(queue);
 static struct timer_list timer;
 
 /* state machine states for touch screen */
+#if defined(CONFIG_SA1100_COLLIE) && !defined(CONFIG_COLLIE_TS) && !defined(CONFIG_COLLIE_TR0)
+enum {
+	PRESSED = 0,
+	P_ADC_CHARGE,
+	P_DONE,
+	Y_ADC_CHARGE,
+	Y_DONE,
+	X_ADC_CHARGE,
+	X_DONE,
+	P_ADC_CHARGE2,
+	P_DONE2,
+	RELEASED
+};
+#else	/* (! CONFIG_SA1100_COLLIE) || CONFIG_COLLIE_TS || CONFIG_COLLIE_TR0 */
 #define PRESSED  0
 #define P_DONE   1
 #define X_DONE   2
 #define Y_DONE   3
 #define RELEASED 4
+#endif	/* end (! CONFIG_SA1100_COLLIE) || CONFIG_COLLIE_TS || CONFIG_COLLIE_TR0 */
 
 /* state machine states for adc */
 #define ADCX_IDLE   0
@@ -124,10 +178,25 @@ static spinlock_t owner_lock = SPIN_LOCK_UNLOCKED;
 #define YLIMIT 160
 static volatile int ts_state, adcx_state, adc_owner;
 static int head, tail, sample;
+#if CONFIG_SA1100_COLLIE
+#define TS_SAMPLES	4
+#define	TS_SAMPLES_MASK	(TS_SAMPLES - 1)
+static TS_EVENT cur_data, samples[TS_SAMPLES], buf[BUFSIZE];
+#define TS_OFFSET	0x10000
+static int x_slope;
+static int y_slope;
+static int x_off;
+static int y_off;
+#else
 static TS_EVENT cur_data, samples[3], buf[BUFSIZE];
+#endif
 static struct fasync_struct *fasync;
 static unsigned long in_timehandle = 0;
+#if defined(CONFIG_SA1100_COLLIE)
+static volatile int	timehandling = 0;
+#endif
 static int adcx_channel, adcx_data[4];
+static void ucb1200_ts_interrupt(int, void *, struct pt_regs *);
 /* Allen Add */
 static void ts_clear(void);
 static void print_par(void);
@@ -140,38 +209,75 @@ extern u16 ucb1200_read_adc(void);
 
 static inline void set_read_x_pos(void)
 {
+#if defined(CONFIG_SA1100_COLLIE)
+	ucb1200_stop_adc();
+	ucb1200_set_io(TC35143_GPIO_TBL_CHK, TC35143_IODAT_LOW);
+	ucb1200_write_reg(UCB1200_REG_TS_CTL,
+			  TSPX_POW | TSMX_GND |
+			  TSC_MODE_POSITION | TSC_BIAS_ENA);
+	ucb1200_start_adc(ADC_INPUT_TSPY);
+#else
 	/* See Philips' AN809 for an explanation of the pressure mode switch */
-	ucb1200_write_reg(UCB1200_REG_TS_CTL, TSPX_POW | TSMX_GND | TSC_MODE_PRESSURE | TSC_BIAS_ENA);
+	ucb1200_write_reg(UCB1200_REG_TS_CTL,
+			  TSPX_POW | TSMX_GND |
+			  TSC_MODE_PRESSURE | TSC_BIAS_ENA);
 
 	/* generate a SIB frame */
 	ucb1200_stop_adc();
 
-	ucb1200_write_reg(UCB1200_REG_TS_CTL, TSPX_POW | TSMX_GND | TSC_MODE_POSITION | TSC_BIAS_ENA);
+	ucb1200_write_reg(UCB1200_REG_TS_CTL,
+			  TSPX_POW | TSMX_GND |
+			  TSC_MODE_POSITION | TSC_BIAS_ENA);
 
 	ucb1200_start_adc(ADC_INPUT_TSPY);
+#endif
 }
 
 static inline void set_read_y_pos(void)
 {
-	ucb1200_write_reg(UCB1200_REG_TS_CTL, TSPY_POW | TSMY_GND | TSC_MODE_PRESSURE | TSC_BIAS_ENA);
+#if defined(CONFIG_SA1100_COLLIE)
+	ucb1200_stop_adc();
+	ucb1200_set_io(TC35143_GPIO_TBL_CHK, TC35143_IODAT_LOW);
+	ucb1200_write_reg(UCB1200_REG_TS_CTL,
+			  TSPY_POW | TSMY_GND |
+			  TSC_MODE_POSITION | TSC_BIAS_ENA);
+	ucb1200_start_adc(ADC_INPUT_TSPX);
+#else
+	ucb1200_write_reg(UCB1200_REG_TS_CTL,
+			  TSPY_POW | TSMY_GND |
+			  TSC_MODE_PRESSURE | TSC_BIAS_ENA);
 
 	/* generate a SIB frame */
 	ucb1200_stop_adc();
 
-	ucb1200_write_reg(UCB1200_REG_TS_CTL, TSPY_POW | TSMY_GND | TSC_MODE_POSITION | TSC_BIAS_ENA);
+	ucb1200_write_reg(UCB1200_REG_TS_CTL,
+			  TSPY_POW | TSMY_GND |
+			  TSC_MODE_POSITION | TSC_BIAS_ENA);
 
 	ucb1200_start_adc(ADC_INPUT_TSPX);
+#endif
 }
 
 static inline void set_read_pressure(void)
 {
-	ucb1200_write_reg(UCB1200_REG_TS_CTL, TSPX_POW | TSMX_POW | TSPY_GND | TSMY_GND | TSC_MODE_PRESSURE | TSC_BIAS_ENA);
+#if defined(CONFIG_SA1100_COLLIE)
+	ucb1200_set_io(TC35143_GPIO_TBL_CHK, TC35143_IODAT_HIGH);
+	ucb1200_write_reg(UCB1200_REG_TS_CTL,
+			  TSPX_POW | TSMX_POW |
+			  TSC_MODE_POSITION | TSC_BIAS_ENA);
+	ucb1200_start_adc(ADC_INPUT_AD2);
+#else
+	ucb1200_write_reg(UCB1200_REG_TS_CTL,
+			  TSPX_POW | TSMX_POW | TSPY_GND | TSMY_GND |
+			  TSC_MODE_PRESSURE | TSC_BIAS_ENA);
 
 	ucb1200_start_adc(ADC_INPUT_TSPX);
+#endif
 }
 
 static int ucb1200_ts_ioctl(struct inode *inode, struct file *filp, unsigned int cmd, unsigned long arg)
 {
+  /* int ret_data = 0; */
 /* Microwindows style (should change to TS_CAL when the specification is ready) */
    switch (cmd)
    {
@@ -212,6 +318,15 @@ static int ucb1200_ts_ioctl(struct inode *inode, struct file *filp, unsigned int
 	 print_par();
 	 break;
 /* Allen */
+      case TS_IOCGRESX:
+	 return res_x;
+      case TS_IOCGRESY:
+	 return res_y;
+      case TS_IOCSSMOOTH:
+	 smooth = arg;
+	 break;
+      default:
+	 return -EINVAL;
    }
 
    return 0;
@@ -224,10 +339,10 @@ static void ts_clear(void)
 
    for (i=0; i < BUFSIZE; i++)
    {
-       buf[i].pressure=(short)NULL;
-       buf[i].x=(int)NULL;
-       buf[i].y=(int)NULL;
-       buf[i].millisecs=(int)NULL;
+       buf[i].pressure=0;
+       buf[i].x=0;
+       buf[i].y=0;
+       buf[i].millisecs=0;
    }
 
    head = 0;
@@ -247,16 +362,27 @@ static void print_par(void)
    printk(" Kernel ==> xyswap = %d\n",xyswap);
    printk(" Kernel ==> x_rev = %d\n",x_rev);
    printk(" Kernel ==> y_rev = %d\n",y_rev);
+   printk(" Kernel ==> smooth = %d\n",smooth);
 }
 
 /* Allen */
 
 static inline int pen_up(void)
 {
+#if defined(CONFIG_SA1100_COLLIE)
 	ucb1200_stop_adc();
-	ucb1200_write_reg(UCB1200_REG_TS_CTL, TSPX_POW | TSMX_POW | TSPY_GND | TSMY_GND);
-
+	ucb1200_write_reg(UCB1200_REG_TS_CTL,
+			  TSPX_POW | TSMX_POW | TSPY_GND | TSMY_GND);
+#if 0	/* remove delay */
+	udelay(1000);
+#endif
+	return !(ucb1200_read_reg(UCB1200_REG_TS_CTL) & TSPX_LOW);
+#else
+	ucb1200_stop_adc();
+	ucb1200_write_reg(UCB1200_REG_TS_CTL,
+			  TSPX_POW | TSMX_POW | TSPY_GND | TSMY_GND);
 	return ucb1200_read_reg(UCB1200_REG_TS_CTL) & TSPX_LOW;
+#endif
 }
 
 static void new_data(void)
@@ -264,8 +390,22 @@ static void new_data(void)
    static TS_EVENT last_data = { 0, 0, 0, 0 };
    int diff0, diff1, diff2, diff3;
 
+   if (!smooth) {
+   } else
    if (cur_data.pressure)
    {
+#ifdef CONFIG_SA1100_COLLIE
+     samples[sample & TS_SAMPLES_MASK].x = cur_data.x;
+     samples[sample & TS_SAMPLES_MASK].y = cur_data.y;
+     sample++;
+      if (sample <= TS_SAMPLES)
+      {
+	 return;
+      }
+      cur_data.x = samples[(sample-3) & TS_SAMPLES_MASK].x;
+      cur_data.y = samples[(sample-3) & TS_SAMPLES_MASK].y;
+
+#else	/* !CONFIG_SA1100_COLLIE */
       if (sample < 3)
       {
 	 samples[sample].x = cur_data.x;
@@ -321,9 +461,18 @@ static void new_data(void)
 	 else
 	    cur_data.y = (cur_data.y + samples[1].y) / 2;
       }
+#endif	/* end !CONFIG_SA1100_COLLIE */
    }
    else
    {
+#ifdef CONFIG_SA1100_COLLIE
+      if (sample <= TS_SAMPLES)
+      {
+	 return;
+      }
+      cur_data.x = samples[(sample-2) & TS_SAMPLES_MASK].x;
+      cur_data.y = samples[(sample-2) & TS_SAMPLES_MASK].y;
+#endif
 /* Reset jitter detection on pen release */
       last_data.x = 0;
       last_data.y = 0;
@@ -338,21 +487,16 @@ static void new_data(void)
    cur_data.millisecs = jiffies;
    last_data = cur_data;
 
-   if (head != tail)
-   {
-      int last = head--;
-      if (last < 0)
-	 last = BUFSIZE - 1;
-   }
    buf[head] = cur_data;
 
-   if (++head == BUFSIZE)
+   if (++head >= BUFSIZE)
       head = 0;
-   if (head == tail && tail++ == BUFSIZE)
+   if (head == tail && ++tail >= BUFSIZE)
       tail = 0;
 
    if (fasync)
       kill_fasync(&fasync, SIGIO, POLL_IN);
+//X   printk("new head = %d, tail = %d\n",head,tail);
    wake_up_interruptible(&queue);
 }
 
@@ -362,6 +506,7 @@ static TS_EVENT get_data(void)
 
    if (++tail == BUFSIZE)
       tail = 0;
+//X   printk("get head = %d, tail = %d\n",head,tail);
    return buf[last];
 }
 
@@ -373,17 +518,32 @@ static void wait_for_action(void)
 	ts_state = PRESSED;
 	sample = 0;
 
+#if !defined(CONFIG_SA1100_COLLIE)
 	ucb1200_disable_irq(IRQ_UCB1200_ADC);
+#endif
+
+#if defined(CONFIG_SA1100_COLLIE)
+	ucb1200_set_irq_edge(TSPX_INT, GPIO_RISING_EDGE);
+#else
 	ucb1200_set_irq_edge(TSPX_INT, GPIO_FALLING_EDGE);
+#endif
 	ucb1200_enable_irq(IRQ_UCB1200_TSPX);
 
 	ucb1200_stop_adc();
-	ucb1200_write_reg(UCB1200_REG_TS_CTL, TSPX_POW | TSMX_POW | TSPY_GND | TSMY_GND | TSC_MODE_INT);
+#ifdef CONFIG_SA1100_COLLIE
+	ucb1200_unlock_adc(ucb1200_ts_interrupt);
+#endif
+	ucb1200_write_reg(UCB1200_REG_TS_CTL,
+			  TSPX_POW | TSMX_POW | TSPY_GND | TSMY_GND |
+			  TSC_MODE_INT);
 
 	/* if adc is waiting, start it */
 	if (adcx_state == ADCX_SAMPLE) {
 		adcx_take_ownership();
 	}
+#ifdef CONFIG_SA1100_COLLIE
+	idleCancel = 0;
+#endif
 }
 
 static void
@@ -402,7 +562,30 @@ static void start_chain(void)
 {
 	unsigned long flags;
 
+#ifdef CONFIG_SA1100_COLLIE
+#if defined(CONFIG_COLLIE_TS) || defined(CONFIG_COLLIE_TR0)
+	colliefl_temporary_suspend();	/* front light off */
+#endif
+
+	if (ucb1200_lock_adc(ucb1200_ts_interrupt) < 0) {
+		ucb1200_set_irq_edge(TSPX_INT, GPIO_FALLING_EDGE);
+		ucb1200_enable_irq(IRQ_UCB1200_TSPX);
+		ucb1200_write_reg(UCB1200_REG_TS_CTL,
+		  TSPX_POW | TSMX_POW | TSPY_GND | TSMY_GND | TSC_MODE_INT);
+		ts_state = RELEASED;
+		ucb1200_ts_starttimer();
+		return;
+	}
+
+#if !defined(CONFIG_COLLIE_TS) && !defined(CONFIG_COLLIE_TR0)
+	ts_state = P_ADC_CHARGE;
+#else	/* CONFIG_COLLIE_TS || CONFIG_COLLIE_TR0 */
 	ts_state = P_DONE;
+#endif
+
+#else	/* !CONFIG_SA1100_COLLIE */
+	ts_state = P_DONE;
+#endif
 
 	/* if adcx is idle, grab adc, else wait for ts state check at end */
 	spin_lock_irqsave(&owner_lock, flags);
@@ -425,7 +608,11 @@ static ssize_t ucb1200_ts_read(struct file *filp, char *buf, size_t count, loff_
    DECLARE_WAITQUEUE(wait, current);
    int i;
    TS_EVENT t;
+#if defined(CONFIG_SA1100_COLLIE)
+   TS_EVENT out;
+#else
    short out_buf[4];
+#endif
 
    if (head == tail)
    {
@@ -441,13 +628,23 @@ static ssize_t ucb1200_ts_read(struct file *filp, char *buf, size_t count, loff_
       current->state = TASK_RUNNING;
       remove_wait_queue(&queue, &wait);
    }
+
+#if defined(CONFIG_SA1100_COLLIE)
+   for (i = count; i >= sizeof(out); i -= sizeof(out), buf += sizeof(out))
+#else
    for (i = count; i >= sizeof(out_buf); i -= sizeof(out_buf), buf += sizeof(out_buf))
+#endif
    {
+
       if (head == tail)
 	 break;
       t = get_data();
 
+#if defined(CONFIG_SA1100_COLLIE)
+      out.pressure = t.pressure;
+#else
       out_buf[0] = t.pressure;
+#endif
 
 /* Alen Add */
 #if 0
@@ -477,6 +674,31 @@ static ssize_t ucb1200_ts_read(struct file *filp, char *buf, size_t count, loff_
 #endif
 
 #else
+#if defined(CONFIG_SA1100_COLLIE)
+      if (cal_ok)
+      {
+	 	out.x = (x_rev) ? ((raw_max_x - t.x) * res_x) / (raw_max_x - raw_min_x) :
+		((t.x - raw_min_x) * res_x) / (raw_max_x - raw_min_x);
+	 	out.y = (y_rev) ? ((raw_max_y - t.y) * res_y) / (raw_max_y - raw_min_y) :
+		((t.y - raw_min_y) * res_y) / (raw_max_y - raw_min_y);
+      }
+      else
+      {
+	 	out.x = t.x;
+	 	out.y = t.y;
+      }
+
+      {
+	/* convert x, y */
+	long	save_y;
+	out.x = ( ( (((1023 - out.x) * x_slope) + x_off) / TS_OFFSET ) * 1024 ) / 240;
+	out.y = ( ( (((1023 - out.y) * y_slope) + y_off) / TS_OFFSET ) * 1024 ) / 320;
+	save_y = out.y;
+	out.y = out.x;
+	out.x = save_y;
+      }
+
+#else
       if (cal_ok)
       {
 	 	out_buf[1] = (x_rev) ? ((raw_max_x - t.x) * res_x) / (raw_max_x - raw_min_x) :
@@ -490,11 +712,20 @@ static ssize_t ucb1200_ts_read(struct file *filp, char *buf, size_t count, loff_
 	 	out_buf[2] = t.y;
       }
 #endif
+#endif
 /* Allen */
 
+#if defined(CONFIG_SA1100_COLLIE)
+      out.millisecs = t.millisecs;
+#else
       out_buf[3] = t.millisecs;
+#endif
 
+#if defined(CONFIG_SA1100_COLLIE)
+      copy_to_user(buf, &out, sizeof(out));
+#else
       copy_to_user(buf, &out_buf, sizeof(out_buf));
+#endif
    }
 
    return count - i;
@@ -505,25 +736,42 @@ static void ucb1200_ts_timer(unsigned long);
 
 static int ucb1200_ts_starttimer(void)
 {
-   in_timehandle++;
-   init_timer(&timer);
-   timer.function = ucb1200_ts_timer;
-   timer.expires = jiffies + HZ / 100;
-   add_timer(&timer);
-   return 0;
+#ifdef CONFIG_SA1100_COLLIE
+#if defined(CONFIG_COLLIE_TS) || defined(CONFIG_COLLIE_TR0)
+	colliefl_temporary_resume();	/* front light on */
+#endif
+	ucb1200_unlock_adc(ucb1200_ts_interrupt);
+#endif
+	in_timehandle++;
+	init_timer(&timer);
+	timer.function = ucb1200_ts_timer;
+	timer.expires = jiffies + HZ / 100;
+	add_timer(&timer);
+	return 0;
 }
 
 static void ucb1200_ts_timer(unsigned long data)
 {
-   in_timehandle--;
-   if (pen_up())
-   {
-      cur_data.pressure = 0;
-      new_data();
-      wait_for_action();
-   }
-   else
-      start_chain();
+#if defined(CONFIG_SA1100_COLLIE)
+	timehandling = 1;
+#endif
+	in_timehandle--;
+	if (pen_up()) {
+#if defined(CONFIG_SA1100_COLLIE) && !defined(CONFIG_COLLIE_TS) && !defined(CONFIG_COLLIE_TR0)
+		if (flDim) {
+			colliefl_temporary_contrast_reset();
+		}
+#endif
+	  	cur_data.pressure = 0;
+		new_data();
+		wait_for_action();
+	}
+	else {
+	  	start_chain();
+	}
+#if defined(CONFIG_SA1100_COLLIE)
+	timehandling = 0;
+#endif
 }
 
 static int ucb1200_ts_fasync(int fd, struct file *filp, int on)
@@ -557,19 +805,145 @@ static int ucb1200_ts_release(struct inode *inode, struct file *filp)
 	return 0;
 }
 
+#if defined(CONFIG_SA1100_COLLIE)
+#define	LCM_ALC_EN	0x8000
+static inline void fl_enable(void)
+{
+	if (flDim) {
+		if (sample) { /* ignore pen down position */
+			LCM_ALS |= LCM_ALC_EN;
+		}
+	}
+}
+static inline void fl_disable(void)
+{
+	if (flDim) {
+		if (sample) { /* ignore pen down position */
+			LCM_ALS &= ~LCM_ALC_EN;
+		}
+	}
+}
+#endif
+
 static void ucb1200_ts_interrupt(int irq, void *dev_id, struct pt_regs *regs)
 {
+
+#if defined(CONFIG_SA1100_COLLIE)
+  long	pressure2;
+  extern int autoPowerCancel;
+  extern int autoLightCancel;
+#endif
+
+
+	if (irq == IRQ_UCB1200_TSPX) {
+		if ((ts_state != PRESSED)&&(ts_state != RELEASED))
+			return;
+#if defined(CONFIG_SA1100_COLLIE)
+	} else
+	if (irq == IRQ_UCB1200_ADC) {
+		if (ucb1200_get_adc_id() != ucb1200_ts_interrupt)
+			return;
+#endif
+	}
+
 	if (in_timehandle > 0)
 		return;
+#if defined(CONFIG_SA1100_COLLIE)
+	if (timehandling && irq != IRQ_UCB1200_ADC) {
+		return;
+	}
+#endif
 
+#if defined(CONFIG_SA1100_COLLIE)
+	autoPowerCancel = 0;
+	autoLightCancel = 0;
+#endif
+
+#if defined(CONFIG_SA1100_COLLIE) && !defined(CONFIG_COLLIE_TS) && !defined(CONFIG_COLLIE_TR0)
+	switch (ts_state) {
+	case PRESSED:
+		idleCancel = 1;
+		if (flDim) {
+			colliefl_temporary_contrast_set();
+		}
+		start_chain();
+		break;
+	case P_ADC_CHARGE:
+		ucb1200_disable_irq(IRQ_UCB1200_TSPX);
+
+		ts_state++;
+		ucb1200_start_adc(ADC_INPUT_AD2);
+		break;
+	case P_DONE:
+		cur_data.pressure = ucb1200_read_adc();
+#if 0	/* redundant irq enable */
+		ucb1200_enable_irq(IRQ_UCB1200_ADC);
+#endif
+		set_read_y_pos();
+		ts_state++;
+		fl_disable();
+		break;
+	case Y_ADC_CHARGE:
+		ts_state++;
+		ucb1200_start_adc(ADC_INPUT_TSPX);
+		break;
+	case Y_DONE:
+		cur_data.y = ucb1200_read_adc();
+#if 0	/* redundant irq enable */
+		ucb1200_enable_irq(IRQ_UCB1200_ADC);
+#endif
+		set_read_x_pos();
+		ts_state++;
+		break;
+	case X_ADC_CHARGE:
+		ts_state++;
+		ucb1200_start_adc(ADC_INPUT_TSPY);
+		break;
+	case X_DONE:
+	        fl_enable();
+		cur_data.x = ucb1200_read_adc();
+#if 0	/* redundant irq enable */
+		ucb1200_enable_irq(IRQ_UCB1200_ADC);
+#endif
+		set_read_pressure();
+		ts_state++;
+		break;
+	case P_ADC_CHARGE2:
+		ts_state++;
+		ucb1200_start_adc(ADC_INPUT_AD2);
+		break;
+	case P_DONE2:
+		pressure2 = ucb1200_read_adc();
+
+		ucb1200_set_irq_edge(TSPX_INT, GPIO_FALLING_EDGE);
+		ucb1200_enable_irq(IRQ_UCB1200_TSPX);
+		ucb1200_stop_adc();
+		ucb1200_write_reg(UCB1200_REG_TS_CTL,
+		  TSPX_POW | TSMX_POW | TSPY_GND | TSMY_GND | TSC_MODE_INT);
+		ts_state++;
+		if (threshold < pressure2 && threshold < cur_data.pressure) {
+		  new_data();
+		}
+		ucb1200_ts_starttimer();
+		break;
+	case RELEASED:
+		if (flDim) {
+			colliefl_temporary_contrast_reset();
+		}
+		cur_data.pressure = 0;
+		new_data();
+		wait_for_action();
+	}
+#else	/* !CONFIG_SA1100_COLLIE || CONFIG_COLLIE_TS || CONFIG_COLLIE_TR0 */
 	switch (ts_state) {
 	case PRESSED:
 		start_chain();
 		break;
 	case P_DONE:
+		ucb1200_disable_irq(IRQ_UCB1200_TSPX);
+
 		cur_data.pressure = ucb1200_read_adc();
 		ucb1200_enable_irq(IRQ_UCB1200_ADC);
-		ucb1200_disable_irq(IRQ_UCB1200_TSPX);
 		set_read_x_pos();
 		ts_state++;
 		break;
@@ -581,19 +955,29 @@ static void ucb1200_ts_interrupt(int irq, void *dev_id, struct pt_regs *regs)
 		break;
 	case Y_DONE:
 		cur_data.y = ucb1200_read_adc();
+#if defined(CONFIG_SA1100_COLLIE)
+		ucb1200_set_irq_edge(TSPX_INT, GPIO_FALLING_EDGE);
+		ucb1200_enable_irq(IRQ_UCB1200_TSPX);
+#else
 		ucb1200_set_irq_edge(TSPX_INT, GPIO_RISING_EDGE);
 		ucb1200_enable_irq(IRQ_UCB1200_TSPX);
+#endif
 		ucb1200_stop_adc();
-		ucb1200_write_reg(UCB1200_REG_TS_CTL, TSPX_POW | TSMX_POW | TSPY_GND | TSMY_GND | TSC_MODE_INT);
+		ucb1200_write_reg(UCB1200_REG_TS_CTL,
+		  TSPX_POW | TSMX_POW | TSPY_GND | TSMY_GND | TSC_MODE_INT);
 		ts_state++;
 		new_data();
 		ucb1200_ts_starttimer();
 		break;
 	case RELEASED:
+#ifdef CONFIG_SA1100_COLLIE
+		colliefl_temporary_resume();	/* flont light on */
+#endif
 		cur_data.pressure = 0;
 		new_data();
 		wait_for_action();
 	}
+#endif	/* end !CONFIG_SA1100_COLLIE || CONFIG_COLLIE_TS || CONFIG_COLLIE_TR0 */
 }
 
 static void ucb1200_adcx_interrupt(int irq, void *dev_id, struct pt_regs *regs)
@@ -693,7 +1077,16 @@ static struct file_operations ucb1200_ts_fops = {
 
 int sa1100_ts_init(void)
 {
+	smooth = 1;
 #ifdef CONFIG_SA1100_ASSABET
+	raw_max_x = 944;
+	raw_max_y = 944;
+	raw_min_x = 70;
+	raw_min_y = 70;
+	res_x = 320;
+	res_y = 240;
+#elif defined(CONFIG_SA1100_COLLIE)
+	//smooth = 0;
 	raw_max_x = 944;
 	raw_max_y = 944;
 	raw_min_x = 70;
@@ -769,22 +1162,156 @@ int sa1100_ts_init(void)
 	xyswap = 0;
 	head = 0;
 	tail = 0;
-/* Allen Add */
-	cal_ok = 1;
-	x_rev = 0;
-	y_rev = 0;
-/* Allen */
+
+	cal_ok = 0;
+	x_rev = 1;
+	y_rev = 1;
 
 	init_waitqueue_head(&queue);
 
 	/* Initialize the touchscreen controller */
 	ucb1200_stop_adc();
 	ucb1200_set_irq_edge(ADC_INT, GPIO_RISING_EDGE);
-
 	wait_for_action();
 
 	return 0;
 }
+
+#ifdef CONFIG_PM
+static int ucb1200_ts_pm_callback(struct pm_dev *pm_dev,
+				  pm_request_t req, void *data)
+{
+	switch (req) {
+	case PM_SUSPEND:
+		ucb1200_stop_adc();
+		if (in_timehandle) {
+			del_timer(&timer);
+			in_timehandle = 0;
+		}
+	        ucb1200_disable_irq(IRQ_UCB1200_ADC);
+		ucb1200_disable_irq(IRQ_UCB1200_TSPX);
+		break;
+	case PM_RESUME:
+		head = 0;
+		tail = 0;
+		ucb1200_stop_adc();
+		ucb1200_set_irq_edge(ADC_INT, GPIO_RISING_EDGE);
+		wait_for_action();
+                break;
+	}
+	return 0;
+}
+#endif
+
+#ifdef CONFIG_SA1100_COLLIE
+#ifdef CONFIG_PROC_FS
+struct proc_dir_entry *proc_ts;
+
+typedef struct ucb1200_ts_entry {
+	int*		addr;
+	int		def_value;
+	char*		name;
+	char*		description;
+	unsigned short	low_ino;
+} ucb1200_ts_entry_t;
+
+static ucb1200_ts_entry_t ucb1200_ts_params[] = {
+/*  { addr,	    def_value,		name,	    description }*/
+  { &threshold,   PRESSURE_THRESHOLD,	"threshold","pen pressure threshold" },
+  { &noFlDim,                      0,	  "noFlDim","frontlight dim prohibition" },
+  { &ts_state,	                   0,	"ts_state","state of touch sampling"}
+};
+#define NUM_OF_UCB1200_TS_ENTRY	(sizeof(ucb1200_ts_params)/sizeof(ucb1200_ts_entry_t))
+
+static ssize_t ucb1200_ts_read_params(struct file *file, char *buf,
+				      size_t nbytes, loff_t *ppos)
+{
+	int i_ino = (file->f_dentry->d_inode)->i_ino;
+	char outputbuf[15];
+	int count;
+	int i;
+	ucb1200_ts_entry_t	*current_param = NULL;
+	if (*ppos>0) /* Assume reading completed in previous read*/
+		return 0;
+	for (i=0; i<NUM_OF_UCB1200_TS_ENTRY; i++) {
+		if (ucb1200_ts_params[i].low_ino==i_ino) {
+			current_param = &ucb1200_ts_params[i];
+			break;
+		}
+	}
+	if (current_param==NULL) {
+		return -EINVAL;
+	}
+	count = sprintf(outputbuf, "0x%08X\n",
+			*((volatile Word *) current_param->addr));
+	*ppos += count;
+	if (count>nbytes)	/* Assume output can be read at one time */
+		return -EINVAL;
+	if (copy_to_user(buf, outputbuf, count))
+		return -EFAULT;
+	return count;
+}
+
+static ssize_t ucb1200_ts_write_params(struct file *file, const char *buf,
+				       size_t nbytes, loff_t *ppos)
+{
+	int			i_ino = (file->f_dentry->d_inode)->i_ino;
+	ucb1200_ts_entry_t	*current_param = NULL;
+	int			i;
+	unsigned long		param;
+	char			*endp;
+
+	for (i=0; i<NUM_OF_UCB1200_TS_ENTRY; i++) {
+		if(ucb1200_ts_params[i].low_ino==i_ino) {
+			current_param = &ucb1200_ts_params[i];
+			break;
+		}
+	}
+	if (current_param==NULL) {
+		return -EINVAL;
+	}
+
+	param = simple_strtoul(buf,&endp,0);
+	if (param == -1) {
+		*current_param->addr = current_param->def_value;
+	} else {
+		*current_param->addr = param;
+	}
+	return nbytes+endp-buf;
+}
+
+static struct file_operations proc_params_operations = {
+	read:	ucb1200_ts_read_params,
+	write:	ucb1200_ts_write_params,
+};
+#endif
+#endif
+
+
+#ifdef CONFIG_SA1100_COLLIE
+void collie_get_touch()
+{
+  if ( FLASH_DATA(FLASH_TOUCH_MAGIC_ADR) == FLASH_TOUCH_MAJIC ) {
+   x_slope = FLASH_DATA(FLASH_TOUCH_XP_DATA_ADR);
+   y_slope = FLASH_DATA(FLASH_TOUCH_YP_DATA_ADR);
+   x_off   = FLASH_DATA(FLASH_TOUCH_XD_DATA_ADR);
+   y_off   = FLASH_DATA(FLASH_TOUCH_YD_DATA_ADR);
+
+   x_slope = float32_to_int32(float32_mul(x_slope,int32_to_float32(TS_OFFSET)));
+   y_slope = float32_to_int32(float32_mul(y_slope,int32_to_float32(TS_OFFSET)));
+   x_off   = x_off * TS_OFFSET;
+   y_off   = y_off * TS_OFFSET;
+  } else {
+   x_slope = 18199;
+   y_slope = 25264;
+   x_off   = -23*TS_OFFSET;
+   y_off   = -46*TS_OFFSET;
+  }
+
+  printk("touch adj= %d,%d,%d,%d\n",x_slope,y_slope,x_off,y_off);
+
+}
+#endif
 
 int __init ucb1200_ts_init(void)
 {
@@ -793,7 +1320,7 @@ int __init ucb1200_ts_init(void)
 	register_chrdev(TS_MAJOR, TS_NAME, &ucb1200_ts_fops);
 
 	if ((ret = ucb1200_request_irq(IRQ_UCB1200_ADC, ucb1200_adc_interrupt,
-				       SA_INTERRUPT, TS_NAME, dev_id)))
+				       SA_SHIRQ, TS_NAME, dev_id)))
 	{
 		printk("ucb1200_ts_init: failed to register ADC IRQ\n");
 		return ret;
@@ -813,6 +1340,53 @@ int __init ucb1200_ts_init(void)
 		return ret;
 	}
 
+#ifdef CONFIG_PM
+	ucb1200_ts_pm_dev = pm_register(PM_SYS_DEV, 0, ucb1200_ts_pm_callback);
+#endif
+
+#ifdef CONFIG_SA1100_COLLIE
+	collie_get_touch();
+#endif
+
+
+#ifdef CONFIG_SA1100_COLLIE
+#ifdef CONFIG_PROC_FS
+	{
+	int	i;
+	struct proc_dir_entry *entry;
+
+	proc_ts = proc_mkdir("driver/ts", NULL);
+	if (proc_ts == NULL) {
+		ucb1200_free_irq(IRQ_UCB1200_TSPX, dev_id);
+		ucb1200_free_irq(IRQ_UCB1200_ADC, dev_id);
+		printk(KERN_ERR "ts: can't create /proc/driver/ts\n");
+		return -ENOMEM;
+	}
+	for (i=0; i<NUM_OF_UCB1200_TS_ENTRY; i++) {
+		entry = create_proc_entry(ucb1200_ts_params[i].name,
+					  S_IWUSR |S_IRUSR | S_IRGRP | S_IROTH,
+					  proc_ts);
+		if (entry) {
+			ucb1200_ts_params[i].low_ino = entry->low_ino;
+			entry->proc_fops = &proc_params_operations;
+		} else {
+			int	j;
+			for (j=0; j<i; j++) {
+				remove_proc_entry(ucb1200_ts_params[i].name,
+						  proc_ts);
+			}
+			remove_proc_entry("driver/ts", &proc_root);
+			proc_ts = 0;
+			ucb1200_free_irq(IRQ_UCB1200_TSPX, dev_id);
+			ucb1200_free_irq(IRQ_UCB1200_ADC, dev_id);
+			printk(KERN_ERR "ts: can't create /proc/driver/ts/threshold\n");
+			return -ENOMEM;
+		}
+	}
+	}
+#endif
+#endif
+
 	printk("ucb1200 touch screen driver initialized\n");
 
 	return 0;
@@ -829,6 +1403,19 @@ void __exit ucb1200_ts_cleanup(void)
 	ucb1200_free_irq(IRQ_UCB1200_ADC, dev_id);
 
 	unregister_chrdev(TS_MAJOR, TS_NAME);
+
+#ifdef CONFIG_SA1100_COLLIE
+#ifdef CONFIG_PROC_FS
+	{
+	int	i;
+	for (i=0; i<NUM_OF_UCB1200_TS_ENTRY; i++) {
+		remove_proc_entry(ucb1200_ts_params[i].name, proc_ts);
+	}
+	remove_proc_entry("driver/ts", NULL);
+	proc_ts = 0;
+	}
+#endif
+#endif
 
 	printk("ucb1200 touch screen driver removed\n");
 }

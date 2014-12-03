@@ -8,6 +8,9 @@
  * published by the Free Software Foundation.
  *
  *  32-bit kernel startup code for all architectures
+ *
+ * Change Log
+ *   12-Nov-2001 Lineo Japan, Inc.
  */
 #include <linux/config.h>
 #include <linux/linkage.h>
@@ -15,6 +18,8 @@
 #include <asm/assembler.h>
 #include <asm/mach-types.h>
 #include <asm/mach/arch.h>
+
+#include <asm/hardware.h>
 
 #define K(a,b,c)	((a) << 24 | (b) << 12 | (c))
 
@@ -30,6 +35,7 @@
  *
  * swapper_pg_dir, pgtbl and krnladr are all closely related.
  */
+#ifndef CONFIG_XIP_ROM
 #if (TEXTADDR & 0xffff) != 0x8000
 #error TEXTADDR must start at 0xXXXX8000
 #endif
@@ -41,6 +47,27 @@
 		adr	\reg, stext
 		sub	\reg, \reg, #0x4000
 		.endm
+#else
+#if (DATAADDR & 0xffff) != 0x8000
+#error DATAADDR must start at 0xXXXX8000
+#endif
+
+#ifdef CONFIG_IRIS
+#define	PAGE_OFFSET	0xc0000000
+#define	PHYS_OFFSET	0xf0000000
+#else
+#define	PAGE_OFFSET	0xc0000000
+#define	PHYS_OFFSET	0xc0000000
+#endif
+
+		.globl	SYMBOL_NAME(swapper_pg_dir)
+		.equ	SYMBOL_NAME(swapper_pg_dir), DATAADDR - 0x4000
+
+		.macro	pgtbl, reg, rambase
+		ldr	\reg, PGTBL
+		add	\reg, \reg, #PHYS_OFFSET - PAGE_OFFSET
+		.endm
+#endif
 
 /*
  * Since the page table is closely related to the kernel start address, we
@@ -120,10 +147,64 @@ ENTRY(stext)
 __entry:
 #endif
 #if defined(CONFIG_ARCH_L7200)
-/*
- * FIXME - No bootloader, so manually set 'r1' with our architecture number.
- */
+
+		@ enter SVC mode
+		mov	r0, #0x17
+		swi	#(0xEF123456 & 0xffffff)
+
+		@ Disable interrupts
+		mrs	r0, cpsr
+		orr	r0, r0, #0xC0		@ I/F bit 
+		msr	cpsr, r0
+
+#ifdef CONFIG_IRIS
+		@ debug LED
+		mov     r0,#0x80
+		mov     r1,#0x1a000000
+		strb    r0,[r1]
+#endif
+
+		@ who knows???
+		mov	r0, #0xf0000000
+		mov	r1, #0x00003600
+		add	r0, r0, #0x00020000	@ f0023600=FragStart
+		orr	r0, r0, r1
+		mov	r1, #0xf0000000		@ SDRAM bank 1
+		str	r1, [r0], #4
+		mov	r1, #0x01000000		@ 16M
+		str	r1, [r0], #4
+#if defined(CONFIG_IRIS) && !defined(CONFIG_IRIS_32MB)
+		mov	r1, #0xf1000000		@ SDRAM bank 2
+		str	r1, [r0], #4
+		mov	r1, #0x01000000		@ 16M
+		str	r1, [r0], #4
+#endif
+		mov	r1, #0			@ ZeroSize ended
+		str	r1, [r0], #4
+		str	r1, [r0], #4
+
+		@ init UART
+		mov	r2, #0x80000000		@ UART 1 base address
+		add	r2, r2, #0x44000
+#if 1
+		mov	r3, #0x01		@ 115200 baud
+#else
+		mov	r3, #0x17		@ 9600 baud
+#endif
+		str	r3, [r2, #0x10]		@ L_UBRLCR
+		mov	r3, #0x00
+		str	r3, [r2, #0x0c]		@ M_UBRLCR
+		str	r3, [r2, #0x08]		@ H_UBRLCR
+		str	r3, [r2, #0x20]		@ UARTINTMASK: disable interrupts
+		mov	r3, #0x01		@ enable UART
+		str	r3, [r2, #0x14]		@ UARTCON
+
+		mov	r0, #0
+		mov	r12, r0
 		mov	r1, #MACH_TYPE_L7200
+
+#elif defined(CONFIG_SA1100_COLLIE)
+		mov	r1, #MACH_TYPE_COLLIE
 #endif
 
 		mov	r0, #F_BIT | I_BIT | MODE_SVC	@ make sure svc mode
@@ -169,6 +250,17 @@ __ret:		ldr	lr, __switch_data
 		 */
 		.align	5
 __mmap_switched:
+
+#ifdef CONFIG_XIP_ROM
+		ldr	r2, ETEXT			@ data section copy
+		ldr	r3, SDATA
+		ldr	r4, EDATA
+1:
+		ldr	r5, [r2], #4
+		str	r5, [r3], #4
+		cmp	r3, r4
+		blt	1b
+#endif
 		adr	r3, __switch_data + 4
 		ldmia	r3, {r2, r4, r5, r6, r7, r8, sp}@ r2 = compat
 							@ sp = stack pointer
@@ -187,8 +279,6 @@ __mmap_switched:
 		bic	r2, r0, #2			@ Clear 'A' bit
 		stmia	r8, {r0, r2}			@ Save control register values
 		b	SYMBOL_NAME(start_kernel)
-
-
 
 /*
  * Setup the initial page tables.  We only setup the barest
@@ -218,6 +308,8 @@ __create_page_tables:
 		str	r3, [r0], #4
 		teq	r0, r2
 		bne	1b
+
+#ifndef CONFIG_XIP_ROM
 
 		/*
 		 * Create identity mapping for first MB of kernel to
@@ -256,6 +348,41 @@ __create_page_tables:
 		and	r2, r5, #0xf0000000		@ round down
 		add	r3, r8, r2			@ flags + rambase
 		str	r3, [r0]
+
+#else	/* CONFIG_XIP_ROM */
+
+		bic	r3, pc, #0x000000ff
+		bic	r3, r3, #0x0000ff00
+		bic	r3, r3, #0x000f0000		@ phys kernel start
+		add	r0, r4, r3, lsr #18
+		orr	r3, r3, r8
+		str	r3, [r0]
+
+		mov	r0, #TEXTADDR & 0xff000000
+		add	r0, r0, #TEXTADDR & 0x00f00000	@ virt kernel start
+		add	r0, r4, r0, lsr #18
+		add	r2, r3, #4 << 20		@ kernel + 4MB
+1:
+		str	r3, [r0], #4
+		add	r3, r3, #1 << 20
+		cmp	r3, r2
+		bne	1b
+
+		bic	r3, r4, #0x000ff000		@ ram start
+		add	r0, r4, r3, lsr #18
+		orr	r3, r3, r8
+		str	r3, [r0], #4
+
+		add	r0, r3, #PAGE_OFFSET - PHYS_OFFSET
+		add	r0, r4, r0, lsr #18
+		add	r2, r3, #4 << 20		@ ram + 4MB
+1:
+		str	r3, [r0], #4
+		add	r3, r3, #1 << 20
+		cmp	r3, r2
+		bne	1b
+
+#endif	/* CONFIG_XIP_ROM */
 
 		bic	r8, r8, #0x0c			@ turn off cacheable
 							@ and bufferable bits
@@ -420,3 +547,13 @@ __lookup_architecture_type:
 2:		ldmib	r4, {r5, r6, r7}		@ found, get results
 		mov	r7, r7, lsr #18			@ pagetable byte offset
 		mov	pc, lr
+
+#ifdef CONFIG_XIP_ROM
+
+PGTBL:		.long	SYMBOL_NAME(swapper_pg_dir)
+
+ETEXT:		.long	SYMBOL_NAME(_endtext)
+SDATA:		.long	SYMBOL_NAME(_sdata)
+EDATA:		.long	SYMBOL_NAME(__bss_start)
+
+#endif

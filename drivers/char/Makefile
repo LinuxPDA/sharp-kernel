@@ -68,11 +68,23 @@ ifeq ($(ARCH),arm)
     KEYBD    := amba_kmi_keyb.o
   endif
   ifeq ($(CONFIG_SA1111),y)
-    KEYBD    = sa1111_keyb.o
+    KEYBD    := sa1111_keyb.o
   endif
   ifeq ($(CONFIG_SA1100_GRAPHICSCLIENT),y)
-    KEYMAP	 = gckeymap.o
-    KEYBD    = gc_keyb.o
+    KEYMAP   := gckeymap.o
+    KEYBD    := gc_keyb.o
+  endif
+  ifeq ($(CONFIG_L7205SDB),y)
+    KEYBD    := l7200_keyb.o
+    KEYMAP   := l7200_keymap.o
+  endif
+  ifeq ($(CONFIG_IRIS),y)
+     KEYBD    := iris_keyb.o sharp_logkey.o
+     KEYMAP   := iris_keymap.o
+  endif
+  ifeq ($(CONFIG_SA1100_COLLIE),y)
+     KEYBD    := collie_keyb.o sharp_logkey.o
+     KEYMAP   := collie_keymap.o
   endif
 endif
 
@@ -130,10 +142,17 @@ obj-$(CONFIG_SERIAL_SA1100) += serial_sa1100.o
 ifeq ($(CONFIG_SERIAL_SA1100_OLD),y)
    obj-y := $(obj-y:serial_sa1100.o=serial_sa1100_old.o)
 endif
+obj-$(CONFIG_SERIAL_COLLIE) += serial_collie.o
+obj-$(CONFIG_SERIAL_L7200) += serial_l7200.o
+obj-$(CONFIG_SERIAL_IRIS) += serial_iris.o
+obj-$(CONFIG_DEBUG_SERIAL_IRIS) += serial_irisdbg.o
+  
+obj-$(CONFIG_TOUCHSCREEN_L7200) += l7200_ts.o
+obj-$(CONFIG_TOUCHSCREEN_IRIS) += iris_ts.o iris_ssp.o iris_batpoll.o sharp_ts.o
 
 list-multi += ucb1200_core.o
-ucb1200_core-objs := ucb1200_generic.o ucb1200_sa1100.o
-export-objs += ucb1200_generic.o ucb1200_sa1100.o
+ucb1200_core-objs := ucb1200_generic.o ucb1200_sa1100.o ucb1200_adc_exc.o
+export-objs += ucb1200_generic.o ucb1200_sa1100.o ucb1200_adc_exc.o
 obj-$(CONFIG_UCB1200) += ucb1200_core.o
 obj-$(CONFIG_TOUCHSCREEN_UCB1200) += ucb1200_ts.o
 obj-$(CONFIG_ADC_UCB1200) += ucb1200_adc.o
@@ -200,6 +219,7 @@ obj-$(CONFIG_PC110_PAD) += pc110pad.o
 obj-$(CONFIG_RTC) += rtc.o
 obj-$(CONFIG_EFI_RTC) += efirtc.o
 obj-$(CONFIG_SA1100_RTC) += sa1100-rtc.o
+obj-$(CONFIG_L7200_RTC) += l7200_rtc.o
 ifeq ($(CONFIG_PPC),)
   obj-$(CONFIG_NVRAM) += nvram.o
 endif
@@ -253,6 +273,14 @@ subdir-y	+= ../acorn/char
 obj-y		+= ../acorn/char/acorn-char.o
 endif
 
+#
+# Sharp PDA stuff
+#
+obj-$(CONFIG_IRIS) += sharp_led.o sharp_buzzer.o sharp_logkey.o sharp_imelody.o sharp_gsm.o sharp_audioctl.o sharp_kbdctl.o
+obj-$(CONFIG_SA1100_COLLIE) += sharp_led.o sharp_kbdctl.o  sharp_buzzer.o
+
+
+
 include $(TOPDIR)/Rules.make
 
 fastdep:
@@ -273,3 +301,12 @@ jornada720map.c: jornada720map.map
 
 ucb1200_core.o: $(ucb1200_core-objs)
 	$(LD) -r -o $@ $(ucb1200_core-objs)
+
+l7200_keymap.c: l7200_keymap.map
+	loadkeys --mktable l7200_keymap.map > l7200_keymap.c
+
+iris_keymap.c: iris_keymap.map
+	loadkeys --mktable iris_keymap.map > iris_keymap.c
+
+collie_keymap.c: collie_keymap.map
+	loadkeys --mktable collie_keymap.map > collie_keymap.c

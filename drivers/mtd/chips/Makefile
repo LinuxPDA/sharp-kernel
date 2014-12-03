@@ -23,5 +23,7 @@ obj-$(CONFIG_MTD_JEDEC)		+= jedec.o
 obj-$(CONFIG_MTD_RAM)		+= map_ram.o
 obj-$(CONFIG_MTD_ROM)		+= map_rom.o
 obj-$(CONFIG_MTD_SHARP)		+= sharp.o
+obj-$(CONFIG_MTD_SHARP16)	+= sharp16.o
+obj-$(CONFIG_MTD_COLLIE)	+= collie_sharp.o
 
 include $(TOPDIR)/Rules.make

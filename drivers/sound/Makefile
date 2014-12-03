@@ -73,6 +73,8 @@ obj-$(CONFIG_SOUND_ASSABET_UDA1341) += assabet-uda1341.o uda1341.o sa1100-audio.
 obj-$(CONFIG_SOUND_BITSY_UDA1341) += bitsy-uda1341.o uda1341.o sa1100-audio.o
 obj-$(CONFIG_SOUND_SA1111_UDA1341) += sa1111-uda1341.o uda1341.o sa1100-audio.o
 obj-$(CONFIG_SOUND_SA1100SSP)	+= sa1100ssp.o sa1100-audio.o
+obj-$(CONFIG_SOUND_COLLIE_SSP)	+= collie_ssp.o
+obj-$(CONFIG_SOUND_COLLIE_TC35143) += collie-tc35143.o
 
 subdir-$(CONFIG_SOUND_EMU10K1) += emu10k1
 subdir-$(CONFIG_SOUND_CS4281) += cs4281

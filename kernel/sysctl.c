@@ -16,6 +16,9 @@
  *  Wendling.
  * The list_for_each() macro wasn't appropriate for the sysctl loop.
  *  Removed it and replaced it with older style, 03/23/00, Bill Wendling
+ *
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
  */
 
 #include <linux/config.h>
@@ -270,6 +273,17 @@ static ctl_table vm_table[] = {
 	 &pgt_cache_water, 2*sizeof(int), 0644, NULL, &proc_dointvec},
 	{VM_PAGE_CLUSTER, "page-cluster", 
 	 &page_cluster, sizeof(int), 0644, NULL, &proc_dointvec},
+#ifdef CONFIG_FREEPG_SIGNAL
+	{VM_FREEPG_SIGNAL_PROC, "freepg_signal_proc", freepg_sig_watermark.comm,
+	 sizeof freepg_sig_watermark.comm, 0644, NULL, &proc_dostring},
+	{VM_FREEPG_SIGNAL_WATERMARK, "freepg_signal_watermarks",
+	 &freepg_sig_watermark.low,
+	 sizeof freepg_sig_watermark.low * 3,
+	 0644, NULL, &proc_dointvec},
+	{VM_FREEPG_SIGNAL_CURRENT, "freepg_signal_current", &freepg_sig_watermark.cur,
+	 sizeof freepg_sig_watermark.cur,
+	 0444, NULL, &proc_dointvec},
+#endif
 	{0}
 };
 

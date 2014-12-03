@@ -293,9 +293,9 @@ void irport_start(struct irport_cb *self)
 
 	iobase = self->io.sir_base;
 
-	spin_lock_irqsave(&self->lock, flags);
-
 	irport_stop(self);
+	
+	spin_lock_irqsave(&self->lock, flags);
 
 	/* Initialize UART */
 	outb(UART_LCR_WLEN8, iobase+UART_LCR);  /* Reset DLAB */
@@ -353,7 +353,7 @@ void irport_change_speed(void *priv, __u32 speed)
 	int lcr;    /* Line control reg */
 	int divisor;
 
-	IRDA_DEBUG(2, __FUNCTION__ "(), Setting speed to: %d\n", speed);
+	IRDA_DEBUG(0, __FUNCTION__ "(), Setting speed to: %d\n", speed);
 
 	ASSERT(self != NULL, return;);
 
@@ -616,7 +616,9 @@ int irport_hard_xmit(struct sk_buff *skb, struct net_device *dev)
 	struct irport_cb *self;
 	unsigned long flags;
 	int iobase;
-	__s32 speed;
+	s32 speed;
+
+	IRDA_DEBUG(0, __FUNCTION__ "()\n");
 
 	ASSERT(dev != NULL, return 0;);
 	
@@ -772,24 +774,33 @@ int irport_net_open(struct net_device *dev)
 {
 	struct irport_cb *self;
 	int iobase;
+	char hwname[16];
 
+	IRDA_DEBUG(0, __FUNCTION__ "()\n");
+	
 	ASSERT(dev != NULL, return -1;);
 	self = (struct irport_cb *) dev->priv;
 
 	iobase = self->io.sir_base;
 
 	if (request_irq(self->io.irq, self->interrupt, 0, dev->name, 
-			(void *) dev))
+			(void *) dev)) {
+		IRDA_DEBUG(0, __FUNCTION__ "(), unable to allocate irq=%d\n",
+			   self->io.irq);
 		return -EAGAIN;
+	}
 
 	irport_start(self);
 
+
+	/* Give self a hardware name */
+	sprintf(hwname, "SIR @ 0x%03x", self->io.sir_base);
 
 	/* 
 	 * Open new IrLAP layer instance, now that everything should be
 	 * initialized properly 
 	 */
-	self->irlap = irlap_open(dev, &self->qos);
+	self->irlap = irlap_open(dev, &self->qos, hwname);
 
 	/* FIXME: change speed of dongle */
 	/* Ready to play! */
@@ -951,13 +962,17 @@ static int irport_net_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
 	switch (cmd) {
 	case SIOCSBANDWIDTH: /* Set bandwidth */
 		if (!capable(CAP_NET_ADMIN))
-			return -EPERM;
-		irda_task_execute(self, __irport_change_speed, NULL, NULL, 
-				  (void *) irq->ifr_baudrate);
+			ret = -EPERM;
+                else
+			irda_task_execute(self, __irport_change_speed, NULL, 
+					  NULL, (void *) irq->ifr_baudrate);
 		break;
 	case SIOCSDONGLE: /* Set dongle */
-		if (!capable(CAP_NET_ADMIN))
-			return -EPERM;
+		if (!capable(CAP_NET_ADMIN)) {
+			ret = -EPERM;
+			break;
+		}
+
 		/* Initialize dongle */
 		dongle = irda_device_dongle_init(dev, irq->ifr_dongle);
 		if (!dongle)
@@ -978,16 +993,22 @@ static int irport_net_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
 				  NULL);	
 		break;
 	case SIOCSMEDIABUSY: /* Set media busy */
-		if (!capable(CAP_NET_ADMIN))
-			return -EPERM;
+		if (!capable(CAP_NET_ADMIN)) {
+			ret = -EPERM;
+			break;
+		}
+
 		irda_device_set_media_busy(self->netdev, TRUE);
 		break;
 	case SIOCGRECEIVING: /* Check if we are receiving right now */
 		irq->ifr_receiving = irport_is_receiving(self);
 		break;
 	case SIOCSDTRRTS:
-		if (!capable(CAP_NET_ADMIN))
-			return -EPERM;
+		if (!capable(CAP_NET_ADMIN)) {
+			ret = -EPERM;
+			break;
+		}
+
 		irport_set_dtr_rts(dev, irq->ifr_dtr, irq->ifr_rts);
 		break;
 	default:

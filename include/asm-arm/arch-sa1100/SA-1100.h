@@ -15,6 +15,9 @@
  *	        	Language-specific definitions are selected by the
  *	        	macro "LANGUAGE", which should be defined as either
  *	        	"C" (default) or "Assembly".
+ * 
+ * Change Log:
+ *   12-Nov-2001 Lineo Japan, Inc.
  */
 
 
@@ -1891,7 +1894,7 @@ typedef PCMCIAPrtType	PCMCIAType [PCMCIASp/PCMCIAPrtSp] ;
 #define MDCNFG_SA1110_DRAC0	Fld(3, 4)	/* DRAM row addr bit count   */
                 	        		/* bank 0/1                  */
 #define MDCNFG_SA1110_CDB20	0x00000080	/* Mem Clock divide by 2 0/1 */
-#define MDCNFG_SA1110_TRP0	Fld(3, 8)	/* RAS precharge 0/1         */
+#define MDCNFG_SA1110_TRP0	Fld(4, 8)	/* RAS precharge 0/1         */
 #define MDCNFG_SA1110_TDL0	Fld(2, 12)	/* Data input latch after CAS*/
                 	        		/* deassertion 0/1           */
 #define MDCNFG_SA1110_TWR0	Fld(2, 14)	/* SDRAM write recovery 0/1  */
@@ -1902,7 +1905,7 @@ typedef PCMCIAPrtType	PCMCIAType [PCMCIASp/PCMCIAPrtSp] ;
 #define MDCNFG_SA1110_DRAC2	Fld(3, 20)	/* DRAM row addr bit count   */
                 	        		/* bank 0/1                  */
 #define MDCNFG_SA1110_CDB22	0x00800000	/* Mem Clock divide by 2 0/1 */
-#define MDCNFG_SA1110_TRP2	Fld(3, 24)	/* RAS precharge 0/1         */
+#define MDCNFG_SA1110_TRP2	Fld(4, 24)	/* RAS precharge 0/1         */
 #define MDCNFG_SA1110_TDL2	Fld(2, 28)	/* Data input latch after CAS*/
                 	        		/* deassertion 0/1           */
 #define MDCNFG_SA1110_TWR2	Fld(2, 30)	/* SDRAM write recovery 0/1  */

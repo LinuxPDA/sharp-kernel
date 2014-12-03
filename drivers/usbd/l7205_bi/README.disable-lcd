@@ -1,0 +1,71 @@
+From zkj@linkupsys.com Fri Aug 24 15:29:34 2001
+Return-path: <zkj@linkupsys.com>
+Envelope-to: sl@nero.fireplug.net
+Delivery-date: Fri, 24 Aug 2001 15:29:34 -0700
+Received: from [204.174.19.21] (helo=merlin.fireplug.net)
+	by whiskey.enposte.net with esmtp (Exim 3.22 #2)
+	id 15aPSI-0007bt-00
+	for sl@nero.fireplug.net; Fri, 24 Aug 2001 15:29:34 -0700
+Received: from thor.lineo.com ([204.246.147.11])
+	by merlin.fireplug.net with esmtp (Exim 2.12 #12)
+	id 15aPSG-0000iI-01
+	for sl@fireplug.net; Fri, 24 Aug 2001 15:29:33 -0700
+Received: from cob590.dn.net ([216.167.2.145])
+          by thor.lineo.com (Lotus Domino Release 5.0.8)
+          with ESMTP id 2001082416293008:53996 ;
+          Fri, 24 Aug 2001 16:29:30 -0600 
+Received: from keji ([199.239.181.114])
+	by cob590.dn.net (8.9.3/8.9.3) with SMTP id PAA29656;
+	Fri, 24 Aug 2001 15:40:31 -0700
+Message-ID: <001e01c12e7f$1ea21eb0$b901a8c0@keji>
+From: "keji" <zkj@linkupsys.com>
+To: "Stuart Lynne" <sl@lineo.com>
+Cc: "edmund cheung" <edmund@linkupsys.com>
+References: <20010824130624.I13290@fireplug.net>
+Subject: Re: Disabling the LED?
+Date: Sun, 26 Aug 2001 15:32:54 -0700
+MIME-Version: 1.0
+X-Priority: 3 (Normal)
+X-MSMail-Priority: Normal
+X-MimeOLE: Produced By Microsoft MimeOLE V5.50.4133.2400
+Content-Transfer-Encoding: 7bit
+Content-Type: text/plain;
+	charset="iso-8859-1"
+Status: RO
+Content-Length: 811
+Lines: 33
+
+
+CLCD control register : 0x80049000
+1) Disable the Lcd power  and wait at least 20 MS
+   0x80049000 bit 22 set to 0
+2)disable the Lcd
+  0x80049000 bit 0 set  to 0
+3) stop the CL clock
+  0x80050030 bit 10 set  to 0
+4)disable Vee and Backlight
+ GPIO PE bit 1 & 2 set to 0
+
+Best!
+Keji
+
+
+
+----- Original Message ----- 
+From: "Stuart Lynne" <sl@lineo.com>
+To: "keji" <zkj@linkupsys.com>
+Cc: "Stuart Lynne" <sl@lineo.com>
+Sent: Friday, August 24, 2001 1:06 PM
+Subject: Disabling the LED?
+
+
+> Can you provide details on disabling the LED controller?
+> 
+> -- 
+>                                             __O 
+> Lineo - Where Open  Meets Smart           _-\<,_ 
+> PGP Fingerprint: 28 E2 A0 15 99 62 9A 00 (_)/ (_) 88 EC A3 EE 2D 1C 15 68
+> Stuart Lynne <sl@lineo.com>            www.lineo.com         604-461-7532
+> 
+
+

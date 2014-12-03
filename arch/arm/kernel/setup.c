@@ -6,6 +6,9 @@
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
+ * 
+ * Change Log
+ *   12-Nov-2001 Lineo Japan, Inc.
  */
 #include <linux/config.h>
 #include <linux/kernel.h>
@@ -55,6 +58,9 @@ extern void bootmem_init(struct meminfo *);
 extern void reboot_setup(char *str);
 extern int root_mountflags;
 extern int _stext, _text, _etext, _edata, _end;
+#ifdef CONFIG_XIP_ROM
+extern int _endtext, _sdata;
+#endif
 
 unsigned int processor_id;
 unsigned int compat;
@@ -262,7 +268,11 @@ request_standard_resources(struct meminfo *mi, struct machine_desc *mdesc)
 
 	kernel_code.start  = __virt_to_bus(init_mm.start_code);
 	kernel_code.end    = __virt_to_bus(init_mm.end_code - 1);
+#ifndef CONFIG_XIP_ROM
 	kernel_data.start  = __virt_to_bus(init_mm.end_code);
+#else
+	kernel_data.start  = __virt_to_bus(init_mm.start_data);
+#endif
 	kernel_data.end    = __virt_to_bus(init_mm.brk - 1);
 
 	for (i = 0; i < mi->nr_banks; i++) {
@@ -495,7 +505,12 @@ void __init setup_arch(char **cmdline_p)
 	}
 
 	init_mm.start_code = (unsigned long) &_text;
+#ifndef CONFIG_XIP_ROM
 	init_mm.end_code   = (unsigned long) &_etext;
+#else
+	init_mm.end_code   = (unsigned long) &_endtext;
+	init_mm.start_data   = (unsigned long) &_sdata;
+#endif
 	init_mm.end_data   = (unsigned long) &_edata;
 	init_mm.brk	   = (unsigned long) &_end;
 

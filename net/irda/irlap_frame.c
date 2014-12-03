@@ -11,6 +11,7 @@
  * 
  *     Copyright (c) 1998-2000 Dag Brattli <dagb@cs.uit.no>, 
  *     All Rights Reserved.
+ *     Copyright (c) 2000-2001 Jean Tourrilhes <jt@hpl.hp.com>
  *     
  *     This program is free software; you can redistribute it and/or 
  *     modify it under the terms of the GNU General Public License as 
@@ -161,7 +162,7 @@ static void irlap_recv_snrm_cmd(struct irlap_cb *self, struct sk_buff *skb,
 
 	frame = (struct snrm_frame *) skb->data;
 	
-	if (skb->len >= 11 /*sizeof(struct snrm_frame)*/) {
+	if (skb->len >= sizeof(struct snrm_frame)) {
 		/* Copy the new connection address */
 		info->caddr = frame->ncaddr;
 
@@ -428,7 +429,7 @@ static void irlap_recv_discovery_xid_rsp(struct irlap_cb *self,
 
 	IRDA_DEBUG(4, __FUNCTION__ "(), daddr=%08x\n", discovery->daddr);
 
-	discovery_info = skb_pull(skb, 14 /*sizeof(struct xid_frame)*/);
+	discovery_info = skb_pull(skb, sizeof(struct xid_frame));
 
 	/* Get info returned from peer */
 	discovery->hints.byte[0] = discovery_info[0];
@@ -502,7 +503,7 @@ static void irlap_recv_discovery_xid_cmd(struct irlap_cb *self,
 	}
 	info->s = xid->slotnr;
 	
-	discovery_info = skb_pull(skb, 14 /*sizeof(struct xid_frame)*/);
+	discovery_info = skb_pull(skb, sizeof(struct xid_frame));
 
 	/* 
 	 *  Check if last frame 
@@ -698,7 +699,7 @@ static void irlap_recv_srej_frame(struct irlap_cb *self, struct sk_buff *skb,
 static void irlap_recv_disc_frame(struct irlap_cb *self, struct sk_buff *skb, 
 				  struct irlap_info *info, int command)
 {
-	IRDA_DEBUG(0, __FUNCTION__ "()\n");
+	IRDA_DEBUG(2, __FUNCTION__ "()\n");
 
 	/* Check if this is a command or a response frame */
 	if (command)
@@ -744,12 +745,6 @@ void irlap_send_data_primary(struct irlap_cb *self, struct sk_buff *skb)
 			return;
 		}
 		
-		/*
-		 *  make sure the skb->sk accounting of memory usage is sane
-		 */
-		if (skb->sk != NULL)
-			skb_set_owner_w(tx_skb, skb->sk);
-		
 		/* 
 		 *  Insert frame in store, in case of retransmissions 
 		 */
@@ -789,12 +784,6 @@ void irlap_send_data_primary_poll(struct irlap_cb *self, struct sk_buff *skb)
 		if (tx_skb == NULL) {
 			return;
 		}
-		
-		/*
-		 *  make sure the skb->sk accounting of memory usage is sane
-		 */
-		if (skb->sk != NULL)
-			skb_set_owner_w(tx_skb, skb->sk);
 		
 		/* 
 		 *  Insert frame in store, in case of retransmissions 
@@ -865,9 +854,6 @@ void irlap_send_data_secondary_final(struct irlap_cb *self,
 			return;
 		}		
 
-		if (skb->sk != NULL)
-			skb_set_owner_w(tx_skb, skb->sk);
-		
 		/* Insert frame in store */
 		skb_queue_tail(&self->wx_list, skb_get(skb));
 		
@@ -918,9 +904,6 @@ void irlap_send_data_secondary(struct irlap_cb *self, struct sk_buff *skb)
 		if (tx_skb == NULL) {
 			return;
 		}		
-		
-		if (skb->sk != NULL)
-			skb_set_owner_w(tx_skb, skb->sk);
 		
 		/* Insert frame in store */
 		skb_queue_tail(&self->wx_list, skb_get(skb));
@@ -974,12 +957,6 @@ void irlap_resend_rejected_frames(struct irlap_cb *self, int command)
 		/* Unlink tx_skb from list */
 		tx_skb->next = tx_skb->prev = NULL;
 		tx_skb->list = NULL;
-
-		/*
-		 *  make sure the skb->sk accounting of memory usage is sane
-		 */
-		if (skb->sk != NULL)
-			skb_set_owner_w(tx_skb, skb->sk);
 
 		/* Clear old Nr field + poll bit */
 		tx_skb->data[1] &= 0x0f;
@@ -1060,12 +1037,6 @@ void irlap_resend_rejected_frame(struct irlap_cb *self, int command)
 		/* Unlink tx_skb from list */
 		tx_skb->next = tx_skb->prev = NULL;
 		tx_skb->list = NULL;
-
-		/*
-		 *  make sure the skb->sk accounting of memory usage is sane
-		 */
-		if (skb->sk != NULL)
-			skb_set_owner_w(tx_skb, skb->sk);
 
 		/* Clear old Nr field + poll bit */
 		tx_skb->data[1] &= 0x0f;
@@ -1223,7 +1194,7 @@ void irlap_send_test_frame(struct irlap_cb *self, __u8 caddr, __u32 daddr,
 	/* Broadcast frames must include saddr and daddr fields */
 	if (caddr == CBROADCAST) {
 		frame = (struct test_frame *) 
-			skb_put(skb, 10 /*sizeof(struct test_frame)*/);
+			skb_put(skb, sizeof(struct test_frame));
 
 		/* Insert the swapped addresses */
 		frame->saddr = cpu_to_le32(self->saddr);
@@ -1260,7 +1231,7 @@ static void irlap_recv_test_frame(struct irlap_cb *self, struct sk_buff *skb,
 		
 	/* Broadcast frames must carry saddr and daddr fields */
 	if (info->caddr == CBROADCAST) {
-		if (skb->len < 10 /*sizeof(struct test_frame)*/) {
+		if (skb->len < sizeof(struct test_frame)) {
 			IRDA_DEBUG(0, __FUNCTION__ 
 				   "() test frame to short!\n");
 			return;

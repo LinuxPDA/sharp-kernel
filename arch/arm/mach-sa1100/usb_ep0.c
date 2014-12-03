@@ -225,6 +225,8 @@ ep0_int_hndlr( void )
 	 PRINTKD( "/\\(%d)\n", Ser0UDCAR );
 	 pcs();
 
+//printk("ep0_int_hndlr\n");
+
 	 /* if not in setup begin, we are returning data.
 		execute a common preamble to both write handlers 
 	 */
@@ -260,6 +262,8 @@ sh_setup_begin( void )
 	 __u32 cs_bits;
 	 __u32 address;
 	 __u32 cs_reg_in = Ser0UDCCS0;
+
+//printk("sh_setup_begin\n");
 
 	 if (cs_reg_in & UDCCS0_SST) {
 		  PRINTKD( "%ssetup begin: sent stall. Continuing\n", pszMe );
@@ -307,6 +311,8 @@ sh_setup_begin( void )
 	 preq( &req );
 	 }
 #endif
+
+//printk("command = %d\n", req.bRequest);
 
 	 /* Handle it */
 	 switch( req.bRequest ) {

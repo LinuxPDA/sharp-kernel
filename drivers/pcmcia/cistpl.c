@@ -28,6 +28,9 @@
     and other provisions required by the GPL.  If you do not delete
     the provisions above, a recipient may use your version of this
     file under either the MPL or the GPL.
+
+    Change Log
+	12-Nov-2001 Lineo Japan, Inc.
     
 ======================================================================*/
 
@@ -353,6 +356,9 @@ int verify_cis_cache(socket_info_t *s)
     char buf[256], *caddr;
     int i;
     
+    if (s->cis_used == 0)
+	return 1;
+
     caddr = s->cis_cache;
     for (i = 0; i < s->cis_used; i++) {
 #ifdef CONFIG_CARDBUS
@@ -363,6 +369,11 @@ int verify_cis_cache(socket_info_t *s)
 #endif
 	    read_cis_mem(s, s->cis_table[i].attr, s->cis_table[i].addr,
 			 s->cis_table[i].len, buf);
+#ifdef CONFIG_SA1100_COLLIE
+	/* for P-in Compact */
+	if (*buf == CISTPL_END && *caddr == CISTPL_END)
+	    return 0;
+#endif
 	if (memcmp(buf, caddr, s->cis_table[i].len) != 0)
 	    break;
 	caddr += s->cis_table[i].len;

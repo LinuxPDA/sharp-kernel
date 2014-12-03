@@ -580,7 +580,11 @@ fat_read_super(struct super_block *sb, void *data, int silent,
 			|| sbi->clusters + 2 > fat_clusters + MSDOS_MAX_EXTRA
 			|| logical_sector_size < 512
 			|| PAGE_CACHE_SIZE < logical_sector_size
+#if /* for Win98+USB */ defined(CONFIG_SA1100_COLLIE)
+			;
+#else /* (original) */
 			|| !b->secs_track || !b->heads;
+#endif /* for Win98+USB */
 	}
 	brelse(bh);
 

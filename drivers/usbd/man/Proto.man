@@ -1,0 +1,121 @@
+.\" 
+.\" Prototype man page
+.\"
+.\" Man:
+.\"
+.\"
+.\" tmac Macros:
+.\"
+.\"	.TH
+.\"	.SH
+.\"
+.\"
+.\"	.B	Bold
+.\"	.BI	Bold alternating with italics
+.\"	.BR	Bold alternating with roman
+.\"	.I	Italics
+.\"	.IB	Italics alternating with bold
+.\"	.IR	Italics alternating with roman
+.\"	.R	Roman
+.\"	.RB	Roman alternating with bold
+.\"	.RI	Roman alternating with italics 
+.\"
+.\"	.RE
+.\"	.IP
+.\"	.RS
+.\"
+.\"
+.\" roff Macros:
+.\"
+.\"	.I	include
+.\"
+.\"
+.\"	.P
+.\"	.TP	Paragraph with hanging tag
+.\"	.PP
+.\"	.sp
+.\"	.nf
+.\"	.fi
+.\"
+.\"	.SM	Small Type face
+.\"
+.\"	\fB
+.\"	\fI
+.\"	\fP
+.\"	\fR
+.\"
+.\"
+.\"
+.\"
+.TH PROTO 8 "\n[year]-\n[mo]-\n[dy]" "Lineo" "Lineo Embedix Guide"
+.\"
+.\"
+.SH SYNPOSIS
+
+.B progname 
+arguements
+.I options
+
+.\"
+.\"
+.SH DESCRIPTION
+Program description here.
+
+.PP
+New paragraph here.
+
+.PP
+Another para.
+
+
+.\"
+.\"
+.SH OPTIONS
+
+.\"
+.\"
+.SH FILES
+
+.\"
+.\"
+.SH ENVIRONMENT
+
+.\"
+.\"
+.SH EXAMPLES
+
+.\"
+.\"
+.SH DIAGNOSTICS
+
+.\"
+.\"
+.SH BUGS
+
+.\"
+.\"
+.SH AUTHOR
+.TP
+Stuart Lynne <sl@lineo.com>
+.TP
+Bruce Balden <balden@lineo.com>
+.TP
+Tom Rushworth <tbr@lineo.com>
+
+.\"
+.\"
+.SH SEE ALSO
+.PP
+usbdcore(7), usbdfunc(7), usbdbus(7)
+.PP
+Universal Serial Bus Specification, Revision 2.0
+.PP
+Universal Serial Bus Class Definitions for Communications Devices, Version 1.1
+.PP
+
+
+.\"
+.\"
+.SH LINUX CONFIGURATION PARAMETERS
+
+

@@ -53,6 +53,7 @@
 #include <asm/uaccess.h>
 #include <asm/io.h>
 
+
 static inline void do_identify (ide_drive_t *drive, byte cmd)
 {
 	int bswap = 1;

@@ -63,6 +63,9 @@
  *
  * Move do_SAK() into process context.  Less stack use in devfs functions.
  * alloc_tty_struct() always uses kmalloc() -- Andrew Morton <andrewm@uow.edu.eu> 17Mar01
+ *
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
  */
 
 #include <linux/config.h>
@@ -162,6 +165,10 @@ extern void clps711xuart_console_init(void);
 extern void anakin_console_init(void);
 extern void sgi_serial_console_init(void);
 extern void sci_console_init(void);
+extern int  l7200_rs_console_init(void);
+extern int  iris_serial_console_init(void);
+extern int  iris_debug_serial_console_init(void);
+extern void collie_rs_console_init(void);
 
 #ifndef MIN
 #define MIN(a,b)	((a) < (b) ? (a) : (b))
@@ -2226,11 +2233,23 @@ void __init console_init(void)
 #ifdef CONFIG_SERIAL_AMBA_CONSOLE
 	ambauart_console_init();
 #endif
+#ifdef CONFIG_SERIAL_L7200_CONSOLE
+	l7200_rs_console_init();
+#endif
+#ifdef  CONFIG_SERIAL_IRIS_CONSOLE
+	iris_serial_console_init();
+#endif
+#ifdef  CONFIG_DEBUG_SERIAL_IRIS_CONSOLE
+	iris_debug_serial_console_init();
+#endif
 #ifdef CONFIG_SERIAL_CLPS711X_CONSOLE
 	clps711xuart_console_init();
 #endif
 #ifdef CONFIG_SERIAL_ANAKIN_CONSOLE
 	anakin_console_init();
+#endif
+#ifdef CONFIG_SERIAL_COLLIE_CONSOLE
+	collie_rs_console_init();
 #endif
 }
 

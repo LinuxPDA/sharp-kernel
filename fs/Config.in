@@ -8,6 +8,7 @@ bool 'Quota support' CONFIG_QUOTA
 tristate 'Kernel automounter support' CONFIG_AUTOFS_FS
 tristate 'Kernel automounter version 4 support (also supports v3)' CONFIG_AUTOFS4_FS
 
+bool 'Syncronous file I/O' CONFIG_FS_SYNC
 dep_tristate 'Reiserfs support' CONFIG_REISERFS_FS $CONFIG_EXPERIMENTAL
 dep_mbool '  Have reiserfs do extra internal checking' CONFIG_REISERFS_CHECK $CONFIG_REISERFS_FS $CONFIG_EXPERIMENTAL
 

@@ -6,6 +6,9 @@
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
+ *
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
  */
 #include <linux/config.h>
 #include <linux/signal.h>
@@ -51,6 +54,9 @@
 static unsigned long totalram_pages;
 extern pgd_t swapper_pg_dir[PTRS_PER_PGD];
 extern char _stext, _text, _etext, _end, __init_begin, __init_end;
+#ifdef CONFIG_XIP_ROM
+extern char _endtext, _sdata;
+#endif
 
 /*
  * The sole use of this is to pass memory configuration
@@ -343,7 +349,11 @@ static __init void reserve_node_zero(unsigned int bootmap_pfn, unsigned int boot
 	 * Register the kernel text and data with bootmem.
 	 * Note that this can only be in node 0.
 	 */
+#ifdef CONFIG_XIP_ROM
+	reserve_bootmem_node(pgdat, __pa(&_sdata), &_end - &_sdata);
+#else
 	reserve_bootmem_node(pgdat, __pa(&_stext), &_end - &_stext);
+#endif
 
 #ifdef CONFIG_CPU_32
 	/*
@@ -584,8 +594,13 @@ void __init mem_init(void)
 	unsigned int codepages, datapages, initpages;
 	int i, node;
 
+#ifndef CONFIG_XIP_ROM
 	codepages = &_etext - &_text;
 	datapages = &_end - &_etext;
+#else
+	codepages = &_endtext - &_text;
+	datapages = &_end - &_sdata;
+#endif
 	initpages = &__init_end - &__init_begin;
 
 	high_memory = (void *)__va(meminfo.end);
@@ -637,11 +652,13 @@ void __init mem_init(void)
 
 void free_initmem(void)
 {
+#ifndef CONFIG_XIP_ROM
 	if (!machine_is_integrator()) {
 		free_area((unsigned long)(&__init_begin),
 			  (unsigned long)(&__init_end),
 			  "init");
 	}
+#endif
 }
 
 #ifdef CONFIG_BLK_DEV_INITRD
@@ -650,8 +667,10 @@ static int keep_initrd;
 
 void free_initrd_mem(unsigned long start, unsigned long end)
 {
+#ifndef CONFIG_XIP_ROM
 	if (!keep_initrd)
 		free_area(start, end, "initrd");
+#endif
 }
 
 static int __init keepinitrd_setup(char *__unused)

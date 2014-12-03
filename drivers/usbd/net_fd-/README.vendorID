@@ -1,0 +1,30 @@
+
+
+#ifdef CONFIG_SA1100_BITSY
+
+#define USB_VENDOR_COMPAQ       1183
+#define COMPAQ_ITSY_ID          0x505e
+
+#ifndef CONFIG_USBD_NET_VENDORID
+#warning defaulting VendorID to 1183
+#define CONFIG_USBD_NET_VENDORID        1183
+#endif
+#ifndef CONFIG_USBD_NET_PRODUCTID
+#warning defaulting ProductID to 0x505e
+#define CONFIG_USBD_NET_PRODUCTID       0x505e
+#endif
+#endif
+
+#ifdef CONFIG_SA1100_CALYPSO
+#define USB_VENDOR_HP           0x03F0
+#define HP_ACO_DIV_ID           0x0021
+#define HP_CALYPSO_ID           0x2102
+
+#ifndef CONFIG_USBD_NET_VENDORID
+#define CONFIG_USBD_NET_VENDORID        0x03f0
+#endif
+#ifndef CONFIG_USBD_NET_PRODUCTID
+#define CONFIG_USBD_NET_PRODUCTID       0x2101
+#endif
+
+#endif

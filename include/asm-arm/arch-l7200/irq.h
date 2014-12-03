@@ -8,6 +8,7 @@
  *   01-02-2000	RS	Created l7200 version, derived from ebsa110 code
  *   04-15-2000 RS      Made dependent on hardware.h
  *   05-05-2000 SJH     Complete rewrite
+ *   11-12-2001 Japan, Inc.
  */
 
 #include <asm/arch/hardware.h>
@@ -24,6 +25,10 @@
 #define IRQ_RAWSTATUS	(*(volatile unsigned long *) (IRQ_BASE + 0x004))
 #define IRQ_ENABLE	(*(volatile unsigned long *) (IRQ_BASE + 0x008))
 #define IRQ_ENABLECLEAR	(*(volatile unsigned long *) (IRQ_BASE + 0x00c))
+#define IRQ_LENABLE	(*(volatile unsigned long *) (IRQ_BASE + 0x0A0))
+#define IRQ_HENABLE	(*(volatile unsigned long *) (IRQ_BASE + 0x0A4))
+#define IRQ_LENABLECLEAR (*(volatile unsigned long *) (IRQ_BASE + 0x0B0))
+#define IRQ_HENABLECLEAR (*(volatile unsigned long *) (IRQ_BASE + 0x0B4))
 #define IRQ_SOFT	(*(volatile unsigned long *) (IRQ_BASE + 0x010))
 #define IRQ_SOURCESEL	(*(volatile unsigned long *) (IRQ_BASE + 0x018))
 
@@ -34,6 +39,10 @@
 #define FIQ_RAWSTATUS	(*(volatile unsigned long *) (IRQ_BASE + 0x104))
 #define FIQ_ENABLE	(*(volatile unsigned long *) (IRQ_BASE + 0x108))
 #define FIQ_ENABLECLEAR	(*(volatile unsigned long *) (IRQ_BASE + 0x10c))
+#define FIQ_LENABLE	(*(volatile unsigned long *) (IRQ_BASE + 0x1A0))
+#define FIQ_HENABLE	(*(volatile unsigned long *) (IRQ_BASE + 0x1A4))
+#define FIQ_LENABLECLEAR (*(volatile unsigned long *) (IRQ_BASE + 0x1B0))
+#define FIQ_HENABLECLEAR (*(volatile unsigned long *) (IRQ_BASE + 0x1B4))
 #define FIQ_SOFT	(*(volatile unsigned long *) (IRQ_BASE + 0x110))
 #define FIQ_SOURCESEL	(*(volatile unsigned long *) (IRQ_BASE + 0x118))
 
@@ -41,12 +50,22 @@
 
 static void l7200_mask_irq(unsigned int irq)
 {
-	IRQ_ENABLECLEAR = 1 << irq;
+
+//	IRQ_ENABLECLEAR = 1 << irq;
+	if (irq < 32)
+		IRQ_LENABLECLEAR = 1 << irq;
+	else
+		IRQ_HENABLECLEAR = 1 << (irq - 32);
 }
 
 static void l7200_unmask_irq(unsigned int irq)
 {
-	IRQ_ENABLE = 1 << irq;
+
+//	IRQ_ENABLE = 1 << irq;
+	if (irq < 32)
+		IRQ_LENABLE = 1 << irq;
+	else
+		IRQ_HENABLE = 1 << (irq - 32);
 }
  
 static __inline__ void irq_init_irq(void)

@@ -121,6 +121,7 @@ not_angel:
 		teqp	pc, #0x0c000003		@ turn off interrupts
 #endif
 
+	
 		/*
 		 * Note that some cache flushing and other stuff may
 		 * be needed here - is there an Angel SWI call for this?
@@ -152,14 +153,15 @@ not_angel:
 		teq	r4, r5			@ will we overwrite ourselves?
 		moveq	r5, r2			@ decompress after image
 		movne	r5, r4			@ decompress to final location
-
+	
 		mov	r0, r5
 		mov	r3, r7
 		bl	SYMBOL_NAME(decompress_kernel)
-
+	
 		teq	r4, r5			@ do we need to relocate
 		beq	call_kernel		@ the kernel?
 
+	
 		add	r0, r0, #127
 		bic	r0, r0, #127		@ align the kernel length
 /*
@@ -299,6 +301,14 @@ reloc_start:	add	r8, r5, r0
 
 call_kernel:	bl	cache_clean_flush
 		bl	cache_off
+
+#ifdef CONFIG_IRIS
+		@ debug LED
+		mov     r0,#0x08
+		mov     r1,#0x1a000000
+		strb    r0,[r1]
+#endif
+	
 		mov	r0, #0
 		mov	r1, r7			@ restore architecture number
 		mov	pc, r4			@ call kernel

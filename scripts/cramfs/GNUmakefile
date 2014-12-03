@@ -1,3 +1,4 @@
+CC = gcc
 CFLAGS = -Wall -O2
 CPPFLAGS = -I../../fs/cramfs
 LDLIBS = -lz

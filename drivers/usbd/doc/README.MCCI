@@ -1,0 +1,167 @@
+MCCI Installation Quick Overview				Stuart Lynne
+Lineo						Mon Oct 01 20:47:24 PDT 2001 
+
+
+Network Function Configuration
+******************************
+
+The boolean configuration value: CONFIG_USBD_NET_CDC must be true.
+
+
+MCCI Software Windows Install
+*****************************
+
+1. Create an empty folder:
+
+	\tmp\mcci
+
+2. Extract the mcci zip file into the new folder.
+
+
+MCCI USB WDM Driver Installation
+********************************
+
+1. Plug the PDA into your Windows system.
+
+2. Wait for Windows to enumerate the PDA (5-20 seconds), Windows should
+display a series of dialog boxes:
+
+	updating hardware information database
+
+then:
+	Windows has found new hardware
+
+then:
+	Windows has found the following new hardware
+		
+		USB Device
+
+
+3. Click on the following button:
+
+	"Specify the location of the driver (advanced)
+	
+4. Use:
+
+	Specify a location 
+
+and browse for the folder you unpacked the zip archive into.
+
+
+5. Windows should display a dialog box like:
+
+	Windows driver file search for the device
+
+	    MCCI ....
+	
+	Windows is ready to install ....
+
+	Location of the driver:
+
+	    ....
+
+6. Windows should display a dialog box like:
+
+	MCCI ....
+
+
+	Windows has finished installing the new hardware device.
+
+7. Click on:
+
+	Finish
+
+MCCI RNDIS Driver Installation
+******************************
+
+8. Windows will then display another series of dialog boxes:
+
+	Windows has found new hardware
+
+then:
+	Windows has found the following new hardware
+		
+		USB Device
+
+9. Click on the following button:
+
+	"Specify the location of the driver (advanced)
+	
+10. Use:
+
+	Specify a location 
+
+and browse for the folder you unpacked the zip archive into.
+
+
+11. Windows should display a dialog box like:
+
+	Windows driver file search for the device
+
+	    MCCI ....
+	
+	Windows is ready to install ....
+
+	Location of the driver:
+
+	    ....
+
+12. Windows should display a dialog box like:
+
+	MCCI ....
+
+
+	Windows has finished installing the new hardware device.
+
+13. Click on:
+
+	Finish
+
+
+MCCI RNDIS Network Setup
+************************
+
+
+14. Windows will display a dialog box:
+
+	To finish setting up your new hardware, you must restart your
+	computer.
+
+Select
+
+	No
+
+15. Go into the control panel and run the network control panel application.
+
+16. Select the entry like:
+
+	TCP/IP -> MCCI ....
+
+17. Click on 
+
+	Properties
+
+18. Change to 
+
+	Static IP
+
+and enter an appropriate IP address and network mask..
+
+19. Close the application and reboot your system to let the changes take 
+effect.
+
+	
+PDA Configuration
+*****************
+
+The PDA should use either a static IP address for the usbd0 interface or
+arrange to use hotplug scripts to run rarpc to request the address from
+the Windows system.
+
+
+Removing MCCI Driver
+********************
+
+To remove all registery entries look in the distribution for a program 
+labelled unscrub and run it.
+

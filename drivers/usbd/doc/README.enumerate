@@ -1,0 +1,60 @@
+
+
+Sample Linux enumeration sequence
+
+
+1. Set Address
+
+     bmRequestType:00 bRequest:05 wValue:0003 wIndex:0000 wLength:0000  
+
+
+2. Get Device Descriptor - first eight bytes
+
+     bmRequestType:80 bRequest:06 wValue:0100 wIndex:0000 wLength:0008
+
+
+3. Get Device Descriptor - full size
+
+     bmRequestType:80 bRequest:06 wValue:0100 wIndex:0000 wLength:0012
+
+
+4. Get Configuration Descriptor - first eight bytes
+
+     bmRequestType:80 bRequest:06 wValue:0200 wIndex:0000 wLength:0008
+
+
+5. Get Configuration Descriptor - full size
+
+     bmRequestType:80 bRequest:06 wValue:0200 wIndex:0000 wLength:0020
+
+
+6. Set Configuration - Default
+
+     bmRequestType:00 bRequest:09 wValue:0000 wIndex:0000 wLength:0000  
+
+
+7. Get String - language 
+
+     bmRequestType:80 bRequest:06 wValue:0300 wIndex:0000 wLength:0004
+
+
+8. Get String - 1
+
+     bmRequestType:80 bRequest:06 wValue:0301 wIndex:0009 wLength:00ff
+
+
+9. Get String - 2
+
+     bmRequestType:80 bRequest:06 wValue:0302 wIndex:0009 wLength:00ff
+
+
+10. Get String - 3
+
+     bmRequestType:80 bRequest:06 wValue:0303 wIndex:0009 wLength:00ff 
+
+
+11. Set Configuration - Default
+
+     bmRequestType:00 bRequest:09 wValue:0000 wIndex:0000 wLength:0000
+
+

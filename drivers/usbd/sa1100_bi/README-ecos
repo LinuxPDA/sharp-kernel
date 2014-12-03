@@ -1,0 +1,341 @@
+----------------------------------------------------------------------------
+Here is a list of the main problems encountered while implementing the
+eCos USB support using the SA1110's UDC. Some of these I consider to
+be design flaws, in other words the hardware appears to function as
+documented, but in a way that makes life difficult for software
+developers. Others appear to be implementation problems with the
+hardware. Development work has involved two different Assabet boards,
+a revision 4 board using a B1 stepping of the silicon and a revision 5
+board using a B4 stepping. Initial testing happened without an
+intermediate hub, more recent testing has used a hub but no other USB
+peripherals. I have not noticed any significant differences between
+the two scenarios.
+
+
+Design Flaws
+------------
+
+1) This one has already been confirmed by
+support@mailbox.cps.intel.com. The UDC is incapable of sending bulk
+packets of zero bytes on endpoint 2. The UDC IN Max Packet Register
+only allows for packets between 1 and 256 bytes inclusive. Now,
+according to the USB spec (section 5.8.3) packet sizes greater than 64
+bytes are not allowed. Zero-byte packets are allowed, and in fact they
+are required by other USB standards such as the one for communication
+devices. Hence the SA1110 cannot be used to build certain types of USB
+device without deviating from the standards.
+
+
+2) Unfortunate default value for the endpoint 1 control/status
+register, receive-packet-complete bit. On reset this bit is set to 0.
+If the host tries to send a packet before the target is ready to
+receive it, this packet will either end up safely inside the endpoint
+1 fifo or it will cause an immediate fifo overrun error.
+
+It would seem more sensible if the bit's value on reset was 1, causing
+the hardware to NAK any attempts by the host to send data until the
+target-side code was ready to receive and process such data. This
+avoids any risk of immediate fifo overruns, and the code could assume
+that the fifo would be empty at the start of a receive operation.
+
+In practice this is not too big a problem since for many applications
+the target-side code will prepare to receive the data at some point
+during the enumeration phase. However there may well be applications
+for which this does not hold.
+
+
+3) Unfortunate default value for endpoint 2 control/status register,
+transmit-packet-complete bit. As with the endpoint 1 equivalent this
+means that the host can initiate a USB transfer before the target is
+ready, and instead of a NAK there would be a fifo underrun error.
+
+The SA1110 mentions priming the transmit fifo with up to 16 bytes of
+data, and presumably setting the IN Max Packet Register to match. This
+would avoid the fifo underrun error. However it will not always be a
+practical solution: the target may not have any sensible data to use
+for priming the fifo; sending random data and having the host-side
+device driver discard the initial packet may not always be possible,
+especially when implementing a standard USB application class or if
+the host-side device driver might be used with USB devices based on
+other chipsets. A value of 1 on reset would avoid these complications.
+
+
+4) Default values for the UDC Control register. Following a reset most
+interrupt sources are enabled, including endpoint 1 and endpoint 2
+interrupts. This is somewhat unfortunate if e.g. one of those
+endpoints is not expected to be used by the target-side application
+but some software on the host gets confused and tries to access those
+endpoints anyway. A safer default would have all USB interrupt sources
+disabled on reset, and then application code has to enable just those
+interrupt sources that are of interest.
+
+
+5) Endpoint 1 receive-fifo-service bit. This acts as a high-water-mark
+for the interaction between the fifo and the DMA engine. According to
+the table in section 11.8.8 of the SA1110 developers' manual, the bit
+is set when the fifo contains 12 or more bytes. This is very
+unfortunate, a high-water-mark of 8 bytes would have been a much
+better choice.
+
+Suppose that the total transfer is variable length but with an upper
+limit of say 1516 bytes corresponding to an ethernet frame. This would
+involve at most 23 full-size 64-byte USB packets and one smaller
+packet, as per the bulk transfer protocol. With a high-water-mark of
+8 bytes you could be sure that a 64-byte packet would be processed
+entirely by the DMA engine. With a 12-byte marker, the first 56 bytes
+of the packet will be processed by DMA but the remainder will be left
+in the fifo and need to be extracted manually (there is no way of
+knowing for sure that there are exactly eight bytes left in the fifo,
+which would be handled by the DMA engine when the next packet starts
+to arrive).
+
+So what you end up doing typically is transferring only 56 bytes by
+DMA, another eight bytes by reading the fifo in a loop, and then
+moving the DMA engine on to start again immediately after those eight
+bytes. This means extra manipulation of the DMA engine plus a fifo
+loop for every endpoint 1 interrupt, adding significant overhead.
+
+
+6) Clearing endpoint 1 errors. It is not clearly documented how to
+recover from an error on endpoint 1, e.g. a CRC error or a fifo
+overrun. It appears that the correct action is to write to the
+packet-complete bit, which has the side effect of clearing both the
+error and the receive fifo. This way of clearing the error introduces
+a new window for errors. It is not possible to set up the DMA engine
+to handle the resent packet until after the packet-complete bit has
+been set, because after an error the receive-service-bit is set.
+However clearing the packet-complete bit before the DMA engine is
+ready means that another overrun error can happen almost immediately,
+if the host happens to pick this window to resend the packet. Better
+solutions could involve providing another way to clear the error, or
+clearing the receive-fifo-service bit when there is an error.
+
+
+7) DMA registers, the buffer-in-use bit. The implementation of the DMA
+engines, especially the ability to chain transfers by alternating
+between buffer A and buffer B, is certainly powerful. However this
+power is not always necessary and sometimes gets in the way. A fairly
+common use of the DMA engines will involve just one buffer at a time,
+so always using just buffer A would simplify the code.
+
+Unfortunately this does not appear to be possible. If the DMA transfer
+for buffer A completes the hardware will switch to buffer B, i.e. the
+buffer-in-use bit will become set. If for the next transfer you try to
+use buffer A again, i.e. set the appropriate address and size
+registers and then the RUN and STRTA bits, nothing will happen: the
+DMA engine will be blocked until there has been a transfer involving
+buffer B.
+
+Right now code has to figure out whether the next transfer should use
+buffer A or buffer B, e.g. by checking the buffer-in-use bit, and
+adapt accordingly. This adds complexity and overhead. It would have
+been easier if the DMA engine would detect when e.g. only a buffer A
+transfer was requested and do just that transfer, and the
+buffer-in-use bit would only be significant when requesting transfers
+on both buffers. Allowing the buffer-in-use bit to be cleared easily
+in software would also be a sensible alternative.
+
+
+
+Silicon Problems
+----------------
+
+1) Interrupt storm on reset. With B1 silicon, when the USB host
+applies a reset signal this appears to result in a storm of some
+thousands of interrupts. Although it is possible to work around this
+in software to some extent, this does impact real-time performance.
+
+With B4 silicon this problem appears to have gone away and I now see
+just two interrupts for an external reset (I think). I am not sure why
+there are two resets instead of one. Possibly these are intended to
+mark the start and end of reset but I have not been able to verify
+this yet. IMO the old behaviour can be classified as a hardware
+problem and should be listed in the current errata sheet/specification
+update/whatever. The details of the new behaviour should be described
+as well.
+
+
+2) Problems writing to registers after a host-side reset. This only
+happens with B4 silicon. After the first reset interrupt it is
+impossible to write to many of the UDC registers, any such writes are
+just lost. This sort of matches up with the theory that the first
+reset interrupt corresponds to the start of the reset signal and the
+second reset interrupt corresponds to the end, but the UDC hardware is
+`still continuously reset for the duration of the reset signal. The
+behaviour is still somewhat unfortunate, it would seem cleaner to
+perform the UDC hardware reset only once rather than continuously.
+
+
+3) Emptying the control fifo. When a control message has arrived on
+endpoint 0 and code tries to extract it from the fifo, there are
+occasional problems reading the fifo. A small proportion of the
+reads (probably somewhere between 1% and 5%, I have not attempted to
+measure it exactly) do not work right. The right byte is extracted
+from the fifo, but the fifo does not shuffle down so the next read
+will return exactly the same byte.
+
+There is a workaround for this: after every read it is necessary to
+check the endpoint 0 write count register. If this has decremented,
+everything is fine and the code can move on to the next byte.
+Otherwise it is necessary to read the same byte again. Obviously this
+sort of retry loop adds to the overheads of processing endpoint 0
+interrupts. 
+
+The problem occurs with both B1 and B4 silicon.
+
+
+4) Filling the control fifo. Similar to (3), when writing a reply into
+the control fifo the write sometimes does not take and has to be
+retried. A similar workaround is possible, i.e. reading the endpoint 0
+write count register and retrying if necessary. However a strict
+reading of the manual suggests that the value for the write count
+register is only valid for incoming data, not outgoing data, so the
+workaround is not necessarily legal.
+
+This problem occurs much more often with B1 silicon than with B4
+silicon, but has still been observed with the latter.
+
+
+5) Problems writing to DMA address register. This has only been
+observed with B4 silicon, and only very sporadically. Writing to a DMA
+address register fails, resulting in a DMA transfer to potentially a
+random location in memory. Reading back the value and retrying if
+necessary worked around the problem. It is possible that some extra
+delay is now needed between clearing the relevant control bits and
+setting up the next transfer, but the details are not understood.
+
+
+6) endpoint 2 fifo underruns. Something like 40-50% of all
+target->host packets fail. As far as I can tell there is a successful
+initial DMA transfer of data from memory into the endpoint 2 fifo,
+indicating that the transfer as a whole is set up correctly. At some
+later point the host will initiate the packet transfer by generating
+an IN token, causing the fifo to empty and toggling the
+receive-fifo-service bit. The DMA engine does not always respond to
+this in time, resulting in an underrun error. However by the time the
+endpoint 2 interrupt occurs and is handled to report the error, the
+DMA transfer has completed and the new value for the DMA buffer
+address register corresponds to the amount transferred is as expected,
+again indicating that the DMA transfer is set up correctly.
+
+I have tried to find various patterns, without much success. Trying
+different DMA engines appears to have no effect. Errors are equally
+likely for DMA channels A and B. The size of the USB packet has no
+effect (as long as it exceeds the fifo size). However any given USB
+packet will only fail at most once: it is never necessary to
+retransmit a single packet twice. This hints that there is some state
+associated with DMA engines, possibly hidden, causing the failure: a
+retransmit would switch the engine from buffer A to buffer B or vice
+versa, somehow clearing the problem. The packet after the retransmit
+usually fails as well, but occasionally succeeds.
+
+The problem occurs with both B1 and B4 silicon. It appears to be a bit
+worse with B4 silicon. The problem is not fatal because it is possible
+to recover from all these errors, but there are serious implications
+for bandwidth and for interrupt load.
+
+
+Board Problems
+--------------
+
+1) There appears to be a signalling problem somewhere on the USB bus
+when the CPU is reset or when the main power cable is pulled out and
+plugged back it (Note: this is with the battery disconnected). What I
+expect to happen when I reset the processor is that the UDC+ and UDC-
+pins are tristated, and the host should be able to detect this as a
+disconnect. When the UDC is enabled by writing to bit 0 of the UDC
+Control Register, I would expect the host to detect this as a connect.
+This does not happen. The only way I can get the host to detect a
+change in the target is by physically pulling out the USB cable and
+then plugging it back in.
+
+For development purposes this is just about tolerable. It may be a
+violation of the USB standard somewhere and hence make it impossible
+to pass formal compliance testing, but I have not checked this. It is
+a very big nuisance for any form of automated testing, where I would
+want to power-cycle the board using e.g. an X10 controller and then
+boot a new testcase.
+
+Part of the problem may be with the board drawing power from the USB
+cable, even though it is supposed to be a self-powered device. With
+the USB cable plugged in and the main power cable and battery
+disconnected, there is certainly still enough power flowing to light
+up the various LED's. I do not have the hardware expertise or
+equipment to figure out exactly what is going on.
+
+
+2) The reset button is small and relatively inaccessible. Although
+there are sometimes benefits to having the reset button safely out of
+the way, e.g. when demonstrating at a show, for the purposes of
+software development the reset button must be easily accessible. Often
+I find it more convenient to pull out the power cable than to try and
+find the reset button.
+
+
+Miscellaneous
+-------------
+
+1) There is at least one more difference between the rev 4 board and
+B1 silicon vs. the rev 5 board and B4 silicon, but I have not yet
+worked out the details. I bring up the USB connection, then pull out
+the USB cable and plug it back in. With both boards the host software
+detects when the cable has been unplugged and when it is reconnected.
+With the rev 4 board and B1 silicon, the host can generate another
+reset signal and then establish another connection to the target
+board, i.e. there is no need to reboot the target. With the newer
+board and silicon this does not happen: the host and target are unable
+to reestablish a connection and it is necessary to reboot the target.
+
+
+
+===========================================================================
+
+<< headers and other trailing e-mail removed >>
+
+-----Original Message-----
+From: Stuart Lynne [mailto:sl@lineo.com]
+Sent: Thursday, March 29, 2001 5:01 PM
+To: Lee, Alan
+Cc: Stuart Lynne; TEHN,YIT-CHIN (Non-HP-Australia,ex2); Su, Matt;
+SEWELL,ANDREW (HP-Australia,ex2); BAUER,STEVEN (Non-HP-Australia,ex2);
+ONG,RONALD (HP-Australia,ex2); 'Ron Kellam (E-mail)'; MYLAVARABHATLA,SATYA
+(HP-Cupertino,ex1); 'tbr@fireplug.net'; 'Jemmy Wu (E-mail)'
+Subject: Re: Can the SA-1110 support the Set Descriptor Request (was Re: T
+echnical support for USB in SA1110 for Calypso)
+
+
+On Wed, Mar 28, 2001 at 11:22:47PM -0800, Lee, Alan wrote:
+> Stuart Yit-Chin :
+> 
+> The following message is in the pre-release March 2001 SA1110
+Specification
+> Update, 
+> 
+> Add UDC note: Section 11.8.1
+> 
+> Place as a second note after the note in section 11.8.1 on page 11-56
+> of the SA1110 manual:
+> 
+>      NOTE: The UDC must only describe one device configuration to the
+>      USB host during the GET_DESCRIPTOR phase of the device
+>      interigation. The reason is that if the host wanted to switch to a
+>      different configuration on the SA1110, the UDC would be required to
+>      flush any data that is in the TX fifo. In order for the UDC to flush
+> the
+>      TX fifo, the UDC must be disabled and re-enabled, which causes all 
+>      UDC registers to be reset, and then the UDC will no longer respond to
+>      its host assigned address.
+> 
+> Please take a look on that, maybe that is related to your problem.
+
+No, we are not in enumeration when we see this problem.
+
+It is possible to reset the UDC and continue, you simply have to reset
+the address register again.
+
+-- 
+                                            __O 
+Lineo - For Embedded Linux Solutions      _-\<,_ 
+PGP Fingerprint: 28 E2 A0 15 99 62 9A 00 (_)/ (_) 88 EC A3 EE 2D 1C 15 68
+Stuart Lynne <sl@lineo.com>            www.lineo.com         604-461-7532
+

@@ -1,0 +1,365 @@
+*** Documentation/Configure.help-	Wed Jul 18 01:27:40 2001
+--- Documentation/Configure.help	Thu Jul 19 17:37:55 2001
+***************
+*** 10563,10568 ****
+--- 10563,10922 ----
+    The module will be called wmforce.o. If you want to compile it as a
+    module, say M here and read Documentation/modules.txt.
+  
++ Support for USB Devices
++ CONFIG_USBD
++   Universal Serial Bus (USB) is a specification for a serial bus
++   subsystem which offers higher speeds and more features than the
++   traditional PC serial port. The bus supplies power to peripherals
++   and allows for hot swapping. Up to 127 USB peripherals can be
++   connected to a single USB port in a tree structure. The USB port is
++   the root of the tree, the peripherals are the leaves and the inner
++   nodes are special USB devices called hubs. Many newer PC's have USB
++   ports and newer peripherals such as scanners, keyboards, mice,
++   modems, and printers support the USB protocol and can be connected
++   to the PC via those ports.
++ 
++   Say Y here if your computer has a USB Function / Device port and you want
++   to plug it into a USB Host. You then need to say Y to a MINIMUM OF ONE of
++   "USB Function Drivers" and a MAXIMUM of one of the "USB Device Bus
++   Interface Drivers".  Normally only one bus interface driver is available
++   for any architecture.
++ 
++   You may want to check out the information provided in Documentation/usbd/
++   and especially the links given in Documentation/usbd/usb-help.txt.
++ 
++   This code is also available as a module ( = code which can be
++   inserted in and removed from the running kernel whenever you want).
++   The module will be called usbcore.o. If you want to compile it as a
++   module, say M here and read Documentation/modules.txt.
++ 
++ USB Device Vendor ID
++ CONFIG_USBD_VENDORID
++ 
++   Specify the USB Device Vendor ID.
++ 
++ USB Device Product ID
++ CONFIG_USBD_PRODUCTID
++ 
++   Specify the USB Device Product ID.
++ 
++ USB Device Product Name
++ CONFIG_USBD_PRODUCT_NAME
++ 
++   Specify the USB Device Product name.
++ 
++ USB Device Manufacturer Name
++ CONFIG_USBD_MANUFACTURER
++ 
++   Specify the USB Device Manufacturer name.
++ 
++ USB Device Serial Number
++ CONFIG_USBD_USE_SERIAL_NUMBER
++ 
++   Specify whether the device serial number should be used in the device
++   descriptor.
++ 
++ Default Serial Number
++ CONFIG_USBD_SERIAL_NUMBER_STR
++ 
++   Specify a default serial number. This will be used if the bus interface
++   driver cannot determine a serial number for the device.
++ 
++ USB Device Selfpowered
++ CONFIG_USBD_SELFPOWERED
++ 
++   Is the device self powered. This is used to set the appropriate flag
++   in the configuration descriptor.
++ 
++ USB Device Power Setting
++ CONFIG_USBD_MAXPOWER
++ 
++   Specify the maximum power draw for this device in milli-amps (ma).
++   This is used in the configuration descriptor if the Self Powered 
++   flag is NOT set.
++ 
++ USB Device Monitor
++ CONFIG_USBD_MONITOR
++ 
++   Enable a small module that will monitor for the USB Device being 
++   connected to a host. It will load and unload the rest of the USB
++   Device software via the hotplug facility.
++ 
++   Hotplug will call the usbd.agent with:
++ 
++   	INTERFACE=monitor
++ 
++   And one of:
++ 
++ 	ACTION=load		# called when connected to USB 
++ 	ACTION=unload		# called when dis-connected from USB 
++ 	ACTION=off		# called when power down invoked
++ 
++   The power down action is invoked if the local power management software
++   is putting the local system into standby or power off mode. This is 
++   not invoked for a USB suspend event (which would be handled by the
++   USB Device software).
++ 
++ 
++ USB Device Proc Filesystem
++ CONFIG_USBD_PROCFS
++ 
++   Enable a proc file system for the USB Device support.
++ 
++ 
++ USB Device Network Driver
++ CONFIG_USBD_NET
++ 
++   Enable the generic network function driver. This function is used
++   emulating a Linux network driver. It can be configured to be used with
++   various Linux host class drivers, custom Windows CDC ethernet drivers and
++   Windows RNDIS drivers.
++ 
++ USB Device Vendor ID
++ CONFIG_USBD_NET_VENDORID
++ 
++   Optionally specify the network USB Device Vendor ID. The top level
++   Vendor ID will be used if this is not specified.
++ 
++ USB Device Product ID
++ CONFIG_USBD_NET_PRODUCTID
++ 
++   Optionally specify the network USB Device Product ID. The top level
++   Vendor ID will be used if this is not specified.
++ 
++ USB Device Network
++ CONFIG_USBD_NET_IFNAME
++ 
++   Specify the prefix for the network interface name. E.g. "usb" or "eth".
++ 
++ USB Device Network
++ CONFIG_USBD_NET_OUT_ENDPOINT
++ 
++   Specify the preferred OUT (received data) endpoint number. This is a
++   number from 0-15 and must be allowed by the bus interface device.
++ 
++   Some devices such as the SA-1110 or L7205/L7210 may override this value
++   with a fixed value.
++ 
++ USB Device Network
++ CONFIG_USBD_NET_IN_ENDPOINT
++ 
++   Specify the preferred IN (transmit data) endpoint number. This is a number
++   from 0-15 and must be allowed by the bus interface device.
++ 
++   Some devices such as the SA-1110 or L7205/L7210 may override this value
++   with a fixed value.
++ 
++ USB Device Network
++ CONFIG_USBD_NET_INT_ENDPOINT
++ 
++   Specify the preferred INT (interrupt) endpoint number. This is a number
++   from 0-15 and must be allowed by the bus interface device.
++ 
++   Some devices such as the L7205/L7210 may override this value with a fixed 
++   value. Others such as the SA-1110 do not allow an interrupt value.
++ 
++ USB Device Network
++ CONFIG_USBD_NET_OUT_PKTSIZE
++    
++   Specify the maximum packet size for the OUT endpoint. This allowable
++   values are normally 16, 32 and 64. 
++ 
++   Some devices such as the Linkup L7205/L7210 may override this value
++   with a lower maximum value (such as 32).
++ 
++ USB Device Network
++ CONFIG_USBD_NET_IN_PKTSIZE
++    
++   Specify the maximum packet size for the IN endpoint. This allowable
++   values are normally 16, 32 and 64. 
++ 
++   Some devices such as the Linkup L7205/L7210 may override this value
++   with a lower maximum value (such as 32).
++ 
++ USB Device Network
++ CONFIG_USBD_NET_INT_PKTSIZE
++    
++   Specify the maximum packet size for the INT endpoint. This allowable
++   values are normally 8 and 16. Some bus interface devices may not
++   support all values.
++ 
++ USB Device Network Early
++ CONFIG_USBD_NET_EARLY
++ 
++   If this is enabled the network interface will be created when the module
++   is loaded. The default is to create the network interface when the
++   USB Device has been enumerated by the USB Host.
++ 
++ USB Device Network CDC
++ CONFIG_USBD_NET_CDC
++ 
++   Enable CDC mode. This configures the network driver to support the
++   networking model specified in the USB Class Definitions.
++ 
++ USB Remote NDIS 
++ CONFIG_USBD_NET_RNDIS
++ 
++   Enable RNDIS networking. This allows the network function driver to
++   work with Windows RNDIS networking.
++ 
++ USB Device Network
++ CONFIG_USBD_NET_REMOTE_MACADDR
++ 
++   Specify a default MAC address to provide the USB Host.
++ 
++ USB Device Network
++ CONFIG_USBD_NET_REMOTE_OUI
++ 
++   Specify a OUI for generating a MAC address for the USB Host.
++ 
++ USB Device Network
++ CONFIG_USBD_NET_LOCAL_MACADDR
++ 
++   Specify a default MAC address to use on the local interface.
++ 
++ USB Device Network
++ CONFIG_USBD_NET_LOCAL_OUI
++ 
++   Specify a OUI for generating a MAC address for the local interface.
++ 
++ USB Device Serial
++ CONFIG_USBD_SERIAL
++ 
++   Enable the generic serial function driver.
++ 
++ USB Device Serial
++ CONFIG_USBD_SERIAL_VENDORID
++ 
++   Specify the USB Device Vendor ID for the serial function driver. The top
++   level Vendor ID will be used if this is not specified.
++ 
++ USB Device Serial
++ CONFIG_USBD_SERIAL_PRODUCTID
++ 
++   Specify the USB Device Product ID for the serial function driver. The top
++   level Vendor ID will be used if this is not specified.
++ 
++ USB Device Serial
++ CONFIG_USBD_SERIAL_CDC
++ 
++   Enable CDC mode. This configures the network driver to support the
++   ACM model specified in the USB Class Definitions.
++ 
++ USB Device Serial
++ CONFIG_USBD_SERIAL_OUT_ENDPOINT
++ 
++   Specify the preferred OUT (received data) endpoint number. This is a
++   number from 0-15 and must be allowed by the bus interface device.
++ 
++   Some devices such as the SA-1110 and Linkup L7205/L7210 will override
++   this selection with a fixed address.
++ 
++ USB Device Serial
++ CONFIG_USBD_SERIAL_IN_ENDPOINT
++ 
++   Specify the preferred IN (transmit data) endpoint number. This is a number
++   from 0-15 and must be allowed by the bus interface device.
++ 
++   Some devices such as the SA-1110 and Linkup L7205/L7210 will override
++   this selection with a fixed address.
++ 
++ USB Device Serial
++ CONFIG_USBD_SERIAL_INT_ENDPOINT
++ 
++   Specify the preferred INT (interrupt) endpoint number. This is a number
++   from 0-15 and must be allowed by the bus interface device.
++ 
++   Some devices such as the SA-1110 and Linkup L7205/L7210 will override
++   this selection with a fixed address.
++ 
++ USB Device Serial
++ CONFIG_USBD_SERIAL_IN_PKTSIZE
++ 
++   Specify the preferred INT (interrupt) endpoint number. This is a number
++   from 0-15 and must be allowed by the bus interface device.
++ 
++   Some devices such as the Linkup L7205/L7210 may override this value
++   with a lower maximum value (such as 32).
++ 
++ USB Device Serial
++ CONFIG_USBD_SERIAL_OUT_PKTSIZE
++ 
++   Specify the maximum packet size for the OUT endpoint. This allowable
++   values are normally 16, 32 and 64. Some bus interface devices may not
++   support all values.
++ 
++   Some devices such as the Linkup L7205/L7210 may override this value
++   with a lower maximum value (such as 32).
++ 
++ USB Device Serial
++ CONFIG_USBD_SERIAL_INT_PKTSIZE
++ 
++   Specify the maximum packet size for the INT endpoint. This allowable
++   values are normally 8 and 16. Some bus interface devices may not
++   support all values.
++ 
++   Some devices such as the L7205/L7210 may override this value with a fixed 
++   value. Others such as the SA-1110 do not allow an interrupt value.
++ 
++ USB Device Serial Safe Encapsulation
++ CONFIG_USBD_SERIAL_SAFE
++ 
++   Enable optional Safe Encapsulation layer for the serial driver.
++ 
++ USB Device Serial Secure Default
++ CONFIG_USBD_SERIAL_SAFE_DEFAULT
++ 
++   Set Secure option default value;
++ 
++ USB Device Serial Secure Padded
++ CONFIG_USBD_SERIAL_SAFE_PADDED
++ 
++   Force all Secure mode packets to be padded to the full packetsize.
++   
++ 
++ USB Device L7205
++ CONFIG_USBD_L7205_BUS
++ 
++   Enable the Linkup L7205/L7210 Bus Interface Driver.
++ 
++ USB Device SA1110 
++ CONFIG_USBD_SA1100_BUS
++ 
++   Enable the Intel StrongArm SA-1110 Bus Interface Driver.
++ 
++ USB Device SA1110 
++ CONFIG_USBD_STALL_TIMEOUT
++ 
++   Enable the Stall timeout watchdog.
++ 
++ USB Device SA1110 
++ CONFIG_USBD_STALL_DISCONNECT_DURATION
++ 
++   Specify the timeout for the stall watchdog.
++ 
++ USB Device SA1110 
++ CONFIG_USBD_TRAFFIC_KEEPAWAKE
++ 
++   Enable SA-1100 traffic keepawake.
++ 
++ USB Device SL11
++ CONFIG_USBD_SL11_BUS
++ 
++   Enable the Scanlogic SL11 Bus Interface Driver.
++ 
++   Currently this is available for the x86 environment using the 
++   ScanLogic SL811 ISA board and the Hitachi SolutionsEngine
++   with the SolutionsEngine USB prototyping board.
++ 
++ USB Device SuperH
++ CONFIG_USBD_SUPERH_BUS
++ 
++   Enable the Hitachi SuperH Bus Inteface Driver.
++ 
++   This supports the built in USB support on the Hitachi 7622 and 7727.
++ 
++ 
+  Use input layer for ADB devices
+  CONFIG_INPUT_ADBHID
+    Say Y here if you want to have ADB (Apple Desktop Bus) HID devices

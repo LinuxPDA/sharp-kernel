@@ -509,7 +509,14 @@ static void __init smp_init(void)
 /*
  *	Activate the first processor.
  */
- 
+
+#ifdef CONFIG_IRIS
+#define AUX_BASE	0xd2000000	/* virt */
+#define AUX_REG_BASE AUX_BASE
+#define IO_IRIS1_DEBUG_LED   (*((volatile unsigned char*)AUX_REG_BASE))
+extern void emerge_off(void);
+#endif
+
 asmlinkage void __init start_kernel(void)
 {
 	char * command_line;
@@ -526,6 +533,17 @@ asmlinkage void __init start_kernel(void)
 	parse_options(command_line);
 	trap_init();
 	init_IRQ();
+
+#ifdef CONFIG_IRIS
+	{
+#if 0 /* this is alpha-2 workaround only.... */
+	  IO_SYS_INT_CTLR = 0x7; /* clear all bits */
+#endif
+	  //IO_IRIS1_DEBUG_LED = 0x40;
+	  //enable_irq(IRQ_BAT_LO);
+	}
+#endif
+
 	sched_init();
 	time_init();
 	softirq_init();
@@ -536,6 +554,7 @@ asmlinkage void __init start_kernel(void)
 	 * this. But we do want output early, in case something goes wrong.
 	 */
 	console_init();
+
 #ifdef CONFIG_MODULES
 	init_modules();
 #endif
@@ -584,6 +603,26 @@ asmlinkage void __init start_kernel(void)
 #endif
 	check_bugs();
 	printk("POSIX conformance testing by UNIFIX\n");
+
+#ifdef CONFIG_IRIS
+#if 0
+	/*
+	 * Interrupt handler can be registered at this position.
+	 * This is as early position as I can know by testing.
+	 */
+	{ 
+	  int err;
+	  IO_IRIS1_DEBUG_LED = 0x20;
+	  err = request_irq(IRQ_BAT_LO,emerge_off , SA_INTERRUPT, "batok", NULL);
+	  if( err ){
+	    printk("batok install error %d\n",err);
+	  }else{
+	    enable_irq(IRQ_BAT_LO);
+	    printk("batok installed 4\n");
+	  }
+	}
+#endif
+#endif
 
 	/* 
 	 *	We count on the initial thread going ok 
@@ -794,6 +833,13 @@ static int init(void * unused)
 	 * The Bourne shell can be used instead of init if we are 
 	 * trying to recover a really broken machine.
 	 */
+
+#ifdef CONFIG_IRIS
+	{
+	  /* to check boot-up time */
+	  IO_IRIS1_DEBUG_LED = 0x40;
+	}
+#endif
 
 	if (execute_command)
 		execve(execute_command,argv_init,envp_init);

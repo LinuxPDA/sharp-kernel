@@ -57,6 +57,9 @@
  * 10/00: add in optional software flow control for serial console.
  *	  Kanoj Sarcar <kanoj@sgi.com>  (Modified by Theodore Ts'o)
  *
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
+ *
  */
 
 static char *serial_version = "5.05a";
@@ -224,6 +227,8 @@ static char *serial_revdate = "2001-03-20";
 
 #ifdef CONFIG_MAC_SERIAL
 #define SERIAL_DEV_OFFSET	2
+#elif defined(CONFIG_ARCH_SA1100) && defined(CONFIG_SA1100_COLLIE)
+#define SERIAL_DEV_OFFSET	3
 #else
 #define SERIAL_DEV_OFFSET	0
 #endif
@@ -3699,6 +3704,7 @@ static void autoconfig(struct serial_state * state)
 			state->type = PORT_16550A;
 			break;
 	}
+#ifndef CONFIG_SERIAL_FORCE16550A
 	if (state->type == PORT_16550A) {
 		/* Check for Startech UART's */
 		serial_outp(info, UART_LCR, UART_LCR_DLAB);
@@ -3733,6 +3739,7 @@ static void autoconfig(struct serial_state * state)
 		}
 		serial_outp(info, UART_FCR, UART_FCR_ENABLE_FIFO);
 	}
+#endif /* CONFIG_SERIAL_FORCE16550A */
 #if defined(CONFIG_SERIAL_RSA) && defined(MODULE)
 	if (state->type == PORT_16550A) {
 		int i;

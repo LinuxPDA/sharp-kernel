@@ -62,10 +62,240 @@ much.
 #define CPU_DIRNAME "cpu"
 #define REG_DIRNAME "registers"
 
+#ifdef CONFIG_SA1100_COLLIE
+#define SCOOP_DIRNAME "scoop"
+#define LOCOMO_DIRNAME "locomo"
+#endif
+
 static ssize_t proc_read_reg(struct file * file, char * buf,
 		size_t nbytes, loff_t *ppos);
 static ssize_t proc_write_reg(struct file * file, const char * buffer,
 		size_t count, loff_t *ppos);
+
+
+#ifdef CONFIG_SA1100_COLLIE
+static ssize_t proc_scoop_read_reg(struct file * file, char * buf,
+		size_t nbytes, loff_t *ppos);
+static ssize_t proc_scoop_write_reg(struct file * file, const char * buffer,
+		size_t count, loff_t *ppos);
+
+static ssize_t proc_locomo_read_reg(struct file * file, char * buf,
+		size_t nbytes, loff_t *ppos);
+static ssize_t proc_locomo_write_reg(struct file * file, const char * buffer,
+		size_t count, loff_t *ppos);
+
+
+static struct file_operations proc_scoop_reg_operations = {
+	read:	proc_scoop_read_reg,
+	write:	proc_scoop_write_reg
+};
+
+static struct file_operations proc_locomo_reg_operations = {
+	read:	proc_locomo_read_reg,
+	write:	proc_locomo_write_reg
+};
+
+
+typedef struct scoop_reg_entry {
+	u32 phyaddr;
+	char* name;
+	char* description;
+	unsigned short low_ino;
+} scoop_reg_entry_t;
+
+typedef struct locomo_reg_entry {
+	u32 phyaddr;
+	char* name;
+	char* description;
+	unsigned short low_ino;
+} locomo_reg_entry_t;
+
+
+static scoop_reg_entry_t scoop_regs[] =
+{
+/*	{ phyaddr,    name,     description } */
+	{ 0x00, "MCR", " " },
+	{ 0x04, "CDR", " " },
+	{ 0x08, "CSR", " " },
+	{ 0x0C, "CPR", " " },
+	{ 0x10, "CCR", " " },
+	{ 0x14, "IRR", " " },
+	{ 0x18, "IMR", " " },
+	{ 0x1C, "ISR", " " },
+	{ 0x20, "GPCR", " " },
+	{ 0x24, "GPWR", " " },
+	{ 0x28, "GPRR", " " }
+};
+
+
+static locomo_reg_entry_t locomo_regs[] =
+{
+/*	{ phyaddr,    name,     description } */
+	{ 0x40000000, "VER", " " },
+	{ 0x40000004, "ST", " " },
+	{ 0x40000008, "C32K", " " },
+	{ 0x4000000C, "ICR", " " },
+	{ 0x40000010, "MCSX0", " " },
+	{ 0x40000014, "MCSX1", " " },
+	{ 0x40000018, "MCSX2", " " },
+	{ 0x4000001C, "MCSX3", " " },
+	{ 0x40000020, "ASD", " " },
+	{ 0x40000028, "HSD", " " },
+	{ 0x4000002C, "HSC", " " },
+	{ 0x40000030, "TADC", " " },
+	{ 0x40000038, "TC", " " },
+	{ 0x4000003C, "CPSD", " " },
+	{ 0x40000040, "KIB", " " },
+	{ 0x40000044, "KSC", " " },
+	{ 0x40000048, "KCMD", " " },
+	{ 0x4000004C, "KIC", " " },
+	{ 0x40000054, "ACC", " " },
+	{ 0x40000060, "SPIMD", " " },
+	{ 0x40000064, "SPICT", " " },
+	{ 0x40000068, "SPIST", " " },
+	{ 0x40000070, "SPIIS", " " },
+	{ 0x40000074, "SPIWE", " " },
+	{ 0x40000078, "SPIIE", " " },
+	{ 0x4000007C, "SPIIR", " " },
+	{ 0x40000080, "SPITD", " " },
+	{ 0x40000084, "SPIRD", " " },
+	{ 0x40000088, "SPITS", " " },
+	{ 0x4000008C, "SPIRS", " " },
+	{ 0x40000090, "GPD", " " },
+	{ 0x40000094, "GPE", " " },
+	{ 0x40000098, "GPL", " " },
+	{ 0x4000009C, "GPO", " " },
+	{ 0x400000a0, "GRIE", " " },
+	{ 0x400000a4, "GFIE", " " },
+	{ 0x400000a8, "GIS", " " },
+	{ 0x400000ac, "GWE", " " },
+	{ 0x400000b0, "GIE", " " },
+	{ 0x400000b4, "GIR", " " },
+	{ 0x400000c8, "ALC", " " },
+	{ 0x400000cc, "ALR", " " },
+	{ 0x400000d0, "PAIF", " " },
+	{ 0x400000d8, "LTC", " " },
+	{ 0x400000dc, "LTINT", " " },
+	{ 0x400000e0, "DAC", " " },
+	{ 0x400000e8, "LPT0", " " },
+	{ 0x400000ec, "LPT1", " " },
+	{ 0x400000d0, "LPT2", " " },
+	{ 0x400000fc, "TCR", " " },
+};
+
+
+#define NUM_OF_SCOOP_REG_ENTRY	(sizeof(scoop_regs)/sizeof(scoop_reg_entry_t))
+#define NUM_OF_LOCOMO_REG_ENTRY	(sizeof(locomo_regs)/sizeof(locomo_reg_entry_t))
+
+
+static int proc_scoop_read_reg(struct file * file, char * buf,
+		size_t nbytes, loff_t *ppos)
+{
+	int i_ino = (file->f_dentry->d_inode)->i_ino;
+	char outputbuf[15];
+	int count;
+	int i;
+	scoop_reg_entry_t* current_reg=NULL;
+	if (*ppos>0) /* Assume reading completed in previous read*/
+		return 0;
+	for (i=0;i<NUM_OF_SCOOP_REG_ENTRY;i++) {
+		if (scoop_regs[i].low_ino==i_ino) {
+			current_reg = &scoop_regs[i];
+			break;
+		}
+	}
+	if (current_reg==NULL)
+		return -EINVAL;
+
+	count = sprintf(outputbuf, "0x%04X\n",SCP_REG(current_reg->phyaddr));
+	*ppos+=count;
+	if (count>nbytes)  /* Assume output can be read at one time */
+		return -EINVAL;
+	if (copy_to_user(buf, outputbuf, count))
+		return -EFAULT;
+	return count;
+}
+
+static ssize_t proc_scoop_write_reg(struct file * file, const char * buffer,
+		size_t count, loff_t *ppos)
+{
+	int i_ino = (file->f_dentry->d_inode)->i_ino;
+	scoop_reg_entry_t* current_reg=NULL;
+	int i;
+	unsigned long newRegValue;
+	char *endp;
+
+	for (i=0;i<NUM_OF_SCOOP_REG_ENTRY;i++) {
+		if (scoop_regs[i].low_ino==i_ino) {
+			current_reg = &scoop_regs[i];
+			break;
+		}
+	}
+	if (current_reg==NULL)
+		return -EINVAL;
+
+	newRegValue = simple_strtoul(buffer,&endp,0);
+	SCP_REG(current_reg->phyaddr)=newRegValue;
+	return (count+endp-buffer);
+}
+
+
+static int proc_locomo_read_reg(struct file * file, char * buf,
+		size_t nbytes, loff_t *ppos)
+{
+	int i_ino = (file->f_dentry->d_inode)->i_ino;
+	char outputbuf[15];
+	int count;
+	int i;
+	locomo_reg_entry_t* current_reg=NULL;
+	if (*ppos>0) /* Assume reading completed in previous read*/
+		return 0;
+	for (i=0;i<NUM_OF_LOCOMO_REG_ENTRY;i++) {
+		if (locomo_regs[i].low_ino==i_ino) {
+			current_reg = &locomo_regs[i];
+			break;
+		}
+	}
+	if (current_reg==NULL)
+		return -EINVAL;
+
+	count = sprintf(outputbuf, "0x%04X\n",
+			*((volatile unsigned short *) LCM_p2v(current_reg->phyaddr)));
+
+	*ppos+=count;
+	if (count>nbytes)  /* Assume output can be read at one time */
+		return -EINVAL;
+	if (copy_to_user(buf, outputbuf, count))
+		return -EFAULT;
+	return count;
+}
+
+static ssize_t proc_locomo_write_reg(struct file * file, const char * buffer,
+		size_t count, loff_t *ppos)
+{
+	int i_ino = (file->f_dentry->d_inode)->i_ino;
+	locomo_reg_entry_t* current_reg=NULL;
+	int i;
+	unsigned long newRegValue;
+	char *endp;
+
+	for (i=0;i<NUM_OF_LOCOMO_REG_ENTRY;i++) {
+		if (locomo_regs[i].low_ino==i_ino) {
+			current_reg = &locomo_regs[i];
+			break;
+		}
+	}
+	if (current_reg==NULL)
+		return -EINVAL;
+
+	newRegValue = simple_strtoul(buffer,&endp,0);
+	*((volatile Word *) LCM_p2v(current_reg->phyaddr))=newRegValue;
+	return (count+endp-buffer);
+}
+
+
+#endif
+
 
 static struct file_operations proc_reg_operations = {
 	read:	proc_read_reg,
@@ -306,6 +536,14 @@ static ssize_t proc_write_reg(struct file * file, const char * buffer,
 static struct proc_dir_entry *regdir;
 static struct proc_dir_entry *cpudir;
 
+#ifdef CONFIG_SA1100_COLLIE
+static struct proc_dir_entry *scoop_regdir;
+static struct proc_dir_entry *scoopdir;
+
+static struct proc_dir_entry *locomo_regdir;
+static struct proc_dir_entry *locomodir;
+#endif
+
 static int __init init_reg_monitor(void)
 {
 	struct proc_dir_entry *entry;
@@ -337,6 +575,64 @@ static int __init init_reg_monitor(void)
 			return(-ENOMEM);
 		}
 	}
+#ifdef CONFIG_SA1100_COLLIE
+	scoopdir = proc_mkdir(SCOOP_DIRNAME, &proc_root);
+	if (scoopdir == NULL) {
+		printk(KERN_ERR MODULE_NAME": can't create /proc/" SCOOP_DIRNAME "\n");
+		return(-ENOMEM);
+	}
+
+	scoop_regdir = proc_mkdir(REG_DIRNAME, scoopdir);
+	if (scoop_regdir == NULL) {
+		printk(KERN_ERR MODULE_NAME": can't create /proc/" SCOOP_DIRNAME "/" REG_DIRNAME "\n");
+		return(-ENOMEM);
+	}
+
+	for(i=0;i<NUM_OF_SCOOP_REG_ENTRY;i++) {
+		entry = create_proc_entry(scoop_regs[i].name,
+				S_IWUSR |S_IRUSR | S_IRGRP | S_IROTH,
+				scoop_regdir);
+		if(entry) {
+			scoop_regs[i].low_ino = entry->low_ino;
+			entry->proc_fops = &proc_scoop_reg_operations;
+		} else {
+			printk( KERN_ERR MODULE_NAME
+				": can't create /proc/" REG_DIRNAME
+				"/%s\n", scoop_regs[i].name);
+			return(-ENOMEM);
+		}
+	}
+
+
+	locomodir = proc_mkdir(LOCOMO_DIRNAME, &proc_root);
+	if (locomodir == NULL) {
+		printk(KERN_ERR MODULE_NAME": can't create /proc/" LOCOMO_DIRNAME "\n");
+		return(-ENOMEM);
+	}
+
+	locomo_regdir = proc_mkdir(REG_DIRNAME, locomodir);
+	if (locomo_regdir == NULL) {
+		printk(KERN_ERR MODULE_NAME": can't create /proc/" LOCOMO_DIRNAME "/" REG_DIRNAME "\n");
+		return(-ENOMEM);
+	}
+
+	for(i=0;i<NUM_OF_LOCOMO_REG_ENTRY;i++) {
+		entry = create_proc_entry(locomo_regs[i].name,
+				S_IWUSR |S_IRUSR | S_IRGRP | S_IROTH,
+				locomo_regdir);
+		if(entry) {
+			locomo_regs[i].low_ino = entry->low_ino;
+			entry->proc_fops = &proc_locomo_reg_operations;
+		} else {
+			printk( KERN_ERR MODULE_NAME
+				": can't create /proc/" REG_DIRNAME
+				"/%s\n", locomo_regs[i].name);
+			return(-ENOMEM);
+		}
+	}
+
+#endif
+
 	return (0);
 }
 
@@ -347,6 +643,17 @@ static void __exit cleanup_reg_monitor(void)
 		remove_proc_entry(sa1110_regs[i].name,regdir);
 	remove_proc_entry(REG_DIRNAME, cpudir);
 	remove_proc_entry(CPU_DIRNAME, &proc_root);
+#ifdef CONFIG_SA1100_COLLIE
+	for(i=0;i<NUM_OF_SCOOP_REG_ENTRY;i++)
+		remove_proc_entry(scoop_regs[i].name,scoop_regdir);
+	remove_proc_entry(REG_DIRNAME, scoopdir);
+	remove_proc_entry(SCOOP_DIRNAME, &proc_root);
+
+	for(i=0;i<NUM_OF_LOCOMO_REG_ENTRY;i++)
+		remove_proc_entry(locomo_regs[i].name,locomo_regdir);
+	remove_proc_entry(REG_DIRNAME, locomodir);
+	remove_proc_entry(LOCOMO_DIRNAME, &proc_root);
+#endif
 }
 
 module_init(init_reg_monitor);

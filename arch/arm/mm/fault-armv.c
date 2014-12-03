@@ -7,6 +7,9 @@
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
+ *
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
  */
 #include <linux/config.h>
 #include <linux/signal.h>
@@ -84,7 +87,7 @@ static unsigned long ai_half;
 static unsigned long ai_word;
 static unsigned long ai_multi;
 
-static int ai_usermode;
+static int ai_usermode = 1;
 
 #ifdef CONFIG_SYSCTL
 static char *usermode_action[] = { "ignored", "SIGBUS", "fixed up" };

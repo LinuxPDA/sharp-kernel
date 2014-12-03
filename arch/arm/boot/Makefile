@@ -59,6 +59,7 @@ ZTEXTADDR	 = 0x40008000
 endif
 
 ifeq ($(CONFIG_ARCH_L7200),y)
+ifneq ($(CONFIG_IRIS),y)
 # RAM based kernel
 #ZTEXTADDR	 = 0xf0400000
 #ZRELADDR	 = 0xf0008000
@@ -67,6 +68,11 @@ ifeq ($(CONFIG_ARCH_L7200),y)
 ZTEXTADDR	 = 0x00010000
 ZRELADDR	 = 0xf0008000
 ZBSSADDR	 = 0xf03e0000
+else
+# CONFIG_IRIS ( for Iris )
+ZTEXTADDR	 = 0xf0400000
+ZRELADDR	 = 0xf0038000
+endif
 endif
 
 ifeq ($(CONFIG_ARCH_P720T),y)

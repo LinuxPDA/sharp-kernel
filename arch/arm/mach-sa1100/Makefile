@@ -35,6 +35,7 @@ obj-$(CONFIG_ASSABET_NEPONSET) += neponset.o
 obj-$(CONFIG_SA1100_BITSY) += bitsy.o
 obj-$(CONFIG_SA1100_BRUTUS) += brutus.o
 obj-$(CONFIG_SA1100_CERF) += cerf.o
+obj-$(CONFIG_SA1100_COLLIE) += collie.o m62332.o collie_battery.o collie_led.o collie_buzzer.o
 obj-$(CONFIG_SA1100_EMPEG) += empeg.o
 obj-$(CONFIG_SA1100_FLEXANET) += flexanet.o
 obj-$(CONFIG_SA1100_FREEBIRD) += freebird.o
@@ -73,11 +74,24 @@ obj-$(CONFIG_SA1100_USB_CHAR) += usb-char.o
 
 # Miscelaneous functions
 obj-$(CONFIG_PROFILER) += hwtimer.o
+ifeq ($(CONFIG_SA1100_COLLIE),y)
+obj-$(CONFIG_APM)      += collie_apm.o
+else
 obj-$(CONFIG_APM)      += apm.o
+endif
 obj-$(CONFIG_PM) += power.o suspend.o
 obj-m += gpio.o registers.o
+
+ifeq ($(CONFIG_DEVICEINFO),m)
+  obj-$(CONFIG_DEVICEINFO) += devinfo.o
+  devinfo-objs-m += deviceinfo.o
+  devinfo-objs-$(CONFIG_COLLIE_DEVICEINFO) += collie_deviceinfo.o
+endif
 
 include $(TOPDIR)/Rules.make
 
 sa1100usb_core.o: $(sa1100usb_core-objs)
 	$(LD) -r -o $@ $(sa1100usb_core-objs)
+
+devinfo.o: $(devinfo-objs-m)
+	$(LD) -r -o $@ $(devinfo-objs-m)

@@ -1,0 +1,23 @@
+#
+#  SA1100 USB device bus interface configuration
+#
+# Copyright (C) 2001 Lineo, Inc.
+# Copyright (C) 2001 Hewlett-Packard Co.
+
+mainmenu_option next_comment
+
+comment "Intel StrongArm SA-1110 Bus Interface Driver"
+
+dep_tristate '  Intel StrongArm SA-1110 (Assabet, Ipaq) support' CONFIG_USBD_SA1100_BUS $CONFIG_USBD
+
+if [ ! "$CONFIG_USBD_SA1100_BUS" = "n" ]; then
+
+	bool '  DMA fixes installed' CONFIG_SA1100_NEW_DMA_COOPERATION 
+	int  '  USBD Stall watchdog timeout (seconds, 0 for none)' CONFIG_USBD_STALL_TIMEOUT "0"
+	int  '  USBD Stall disconnect duration (seconds)' CONFIG_USBD_STALL_DISCONNECT_DURATION "2"
+
+	dep_bool '  USB traffic keeps device awake' CONFIG_USBD_TRAFFIC_KEEPAWAKE $CONFIG_SA1110_CALYPSO
+
+fi
+
+endmenu

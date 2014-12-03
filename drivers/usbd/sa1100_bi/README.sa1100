@@ -1,0 +1,105 @@
+SA-1110 Bulk Transfer Encapsulation                             Stuart Lynne
+Lineo                                           Thu Mar 15 13:38:16 PST 2001 
+
+
+1. Bulk Transfer Encapsulation
+
+There are two problems with the SA-1110 UDC USB Device that affect the link
+level:
+
+        1 - the UDC cannot send empty, zero byte, packets 
+
+The design of the UDC transmit uses packetsize-1 in an 8-bit register to
+define the size of the outgoing packet. This allows packetsizes from 1 to
+256 but does not allow for zero. 
+
+        2 - the UDC can silently corrupt outbound packets
+
+A documented problem with the DMA engine supplying data to the UDC for
+transfer is that it can sometimes provide the same byte of data twice (i.e.
+the address increment fails between two successive data requests).
+
+
+Problem 1 conflicts directly with the USB specification.
+USB Bulk data transfers allow large data blocks to be sent across
+the USB bus in multiple data packets, to be reassembled into a single data
+block when received.  The end of the bulk transfer is identified by a packet
+of data that is less than the full packet size.  If the size of the large
+data block is an exact multiple of the packet size, the USB spec calls for
+an empty (zero byte) packet to be sent, which the UDC cannot do.
+
+
+This leads to two requirements for the SA-1110 link level design:
+
+    1 - need to be able to terminate bulk transfers that are a multiple of the
+    packetsize (fix problem 1)
+
+    2 - need to be able to detect data corruption (fix problem 2)
+   
+The simplest method to detect data corruption is to use a 16bit CRC. This is
+sufficent to protect bulk data transfers up to 4096 bytes in length. The
+algorithm used is the same as that used by PPP as defined in RFC 1662.
+
+The sender calculates a 16 bit CRC along the data and appends it to the data
+before sending. The receiver calculates the same CRC along the received data
+and if the results are correct it removes the last two bytes and passes the
+correct amount of data up.
+
+This algorithm is additionaly complicated by the problem 1. The SA-1110
+cannot send the required empty packet to signal the end of a large block
+when the size of a bulk transfer (the data plus CRC) is an exact multiple of
+the packet size. This is solved by sending a data packet containing a single
+byte of data.
+
+The receiver must now handle three different scenarios:
+
+        0                               packetsize 
+        |                               |
+    A.  |................|FCS|FCS| 
+    B.  |.......................|FCS|FCS|XXX|
+    C.  |...........................|FCS|FCS|
+                                        
+
+    A. The default case, the data plus FCS bytes is not a multiple of the
+    packet size, process normally, test FCS and if successful discard the
+    two FCS bytes.
+
+    B. The received data is one more than the packet size. The receiver must
+    check if the CRC is correct one byte early. If the test is successful
+    then it discards three bytes (two FCS and the additional padding byte).
+
+    C. The received data is one more than the packet size and the CRC test
+    at the packet boundary failed, test again with the last byte and if
+    successful discard the two FCS bytes.
+
+
+The Bulk Transfer mechanism described above provides for a mechanism for
+transferring data that has the following characteristics:
+
+    - arbitrary data sizes supported
+
+    - data received correctly or not at all
+
+This means that there is no additional requirement for a size within the
+data being transferred. The size received is what was sent.
+
+It also means that while any data that is received by the layers above
+this encapsulation is correct, it is possible for data to be silently lost.
+
+
+2. Function Specific Encapsulation
+
+There are two function applictions:
+
+    - serial
+
+    - network
+
+Both of these just use the bulk transfer mechanism without additional
+encapsulation. The serial function just passes all data through without
+any additional processing. 
+
+The network function transfers the 802.3 data frames.
+
+
+

@@ -1,0 +1,92 @@
+.TH l7205_bi 8 "\n[year]-\n[mo]-\n[dy]", Lineo "Lineo USBD Developer's Guide"
+.\"
+.SH SYNOPSIS
+.\"
+insmod l7205_bi [dbg=
+.I dbgstring
+]
+.\"
+.SH DESCRIPTION
+.\"
+.PP
+This module is a 
+.I Bus Interface
+driver for the LinkupSys L7205 and L7210.
+.\"
+.PP
+.SH MODULE PARAMETERS
+.\"
+The following parameters can be set at the time this module is loaded:
+.\"
+.\"
+.TP
+dbg
+This parameter as the format of a colon-separated list of debug levels for
+various items. There is a sample: dbg="2:init=3:rx" This example sets the
+default debug level to 2 (normally it is 0), the debug level to 3 for the
+init (setup) phase and the debug level for rx to 1 (instead of 2, the
+default set earlier). The exact meaning of the debug output can be
+determined by comparing the debug output to the source code. By default,
+this information goes to the console. This behaviour may be changed by
+appropriate setup of klog(8)and syslog(8)
+
+
+.SH LIMITATIONS
+.\"
+.PP
+There are several hardware deficencies with the LinkupSys L7205 and L7210
+implementation.
+.\"
+.TP
+limited endpoints
+There are only four endpoints, with fixed endpoint addresses.
+.RS
+.TP
+endpoint 0
+This is used as the control endpoint. It has a maximum 32 byte packet size. 
+.TP
+endpoint 1
+This only supports Bulk OUT transfers with a maximum packet size of 32 bytes.
+.TP
+endpoint 2
+This only supports Bulk IN transfers with a maximum packet size of 32 bytes.
+.TP
+endpoint 3
+This only supports Interrupt transfers with a maximum packet size of 32 bytes.
+.RE
+.\"
+.\"
+.SH BUGS
+.\"
+.PP
+Both the L7205 and L7210 have severe hardware problems. 
+.\"
+.PP
+The L7205 and L7210 have problems dealing with packets that are not the
+almost full sized. This is due to memory access coherency issues when
+filling or emptying the FIFOs. The packetsize must be specified as 32
+bytes. The only sizes that can be sent or received successfully are
+29, 30, 31 and 32 bytes. Only 
+.I Function 
+drivers that support a safe and padded encapsulation can be used (i.e. CRC
+plus padding to keep the sent packet sizes to one of the supported sizes).
+.\"
+.SH LINUX CONFIGURATION PARAMETERS
+.\"
+.SH AUTHOR
+.TP
+Stuart Lynne <sl@lineo.com>
+.TP
+Bruce Balden <balden@lineo.com>
+.TP
+Tom Rushworth <tbr@lineo.com>
+.\"
+.\"
+.SH SEE ALSO
+.PP
+usbdbus(7), usbdfunc(7), usbd(8), usbdcore(8)
+.PP
+Universal Serial Bus Specification, Revision 2.0
+.PP
+Universal Serial Bus Class Definitions for Communications Devices, Version 1.1
+

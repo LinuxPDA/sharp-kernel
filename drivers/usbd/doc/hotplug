@@ -1,0 +1,99 @@
+#!/bin/sh
+
+(
+echo
+date
+echo $0: ${*}
+env
+) >> /tmp/HOT
+
+
+#set -x
+#ACTION=$2
+
+ARG0=`basename $0`
+
+AGENT=$1
+
+#if [ $# -eq 3 ] ; then
+#	INTERFACE=$2
+#	ACTION=$3
+#	set -x
+#fi
+
+
+[ -z ${AGENT} ] && exit 1
+[ -z ${INTERFACE} ] && exit 1
+[ -z ${ACTION} ] && exit 1
+
+case ${AGENT} in
+
+usbd) 
+	case ${INTERFACE} in
+	monitor)
+		case ${ACTION} in
+
+			# called to load all usb device modules
+		load)	
+			echo LOAD >> /tmp/HOT
+			/mnt/nfs/sbin/insmod /mnt/nfs/tmp/usbdcore.o
+			/mnt/nfs/sbin/insmod /mnt/nfs/tmp/net_fd.o
+			/mnt/nfs/sbin/insmod /mnt/nfs/tmp/sa1100_bi.o
+			sleep 2
+			ifconfig usbd0 192.168.1.1
+			;;
+
+			# called to handle power management event
+		suspend) 
+			echo SUSPEND >> /tmp/HOT
+			/mnt/nfs/sbin/rmmod sa1100_bi
+			;;
+
+			# called to reload after power management event
+		restore-loaded)
+			echo RESTORE-LOADED >> /tmp/HOT
+			/mnt/nfs/sbin/insmod /mnt/nfs/tmp/sa1100_bi.o
+			sleep 2
+			ifconfig usbd0 192.168.1.1
+			;;
+
+			# called to unload after power management event
+		restore-unloaded)
+			echo RESTORE-UNLOADED >> /tmp/HOT
+			/mnt/nfs/sbin/rmmod net_fd
+			/mnt/nfs/sbin/rmmod usbdcore
+			;;
+
+			# called to unload all usb device modules
+		unload)
+			echo UNLOAD >> /tmp/HOT
+			/mnt/nfs/sbin/rmmod sa1100_bi
+			/mnt/nfs/sbin/rmmod net_fd
+			/mnt/nfs/sbin/rmmod usbdcore
+			;;
+
+		*)
+			exit 1
+			;;
+		esac
+		;;
+	
+	usbd0)
+		case ${ACTION} in
+		register)
+			ifconfig usbd0 192.168.1.1
+			;;
+		unregister)
+			ifconfig usbd0 down
+			;;
+		esac
+		;;
+	esac
+	;;
+*)
+	exit 1
+	;;
+esac
+
+exit 0
+

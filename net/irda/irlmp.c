@@ -11,6 +11,7 @@
  * 
  *     Copyright (c) 1998-2000 Dag Brattli <dagb@cs.uit.no>, 
  *     All Rights Reserved.
+ *     Copyright (c) 2000-2001 Jean Tourrilhes <jt@hpl.hp.com>
  *     
  *     This program is free software; you can redistribute it and/or 
  *     modify it under the terms of the GNU General Public License as 
@@ -49,6 +50,7 @@ struct irlmp_cb *irlmp = NULL;
 int  sysctl_discovery         = 0;
 int  sysctl_discovery_timeout = 3; /* 3 seconds by default */
 int  sysctl_discovery_slots   = 6; /* 6 slots by default */
+int  sysctl_lap_keepalive_time = LM_IDLE_TIMEOUT * 1000 / HZ;
 char sysctl_devname[65];
 
 char *lmp_reasons[] = {
@@ -74,7 +76,7 @@ int irlmp_proc_read(char *buf, char **start, off_t offst, int len);
  */
 int __init irlmp_init(void)
 {
-	IRDA_DEBUG(0, __FUNCTION__ "()\n");
+	IRDA_DEBUG(1, __FUNCTION__ "()\n");
 	/* Initialize the irlmp structure. */
 	irlmp = kmalloc( sizeof(struct irlmp_cb), GFP_KERNEL);
 	if (irlmp == NULL)
@@ -169,14 +171,14 @@ struct lsap_cb *irlmp_open_lsap(__u8 slsap_sel, notify_t *notify, __u8 pid)
 #endif /* CONFIG_IRDA_ULTRA */
 	} else
 		self->dlsap_sel = LSAP_ANY;
-	self->connected = FALSE;
+	/* self->connected = FALSE; -> already NULL via memset() */
 
 	init_timer(&self->watchdog_timer);
 
 	ASSERT(notify->instance != NULL, return NULL;);
 	self->notify = *notify;
 
-	irlmp_next_lsap_state(self, LSAP_DISCONNECTED);
+	self->lsap_state = LSAP_DISCONNECTED;
 	
 	/* Insert into queue of unconnected LSAPs */
 	hashbin_insert(irlmp->unconnected_lsaps, (irda_queue_t *) self, (int) self, 
@@ -236,6 +238,7 @@ void irlmp_close_lsap(struct lsap_cb *self)
 		ASSERT(lap->magic == LMP_LAP_MAGIC, return;);
 		lsap = hashbin_remove(lap->lsaps, (int) self, NULL);
 	}
+	self->lap = NULL;
 	/* Check if we found the LSAP! If not then try the unconnected lsaps */
 	if (!lsap) {
 		lsap = hashbin_remove(irlmp->unconnected_lsaps, (int) self, 
@@ -280,7 +283,7 @@ void irlmp_register_link(struct irlap_cb *irlap, __u32 saddr, notify_t *notify)
 	lap->daddr = DEV_ADDR_ANY;
 	lap->lsaps = hashbin_new(HB_GLOBAL);
 
-	irlmp_next_lap_state(lap, LAP_STANDBY);
+	lap->lap_state = LAP_STANDBY;
 	
 	init_timer(&lap->idle_timer);
 
@@ -345,7 +348,7 @@ int irlmp_connect_request(struct lsap_cb *self, __u8 dlsap_sel,
 	      "(), slsap_sel=%02x, dlsap_sel=%02x, saddr=%08x, daddr=%08x\n", 
 	      self->slsap_sel, dlsap_sel, saddr, daddr);
 	
-	if (self->connected) 
+	if (test_bit(0, &self->connected))
 		return -EISCONN;
 	
 	/* Client must supply destination device address */
@@ -376,7 +379,7 @@ int irlmp_connect_request(struct lsap_cb *self, __u8 dlsap_sel,
 	 * discovery log and check if any of the links has discovered a
 	 * device with the given daddr 
 	 */
-	if (!saddr) {
+	if ((!saddr) || (saddr == DEV_ADDR_ANY)) {
 		if (daddr != DEV_ADDR_ANY)
 			discovery = hashbin_find(irlmp->cachelog, daddr, NULL);
 		else {
@@ -434,7 +437,7 @@ int irlmp_connect_request(struct lsap_cb *self, __u8 dlsap_sel,
 
 	hashbin_insert(self->lap->lsaps, (irda_queue_t *) self, (int) self, NULL);
 
-	self->connected = TRUE;
+	set_bit(0, &self->connected);	/* TRUE */
 	
 	/*
 	 *  User supplied qos specifications?
@@ -480,6 +483,8 @@ void irlmp_connect_indication(struct lsap_cb *self, struct sk_buff *skb)
 		self->notify.connect_indication(self->notify.instance, self, 
 						&self->qos, max_seg_size, 
 						max_header_size, skb);
+	else
+		dev_kfree_skb(skb);
 }
 
 /*
@@ -494,7 +499,7 @@ int irlmp_connect_response(struct lsap_cb *self, struct sk_buff *userdata)
 	ASSERT(self->magic == LMP_LSAP_MAGIC, return -1;);
 	ASSERT(userdata != NULL, return -1;);
 
-	self->connected = TRUE;
+	set_bit(0, &self->connected);	/* TRUE */
 
 	IRDA_DEBUG(2, __FUNCTION__ "(), slsap_sel=%02x, dlsap_sel=%02x\n", 
 		   self->slsap_sel, self->dlsap_sel);
@@ -542,7 +547,8 @@ void irlmp_connect_confirm(struct lsap_cb *self, struct sk_buff *skb)
 		self->notify.connect_confirm(self->notify.instance, self,
 					     &self->qos, max_seg_size,
 					     max_header_size, skb);
-	}
+	} else
+		dev_kfree_skb(skb);
 }
 
 /*
@@ -597,16 +603,18 @@ int irlmp_disconnect_request(struct lsap_cb *self, struct sk_buff *userdata)
 
 	ASSERT(self != NULL, return -1;);
 	ASSERT(self->magic == LMP_LSAP_MAGIC, return -1;);
+	ASSERT(userdata != NULL, return -1;);
 
-	/* Already disconnected? */
-	if (!self->connected) {
-		WARNING(__FUNCTION__ "(), already disconnected!\n");
+	/* Already disconnected ?
+	 * There is a race condition between irlmp_disconnect_indication()
+	 * and us that might mess up the hashbins below. This fixes it.
+	 * Jean II */
+	if (! test_and_clear_bit(0, &self->connected)) {
+		IRDA_DEBUG(0, __FUNCTION__ "(), already disconnected!\n");
+		dev_kfree_skb(userdata);
 		return -1;
 	}
 
-	ASSERT(userdata != NULL, return -1;);
-	ASSERT(self->connected == TRUE, return -1;);
-	
 	skb_push(userdata, LMP_CONTROL_HEADER);
 
 	/* 
@@ -633,7 +641,6 @@ int irlmp_disconnect_request(struct lsap_cb *self, struct sk_buff *userdata)
 		       NULL);
 	
 	/* Reset some values */
-	self->connected = FALSE;
 	self->dlsap_sel = LSAP_ANY;
 	self->lap = NULL;
 	
@@ -650,16 +657,23 @@ void irlmp_disconnect_indication(struct lsap_cb *self, LM_REASON reason,
 {
 	struct lsap_cb *lsap;
 
-	IRDA_DEBUG(1, __FUNCTION__ "(), reason=%s\n", lmp_reasons[reason]);	
+	IRDA_DEBUG(1, __FUNCTION__ "(), reason=%s\n", lmp_reasons[reason]);
 	ASSERT(self != NULL, return;);
 	ASSERT(self->magic == LMP_LSAP_MAGIC, return;);
- 	ASSERT(self->connected == TRUE, return;); 
 
 	IRDA_DEBUG(3, __FUNCTION__ "(), slsap_sel=%02x, dlsap_sel=%02x\n", 
 		   self->slsap_sel, self->dlsap_sel);
 
-	self->connected = FALSE;
-	self->dlsap_sel = LSAP_ANY;
+	/* Already disconnected ?
+	 * There is a race condition between irlmp_disconnect_request()
+	 * and us that might mess up the hashbins below. This fixes it.
+	 * Jean II */
+	if (! test_and_clear_bit(0, &self->connected)) {
+		IRDA_DEBUG(0, __FUNCTION__ "(), already disconnected!\n");
+		if (userdata)
+			dev_kfree_skb(userdata);
+		return;
+	}
 
 #ifdef CONFIG_IRDA_CACHE_LAST_LSAP
 	irlmp->cache.valid = FALSE;
@@ -678,6 +692,7 @@ void irlmp_disconnect_indication(struct lsap_cb *self, LM_REASON reason,
 	hashbin_insert(irlmp->unconnected_lsaps, (irda_queue_t *) lsap, (int) lsap, 
 		       NULL);
 
+	self->dlsap_sel = LSAP_ANY;
 	self->lap = NULL;
 	
 	/*
@@ -688,7 +703,40 @@ void irlmp_disconnect_indication(struct lsap_cb *self, LM_REASON reason,
 						   self, reason, userdata);
 	else {
 		IRDA_DEBUG(0, __FUNCTION__ "(), no handler\n");
-		dev_kfree_skb(userdata);
+		if (userdata)
+			dev_kfree_skb(userdata);
+	}
+}
+
+/*
+ * Function irlmp_do_expiry (void)
+ *
+ *    Do a cleanup of the discovery log (remove old entries)
+ *
+ * Note : separate from irlmp_do_discovery() so that we can handle
+ * passive discovery properly.
+ */
+void irlmp_do_expiry()
+{
+	struct lap_cb *lap;
+
+	/*
+	 * Expire discovery on all links which are *not* connected.
+	 * On links which are connected, we can't do discovery
+	 * anymore and can't refresh the log, so we freeze the
+	 * discovery log to keep info about the device we are
+	 * connected to. - Jean II
+	 */
+	lap = (struct lap_cb *) hashbin_get_first(irlmp->links);
+	while (lap != NULL) {
+		ASSERT(lap->magic == LMP_LAP_MAGIC, return;);
+		
+		if (lap->lap_state == LAP_STANDBY) {
+			/* Expire discoveries discovered on this link */
+			irlmp_expire_discoveries(irlmp->cachelog, lap->saddr,
+						 FALSE);
+		}
+		lap = (struct lap_cb *) hashbin_get_next(irlmp->links);
 	}
 }
 
@@ -697,6 +745,7 @@ void irlmp_disconnect_indication(struct lsap_cb *self, LM_REASON reason,
  *
  *    Do some discovery on all links
  *
+ * Note : log expiry is done above.
  */
 void irlmp_do_discovery(int nslots)
 {
@@ -731,10 +780,6 @@ void irlmp_do_discovery(int nslots)
 		ASSERT(lap->magic == LMP_LAP_MAGIC, return;);
 		
 		if (lap->lap_state == LAP_STANDBY) {
-			/* Expire discoveries discovered on this link */
-			irlmp_expire_discoveries(irlmp->cachelog, lap->saddr,
-						 FALSE);
-
 			/* Try to discover */
 			irlmp_do_lap_event(lap, LM_LAP_DISCOVERY_REQUEST, 
 					   NULL);
@@ -751,10 +796,6 @@ void irlmp_do_discovery(int nslots)
  */
 void irlmp_discovery_request(int nslots)
 {
-	/* Check if user wants to override the default */
-	if (nslots == DISCOVERY_DEFAULT_SLOTS)
-		nslots = sysctl_discovery_slots;
-
 	/* Return current cached discovery log */
 	irlmp_discovery_confirm(irlmp->cachelog);
 
@@ -762,18 +803,43 @@ void irlmp_discovery_request(int nslots)
 	 * Start a single discovery operation if discovery is not already
          * running 
 	 */
-	if (!sysctl_discovery)
+	if (!sysctl_discovery) {
+		/* Check if user wants to override the default */
+		if (nslots == DISCOVERY_DEFAULT_SLOTS)
+			nslots = sysctl_discovery_slots;
+
 		irlmp_do_discovery(nslots);
+		/* Note : we never do expiry here. Expiry will run on the
+		 * discovery timer regardless of the state of sysctl_discovery
+		 * Jean II */
+	}
 }
 
 /*
- * Function irlmp_get_discoveries (pn, mask)
+ * Function irlmp_get_discoveries (pn, mask, slots)
  *
  *    Return the current discovery log
  *
  */
-struct irda_device_info *irlmp_get_discoveries(int *pn, __u16 mask)
+struct irda_device_info *irlmp_get_discoveries(int *pn, __u16 mask, int nslots)
 {
+	/* If discovery is not enabled, it's likely that the discovery log
+	 * will be empty. So, we trigger a single discovery, so that next
+	 * time the user call us there might be some results in the log.
+	 * Jean II
+	 */
+	if (!sysctl_discovery) {
+		/* Check if user wants to override the default */
+		if (nslots == DISCOVERY_DEFAULT_SLOTS)
+			nslots = sysctl_discovery_slots;
+
+		/* Start discovery - will complete sometime later */
+		irlmp_do_discovery(nslots);
+		/* Note : we never do expiry here. Expiry will run on the
+		 * discovery timer regardless of the state of sysctl_discovery
+		 * Jean II */
+	}
+
 	/* Return current cached discovery log */
 	return(irlmp_copy_discoveries(irlmp->cachelog, pn, mask));
 }
@@ -1350,7 +1416,7 @@ __u32 irlmp_register_client(__u16 hint_mask, DISCOVERY_CALLBACK1 disco_clb,
 	irlmp_client_t *client;
 	__u32 handle;
 
-	IRDA_DEBUG(0, __FUNCTION__ "()\n");
+	IRDA_DEBUG(1, __FUNCTION__ "()\n");
 	ASSERT(irlmp != NULL, return 0;);
 	
 	/* Get a unique handle for this client */
@@ -1622,14 +1688,15 @@ int irlmp_proc_read(char *buf, char **start, off_t offset, int len)
 
 		len += sprintf(buf+len, "saddr: %#08x, daddr: %#08x, ",
 			       lap->saddr, lap->daddr); 
-		len += sprintf(buf+len, "refcount: %d", lap->refcount);
+		len += sprintf(buf+len, "num lsaps: %d",
+			       HASHBIN_GET_SIZE(lap->lsaps));
 		len += sprintf(buf+len, "\n");
 
-		len += sprintf(buf+len, "\nConnected LSAPs:\n");
+		len += sprintf(buf+len, "\n  Connected LSAPs:\n");
 		self = (struct lsap_cb *) hashbin_get_first(lap->lsaps);
 		while (self != NULL) {
 			ASSERT(self->magic == LMP_LSAP_MAGIC, return 0;);
-			len += sprintf(buf+len, "lsap state: %s, ", 
+			len += sprintf(buf+len, "  lsap state: %s, ", 
 				       irlsap_state[ self->lsap_state]);
 			len += sprintf(buf+len, 
 				       "slsap_sel: %#02x, dlsap_sel: %#02x, ",

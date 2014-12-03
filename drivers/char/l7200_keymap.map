@@ -1,0 +1,279 @@
+#  Modified by ISDCorp 1999  www.isdcorp.com
+# Default kernel keymap. This uses 7 modifier combinations.
+keymaps 0-2,4-5,8,12
+# Change the above line into
+#	keymaps 0-2,4-6,8,12
+# in case you want the entries
+#	altgr   control keycode  83 = Boot
+#	altgr   control keycode 111 = Boot
+# below.
+#
+# In fact AltGr is used very little, and one more keymap can
+# be saved by mapping AltGr to Alt (and adapting a few entries):
+# keycode 100 = Alt
+#
+keycode   1 = Alt
+keycode   2 = grave            asciitilde
+	control keycode  2 = nul
+	alt     keycode  2 = Meta_grave
+
+keycode   4 = Control
+keycode   5 = AltGr		# Actually Fn
+keycode   6 = Escape           Escape
+	alt     keycode  6 = Meta_Escape
+keycode   7 = one              exclam
+	alt     keycode  7 = Meta_one
+	altgr   keycode  7 = F1
+	control alt     keycode 7 = Console_1
+keycode   8 = two              at               at
+	control	keycode  8 = nul
+	shift	control	keycode   82 = nul
+	alt	keycode  8 = Meta_two
+	altgr   keycode  8 = F2
+	control alt     keycode 8 = Console_1
+keycode   9 = nine             parenleft        bracketright
+	alt     keycode  9 = Meta_nine
+	altgr   keycode  9 = F9
+keycode  10 = zero             parenright       braceright
+	alt     keycode  10 = Meta_zero
+	altgr   keycode  10 = F10
+keycode  11 = minus            underscore       backslash
+	control	keycode  11 = Control_underscore
+	shift	control	keycode  11 = Control_underscore
+	alt	keycode  11 = Meta_minus
+	altgr	keycode  11 = Num_Lock
+keycode  12 = equal            plus
+	alt     keycode  12 = Meta_equal
+	#altgr     keycode  12 = Bk ???
+
+keycode  14 = BackSpace
+
+keycode  18 = backslash        bar
+	control keycode  18 = Control_backslash
+	alt     keycode  18 = Meta_backslash
+keycode  19 = Shift
+
+keycode  22 = Delete           Delete
+	control keycode  22 = BackSpace
+	alt     keycode  22 = Meta_Delete
+
+keycode  24 = t
+keycode  25 = y
+keycode  26 = u
+keycode  27 = i
+keycode  28 = Return
+	alt     keycode  28 = Meta_Control_m
+keycode  29 = Shift
+keycode  30 = Down
+	altgr   keycode  30 = Next		# Pg Down
+
+keycode  34 = Tab              Tab
+	alt     keycode  32 = Meta_Tab
+
+keycode  38 = q
+keycode  39 = w
+keycode  40 = e
+	altgr   keycode  40 = Hex_E
+keycode  41 = r
+keycode  42 = o
+keycode  43 = p
+	altgr	keycode  54 = Insert
+keycode  44 = bracketleft      braceleft
+	control keycode  44 = Escape
+	alt     keycode  44 = Meta_bracketleft
+	altgr	keycode  44 = Pause 
+keycode  46 = bracketright     braceright       asciitilde
+	control keycode  46 = Show_State
+	alt     keycode  46 = Show_Memory
+	control alt	keycode  46 = Show_Registers
+	altgr     keycode  46 = Scroll_Lock
+	#alt	keycode  46 = Scroll_Lock      Show_Memory      Show_Registers
+keycode  50 = z
+keycode  54 = Caps_Lock
+keycode  57 = k
+keycode  58 = l
+keycode  59 = semicolon        colon
+	alt     keycode  59 = Meta_semicolon
+	#altgr	keycode  59 = ??? PrtScr
+keycode  60 = apostrophe       quotedbl
+	control keycode  60 = Control_g
+	alt     keycode  60 = Meta_apostrophe
+	#altgr	keycode  60 =  ??? SysReq
+keycode  62 = Up
+	altgr	keycode  62 = Prior		# Pg Up
+
+keycode  66 = a
+	altgr   keycode  66 = Hex_A
+keycode  70 = s
+keycode  71 = d
+	altgr   keycode  71 = Hex_D
+keycode  72 = f
+	altgr   keycode  72 = Hex_F
+keycode  73 = g
+keycode  74 = h
+keycode  75 = j
+keycode  76 = slash            question
+	control keycode  76 = Delete
+	alt     keycode  76 = Meta_slash
+keycode  78 = Left
+	alt     keycode 78 = Decr_Console
+	altgr   keycode 78 = Find               # Home
+
+keycode  82 = x
+
+keycode  86 = c
+	altgr   keycode  86 = Hex_C
+keycode  87 = v
+keycode  88 = b
+	altgr   keycode  88 = Hex_B
+keycode  89 = n
+keycode  90 = m
+keycode  91 = comma            less
+	alt     keycode  91 = Meta_comma
+keycode  92 = period           greater
+	control keycode  92 = Compose
+	alt     keycode  92 = Meta_period
+
+keycode  94 = space            space
+	control keycode 94 = nul
+	alt     keycode 94 = Meta_space
+keycode  102 = three            numbersign
+	control keycode 102 = Escape
+	alt     keycode 102 = Meta_three
+	altgr   keycode 102 = F3
+	control alt     keycode 102 = Console_3
+keycode  103 = four             dollar           dollar
+	control keycode 103 = Control_backslash
+	alt     keycode 103 = Meta_four
+	altgr 	keycode 103 = F4
+	control alt     keycode 103 = Console_4
+keycode  104 = five             percent
+	control keycode 104 = Control_bracketright
+	alt     keycode 104 = Meta_five
+	altgr   keycode 104 = F5
+	control alt     keycode 104 = Console_5
+keycode  105 = six              asciicircum
+	control keycode 105 = Control_asciicircum
+	alt     keycode 105 = Meta_six
+	altgr	keycode 105 = F6
+	control alt     keycode 105 = Console_6
+keycode  106 = seven            ampersand        braceleft
+	control keycode 106 = Control_underscore
+	alt     keycode 106 = Meta_seven
+	altgr	keycode 106 = F7
+	control alt     keycode 106 = Console_7
+keycode 107 = eight            asterisk         bracketleft
+	control keycode 107 = Delete
+	alt     keycode 107 = Meta_eight
+	altgr	keycode 107 = F8
+	control alt     keycode 107 = Console_8
+keycode 108 = space	Show_Memory	Show_Registers	# prog, used as space
+	control keycode  108 = Show_State
+	alt	keycode  108 = Show_Registers
+keycode 110 = Right
+	alt     keycode 110 = Incr_Console
+	altgr	keycode 110 = Select             # End
+
+
+
+keycode 123 =
+keycode 124 =
+keycode 125 =
+keycode 126 =
+keycode 127 =
+string F1 = "\033[[A"
+string F2 = "\033[[B"
+string F3 = "\033[[C"
+string F4 = "\033[[D"
+string F5 = "\033[[E"
+string F6 = "\033[17~"
+string F7 = "\033[18~"
+string F8 = "\033[19~"
+string F9 = "\033[20~"
+string F10 = "\033[21~"
+string F11 = "\033[23~"
+string F12 = "\033[24~"
+string F13 = "\033[25~"
+string F14 = "\033[26~"
+string F15 = "\033[28~"
+string F16 = "\033[29~"
+string F17 = "\033[31~"
+string F18 = "\033[32~"
+string F19 = "\033[33~"
+string F20 = "\033[34~"
+string Find = "\033[1~"
+string Insert = "\033[2~"
+string Remove = "\033[3~"
+string Select = "\033[4~"
+string Prior = "\033[5~"
+string Next = "\033[6~"
+string Macro = "\033[M"
+string Pause = "\033[P"
+compose '`' 'A' to '-A@'
+compose '`' 'a' to '-A`'
+compose '\'' 'A' to '-AA'
+compose '\'' 'a' to '-Aa'
+compose '^' 'A' to '-AB'
+compose '^' 'a' to '-Ab'
+compose '~' 'A' to '-AC'
+compose '~' 'a' to '-Ac'
+compose '"' 'A' to '-AD'
+compose '"' 'a' to '-Ad'
+compose 'O' 'A' to '-AE'
+compose 'o' 'a' to '-Ae'
+compose '0' 'A' to '-AE'
+compose '0' 'a' to '-Ae'
+compose 'A' 'A' to '-AE'
+compose 'a' 'a' to '-Ae'
+compose 'A' 'E' to '-AF'
+compose 'a' 'e' to '-Af'
+compose ',' 'C' to '-AG'
+compose ',' 'c' to '-Ag'
+compose '`' 'E' to '-AH'
+compose '`' 'e' to '-Ah'
+compose '\'' 'E' to '-AI'
+compose '\'' 'e' to '-Ai'
+compose '^' 'E' to '-AJ'
+compose '^' 'e' to '-Aj'
+compose '"' 'E' to '-AK'
+compose '"' 'e' to '-Ak'
+compose '`' 'I' to '-AL'
+compose '`' 'i' to '-Al'
+compose '\'' 'I' to '-AM'
+compose '\'' 'i' to '-Am'
+compose '^' 'I' to '-AN'
+compose '^' 'i' to '-An'
+compose '"' 'I' to '-AO'
+compose '"' 'i' to '-Ao'
+compose '-' 'D' to '-AP'
+compose '-' 'd' to '-Ap'
+compose '~' 'N' to '-AQ'
+compose '~' 'n' to '-Aq'
+compose '`' 'O' to '-AR'
+compose '`' 'o' to '-Ar'
+compose '\'' 'O' to '-AS'
+compose '\'' 'o' to '-As'
+compose '^' 'O' to '-AT'
+compose '^' 'o' to '-At'
+compose '~' 'O' to '-AU'
+compose '~' 'o' to '-Au'
+compose '"' 'O' to '-AV'
+compose '"' 'o' to '-Av'
+compose '/' 'O' to '-AX'
+compose '/' 'o' to '-Ax'
+compose '`' 'U' to '-AY'
+compose '`' 'u' to '-Ay'
+compose '\'' 'U' to '-AZ'
+compose '\'' 'u' to '-Az'
+compose '^' 'U' to '-A['
+compose '^' 'u' to '-A{'
+compose '"' 'U' to '-A\'
+compose '"' 'u' to '-A|'
+compose '\'' 'Y' to '-A]'
+compose '\'' 'y' to '-A}'
+compose 'T' 'H' to '-A^'
+compose 't' 'h' to '-A~'
+compose 's' 's' to '-A_'
+compose '"' 'y' to '-A'
+compose 's' 'z' to '-A_'
+compose 'i' 'j' to '-A'

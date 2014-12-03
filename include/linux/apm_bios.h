@@ -226,5 +226,8 @@ extern struct apm_info	apm_info;
 #define APM_BATTERY_LIFE_MINUTES 0x8000
 #define APM_BATTERY_LIFE_VALUE_MASK 0x7FFF
 
+#if defined(CONFIG_IRIS) || defined(CONFIG_SA1100_COLLIE)
+#include <asm/sharp_apm.h>
+#endif /* CONFIG_IRIS || CONFIG_COLLIE */
 
 #endif	/* LINUX_APM_H */

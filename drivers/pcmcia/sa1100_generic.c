@@ -27,6 +27,9 @@
     and other provisions required by the GPL.  If you do not delete
     the provisions above, a recipient may use your version of this
     file under either the MPL or the GPL.
+
+    Change Log
+	12-Nov-2001 Lineo Japan, Inc.
     
 ======================================================================*/
 
@@ -59,6 +62,10 @@
 
 #ifdef PCMCIA_DEBUG
 static int pc_debug;
+#endif
+
+#ifdef CONFIG_SA1100_COLLIE
+#define	MECR_UDELAY	100
 #endif
 
 MODULE_AUTHOR("John Dorsey <john+@cs.cmu.edu>");
@@ -194,6 +201,10 @@ static int __init sa1100_pcmcia_driver_init(void){
       pcmcia_low_level=&assabet_pcmcia_ops;
     }
 #endif
+  } else if (machine_is_collie()) {
+#ifdef CONFIG_SA1100_COLLIE
+	pcmcia_low_level = &collie_pcmcia_ops;
+#endif
   } else if (machine_is_freebird()) {
 #ifdef CONFIG_SA1100_FREEBIRD
 	pcmcia_low_level = &freebird_pcmcia_ops;
@@ -297,6 +308,10 @@ static int __init sa1100_pcmcia_driver_init(void){
   }
 #endif
 
+#ifdef CONFIG_SA1100_COLLIE
+  udelay(MECR_UDELAY);
+#endif
+
   /* Only advertise as many sockets as we can detect: */
   if(register_ss_entry(sa1100_pcmcia_socket_count, 
 		       &sa1100_pcmcia_operations)<0){
@@ -348,6 +363,17 @@ static int sa1100_pcmcia_init(unsigned int sock){
   
   DEBUG(2, "%s(): initializing socket %u\n", __FUNCTION__, sock);
 
+printk("sa1100_pcmcia_init(%d)\n",sock);
+#ifdef CONFIG_SA1100_COLLIE
+  if(1){
+  socket_state_t state;
+  sa1100_pcmcia_get_socket(sock, &state);
+  state.flags &= ~SS_OUTPUT_ENA;
+  state.Vcc = state.Vpp = 0;
+  sa1100_pcmcia_set_socket(sock, &state);
+  }
+#endif
+
   return 0;
 }
 
@@ -361,6 +387,19 @@ static int sa1100_pcmcia_init(unsigned int sock){
 static int sa1100_pcmcia_suspend(unsigned int sock){
 
   DEBUG(2, "%s(): suspending socket %u\n", __FUNCTION__, sock);
+
+printk("sa1100_pcmcia_suspend(%d)\n",sock);
+#ifdef CONFIG_SA1100_COLLIE
+  __set_current_state(TASK_UNINTERRUPTIBLE);
+  schedule_timeout(HZ / 2);
+  if(1){
+  socket_state_t state; 
+  sa1100_pcmcia_get_socket(sock, &state);
+  state.flags &= ~SS_OUTPUT_ENA;
+  state.Vcc = state.Vpp = 0;
+  sa1100_pcmcia_set_socket(sock, &state);
+  }
+#endif
 
   return 0;
 }
@@ -722,9 +761,14 @@ static int sa1100_pcmcia_set_socket(unsigned int sock,
   configure.sock=sock;
   configure.vcc=state->Vcc;
   configure.vpp=state->Vpp;
+#ifdef CONFIG_SA1100_COLLIE
+  configure.masks = state->csc_mask;
+  configure.flags = state->flags;
+#else
   configure.output=(state->flags&SS_OUTPUT_ENA)?1:0;
   configure.speaker=(state->flags&SS_SPKR_ENA)?1:0;
   configure.reset=(state->flags&SS_RESET)?1:0;
+#endif
 
   if(pcmcia_low_level->configure_socket(&configure)<0){
     printk(KERN_ERR "Unable to configure socket %u\n", sock);
@@ -816,6 +860,10 @@ static int sa1100_pcmcia_set_io_map(unsigned int sock,
 
     MECR=mecr;
 
+#ifdef CONFIG_SA1100_COLLIE
+    udelay(MECR_UDELAY);
+#endif
+
   }
 
   start=map->start;
@@ -872,6 +920,7 @@ static int sa1100_pcmcia_set_mem_map(unsigned int sock,
 				     struct pccard_mem_map *map){
   unsigned int clock, speed;
   unsigned long mecr, start;
+
 
   DEBUG(4, "%s() for sock %u\n", __FUNCTION__, sock);
 
@@ -932,6 +981,15 @@ static int sa1100_pcmcia_set_mem_map(unsigned int sock,
 	  sock, MECR_BSIO_GET(mecr, sock));
     
     MECR=mecr;
+
+#ifdef CONFIG_SA1100_COLLIE
+//    udelay(MECR_UDELAY);
+      {
+	  int i;
+	  for (i = 0; i < 100000; i++)
+	      ;
+      }
+#endif
 
   }
 
@@ -1086,6 +1144,10 @@ static void sa1100_pcmcia_update_mecr(unsigned int clock){
   }
   
   MECR = mecr;
+
+#ifdef CONFIG_SA1100_COLLIE
+    udelay(MECR_UDELAY);
+#endif
 
 }
 

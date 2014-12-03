@@ -6,6 +6,9 @@
  *  This file is subject to the terms and conditions of the GNU General Public
  *  License.  See the file COPYING in the main directory of this archive
  *  for more details.
+ *
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
  */
 
 #ifndef _VIDEO_FBCON_H
@@ -60,8 +63,13 @@ struct display {
     int visual;
     int type;                       /* see FB_TYPE_* */
     int type_aux;                   /* Interleave for interleaved Planes */
+#if defined(CONFIG_FBCON_ROTATE_R) || defined(CONFIG_FBCON_ROTATE_L)
+    u_short xpanstep;               /* zero if no hardware xpan */
+    u_short xwrapstep;              /* zero if no hardware xwrap */
+#else
     u_short ypanstep;               /* zero if no hardware ypan */
     u_short ywrapstep;              /* zero if no hardware ywrap */
+#endif
     u_long line_length;             /* length of a line in bytes */
     u_short can_soft_blank;         /* zero if no hardware blanking */
     u_short inverse;                /* != 0 text black on white as default */
@@ -92,7 +100,11 @@ struct display {
     unsigned short _fontwidth;
     int userfont;                   /* != 0 if fontdata kmalloc()ed */
     u_short scrollmode;             /* Scroll Method */
+#if defined(CONFIG_FBCON_ROTATE_R) || defined(CONFIG_FBCON_ROTATE_L)
+    short xscroll;                  /* Hardware scrolling */
+#else
     short yscroll;                  /* Hardware scrolling */
+#endif
     unsigned char fgshift, bgshift;
     unsigned short charmask;        /* 0xff or 0x1ff */
 };
@@ -155,7 +167,22 @@ extern int set_all_vcs(int fbidx, struct fb_ops *fb,
     /*
      *  Scroll Method
      */
-     
+
+#if defined(CONFIG_FBCON_ROTATE_R) || defined(CONFIG_FBCON_ROTATE_L)
+#define __SCROLL_XPAN		0x001
+#define __SCROLL_XWRAP		0x002
+#define __SCROLL_XMOVE		0x003
+#define __SCROLL_XREDRAW	0x004
+#define __SCROLL_XMASK		0x00f
+#define __SCROLL_XFIXED		0x010
+#define __SCROLL_XNOMOVE	0x020
+#define __SCROLL_XPANREDRAW	0x040
+#define __SCROLL_XNOPARTIAL	0x080
+
+#define SCROLL_XREDRAW		(__SCROLL_XFIXED|__SCROLL_XREDRAW)
+#define SCROLL_XNOMOVE		(__SCROLL_XNOMOVE|__SCROLL_XPANREDRAW)
+#define SCROLL_XNOPARTIAL	(__SCROLL_XNOPARTIAL)
+#else
 /* Internal flags */
 #define __SCROLL_YPAN		0x001
 #define __SCROLL_YWRAP		0x002
@@ -190,6 +217,7 @@ extern int set_all_vcs(int fbidx, struct fb_ops *fb,
  */
 /* Namespace consistency */
 #define SCROLL_YNOPARTIAL	__SCROLL_YNOPARTIAL
+#endif
 
 
 #if defined(__sparc__)

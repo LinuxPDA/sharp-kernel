@@ -1,0 +1,133 @@
+.TH sa1100_bi 8 "\n[year]-\n[mo]-\n[dy]", Lineo "Lineo USBD Developer's Guide"
+.\"
+.SH SYNOPSIS
+.\"
+insmod sa1100_bi [dbg=
+.I dbgstring
+]
+.\"
+.SH DESCRIPTION
+.\"
+.PP
+This module is a 
+.I Bus Interface
+driver for the Strong Arm SA-1110. 
+.\"
+.PP
+.SH MODULE PARAMETERS
+.\"
+The following parameters can be set at the time this module is loaded:
+.\"
+.\"
+.TP
+dbg
+This parameter as the format of a colon-separated list of debug levels for
+various items. There is a sample: dbg="2:init=3:rx" This example sets the
+default debug level to 2 (normally it is 0), the debug level to 3 for the
+init (setup) phase and the debug level for rx to 1 (instead of 2, the
+default set earlier). The exact meaning of the debug output can be
+determined by comparing the debug output to the source code. By default,
+this information goes to the console. This behaviour may be changed by
+appropriate setup of klog(8)and syslog(8)
+.\"
+This driver may react differently depending on the maximum configured size of
+the Bulk Endpoints. These are set in the loaded
+.I Function 
+driver. 
+.PP
+.I DMA
+is used to fill or empty FIFOs if a packetsize of 32 or 64 bytes
+is used, programmed I/O is used if the packetsize is 16 bytes.
+.\"
+.\"
+.SH LIMITATIONS
+.\"
+.PP
+There are several hardware deficencies with the StrongARM USB
+implementation.
+.\"
+.TP
+limited endpoints
+There are only three endpoints, with fixed endpoint addresses.
+.RS
+.\"
+.TP
+endpoint 0
+This is used as the control endpoint. It has a maximum 8 byte packet
+size. Extended OUT setup transactions (more than 8 bytes on OUT transaction)
+are not supported.
+.\"
+.TP
+endpoint 1
+This only supports Bulk OUT transfers. While the hardware in theory supports
+more than 64 byte packet sizes, in practice it has not proved reliable
+and sizes larger than 64 bytes are not alllowed by the 
+.SM USB
+specification (section 5.8.3 Bulk Transfer Packet Size Constraints).
+.\"
+.TP
+endpoint 2
+This only supports Bulk IN transfers with a maximum packet size of 64 bytes
+(see last para.) This endpoint is also incapable of sending an empty packet.
+This means that zero length packets for ending a bulk transfer must be 
+sent with at least one byte of data.
+.RE
+.\"
+.\"
+.SH BUGS
+.\"
+.TP
+problems accessing registers and FIFOs
+The
+.I UDC
+sometimes ignores reads and writes to registers. This can lead to data
+corruption for both reading and writing. Only 
+.I Function 
+drivers that use a CRC to protect data transfers should be used with this
+driver.
+.\"
+.TP
+address changes
+When DMA is used (if a packetsize greater than 16 bytes is used) the UDC 
+will sometimes corrupt the 
+.I USB
+address register. The interrupt handler has a fix to get around this which
+is usually succesful at correcting this problem.
+.\"
+.TP
+system CPU speed
+When run at lower speeds (e.g. 133Mhz compared to 206Mhz) the UDC will
+sometimes generate a 
+.I USB STALL.
+This may lead to problems when the 
+.I USB
+host attempts to clear the endpoint.
+The previous two problems (addresss problems and FIFO problems) also seem
+to occur at a higher rate with the lower speed CPU's.
+.\"
+.TP
+different SA-1110 steppings
+This driver has been tested on the B2, B4 and B5 steppings. The B5 has some
+.I USB 
+fixes that the driver will automatically enable. 
+.\"
+.\"
+.SH LINUX CONFIGURATION PARAMETERS
+.\"
+.SH AUTHOR
+.TP
+Stuart Lynne <sl@lineo.com>
+.TP
+Bruce Balden <balden@lineo.com>
+.TP
+Tom Rushworth <tbr@lineo.com>
+.\"
+.\"
+.SH SEE ALSO
+.PP
+usbdbus(7), usbdfunc(7), usbd(8), usbdcore(8)
+.PP
+Universal Serial Bus Specification, Revision 2.0
+.PP
+Universal Serial Bus Class Definitions for Communications Devices, Version 1.1
+

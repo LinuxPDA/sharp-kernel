@@ -13,6 +13,10 @@
  */
 /* [Feb-Apr 2000, AV] Rewrite to the new namespace architecture.
  */
+/*
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
+ */
 
 #include <linux/init.h>
 #include <linux/slab.h>
@@ -1195,6 +1199,9 @@ asmlinkage long sys_mknod(const char * filename, int mode, dev_t dev)
 	char * tmp;
 	struct dentry * dentry;
 	struct nameidata nd;
+#ifdef CONFIG_FS_SYNC
+	dev_t i_dev = 0;
+#endif
 
 	if (S_ISDIR(mode))
 		return -EPERM;
@@ -1225,10 +1232,16 @@ asmlinkage long sys_mknod(const char * filename, int mode, dev_t dev)
 		dput(dentry);
 	}
 	up(&nd.dentry->d_inode->i_sem);
+#ifdef CONFIG_FS_SYNC
+	i_dev = nd.dentry->d_inode->i_dev;
+#endif
 	path_release(&nd);
 out:
 	putname(tmp);
 
+#ifdef CONFIG_FS_SYNC
+	sync_card(i_dev);
+#endif
 	return error;
 }
 
@@ -1262,6 +1275,9 @@ asmlinkage long sys_mkdir(const char * pathname, int mode)
 {
 	int error = 0;
 	char * tmp;
+#ifdef CONFIG_FS_SYNC
+	dev_t i_dev = 0;
+#endif
 
 	tmp = getname(pathname);
 	error = PTR_ERR(tmp);
@@ -1280,9 +1296,15 @@ asmlinkage long sys_mkdir(const char * pathname, int mode)
 			dput(dentry);
 		}
 		up(&nd.dentry->d_inode->i_sem);
+#ifdef CONFIG_FS_SYNC
+		i_dev = nd.dentry->d_inode->i_dev;
+#endif
 		path_release(&nd);
 out:
 		putname(tmp);
+#ifdef CONFIG_FS_SYNC
+		sync_card(i_dev);
+#endif
 	}
 
 	return error;
@@ -1358,6 +1380,9 @@ asmlinkage long sys_rmdir(const char * pathname)
 	char * name;
 	struct dentry *dentry;
 	struct nameidata nd;
+#ifdef CONFIG_FS_SYNC
+	dev_t i_dev = 0;
+#endif
 
 	name = getname(pathname);
 	if(IS_ERR(name))
@@ -1387,10 +1412,16 @@ asmlinkage long sys_rmdir(const char * pathname)
 		dput(dentry);
 	}
 	up(&nd.dentry->d_inode->i_sem);
+#ifdef CONFIG_FS_SYNC
+	i_dev = nd.dentry->d_inode->i_dev;
+#endif
 exit1:
 	path_release(&nd);
 exit:
 	putname(name);
+#ifdef CONFIG_FS_SYNC
+	sync_card(i_dev);
+#endif
 	return error;
 }
 
@@ -1427,6 +1458,9 @@ asmlinkage long sys_unlink(const char * pathname)
 	char * name;
 	struct dentry *dentry;
 	struct nameidata nd;
+#ifdef CONFIG_FS_SYNC
+	dev_t i_dev = 0;
+#endif
 
 	name = getname(pathname);
 	if(IS_ERR(name))
@@ -1451,11 +1485,17 @@ asmlinkage long sys_unlink(const char * pathname)
 		dput(dentry);
 	}
 	up(&nd.dentry->d_inode->i_sem);
+#ifdef CONFIG_FS_SYNC
+	i_dev = nd.dentry->d_inode->i_dev;
+#endif
 exit1:
 	path_release(&nd);
 exit:
 	putname(name);
 
+#ifdef CONFIG_FS_SYNC
+	sync_card(i_dev);
+#endif
 	return error;
 
 slashes:
@@ -1494,6 +1534,9 @@ asmlinkage long sys_symlink(const char * oldname, const char * newname)
 	int error = 0;
 	char * from;
 	char * to;
+#ifdef CONFIG_FS_SYNC
+	dev_t i_dev = 0;
+#endif
 
 	from = getname(oldname);
 	if(IS_ERR(from))
@@ -1515,11 +1558,17 @@ asmlinkage long sys_symlink(const char * oldname, const char * newname)
 			dput(dentry);
 		}
 		up(&nd.dentry->d_inode->i_sem);
+#ifdef CONFIG_FS_SYNC
+		i_dev = nd.dentry->d_inode->i_dev;
+#endif
 		path_release(&nd);
 out:
 		putname(to);
 	}
 	putname(from);
+#ifdef CONFIG_FS_SYNC
+	sync_card(i_dev);
+#endif
 	return error;
 }
 
@@ -1577,6 +1626,9 @@ asmlinkage long sys_link(const char * oldname, const char * newname)
 	int error;
 	char * from;
 	char * to;
+#ifdef CONFIG_FS_SYNC
+	dev_t i_dev = 0;
+#endif
 
 	from = getname(oldname);
 	if(IS_ERR(from))
@@ -1606,6 +1658,9 @@ asmlinkage long sys_link(const char * oldname, const char * newname)
 			dput(new_dentry);
 		}
 		up(&nd.dentry->d_inode->i_sem);
+#ifdef CONFIG_FS_SYNC
+		i_dev = nd.dentry->d_inode->i_dev;
+#endif
 out_release:
 		path_release(&nd);
 out:
@@ -1615,6 +1670,9 @@ exit:
 	}
 	putname(from);
 
+#ifdef CONFIG_FS_SYNC
+	sync_card(i_dev);
+#endif
 	return error;
 }
 
@@ -1788,6 +1846,10 @@ static inline int do_rename(const char * oldname, const char * newname)
 	struct dentry * old_dir, * new_dir;
 	struct dentry * old_dentry, *new_dentry;
 	struct nameidata oldnd, newnd;
+#ifdef CONFIG_FS_SYNC
+	dev_t olddev = 0;
+	dev_t newdev = 0;
+#endif
 
 	if (path_init(oldname, LOOKUP_PARENT, &oldnd))
 		error = path_walk(oldname, &oldnd);
@@ -1841,6 +1903,10 @@ static inline int do_rename(const char * oldname, const char * newname)
 				   new_dir->d_inode, new_dentry);
 	unlock_kernel();
 
+#ifdef CONFIG_FS_SYNC
+	olddev = oldnd.dentry->d_inode->i_dev;
+	newdev = newnd.dentry->d_inode->i_dev;
+#endif
 	dput(new_dentry);
 exit4:
 	dput(old_dentry);
@@ -1851,6 +1917,11 @@ exit2:
 exit1:
 	path_release(&oldnd);
 exit:
+#ifdef CONFIG_FS_SYNC
+	sync_card(olddev);
+	if (olddev != newdev)
+		sync_card(newdev);
+#endif
 	return error;
 }
 

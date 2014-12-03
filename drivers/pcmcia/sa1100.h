@@ -27,6 +27,9 @@
     and other provisions required by the GPL.  If you do not delete
     the provisions above, a recipient may use your version of this
     file under either the MPL or the GPL.
+
+    Change Log
+	12-Nov-2001 Lineo Japan, Inc.
     
 ======================================================================*/
 
@@ -41,6 +44,10 @@
 
 #include <asm/arch/pcmcia.h>
 
+#if 0
+#undef  DEBUG
+#define DEBUG(x,args...)	printk(__FUNCTION__ ": " ##args)
+#endif
 
 /* MECR: Expansion Memory Configuration Register
  * (SA-1100 Developers Manual, p.10-13; SA-1110 Developers Manual, p.10-24)
@@ -184,6 +191,7 @@ struct sa1100_pcmcia_socket {
  */
 extern struct pcmcia_low_level assabet_pcmcia_ops;
 extern struct pcmcia_low_level neponset_pcmcia_ops;
+extern struct pcmcia_low_level collie_pcmcia_ops;
 extern struct pcmcia_low_level bitsy_pcmcia_ops;
 extern struct pcmcia_low_level cerf_pcmcia_ops;
 extern struct pcmcia_low_level gcplus_pcmcia_ops;

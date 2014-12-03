@@ -4,6 +4,9 @@
  *  Copyright (C) 1992  Theodore Ts'o
  *
  *  May be freely distributed as part of Linux.
+ *
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
  */
 
 #include <linux/uts.h>
@@ -22,5 +25,5 @@ struct new_utsname system_utsname = {
 };
 
 const char *linux_banner = 
-	"Linux version " UTS_RELEASE " (" LINUX_COMPILE_BY "@"
+	"Linux version " UTS_RELEASE EMBEDIX_RELEASE " (" LINUX_COMPILE_BY "@"
 	LINUX_COMPILE_HOST ") (" LINUX_COMPILER ") " UTS_VERSION "\n";

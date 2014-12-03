@@ -1,0 +1,90 @@
+--- ctl.c-calypso	Sun Apr 15 23:38:16 2001
++++ ctl.c	Sun Apr 15 23:39:17 2001
+@@ -80,10 +80,6 @@
+ int usbd_rx_dma = 3;
+ int usbd_tx_dma = 2;
+ #endif
+-#ifdef CONFIG_SA1110_CALYPSO
+-int usbd_rx_dma = 1;
+-int usbd_tx_dma = 0;
+-#endif
+ 
+ void udc_irq_enable(void)
+ {
+@@ -122,17 +118,6 @@
+         }
+     }
+ #endif
+-#ifdef CONFIG_SA1110_CALYPSO
+-    if (machine_is_calypso()) {
+-        GPDR &= ~GPIO_GPIO(12);
+-        set_GPIO_IRQ_edge(GPIO_GPIO(12), GPIO_BOTH_EDGES);
+-        if (request_irq(IRQ_GPIO12, udc_int_hndlr_cradle, SA_INTERRUPT, "sa1100 usbd bus interface - cradle", NULL) != 0) {
+-            printk(KERN_DEBUG"usb_ctl: couldn't request usb cradle irq: %d\n", IRQ_GPIO12);
+-            free_irq(IRQ_Ser0UDC, NULL); 
+-            return 1;
+-        }
+-    }
+-#endif
+ 
+     if (sa1100_bi_request_dma(&usbd_rx_dma, "SA1100 USBD OUT - rx dma")) {
+ 
+@@ -143,11 +128,6 @@
+             free_irq(IRQ_GPIO23, NULL); 
+         }
+ #endif
+-#ifdef CONFIG_SA1110_CALYPSO
+-        if (machine_is_calypso()) {
+-            free_irq(IRQ_GPIO12, NULL); 
+-        }
+-#endif
+         return 1;
+     }
+ 
+@@ -193,11 +173,6 @@
+         free_irq(IRQ_GPIO23, NULL); 
+     }
+ #endif
+-#ifdef CONFIG_SA1110_CALYPSO
+-    if (machine_is_calypso()) {
+-        free_irq(IRQ_GPIO12, NULL); 
+-    }
+-#endif
+ }
+ 
+ 
+@@ -208,34 +183,17 @@
+         return (GPLR & GPIO_GPIO(23))!=0;
+     }
+ #endif
+-#ifdef CONFIG_SA1110_CALYPSO
+-    if (machine_is_calypso()) {
+-        //printk(KERN_DEBUG "ucd_incradle: calypso: %x\n", (GPLR&GPIO_GPIO(12)))!=0;
+-        return (GPLR & GPIO_GPIO(12))!=0;
+-    }
+-#endif
+     //printk(KERN_DEBUG "ucd_incradle: 1\n");
+     return 1;
+ }
+ 
+-#ifdef CONFIG_SA1110_CALYPSO
+-#ifndef USB_CNT
+-#define USB_CNT 27
+-#endif
+-#endif
+ 
+ void udc_connect(void)
+ {
+-#ifdef CONFIG_SA1110_CALYPSO
+-        GPDR |= GPIO_GPIO(USB_CNT);
+-#endif
+ }
+ 
+ void udc_disconnect(void)
+ {
+-#ifdef CONFIG_SA1110_CALYPSO
+-        GPDR &= ~GPIO_GPIO(USB_CNT);
+-#endif
+ }
+ 
+ void udc_int_hndlr_cradle(int irq, void *dev_id, struct pt_regs *regs)

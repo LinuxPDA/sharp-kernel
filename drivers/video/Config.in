@@ -27,6 +27,17 @@ if [ "$CONFIG_FB" = "y" ]; then
 	 fi
       fi
    fi
+   dep_bool '  LinkUp 7200 LCD support' CONFIG_FB_L7200 $CONFIG_ARCH_L7200
+   if [ "$CONFIG_L7205SDB" = "y" ]; then
+      if [ "$CONFIG_FB_L7200" = "y" -o "$CONFIG_FB_L7200" = "m" ]; then
+          choice 'LinkUp 7200 LCD Display Size' \
+            "VGA        CONFIG_FB_L7200_VGA_DSTN \
+             QVGA       CONFIG_FB_L7200_QVGA_STN" VGA
+      fi
+   fi
+   dep_bool '  IRIS LCD support' CONFIG_FB_IRIS $CONFIG_IRIS
+   dep_bool '  Collie LCD support' CONFIG_FB_COLLIE $CONFIG_SA1100_COLLIE
+   dep_bool '  Collie LOGO screen support' CONFIG_COLLIE_LOGO_SCREEN $CONFIG_SA1100_COLLIE
    dep_bool '  Acorn VIDC support' CONFIG_FB_ACORN $CONFIG_ARCH_ACORN
    dep_bool '  CLPS711X LCD support' CONFIG_FB_CLPS711X $CONFIG_ARCH_CLPS711X
    dep_tristate '  Cyber2000 support' CONFIG_FB_CYBER2000 $CONFIG_PCI
@@ -371,6 +382,8 @@ if [ "$CONFIG_FB" = "y" ]; then
 	 fi
       fi
    fi
+   dep_bool '  Rotate FrameBuffer Console (right)' CONFIG_FBCON_ROTATE_R $CONFIG_FBCON_CFB16
+   dep_bool '  Rotate FrameBuffer Console (left)'  CONFIG_FBCON_ROTATE_L $CONFIG_FBCON_CFB16
    bool '  Support only 8 pixels wide fonts' CONFIG_FBCON_FONTWIDTH8_ONLY
    if [ "$ARCH" = "sparc" -o "$ARCH" = "sparc64" ]; then
       bool '  Sparc console 8x16 font' CONFIG_FONT_SUN8x16

@@ -4,6 +4,9 @@
  * Copyright (C) 1996 Russell King
  * Copyright (C) 1998 Deborah Wallach (updates for SA1100/Brutus).
  * Copyright (C) 1999 Nicolas Pitre (full GPIO irq isolation)
+ * 
+ * Change Log:
+ *   12-Nov-2001 Lineo Japan, Inc.
  */
 
 #include <linux/config.h>
@@ -69,15 +72,12 @@
 #define GPIO_11_27_IRQ(i)	(11 + (i) - 32)
 #define SA1100_IRQ_TO_GPIO(i) 	(((i) < 11) ? (i) : GPIO_11_27_IRQ(i))
 
-#define	NR_IRQS		(IRQ_GPIO27 + 1)
-
 
 #if defined(CONFIG_SA1100_GRAPHICSCLIENT)
 #define ADS_EXT_IRQ(x)	(IRQ_GPIO27 + 1 + (x))
 #undef NR_IRQS
 #define NR_IRQS		(ADS_EXT_IRQ(15) + 1)
 #endif
-
 
 #if defined(CONFIG_SA1111)
 
@@ -151,3 +151,58 @@
 #endif  /* CONFIG_ASSABET_NEPONSET */
 
 #endif  /* CONFIG_SA1111 */
+
+#ifdef CONFIG_SA1100_COLLIE
+
+#define LCM_IRQ(x)		(IRQ_GPIO27 + 1 + (x))
+
+#define LCM_IRQ_KEY_BASE	LCM_IRQ(0)
+#define LCM_IRQ_GPIO_BASE	LCM_IRQ(1)
+#define LCM_IRQ_LT_BASE		LCM_IRQ(2)
+#define LCM_IRQ_SPI_BASE	LCM_IRQ(3)
+
+#define	LCM_IRQ_KEY_OFFSET(x)	(LCM_IRQ(3) + 1 + (x))
+
+#define LCM_IRQ_KEY             LCM_IRQ_KEY_OFFSET(0)
+
+#define	LCM_IRQ_GPIO_OFFSET(x)	(LCM_IRQ_KEY_OFFSET(0) + 1 + (x))
+
+#define LCM_IRQ_GPIO0		LCM_IRQ_GPIO_OFFSET(0)
+#define LCM_IRQ_GPIO1		LCM_IRQ_GPIO_OFFSET(1)
+#define LCM_IRQ_GPIO2		LCM_IRQ_GPIO_OFFSET(2)
+#define LCM_IRQ_GPIO3		LCM_IRQ_GPIO_OFFSET(3)
+#define LCM_IRQ_GPIO4		LCM_IRQ_GPIO_OFFSET(4)
+#define LCM_IRQ_GPIO5		LCM_IRQ_GPIO_OFFSET(5)
+#define LCM_IRQ_GPIO6		LCM_IRQ_GPIO_OFFSET(6)
+#define LCM_IRQ_GPIO7		LCM_IRQ_GPIO_OFFSET(7)
+#define LCM_IRQ_GPIO8		LCM_IRQ_GPIO_OFFSET(8)
+#define LCM_IRQ_GPIO9		LCM_IRQ_GPIO_OFFSET(9)
+#define LCM_IRQ_GPIO10		LCM_IRQ_GPIO_OFFSET(10)
+#define LCM_IRQ_GPIO11		LCM_IRQ_GPIO_OFFSET(11)
+#define LCM_IRQ_GPIO12		LCM_IRQ_GPIO_OFFSET(12)
+#define LCM_IRQ_GPIO13		LCM_IRQ_GPIO_OFFSET(13)
+#define LCM_IRQ_GPIO14		LCM_IRQ_GPIO_OFFSET(14)
+#define LCM_IRQ_GPIO15		LCM_IRQ_GPIO_OFFSET(15)
+
+#define	LCM_IRQ_LT_OFFSET(x)	(LCM_IRQ_GPIO_OFFSET(15) + 1 + (x))
+
+#define LCM_IRQ_LT              LCM_IRQ_LT_OFFSET(0)
+
+#define	LCM_IRQ_SPI_OFFSET(x)	(LCM_IRQ_LT_OFFSET(0) + 1 + (x))
+
+#define LCM_IRQ_SPI_RFR		LCM_IRQ_SPI_OFFSET(0)
+#define LCM_IRQ_SPI_RFW		LCM_IRQ_SPI_OFFSET(1)
+#define LCM_IRQ_SPI_OVRN	LCM_IRQ_SPI_OFFSET(2)
+#define LCM_IRQ_SPI_TEND	LCM_IRQ_SPI_OFFSET(3)
+
+#define COLLIE_IRQ_MAX		LCM_IRQ_SPI_OFFSET(3)
+
+#undef  NR_IRQS
+#define NR_IRQS			(COLLIE_IRQ_MAX + 1)
+
+#endif  /* CONFIG_SA1100_COLLIE */
+
+#ifndef NR_IRQS
+#define	NR_IRQS		(IRQ_GPIO27 + 1)
+#endif
+

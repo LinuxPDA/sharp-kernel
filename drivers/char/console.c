@@ -2532,7 +2532,7 @@ void __init con_init(void)
 	csi_J(currcons, 0);
 	update_screen(fg_console);
 	printk("Console: %s %s %dx%d",
-		can_do_color ? "colour" : "mono",
+		can_do_color ? "color" : "mono",
 		display_desc, video_num_columns, video_num_lines);
 	printable = 1;
 	printk("\n");
@@ -2606,7 +2606,7 @@ void take_over_console(const struct consw *csw, int first, int last, int deflt)
 		printk("consoles %d-%d ", first+1, last+1);
 	if (j >= 0)
 		printk("to %s %s %dx%d\n",
-		       vc_cons[j].d->vc_can_do_color ? "colour" : "mono",
+		       vc_cons[j].d->vc_can_do_color ? "color" : "mono",
 		       desc, vc_cons[j].d->vc_cols, vc_cons[j].d->vc_rows);
 	else
 		printk("to %s\n", desc);
@@ -2999,7 +2999,11 @@ static int pm_con_request(struct pm_dev *dev, pm_request_t rqst, void *data)
 	switch (rqst)
 	{
 	case PM_RESUME:
-		unblank_screen();
+		if (vt_cons[fg_console]->vc_mode == KD_TEXT) {
+	  		unblank_screen();
+		} else {
+	  		console_blanked = 0;
+		}
 		break;
 	case PM_SUSPEND:
 		do_blank_screen(0);

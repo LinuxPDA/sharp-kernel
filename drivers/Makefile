@@ -26,6 +26,7 @@ subdir-$(CONFIG_VT)		+= video
 subdir-$(CONFIG_MAC)		+= macintosh
 subdir-$(CONFIG_ALL_PPC)	+= macintosh
 subdir-$(CONFIG_USB)		+= usb
+subdir-$(CONFIG_USBD)		+= usbd
 subdir-$(CONFIG_INPUT)		+= input
 subdir-$(CONFIG_PHONE)		+= telephony
 subdir-$(CONFIG_SGI)		+= sgi

@@ -1,7 +1,8 @@
 VERSION = 2
 PATCHLEVEL = 4
 SUBLEVEL = 6
-EXTRAVERSION =-rmk1-np2
+EXTRAVERSION =-rmk1-np2-embedix
+EMBEDIXRELEASE =-011228
 
 KERNELRELEASE=$(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
 
@@ -56,7 +57,17 @@ ifeq (.config,$(wildcard .config))
 include .config
 ifeq (.depend,$(wildcard .depend))
 include .depend
-do-it-all:	Version vmlinux
+do-it-all:	Version vmlinux vmlinux.bin
+
+vmlinux.bin: vmlinux
+ifneq ($(CONFIG_XIP_ROM),y)
+	$(OBJCOPY) -S -O binary vmlinux vmlinux.bin
+else
+	$(OBJCOPY) -S -O binary -R .data vmlinux vmlinux-text.bin
+	$(OBJCOPY) -S -O binary -R .init -R .text -R __ex_table -R __ksymtab vmlinux vmlinux-data.bin
+	cat vmlinux-text.bin vmlinux-data.bin > vmlinux.bin
+	rm vmlinux-text.bin vmlinux-data.bin
+endif
 else
 CONFIGURATION = depend
 do-it-all:	depend
@@ -182,6 +193,11 @@ DRIVERS-$(CONFIG_I2C) += drivers/i2c/i2c.o
 DRIVERS-$(CONFIG_PHONE) += drivers/telephony/telephony.o
 DRIVERS-$(CONFIG_MD) += drivers/md/mddev.o
 DRIVERS-$(CONFIG_BLUEZ) += drivers/bluetooth/bluetooth.o
+DRIVERS-$(CONFIG_USBD) += drivers/usbd/usbddrv.o
+DRIVERS-$(CONFIG_USBD_NET) += drivers/usbd/net_fd/net_fd_drv.o
+DRIVERS-$(CONFIG_USBD_SERIAL) += drivers/usbd/serial_fd/serial_fd_drv.o
+DRIVERS-$(CONFIG_USBD_SA1100_BUS) += drivers/usbd/sa1100_bi/sa1100_bi_drv.o
+DRIVERS-$(CONFIG_USBD_L7205_BUS) += drivers/usbd/l7205_bi/l7205_bi_drv.o
 
 DRIVERS := $(DRIVERS-y)
 
@@ -316,6 +332,7 @@ include/linux/version.h: ./Makefile
 	@echo \#define UTS_RELEASE \"$(KERNELRELEASE)\" > .ver
 	@echo \#define LINUX_VERSION_CODE `expr $(VERSION) \\* 65536 + $(PATCHLEVEL) \\* 256 + $(SUBLEVEL)` >> .ver
 	@echo '#define KERNEL_VERSION(a,b,c) (((a) << 16) + ((b) << 8) + (c))' >>.ver
+	@echo \#define EMBEDIX_RELEASE \"$(EMBEDIXRELEASE)\" >> .ver
 	@mv -f .ver $@
 
 init/version.o: init/version.c include/linux/compile.h include/config/MARKER
@@ -401,6 +418,7 @@ modules modules_install: dummy
 endif
 
 clean:	archclean
+	rm -rf vmlinux.bin
 	find . \( -name '*.[oas]' -o -name core -o -name '.*.flags' \) -type f -print \
 		| grep -v lxdialog/ | xargs rm -f
 	rm -f $(CLEAN_FILES)

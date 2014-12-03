@@ -12,6 +12,9 @@
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software
    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+
+   Change Log
+	12-Nov-2001 Lineo Japan, Inc.
    */
 
 #include <linux/config.h>
@@ -321,6 +324,7 @@
 #define RCV_IO		0x1000	/*  Use ISA IO only */
 #define RCV_MEMORY	0x2000	/*  Use ISA Memory */
 
+#undef  RAM_SIZE
 #define RAM_SIZE	0x1000       /*  The card has 4k bytes or RAM */
 #define PKT_START PP_TxFrame  /*  Start of packet RAM */
 

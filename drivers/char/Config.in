@@ -9,6 +9,9 @@ if [ "$CONFIG_VT" = "y" ]; then
    bool '  Support for console on virtual terminal' CONFIG_VT_CONSOLE
 fi
 tristate 'Standard/generic (8250/16550 and compatible UARTs) serial support' CONFIG_SERIAL
+if [  "$CONFIG_SERIAL" != "n" ]; then
+   bool '  Never autodetect Startech/TI16750 ports' CONFIG_SERIAL_FORCE16550A
+fi
 if [ "$CONFIG_SERIAL" = "y" ]; then
    bool '  Support for console on serial port' CONFIG_SERIAL_CONSOLE
    if [ "$CONFIG_ARCH_ACORN" = "y" ]; then
@@ -70,6 +73,40 @@ dep_bool 'Old (original) SA1100 serial port support, disabling the new driver' C
 dep_bool '  Console on SA1100 serial port' CONFIG_SERIAL_SA1100_CONSOLE $CONFIG_SERIAL_SA1100
 if [ "$CONFIG_ARCH_SA1100" = "y" ]; then
    int  '  Default SA1100 serial baudrate' CONFIG_SA1100_DEFAULT_BAUDRATE 9600
+fi
+
+if [ "$CONFIG_SA1100_COLLIE" = "y" ]; then
+   bool 'COLLIE serial port support' CONFIG_SERIAL_COLLIE
+   dep_bool '  Console on COLLIE serial port' CONFIG_SERIAL_COLLIE_CONSOLE $CONFIG_SERIAL_COLLIE
+   if [ "$CONFIG_ARCH_SA1100" = "y" ]; then
+      int  '  Default COLLIE serial baudrate' CONFIG_COLLIE_DEFAULT_BAUDRATE 9600
+   fi
+fi
+
+if [ "$CONFIG_ARCH_L7200" = "y" ]; then
+   tristate 'LinkUp 7200 serial port support' CONFIG_SERIAL_L7200
+   if [ "$CONFIG_SERIAL_L7200" = "y" ]; then
+      bool '  Support for console on LinkUp 7200 serial port' CONFIG_SERIAL_L7200_CONSOLE
+   fi
+   if [ "$CONFIG_IRIS" = "y" ]; then
+       tristate 'IRIS L7200 serial port support' CONFIG_SERIAL_IRIS
+       if [ "$CONFIG_SERIAL_IRIS" = "y" ]; then
+	  bool '  Support for console on IRIS L7200 serial port' CONFIG_SERIAL_IRIS_CONSOLE
+      fi	
+      tristate 'IRIS debug serial support' CONFIG_DEBUG_SERIAL_IRIS
+      if [ "$CONFIG_DEBUG_SERIAL_IRIS" = "y" ]; then
+         bool '  Support for console on IRIS debug serial port' CONFIG_DEBUG_SERIAL_IRIS_CONSOLE
+      fi
+   fi
+   tristate 'LinkUp 7200 touchscreen support' CONFIG_TOUCHSCREEN_L7200
+   if [ "$CONFIG_IRIS" = "y" ]; then
+      tristate 'IRIS touchscreen support' CONFIG_TOUCHSCREEN_IRIS
+      if [ "$CONFIG_TOUCHSCREEN_IRIS" = "y" ]; then
+	  choice 'IRIS Touch Screen Type' \
+            "TargetBoard	CONFIG_IRIS_TGTTS \
+            Final	CONFIG_IRIS_FINALTS" TargetBoard
+      fi
+   fi
 fi
 
 dep_bool 'ARM AMBA serial port support' CONFIG_SERIAL_AMBA $CONFIG_ARCH_INTEGRATOR
@@ -207,6 +244,9 @@ if [ "$CONFIG_OBSOLETE" = "y" -a "$CONFIG_ALPHA_BOOK1" = "y" ]; then
 fi
 if [ "$CONFIG_ARCH_SA1100" = "y" ]; then
    tristate 'SA1100 Real Time Clock' CONFIG_SA1100_RTC
+fi
+if [ "$CONFIG_ARCH_L7200" = "y" ]; then
+   tristate 'LinkUp 7200 Real Time Clock' CONFIG_L7200_RTC
 fi
 
 tristate 'Double Talk PC internal speech card support' CONFIG_DTLK

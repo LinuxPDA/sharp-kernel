@@ -187,6 +187,26 @@ sa1100_usb_recv(char *buf, int len, usb_callback_t callback)
 
 EXPORT_SYMBOL(sa1100_usb_recv);
 
+int
+sa1100_usb_recv_init(char *buf, int len, usb_callback_t callback)
+{
+	int flags;
+
+	local_irq_save(flags);
+	ep1_buf = buf;
+	ep1_len = len;
+	ep1_callback = callback;
+	ep1_remain = len;
+	ep1_curdmabuf = buf;
+	ep1_curdmalen = 0;
+	ep1_start();
+	local_irq_restore(flags);
+	
+	return 0;
+}
+
+EXPORT_SYMBOL(sa1100_usb_recv_init);
+
 void
 sa1100_usb_recv_reset(void)
 {

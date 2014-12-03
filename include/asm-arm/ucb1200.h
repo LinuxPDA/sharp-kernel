@@ -9,6 +9,9 @@
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
  *
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
+ *
  */
 #ifndef __ASM_ARM_UCB1200_H
 #define __ASM_ARM_UCB1200_H
@@ -67,7 +70,7 @@ struct ucb1200_low_level {
 /*
  * Codec registers 2, 3 and 4: interrupt related registers
  */
-#define ADC_INT (1 << 11)
+#define ADC_INT  (1 << 11)
 #define TSPX_INT (1 << 12)
 #define TSMX_INT (1 << 13)
 
@@ -118,11 +121,8 @@ ucb1200_set_io(int io, int level);
 
 #define SIB_ZERO	0x8000
 
-extern u16
-ucb1200_read_reg(u16 reg);
-
-extern void
-ucb1200_write_reg(u16 reg, u16 data);
+extern u16 ucb1200_read_reg(u16 reg);
+extern void ucb1200_write_reg(u16 reg, u16 data);
 
 
 /*
@@ -141,8 +141,19 @@ ucb1200_write_reg(u16 reg, u16 data);
 #define ADC_START (1 << 7)
 #define ADC_ENA (1 << 15)
 
-//extern int
-//ucb1200_read_adc(int input, void *callback);
+void ucb1200_enable_adc_sync(void);
+void ucb1200_disable_adc_sync(void);
+extern void ucb1200_stop_adc(void);
+extern void ucb1200_start_adc(u16 input);
+extern u16  ucb1200_read_adc(void);
 
+/* adc */
+int ucb1200_lock_adc(u32);
+u32 ucb1200_get_adc_id(void);
+void ucb1200_unlock_adc(u32);
+int ucb1200_get_adc_value(u32, u16);
+void ucb1200_cancel_get_adc_value(u32);
+int ucb1200_adc_init(void) ;
+void ucb1200_adc_cleanup(void);
 
 #endif	/* __ASM_ARM_UCB1200_H */

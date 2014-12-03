@@ -1,0 +1,66 @@
+
+Summary of problems from intel example.c usb loopback driver for SA-1100
+
+ * USB problems
+
+ * 1.  Reads and writes are ignored by the interface (only writes stated in
+ *     spec)!
+ 
+ * 2.  Given above the design *should* provide a mechanism to verify
+ *     the action of every read/write. For the most part it does.
+ 
+ * 3.  EP0 FIFO reads are ignored. Length register can be used to detect this.
+ *     Repeat the read until the count register changes.
+ 
+ * 4.  EP0 FIFO writes are ignored. Length register can be used to detect this.
+ *     Repeat the read until the count register changes. When the write counter
+ *     changes you *must* wait a period of time before writing the next byte.
+ *     Failure to do this will result in the first byte being overwritten.
+ 
+ * 5.  EF0 IPR sets are ignored. Retry is dangerous, especially with DE side
+ *     effect.
+ *     Workaround to use timer to detect missed transmit, IPR clear with
+ *     packets data still remaining indicates ignored transmit. DE set after
+ *     last packet sent indicates ignored write on last packet. Resend whole
+ *     packet. Alternative is to repeat set of IPR until is is visible.
+ 
+ * 6.  EP1 FIFO reads do NOT clear RNE when the FIFO overruns! This causes
+ *     hangs if packets larger than 16 are allowed in polled mode. Make sure
+ *     max packet is < FIFO size in this case.
+ 
+ * 7.  Hardware race condition on RPC and RIR. No way to repeat clear and
+ *     guarantee the result is visible unless there are no interrupts and
+ *     very tight loop.
+ 
+ * 8.  Write to TPC clears FIFO loosing any data DMA'd for the next packet.
+ *     Workaround is to setup single packet DMA and reset DMA in the interrupt
+ *     service function for each packet.
+ 
+ * 9.  RNE will not clear if RPE is set, probably another case of #6.
+ 
+ * 10. DMA will occur on a bad packet, it needs to be cuaght and undone. Due
+ *     to this problem no DMA completion interrupts can be used (the completion
+ *     interrupt can fire on a bad packet which can't be undone).
+ 
+ * 11. Set and test mechanism for UDC bits will cause hang until the USB
+ *     clocks are running. Dont try this if the USB cable is disconnected or
+ *     the host is stopped.
+ 
+ * 12. Client detects error in packet when analyzer in line does not. Possible
+ *     problem in client receive. Effect is RPE will be set and no response is
+ *     generated for packet (see #9). Host may or may not tolerate this.
+ 
+ * 14. Client does not always respond to IN packets. This can cause the host
+ *     to declare the client dead. No workaround at this time but it has been
+ *     observed that running the USB clock at 11.88Mhz (from the host) avoids
+ *     the problem.
+ 
+ * 15. EP0 FIFO does not hold off the host or ACK the receipt of a packet until
+ *     it is read. This means if you do not respond to the interrupt within
+ *     the host retry period (10us or so) the host will retransmit. The new
+ *     data will overwrite the existing FIFO data including portions currently
+ *     being read. The result is a corrupt packet. If the packet can not
+ *     be completely read from the FIFO in this period it will never be
+ *     received correctly. This problem has only been observed at 148Mhz and
+ *     only after 4K IN packet transmission.
+ 

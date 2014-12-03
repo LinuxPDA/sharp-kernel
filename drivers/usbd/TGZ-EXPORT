@@ -1,0 +1,24 @@
+#!/bin/sh
+
+set -x
+
+USBD=`basename ${PWD}`
+ARCH=`./ARCH`
+
+echo ${USBD}
+
+[ -f usbd-build.h ] && rm usbd-build.h
+#egrep USBD ../../.config > CONFIG.USBD-EG
+
+(
+cd ../; 
+
+find ${USBD} \
+	-name Makefile -o \
+	-name Config.in -o \
+	-name "*.[hc]"  \
+	| sort -u | cpio -o -v -V -H ustar | gzip > /tmp/usbd-`date '+%Y%m%d'`-export.tgz 
+)
+
+#[ -f usbd-export.h ] && rm usbd-export.h
+

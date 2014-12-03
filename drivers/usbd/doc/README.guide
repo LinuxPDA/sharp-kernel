@@ -1,0 +1,127 @@
+
+Guide to Developing a new Linux based USB Device
+
+The following is a brief summary of the issues involved with developing 
+Linux system with USB Device support.
+
+There are three (or more) areas where you need to develop software:
+
+
+    Linux USB Device:
+
+	1. Bus Interface
+	2. Function
+	3. Application
+
+    Linux Host:
+
+	1. Linux Class Driver
+	2. Linux Host Software
+
+    Windows Host:
+
+	1. Windows Class Driver
+	2. Windows Host Software
+
+
+Linux USB Device
+
+1. Bus Interface
+
+The Bus Interface driver implements the actual physical connection to the USB
+Bus. 
+
+The choice of USB Device Bus Interface device (aka chip) will either be
+influenced by the requirements of your Function driver, dictacted by other
+design decisions or may in turn dictate what you are able to do with your
+Function driver. 
+
+For example with the SA-1100/SA-1110 the USB Device support is limited, making
+it impossible to use with standard networking (RNDIS) ro serial (ACM) drivers,
+you will have to provide a vendor class driver. 
+
+
+2. Function
+
+The Function driver implements the logical function of the device. For example
+a serial or networking interface.
+
+The type of function driver is usually dictated by the product design. But the
+choice of the implementation may be dictated by the Bus Interface driver. For
+example if a network function driver is required it may be possible to use a
+generic class driver.
+
+But for example with the SA-1110 which cannot support the standard it will be
+necessary to design a function driver.
+
+If the function has unique requirements it will also be necessary to implement
+a separate one.
+
+Currently we have the following functions planned:
+
+	SA-1100 Generic Network
+	SA-1100 Generic Serial
+	Pegasus Network
+	ACM
+	RNDIS
+
+
+3. Application 
+
+Synchronization. network, pppd.
+
+
+Linux USB Host
+
+1. Linux Class Driver
+
+For testing and for deployment if your device is targetted towards a Linux
+market it a Linux Class Driver to correspond to the selected Function is
+required. Again there are a selected set of standard class drivers available
+in the Linux USB support. 
+
+	ACM
+	pegasus
+
+If there are special requirements it may be necessary to implement a Linux
+Class driver.
+
+Currently we have the following Linux Class drivers planned:
+
+	SA-1100 Generic Network
+	SA-1100 Generic Serial
+	RNDIS
+
+
+2. Linux Host Software
+
+Some functions may require additional host software. For example if a serial
+function is planned for networking, then a ppp deamon may be required.
+
+Additionally other software, for example synchronization software for a PDA
+might have to be developed.
+
+
+
+Windows Host
+
+1. Windows Class Driver
+
+If the device is targetted towards a Windows market then a Windows Class
+driver will be required. Windows has several standard drivers available:
+
+	RNDIS
+	ACM
+
+Other than these a vendor class driver will be required.
+
+
+
+2. Windows Host Software
+
+Some functions may require additional host software. For example if a serial
+function is planned for networking, then a ppp deamon may be required.
+
+Additionally other software, for example synchronization software for a PDA
+might have to be developed.
+

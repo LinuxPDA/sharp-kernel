@@ -10,7 +10,7 @@ USE_STANDARD_AS_RULE := true
 HEAD_OBJ  = head-$(PROCESSOR).o
 ENTRY_OBJ = entry-$(PROCESSOR).o
 
-AFLAGS_head-armv.o := -DTEXTADDR=$(TEXTADDR)
+AFLAGS_head-armv.o := -DTEXTADDR=$(TEXTADDR) -DDATAADDR=$(DATAADDR)
 AFLAGS_head-armo.o := -DTEXTADDR=$(TEXTADDR)
 
 # This is depreciated.

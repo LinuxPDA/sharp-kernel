@@ -1,0 +1,100 @@
+.TH usbdmonitor 8 "\n[year]-\n[mo]-\n[dy]", Lineo "Lineo USBD Developer's Guide"
+.\"
+.SH SYNOPSIS
+.\"
+.TP
+insmod usbdmonitor
+.\"
+.TP
+/etc/hotplug/usbd.agent
+.\"
+.SH DESCRIPTION
+.\"
+.PP
+This module is a 
+.I Monitor
+for the 
+.I USB Device.
+It performs two functions:
+.\"
+.RS
+.TP
+Monitor for Cable Connection Events
+When the 
+.SM USB
+cable is 
+.I connected 
+or
+.I dis-connected
+the 
+.I USB Device Monitor
+will invoke a
+.I hotplug
+script to load or unload the required 
+.I USB Device 
+modules.
+.TP
+Handle Power Management Events
+When a power management event is received the
+.I USB Device Monitor
+will invoke a 
+.I hotplug
+script to load or unload the required 
+.I USB Device 
+modules.
+.RE
+.\"
+.\"
+.PP
+.\"
+.SH HOTPLUG AGENT
+.PP
+The 
+.I hotplug
+agent script
+.I /etc/hotplug/usbd.agent
+is called with two parameters:
+.RS
+.TP
+INTERFACE = monitor
+.\"
+.TP
+ACTION = load
+Load required modules.
+.TP
+ACTION = suspend
+Unload any modules for power management suspend.
+.TP
+ACTION = restore-loaded
+Reload any modules for power management restore.
+.TP
+ACTION = restore-unloaded
+Unload any modules not already unloaded for power management suspend.
+.TP
+ACTION = unload
+Unload all modules.
+.\"
+.RE
+.\"
+.\"
+.\"
+.SH LINUX CONFIGURATION PARAMETERS
+.\"
+.\"
+.SH AUTHOR
+.TP
+Stuart Lynne <sl@lineo.com>
+.TP
+Bruce Balden <balden@lineo.com>
+.TP
+Tom Rushworth <tbr@lineo.com>
+.\"
+.\"
+.SH SEE ALSO
+.PP
+usbdbus(7), usbdfunc(7), usbd(8), usbdcore(8)
+.PP
+Universal Serial Bus Specification, Revision 2.0
+.PP
+Universal Serial Bus Class Definitions for Communications Devices, Version 1.1
+

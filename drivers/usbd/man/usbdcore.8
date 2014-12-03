@@ -1,0 +1,123 @@
+.TH usbdcore 8 "\n[year]-\n[mo]-\n[dy]", Lineo "Lineo USBD Developer's Guide"
+.SH SYNPOSIS
+.B usbdcore 
+[maxstrings=20] [dbg=
+.I dbgstring
+]
+.SH DESCRIPTION
+The usbdcore module is the foundation of USB support. Its roles are to pass data between the bus interface (low) and function (high) layer modules, and to provide the enumeration services. 
+.PP
+The usbdcore module should be loaded first because the other modules need its services.
+.PP
+Next, load the modules for any functions (network, serial, etc) to be made available to the host
+.PP
+Finally load the bus interface driver.  After that, the device will respond to an enumeration request from the host.
+.\"
+.\"
+.SH LINUX CONFIGURATION PARAMETERS
+.PP
+These compilation parameters can be used to control the detailed behaviour of the net module.
+.\"
+.\"
+.TP 
+CONFIG_USBD_VENDORID
+This 
+.I hex 
+parameter can be used to set the
+.I idVendor 
+device descriptor value.  Specific architectures with a known vendor id are pre-set (itsy, calypso, collie, iris).
+.\"
+.\"
+.TP 
+CONFIG_USD_NET_PRODUCTID
+This 
+.I hex 
+parameter can be used to set the
+.I idProduct 
+device descriptor value.  Specific architectures with a known product id are pre-set (itsy, calypso, collie, iris).
+.\"
+.\"
+.TP
+CONFIG_USBD_PRODUCT_NAME
+This 
+.I string 
+parameter is used to set the 
+.I iProduct
+device descriptor value.
+.\"
+.\"
+.TP
+CONFIG_USBD_MANUFACTURER
+This 
+.I string 
+parameter is used to set the
+.I iManufacturer
+device descriptor value.
+.\"
+.\"
+.TP
+CONFIG_USBD_USE_SERIAL_NUMBER
+This 
+.I boolean 
+parameter controls generation of a serial number for the 
+.I iSerialNumber
+device descriptor value.
+.\"
+.\"
+.TP
+CONFIG_USBD_SERIAL_NUMBER_STR
+This 
+.I string 
+paramter is used to set the
+.I iSerialNumber
+device descriptor value.
+.\"
+.\"
+.TP
+CONFIG_USBD_SELFPOWERED
+This 
+.I boolean
+parameter must be set if your device is self-powered.
+.\"
+.\"
+.TP
+CONFIG_USBD_MAXPOWER
+This
+.I int
+parameter must be set to a non-zero value if your device is not self-powered.
+The value is the power draw in milli-amps (mA).
+.\"
+.\"
+.\"
+.SH MODULE LOAD PARAMETERS
+For ordinary use, no parameters are needed. However, the following module parameters are supported:
+.P
+The 
+.I maxstrings
+parameter defines how many different strings can ever be sent over the bus 
+during enumeration.
+.P
+The parameter
+.I dbg
+parameter is only needed to produce debug output. It is quite flexible and
+its format is described more fully in the source code. 
+
+.SH LINUX CONFIGURATION PARAMETERS
+
+.SH AUTHOR
+.TP
+Stuart Lynne <sl@lineo.com>
+.TP
+Bruce Balden <balden@lineo.com>
+.TP
+Tom Rushworth <tbr@lineo.com>
+.\"
+.\"
+.SH SEE ALSO
+.PP
+usbdbus(7), usbdfunc(7), usbd(8), usbdcore(8)
+.PP
+Universal Serial Bus Specification, Revision 2.0
+.PP
+Universal Serial Bus Class Definitions for Communications Devices, Version 1.1
+.\"

@@ -1,0 +1,29 @@
+#!/bin/sh
+
+if [ "`uname -n`" = "kelvin.mannynkapy.net" ]; then
+   MODS="usbdcore.o net_fd/net_fd.o"
+   if pwd | grep -q '/customer/ti/'; then
+      echo TI @ Tom\'s
+      DEST=./modules
+      MODS="${MODS} serial_fd/serial_fd.o cdsp_bi/cdsp_bi.o"
+   elif pwd | grep -q '/customer/hp'; then
+      echo HP @ Tom\'s
+      DEST=/tftpboot/192.168.40.101/modules
+      MODS="${MODS} sa1100_bi/sa1100_bi.o"
+   else
+      echo Unknown customer, exiting.
+      exit 1
+   fi
+else
+   MODS="usbdcore.o serial_fd/serial_fd.o l7205_bi/l7205_bi.o net_fd/net_fd.o"
+   DEST=/tftpboot/tmp/linkup/tmp
+fi
+
+set -x
+(cd ../../; make modules) || exit
+
+[ -d "$DEST" ] || exit
+
+for i in ${MODS}; do
+	[ -s "$i" ] && echo COPYING "$i" && cp "$i" "$DEST"
+done

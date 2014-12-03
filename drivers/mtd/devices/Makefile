@@ -1,7 +1,7 @@
 #
 # linux/drivers/devices/Makefile
 #
-# $Id: Makefile,v 1.2 2001/04/19 22:12:36 dwmw2 Exp $
+# $Id: Makefile,v 1.1.1.1 2001/04/27 00:30:06 yata Exp $
 
 O_TARGET	:= devlink.o
 
@@ -19,5 +19,9 @@ obj-$(CONFIG_MTD_DOCPROBE)	+= docprobe.o docecc.o
 obj-$(CONFIG_MTD_SLRAM)		+= slram.o
 obj-$(CONFIG_MTD_PMC551)	+= pmc551.o
 obj-$(CONFIG_MTD_MTDRAM)	+= mtdram.o
+obj-$(CONFIG_MTD_MTDROM_SA1100) += sa1100_mtdrom.o
+obj-$(CONFIG_MTD_MTDRAM_SA1100) += sa1100_mtdram.o
+obj-$(CONFIG_MTD_MTDRAM_L7200)  += l7200_mtdram.o
+obj-$(CONFIG_MTD_MTDROM_L7200)  += l7200_mtdrom.o
 
 include $(TOPDIR)/Rules.make

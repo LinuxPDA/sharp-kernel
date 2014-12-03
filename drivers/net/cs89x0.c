@@ -7,7 +7,7 @@
 	written 1993-1994 by Donald Becker.
 
 	This software may be used and distributed according to the terms
-	of the GNU General Public License, incorporated herein by reference.
+	of the GNU Public License, incorporated herein by reference.
 
         The author may be reached at nelson@crynwr.com, Crynwr
         Software, 521 Pleasant Valley Rd., Potsdam, NY 13676
@@ -81,6 +81,9 @@
                     : Make `version[]' __initdata
                     : Uninlined the read/write reg/word functions.
 
+   Change Log
+	12-Nov-2001 Lineo Japan, Inc.
+
 */
 
 /* Always include 'config.h' first in case the user wants to turn on
@@ -95,13 +98,21 @@
  * Note that even if DMA is turned off we still support the 'dma' and  'use_dma'
  * module options so we don't break any startup scripts.
  */
+#if defined(CONFIG_L7205SDB) || defined(CONFIG_IRIS)
+#define ALLOW_DMA	0
+#else
 #define ALLOW_DMA	1
+#endif
 
 /*
  * Set this to zero to remove all the debug statements via
  * dead code elimination
  */
+#if defined(CONFIG_L7205SDB) || defined(CONFIG_IRIS)
+#define DEBUGGING	0
+#else
 #define DEBUGGING	1
+#endif
 
 /*
   Sources:
@@ -121,7 +132,7 @@
 #include <linux/ptrace.h>
 #include <linux/ioport.h>
 #include <linux/in.h>
-#include <linux/slab.h>
+#include <linux/malloc.h>
 #include <linux/string.h>
 #include <linux/init.h>
 #include <asm/system.h>
@@ -230,6 +241,64 @@ static void get_dma_channel(struct net_device *dev);
 static void release_dma_buff(struct net_local *lp);
 #endif
 
+#if defined(CONFIG_L7205SDB) || defined(CONFIG_IRIS)
+
+#undef RAM_SIZE
+#include <asm/arch/hardware.h>
+#include <asm/arch/irqs.h>
+
+#define EIOADDR		(EIO_BASE+0x300)
+#define ETH_IRQ		IRQ_INT1
+
+#undef inw
+#define inw(p)		(*(volatile unsigned short int *)(p))
+
+#undef outw
+#define outw(v,p)	(*(volatile unsigned short int *)(p) = (v))
+
+static void cinsw(unsigned int port,void *to,int len)
+{
+        uint16_t *p = to;
+        while (len--) *p++ = inw(port);
+}
+
+static void coutsw(unsigned int port,const void *from,int len)
+{
+        const uint16_t *p = from;
+        while (len--) outw(*p++,port);
+}
+
+void l7200_cs89x0_setup(struct net_device *dev)
+{
+	struct net_local *lp;
+	char	macaddr[6] = { 0x00, 0x66, 0x99, 0x66, 0x77, 0x88 };
+	int	i;
+
+//IO_IOCFG2 = 0;	//16-bit mode
+IO_IOCFG3 |= (1<<16);	/* set DPCE bit to enable Dual Socket 	*/
+IO_IOCFG5 |= 1;		/* Enable both Memory and I/O 	*/
+
+	/* Initialize the device structure. */
+	if (dev->priv == NULL) {
+		dev->priv = kmalloc(sizeof(struct net_local), GFP_KERNEL);
+                memset(dev->priv, 0, sizeof(struct net_local));
+        }
+	lp = (struct net_local *)dev->priv;
+
+	if (!lp->auto_neg_cnf)
+		lp->auto_neg_cnf = 1;
+
+	/* Store adapter configuration */
+	lp->adapter_cnf =  A_CNF_MEDIA_10B_T|A_CNF_10B_T|A_CNF_DC_DC_POLARITY;
+	lp->isa_config = 0;
+	lp->irq_map = 0xFFFFFFFF;
+	dev->mem_start = EIOADDR;
+	for (i = 0; i < ETH_ALEN; i++)
+		dev->dev_addr[i] = macaddr[i];
+	dev->irq = ETH_IRQ;	/* 27 */
+}
+#endif
+
 /* Example routines you must write ;->. */
 #define tx_done(dev) 1
 
@@ -267,7 +336,15 @@ int __init cs89x0_probe(struct net_device *dev)
 	if (net_debug)
 		printk("cs89x0:cs89x0_probe(0x%x)\n", base_addr);
 
-	if (base_addr > 0x1ff)		/* Check a single specified location. */
+#if defined(CONFIG_L7205SDB) || defined(CONFIG_IRIS)
+	base_addr = EIOADDR;
+#if 0
+	printk("cs89x0_probe: base_addr=%x\n", base_addr);
+#endif
+	l7200_cs89x0_setup(dev);
+#endif
+
+	if ((unsigned long)base_addr > 0x1ff)		/* Check a single specified location. */
 		return cs89x0_probe1(dev, base_addr);
 	else if (base_addr != 0)	/* Don't probe at all. */
 		return -ENXIO;
@@ -394,6 +471,9 @@ cs89x0_probe1(struct net_device *dev, int ioaddr)
 		retval = -EBUSY;
 		goto out1;
 	}
+#if defined(CONFIG_L7205SDB) || defined(CONFIG_IRIS)
+	outw(PP_ChipID, ioaddr + ADD_PORT);
+#endif
 
 	/* if they give us an odd I/O address, then do ONE write to
            the address port, to get it back to address zero, where we
@@ -515,10 +595,11 @@ printk("PP_addr=0x%x\n", inw(ioaddr + ADD_PORT));
         } else if (get_eeprom_cksum(START_EEPROM_DATA,CHKSUM_LEN,eeprom_buff) < 0) {
 		/* Check if the chip was able to read its own configuration starting
 		   at 0 in the EEPROM*/
+#if !defined(CONFIG_L7205SDB) && !defined(CONFIG_IRIS)
 		if ((readreg(dev, PP_SelfST) & (EEPROM_OK | EEPROM_PRESENT)) !=
 		    (EEPROM_OK|EEPROM_PRESENT)) 
                 	printk(KERN_WARNING "cs89x0: Extended EEPROM checksum bad and no Cirrus EEPROM, relying on command line\n");
-		   
+#endif
         } else {
 		/* This reads an extended EEPROM that is not documented
 		   in the CS8900 datasheet. */
@@ -602,6 +683,9 @@ printk("PP_addr=0x%x\n", inw(ioaddr + ADD_PORT));
 		if (!dev->irq)
 			dev->irq = i;
 	}
+#if defined(CONFIG_L7205SDB) || defined(CONFIG_IRIS)
+	lp->irq_map = 0xffffffff;
+#endif
 
 	printk(" IRQ %d", dev->irq);
 
@@ -798,9 +882,8 @@ skip_this_frame:
 	}
         skb->protocol=eth_type_trans(skb,dev);
 	netif_rx(skb);
-	dev->last_rx = jiffies;
 	lp->stats.rx_packets++;
-	lp->stats.rx_bytes += length;
+	return;
 }
 
 #endif	/* ALLOW_DMA */
@@ -962,7 +1045,7 @@ send_test_pkt(struct net_device *dev)
 		return 0;	/* this shouldn't happen */
 
 	/* Write the contents of the packet */
-	outsw(dev->base_addr + TX_FRAME_PORT,test_packet,(ETH_ZLEN+1) >>1);
+	coutsw(dev->base_addr + TX_FRAME_PORT,test_packet,(ETH_ZLEN+1) >>1);
 
 	if (net_debug > 1) printk("Sending test packet ");
 	/* wait a couple of jiffies for packet to be received */
@@ -1016,6 +1099,9 @@ write_irq(struct net_device *dev, int chip_type, int irq)
 	int i;
 
 	if (chip_type == CS8900) {
+#if defined(CONFIG_L7205SDB) || defined(CONFIG_IRIS)
+		i = 0;	/* use INT0 */
+#else
 		/* Search the mapping table for the corresponding IRQ pin. */
 		for (i = 0; i != sizeof(cs8900_irq_map)/sizeof(cs8900_irq_map[0]); i++)
 			if (cs8900_irq_map[i] == irq)
@@ -1023,6 +1109,7 @@ write_irq(struct net_device *dev, int chip_type, int irq)
 		/* Not found */
 		if (i == sizeof(cs8900_irq_map)/sizeof(cs8900_irq_map[0]))
 			i = 3;
+#endif
 		writereg(dev, PP_CS8900_ISAINT, i);
 	} else {
 		writereg(dev, PP_CS8920_ISAINT, irq);
@@ -1310,7 +1397,7 @@ static int net_send_packet(struct sk_buff *skb, struct net_device *dev)
 		return 1;
 	}
 	/* Write the contents of the packet */
-	outsw(dev->base_addr + TX_FRAME_PORT,skb->data,(skb->len+1) >>1);
+	coutsw(dev->base_addr + TX_FRAME_PORT,skb->data,(skb->len+1) >>1);
 	spin_unlock_irq(&lp->lock);
 	dev->trans_start = jiffies;
 	dev_kfree_skb (skb);
@@ -1460,7 +1547,7 @@ net_rx(struct net_device *dev)
 	skb_reserve(skb, 2);	/* longword align L3 header */
 	skb->dev = dev;
 
-	insw(ioaddr + RX_FRAME_PORT, skb_put(skb, length), length >> 1);
+	cinsw(ioaddr + RX_FRAME_PORT, skb_put(skb, length), length >> 1);
 	if (length & 1)
 		skb->data[length-1] = inw(ioaddr + RX_FRAME_PORT);
 
@@ -1472,9 +1559,9 @@ net_rx(struct net_device *dev)
 
         skb->protocol=eth_type_trans(skb,dev);
 	netif_rx(skb);
-	dev->last_rx = jiffies;
 	lp->stats.rx_packets++;
-	lp->stats.rx_bytes += length;
+	lp->stats.rx_bytes+=skb->len;
+	return;
 }
 
 #if ALLOW_DMA

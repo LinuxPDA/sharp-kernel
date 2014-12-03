@@ -1,0 +1,252 @@
+.\" 
+.\" Prototype man page
+.\"
+.\" Man:
+.\"
+.\"
+.\" tmac Macros:
+.\"
+.\"	.TH
+.\"	.SH
+.\"
+.\"
+.\"	.B	Bold
+.\"	.BI	Bold alternating with italics
+.\"	.BR	Bold alternating with roman
+.\"	.I	Italics
+.\"	.IB	Italics alternating with bold
+.\"	.IR	Italics alternating with roman
+.\"	.R	Roman
+.\"	.RB	Roman alternating with bold
+.\"	.RI	Roman alternating with italics 
+.\"
+.\"	.RE
+.\"	.IP
+.\"	.RS
+.\"
+.\"
+.\" roff Macros:
+.\"
+.\"	.I	include
+.\"
+.\"
+.\"	.P
+.\"	.TP	Paragraph with hanging tag
+.\"	.PP
+.\"	.sp
+.\"	.nf
+.\"	.fi
+.\"
+.\"	.SM	Small Type face
+.\"
+.\"	\fB
+.\"	\fI
+.\"	\fP
+.\"	\fR
+.\"
+.\"
+.\"
+.\"
+.TH usbdbus 7 "\n[year]-\n[mo]-\n[dy]" "Lineo" "Lineo Embedix Guide"
+.\"
+.\"
+.SH SYNPOSIS
+.PP
+.nf
+#include "usbd.h"
+#include "usbd-bus.h"
+.fi
+.\"
+.\"
+.SH DESCRIPTION
+.\"
+.PP
+This man page documents the interface that the 
+.I USB Bus Interface Driver
+uses to connect to the 
+.I USB Device 
+core layer.
+.\"
+.PP
+In the 
+.B USB Device Architecture 
+the 
+.I Bus Interface Driver
+implements the actual interface to a specific 
+.SM USB
+.I Bus Interface
+device.
+.PP
+Specifically the bottom layer of the 
+.I Bus Interface Driver
+implements access the local hardware.
+It encapsulates the data given it and sends it to the 
+.SM USB
+host 
+.I Class Driver via the 
+.SM USB
+bus.
+.PP
+Similarily data received from 
+.SM USB
+host is given to the user of the device.
+.\"
+.\"
+.PP
+The main interface to the 
+.I USB Device
+core layer is through two routines:
+.RS
+.TP
+usbd_register_bus(struct *usb_bus_driver)
+.TP
+usbd_deregister_bus(struct *usb_bus_driver)
+.TP
+usbd_register_device(struct *usb_bus_driver)
+.TP
+usbd_deregister_device(struct *usb_bus_driver)
+.RE
+.PP
+These pass a pointer to a 
+.I struct usb_function_driver.
+.PP
+This structure contains information required by the 
+.I USB Device
+core layer to use the 
+.I Bus Interface 
+device.
+.\"
+.PP
+.RS
+.nf
+struct usb_bus_driver {
+    char               *name;
+    unsigned char       max_endpoints;          // maximimum number of rx enpoints
+    unsigned char       maxpacketsize;
+    struct usb_device_description *device_description;
+    struct usb_bus_operations *ops;
+    struct module       *this_module;                   // manage inc use counts to prevent unload races
+};
+
+.fi
+.RE
+.RS
+.TP
+ops 
+ this is a list of C functions this module implements
+to perform the operations required by the 
+.I USB Device
+core layer.
+.TP 
+name
+.TP
+max_endpoints
+.TP
+maxpacketsize
+.
+.RE
+.\"
+.\"
+.PP
+The 
+.I usb_function_operations
+structure is used to pass pointers to the functions implemented
+by the 
+.I Function
+driver.
+.\"
+.PP
+.\"
+.RS
+.nf
+struct usb_bus_operations {
+    int (* send_urb) (struct urb *);
+    int (* cancel_urb) (struct urb *);
+    int (* endpoint_halted)(struct usb_device_instance *, int);
+    int (* device_feature)(struct usb_device_instance *, int, int);
+    int (* device_event)(struct usb_device_instance *, usb_device_event_t );
+};
+.fi
+.RE
+.\"
+.PP
+.\"
+.RS
+.TP
+device event
+This function is called by the
+.I USB Device
+core layer to pass various events to the 
+.I Bus Interface 
+driver. 
+These match the changes defined in the
+state diagram defined in 
+.I chapter 9 USB Device Framework, section 9.1.1, 
+in the 
+.SM USB
+specification.
+The events are passed through a 
+.I task queue.
+This means that these functions are not executing in an interrupt
+context and may call other kernel functions that may sleep.
+.TP
+send_urb
+The 
+.I Function 
+driver sends data in a structure called an 
+.I urb
+using a function called
+.I usbd_send_urb().
+When the 
+.I urb
+has been sent the 
+.I USB Device
+core layer will call the 
+.I urb_sent 
+function to notify the 
+.I Function 
+driver that it has finished sending the data or
+has stopped attempting to send the data.
+.TP
+cancel_urb
+.TP
+endpoint_halted
+.TP
+device_feature
+.RE
+.\"
+.\"
+.\"
+.\"
+.\"
+.\"
+.SH EXAMPLES
+.PP
+.PP
+.\"
+.SH BUGS
+.\"
+.PP
+.\"
+.SH AUTHOR
+.TP
+Stuart Lynne <sl@lineo.com>
+.TP
+Bruce Balden <balden@lineo.com>
+.TP
+Tom Rushworth <tbr@lineo.com>
+.\"
+.\"
+.\"
+.SH SEE ALSO
+.\"
+.PP
+.TP
+usbd(7), usbdfunc(7)
+.PP
+Universal Serial Bus Specification, Revision 2.0
+.PP
+Universal Serial Bus Class Definitions for Communications Devices, Version 1.1
+.PP
+.\"
+

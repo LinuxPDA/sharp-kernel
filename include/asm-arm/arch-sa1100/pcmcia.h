@@ -48,6 +48,10 @@ struct pcmcia_configure {
          output: 1,
         speaker: 1,
           reset: 1;
+#ifdef CONFIG_SA1100_COLLIE         
+	u_int	flags;
+	u_int	masks;
+#endif
 };
 
 struct pcmcia_irq_info {

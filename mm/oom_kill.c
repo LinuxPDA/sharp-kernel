@@ -13,6 +13,9 @@
  *  machine) this file will double as a 'coding guide' and a signpost
  *  for newbie kernel hackers. It features several pointers to major
  *  kernel subsystems and hints as to where to find out what things do.
+ *
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
  */
 
 #include <linux/mm.h>
@@ -22,6 +25,7 @@
 #include <linux/timex.h>
 
 /* #define DEBUG */
+
 
 /**
  * int_sqrt - oom_kill.c internal function, rough approximation to sqrt
@@ -118,6 +122,7 @@ static int badness(struct task_struct *p)
 static struct task_struct * select_bad_process(void)
 {
 	int maxpoints = 0;
+	short level = 0;
 	struct task_struct *p = NULL;
 	struct task_struct *chosen = NULL;
 
@@ -125,9 +130,24 @@ static struct task_struct * select_bad_process(void)
 	for_each_task(p) {
 		if (p->pid) {
 			int points = badness(p);
-			if (points > maxpoints) {
+			if (is_oom_kill_survival_process(p)) {
+				if (oom_kill_survival_get(p) > level)
+					level = oom_kill_survival_get(p);
+			}
+			else if (points > maxpoints) {
 				chosen = p;
 				maxpoints = points;
+			}
+		}
+	}
+	if (level > 0 && chosen == NULL) {
+		for_each_task(p) {
+			if (oom_kill_survival_get(p) == level) {
+				int points = badness(p);
+				if (points > maxpoints) {
+					chosen = p;
+					maxpoints = points;
+				}
 			}
 		}
 	}

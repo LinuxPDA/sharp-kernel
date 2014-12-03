@@ -58,6 +58,7 @@ obj-$(CONFIG_PCMCIA_SA1100)	+= sa1100_cs.o
 
 sa1100_cs-objs-y				:= sa1100_generic.o
 sa1100_cs-objs-$(CONFIG_SA1100_ASSABET)		+= sa1100_assabet.o
+sa1100_cs-objs-$(CONFIG_SA1100_COLLIE)		+= sa1100_collie.o
 sa1100_cs-objs-$(CONFIG_ASSABET_NEPONSET)	+= sa1100_neponset.o
 sa1100_cs-objs-$(CONFIG_SA1100_BITSY)		+= sa1100_bitsy.o
 sa1100_cs-objs-$(CONFIG_SA1100_CERF)		+= sa1100_cerf.o

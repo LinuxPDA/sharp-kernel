@@ -1,0 +1,12 @@
+
+
+The usbd-monitor module can be used to monitor for connection to via
+the USB cable to a host or hub.
+
+In general this facility is only useful if you also have the ability
+to control the pullup resistor because once connected  with the pullup
+resistor enabled the host will attempt enumeration immediately.
+
+The module loading facilities may not be fast enough to get the usbd
+support loaded before the host fails the enumeration.
+

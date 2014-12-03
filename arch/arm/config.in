@@ -9,6 +9,7 @@ define_bool CONFIG_EISA n
 define_bool CONFIG_SBUS n
 define_bool CONFIG_MCA n
 define_bool CONFIG_UID16 y
+define_bool CONFIG_SMP n
 define_bool CONFIG_RWSEM_GENERIC_SPINLOCK y
 define_bool CONFIG_RWSEM_XCHGADD_ALGORITHM n
 
@@ -72,6 +73,12 @@ dep_bool '  CerfBoard' CONFIG_SA1100_CERF $CONFIG_ARCH_SA1100
 if [ "$CONFIG_SA1100_CERF" = "y" ]; then
    bool '    32MB Cerf support' CONFIG_SA1100_CERF_32MB
 fi
+dep_bool '  Collie' CONFIG_SA1100_COLLIE $CONFIG_ARCH_SA1100
+dep_bool '    Using LoCoMo'  CONFIG_LOCOMO $CONFIG_SA1100_COLLIE
+dep_bool '    Using Test Sample'  CONFIG_COLLIE_TS $CONFIG_SA1100_COLLIE
+dep_bool '    Using Trial 0'  CONFIG_COLLIE_TR0 $CONFIG_SA1100_COLLIE
+dep_bool '    Using Trial 1'  CONFIG_COLLIE_TR1 $CONFIG_SA1100_COLLIE
+dep_bool '    Using Developer Unit'  CONFIG_COLLIE_DEV $CONFIG_SA1100_COLLIE
 dep_bool '  Compaq iPAQ H3600 (Bitsy)' CONFIG_SA1100_BITSY $CONFIG_ARCH_SA1100
 #dep_bool '  Empeg' CONFIG_SA1100_EMPEG $CONFIG_ARCH_SA1100
 dep_bool '  Extenex HandHeld Theater (Squashtail)' CONFIG_SA1100_EXTENEX1 $CONFIG_ARCH_SA1100
@@ -106,6 +113,23 @@ fi
 dep_tristate 'SA1100 USB function support' CONFIG_SA1100_USB $CONFIG_ARCH_SA1100
 dep_tristate '  Support for SA11x0 USB network link function' CONFIG_SA1100_USB_NETLINK $CONFIG_SA1100_USB
 dep_tristate '  Support for SA11x0 USB character device emulation' CONFIG_SA1100_USB_CHAR $CONFIG_SA1100_USB
+endmenu
+
+mainmenu_option next_comment
+comment 'LinkUp 7200/7205/7210 Implementations'
+dep_bool 'L7205SDB' CONFIG_L7205SDB  $CONFIG_ARCH_L7200
+dep_bool 'IRIS_16MB' CONFIG_IRIS_16MB $CONFIG_ARCH_L7200
+dep_bool 'IRIS_32MB' CONFIG_IRIS_32MB $CONFIG_ARCH_L7200
+dep_bool '  Using Test Sample 0' CONFIG_IRIS_TS0 $CONFIG_IRIS_32MB
+dep_bool '  no using flash boot parameter' CONFIG_NO_FLASH_BOOT_PARAM $CONFIG_IRIS_32MB
+if [ "$CONFIG_IRIS_16MB" = "y" -o "$CONFIG_IRIS_32MB" = "y" ]; then
+   define_bool CONFIG_IRIS y
+else
+   define_bool CONFIG_IRIS n
+fi
+#dep_tristate 'LinkUp 7200 USB function support' CONFIG_L7200_USB $CONFIG_ARCH_L7200
+#dep_tristate '  Support for LinkUp 7200 USB network link function' CONFIG_L7200_USB_NETLINK $CONFIG_L7200_USB
+#dep_tristate '  Support for LinkUp 7200 USB character device emulation' CONFIG_L7200_USB_CHAR $CONFIG_L7200_USB
 endmenu
 
 mainmenu_option next_comment
@@ -278,6 +302,7 @@ comment 'General setup'
 # Now handle the bus types
 if [ "$CONFIG_ARCH_FTVPCI" = "y" -o \
      "$CONFIG_ARCH_SHARK" = "y" -o \
+     "$CONFIG_SA1111" = "y" -o \
      "$CONFIG_FOOTBRIDGE_HOST" = "y" ]; then
    define_bool CONFIG_PCI y
 else
@@ -321,6 +346,20 @@ bool 'Networking support' CONFIG_NET
 bool 'System V IPC' CONFIG_SYSVIPC
 bool 'BSD Process Accounting' CONFIG_BSD_PROCESS_ACCT
 bool 'Sysctl support' CONFIG_SYSCTL
+if [ "$CONFIG_ARCH_SA1100" = "y" -o "$CONFIG_ARCH_L7200" = "y" ]; then 
+   bool 'Execute-In-Place from ROM (XIP ROM)' CONFIG_XIP_ROM
+   if [ "$CONFIG_XIP_ROM" = "y" ]; then
+      if [ "$CONFIG_IRIS" = "y" ]; then
+         hex '  vmlinux .text address' CONFIG_LINK_TEXT cc080000
+         hex '  vmlinux .data address' CONFIG_LINK_DATA c0038000
+      else
+         hex '  vmlinux .text address' CONFIG_LINK_TEXT e8900000
+         hex '  vmlinux .data address' CONFIG_LINK_DATA c0008000
+      fi
+#     hex '  vmlinunx.bin load address' CONFIG_BIN_LOAD 40000000
+#     hex '  vmlinunx.bin jump address' CONFIG_BIN_JUMP c0018000
+   fi
+fi
 tristate 'NWFPE math emulation' CONFIG_FPE_NWFPE
 dep_tristate 'FastFPE math emulation (experimental)' CONFIG_FPE_FASTFPE $CONFIG_EXPERIMENTAL
 choice 'Kernel core (/proc/kcore) format' \
@@ -330,8 +369,17 @@ tristate 'Kernel support for a.out binaries' CONFIG_BINFMT_AOUT
 tristate 'Kernel support for ELF binaries' CONFIG_BINFMT_ELF
 tristate 'Kernel support for MISC binaries' CONFIG_BINFMT_MISC
 dep_bool 'Power Management support (experimental)' CONFIG_PM $CONFIG_EXPERIMENTAL
-if [ "$CONFIG_ARCH_SA1100" = "y" ]; then
+if [ "$CONFIG_ARCH_SA1100" = "y" -o "$CONFIG_ARCH_L7200" = "y" ]; then
    dep_tristate 'Advanced power management support' CONFIG_APM $CONFIG_PM
+   if [ "$CONFIG_APM" != "n" ]; then
+      bool '    Ignore USER SUSPEND' CONFIG_APM_IGNORE_USER_SUSPEND
+#     bool '    Enable PM at boot time' CONFIG_APM_DO_ENABLE
+      bool '    Make CPU Idle calls when idle' CONFIG_APM_CPU_IDLE
+      bool '    Enable console blanking using APM' CONFIG_APM_DISPLAY_BLANK
+      bool '    RTC stores time in GMT' CONFIG_APM_RTC_IS_GMT
+#     bool '    Allow interrupts during APM BIOS calls' CONFIG_APM_ALLOW_INTS
+#     bool '    Use real mode APM BIOS call to power off' CONFIG_APM_REAL_MODE_POWER_OFF
+   fi
 fi
 
 dep_tristate 'RISC OS personality' CONFIG_ARTHUR $CONFIG_CPU_32
@@ -341,6 +389,7 @@ if [ "$CONFIG_ARCH_EBSA110" = "y" -o         \
      "$CONFIG_ARCH_CLPS7500" = "y" -o        \
      "$CONFIG_ARCH_PERSONAL_SERVER" = "y" -o \
      "$CONFIG_ARCH_CATS" = "y" -o            \
+     "$CONFIG_ARCH_L7200" = "y" -o           \
      "$CONFIG_ARCH_P720T" = "y" -o	     \
      "$CONFIG_ARCH_ANAKIN" = "y" ]; then
    string 'Default kernel command string' CONFIG_CMDLINE ""
@@ -379,6 +428,12 @@ if [ "$CONFIG_CPU_32" = "y" -a \
 fi
 if [ "$CONFIG_ARCH_SA1100" = "y" ]; then
    define_bool CONFIG_ALIGNMENT_TRAP y
+fi
+bool 'kswapd freepages signaling support' CONFIG_FREEPG_SIGNAL
+bool 'oom_kill survival support' CONFIG_OOM_KILL_SURVIVAL
+dep_tristate 'Device hardware specific information support' CONFIG_DEVICEINFO $CONFIG_MODULES
+if [ "$CONFIG_DEVICEINFO" = "m" -a "$CONFIG_SA1100_COLLIE" = "y" ]; then
+   define_tristate CONFIG_COLLIE_DEVICEINFO m
 fi
 endmenu
 
@@ -512,18 +567,21 @@ if [ "$CONFIG_ARCH_ACORN" = "y" -o \
      "$CONFIG_ARCH_TBOX" = "y" -o \
      "$CONFIG_ARCH_SHARK" = "y" -o \
      "$CONFIG_ARCH_SA1100" = "y" -o \
+     "$CONFIG_ARCH_L7200" = "y" -o \
      "$CONFIG_PCI" = "y" ]; then
    mainmenu_option next_comment
    comment 'Sound'
 
    tristate 'Sound support' CONFIG_SOUND
    if [ "$CONFIG_SOUND" != "n" ]; then
+      source drivers/sound/dmasound/Config.in
       source drivers/sound/Config.in
    fi
    endmenu
 fi
 
 source drivers/usb/Config.in
+source drivers/usbd/Config.in
 
 if [ "$CONFIG_EXPERIMENTAL" = "y" ]; then
    source net/bluetooth/Config.in

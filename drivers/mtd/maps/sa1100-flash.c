@@ -4,6 +4,9 @@
  * (C) 2000 Nicolas Pitre <nico@cam.org>
  * 
  * $Id: sa1100-flash.c,v 1.16 2001/06/12 21:29:46 nico Exp $
+ *
+ * Change Log
+ *	12-Nov-2001 Lineo Japan, Inc.
  */
 
 #include <linux/config.h>
@@ -87,6 +90,75 @@ static void jornada720_set_vpp(int vpp)
   else
       PPSR &= ~0x80;
   PPDR |= 0x80;
+
+
+#endif
+  
+#ifdef CONFIG_SA1100_COLLIE
+
+#include <asm/arch/tc35143.h>
+#include <asm/ucb1200.h>
+
+static unsigned long collie_max_flash_size = 0x01000000;
+static struct mtd_partition collie_partitions[] = {
+#if 0
+        {
+		name:       "system",
+		offset:     0,
+		size:       0x001c0000,
+                mask_flags: MTD_WRITEABLE
+        },
+#endif
+#ifdef CONFIG_MTD_COLLIE
+	{
+		name:       "kernel",
+		offset:     0x000c0000,
+		size:       0x00100000,
+	},
+	{
+		name:       "initrd",
+		offset:     0x001c0000,
+		size:       0x00e20000,
+	},
+#if 0
+	{
+		name:       "debug",
+		offset:     0x00ee0000,
+		size:       0x00020000,
+	},
+#endif
+#else
+	{
+		name:       "kernel",
+		offset:     0x000c0000,
+		size:       0x00100000,
+	},
+	{
+		name:       "jffs2",
+                offset:     0x001c0000,
+                size:       0x00e40000,
+        },
+#endif
+};
+
+static void collie_set_vpp(int vpp)
+{
+#if defined(CONFIG_COLLIE_TS) || defined(CONFIG_COLLIE_TR0) || \
+    defined(CONFIG_COLLIE_TR1) || defined(CONFIG_COLLIE_DEV)
+	ucb1200_set_io_direction(TC35143_GPIO_VPEN_ON, TC35143_IODIR_OUTPUT);
+	if (vpp) {
+		ucb1200_set_io(TC35143_GPIO_VPEN_ON, TC35143_IODAT_HIGH);
+	} else {
+		ucb1200_set_io(TC35143_GPIO_VPEN_ON, TC35143_IODAT_LOW);
+	}
+#else
+	SCP_REG_GPCR |= SCP_VPEN;
+	if (vpp) {
+		SCP_REG_GPWR |= SCP_VPEN;
+	} else {
+		SCP_REG_GPWR &= ~SCP_VPEN;
+	}
+#endif
 }
 
 #endif
@@ -580,13 +652,29 @@ int __init sa1100_mtd_init(void)
 		sa1100_map.size = flexanet_max_flash_size;
 	}
 #endif
+#ifdef CONFIG_SA1100_COLLIE
+	if (machine_is_collie()) {
+		parts = collie_partitions;
+		nb_parts = NB_OF(collie_partitions);
+		sa1100_map.size = collie_max_flash_size;
+		sa1100_map.set_vpp = collie_set_vpp;
+	}
+#endif
 
 	/*
 	 * Now let's probe for the actual flash.  Do it here since
 	 * specific machine settings might have been set above.
 	 */
 	printk(KERN_NOTICE "SA1100 flash: probing %d-bit flash bus\n", sa1100_map.buswidth*8);
+#ifdef CONFIG_XIP_ROM
+	mymtd = do_map_probe("rom", &sa1100_map);
+#else
+#ifdef CONFIG_MTD_COLLIE
+	mymtd = do_map_probe("collie", &sa1100_map);
+#else
 	mymtd = do_map_probe("cfi", &sa1100_map);
+#endif
+#endif
 	if (!mymtd)
 		return -ENXIO;
 	mymtd->module = THIS_MODULE;

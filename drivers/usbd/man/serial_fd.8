@@ -1,0 +1,320 @@
+.\" 
+.\" Prototype man page
+.\"
+.\" Man:
+.\"
+.\"
+.\" tmac Macros:
+.\"
+.\"	.TH
+.\"	.SH
+.\"
+.\"
+.\"	.B	Bold
+.\"	.BI	Bold alternating with italics
+.\"	.BR	Bold alternating with roman
+.\"	.I	Italics
+.\"	.IB	Italics alternating with bold
+.\"	.IR	Italics alternating with roman
+.\"	.R	Roman
+.\"	.RB	Roman alternating with bold
+.\"	.RI	Roman alternating with italics 
+.\"
+.\"	.RE
+.\"	.IP
+.\"	.RS
+.\"
+.\"
+.\" roff Macros:
+.\"
+.\"	.I	include
+.\"
+.\"
+.\"	.P
+.\"	.TP	Paragraph with hanging tag
+.\"	.PP
+.\"	.sp
+.\"	.nf
+.\"	.fi
+.\"
+.\"	.SM	Small Type face
+.\"
+.\"	\fB
+.\"	\fI
+.\"	\fP
+.\"	\fR
+.\"
+.\"
+.\"
+.\"
+.TH usbdfunc 8 "\n[year]-\n[mo]-\n[dy]" "Lineo" "Lineo Embedix Guide"
+.\"
+.\"
+.SH SYNPOSIS
+.PP
+.nf
+insmod serial_fd.o 
+.I [module parameters]
+.fi
+.\"
+.\"
+.SH DESCRIPTION
+.\"
+.PP
+This page describes the serial function driver (serial_fd) supplied with the
+USB Device Framework.
+.PP
+In the 
+.B USB Device Architecture 
+the 
+.I Function Driver
+implements a matching function for a specific 
+.SM USB
+host 
+.I Class Driver.
+.\"
+.\"
+.\"
+.PP
+This driver implements a 10 bit CRC across all 
+.SM USB
+data packets.
+The CRC is appended to the end of the
+each data packet. The number of valid data bytes
+in the data packet is placed in the top 6 bits of
+the two bytes containing the 10 bit CRC.
+.PP
+While 
+.SM USB
+has a CRC guarding all 
+.SM USB 
+packet sent across the bus this has proved insufficent to guard against
+all errors on an end-to-end basis. For example some systems can corrupt data
+being loaded or unloaded from the transmit and receive FIFO's. Adding the
+CRC allows the receiving driver to drop frames that are received
+incorrectly. This is the correct behaviour for a network device. Higher
+level protocols (such as TCP) will ensure that the data is retransmitted.
+.\"
+.\"
+.\"
+Recent MS Operating Systems (Win98SE and later) have offered standard 
+support for a raw USB serial device. 
+.\"
+.\"
+.\"
+.PP
+A Linux 
+.I Class
+driver, usb/serial/safe-serial.c, is available to use with this 
+.I Function
+driver. It is a plugin module for the Linux usbserial driver.
+.\"
+.\"
+.SH SAFESERIAL USB CONFIGURATION
+.\"
+.PP
+For the default safe configuration the following 
+.SM USB
+device and interface configuration variables are used:
+.RS
+.nf 
+bDeviceClass        0xff        Vendor Device Class
+bInterfaceClass     0x01        Lineo Interface Class
+bInterfaceSubClass  0x02	Lineo Safe Serial Subclass
+.fi
+.RE
+.PP
+The bInterfaceProtocol field is used to control the following:
+.RS
+.nf
+bInterfaceProtocol  0x01	CRC
+bInterfaceProtocol  0x01	CRC and padding
+.fi
+.RE
+.\"
+.\"
+.SH LINUX CONFIGURATION PARAMETERS
+.\"
+.PP
+These compilation parameters can be used to control the detailed behaviour of the serial module.
+.\"
+.\"
+.TP 
+CONFIG_USBD_SERIAL_VENDORID
+This 
+.I hex 
+parameter
+.I Override VendorID
+, can be used to set a idVendor device descriptor value which supersedes the default value
+from the master UUSB configuration. However, this value itself can be superseded
+by the vendor_id parameter when the module is loaded.
+Specific architectures with a known vendor id are pre-set (itsy, calypso, collie, iris).
+.\"
+.\"
+.TP 
+CONFIG_USD_SERIAL_PRODUCTID
+This 
+.I hex 
+parameter
+.I Override ProductID, 
+can be used to set a idProduct device descriptor value which supersedes the default value
+from the master USB configuration. However, this value itself is superseded
+by the product_id parameter when the module is loaded.
+Specific architectures with a known product id are pre-set (itsy, calypso, collie, iris).
+.\"
+.\"
+.TP
+CONFIG_USBD_SERIAL_CDC
+This 
+.I boolean 
+parameter controls whether the 
+.I Serial Function
+driver will implement the 
+.I Communications Device Class
+configuration. This is used to when support is required for Windows
+host drivers that implement this. 
+.\"
+.\"
+.TP
+CONFIG_USBD_SERIAL_OUT_ENDPOINT
+This 
+.I int 
+parameter is used to set the address of the 
+.I OUT
+endpoint. Bulk data is received from the 
+.I USB
+host on this endpoint.
+.\"
+.\"
+.TP
+CONFIG_USBD_SERIAL_IN_ENDPOINT
+This 
+.I int 
+parameter is used to set the address of the 
+.I IN
+endpoint. Bulk data is transmitted to the 
+.I USB
+host on this endpoint.
+.\"
+.\"
+.TP
+CONFIG_USBD_SERIAL_INT_ENDPOINT
+This 
+.I int 
+parameter is used to set the address of the 
+.I OUT
+endpoint. Interrupt data is transmitted and received from the 
+.I USB
+host on this endpoint.
+.\"
+.\"
+.TP
+CONFIG_USBD_SERIAL_OUT_PKTSIZE
+This 
+.I int
+parameter sets 
+the maximum size of packets to use on the 
+.I OUT
+endpoint.
+.\"
+.\"
+.TP
+CONFIG_USBD_SERIAL_IN_PKTSIZE
+This 
+.I int
+parameter sets 
+the maximum size of packets to use on the 
+.I IN
+endpoint.
+.\"
+.\"
+.TP
+CONFIG_USBD_SERIAL_INT_PKTSIZE
+This 
+.I int
+parameter sets 
+the maximum size of packets to use on the 
+.I INT
+endpoint.
+.\"
+.\"
+.\"
+.\"
+
+.\"
+.\"
+.SH FILES
+.TP 
+/dev/ttyUSB0
+When the serial_fd driver is successfully loaded, and the host side
+has selected one its configurations (see below), the module attempts
+to register itself as a tty device, using major number SERIAL_TTY_MAJOR (188),
+which was previously allocated for the USB serial device
+.I on the host side, 
+Conventionally, /dev/ttyUSB0 is mapped to  188,0.
+There is no devfs support at present.
+
+.\"
+.\"
+.SH IOCTL
+.\"
+This looks like a serial port to the user layer, but there are several caveats.
+First of all, if it is not connected to the host (either because the 
+serial_fd module is not loaded,the USB cable is not connected, or the host 
+does not have a proper driver available), then any attempt to use this port
+will result in various types of error, typically ENXIO or ENODEV.
+
+Secondly, it is not a real serial port, and most of the concepts that apply
+to a serial port (hardware flow control, line speed, etc) have no relevance
+here. Therefore, the standard IOCTL TCSETADDR is cheerfully accepted, 
+returns a successful code, 
+.I but does nothing at all.
+So you can set the line speed to whatever you want, etc and can read back this
+information, but nothing will have changed.
+Canonical processing, if turned on, is done by the line discipline, not by
+this module.  Please never, ever turn the ECHO TERMIO option on. This will 
+cause severe problems.
+.\"
+.\"
+.\"
+.SH EXAMPLE
+.PP
+.nf
+CONFIG_USBD_SERIAL=m
+CONFIG_USBD_SERIAL_VENDORID=03f0
+CONFIG_USBD_SERIAL_PRODUCTID=2102
+CONFIG_USBD_SERIAL_CDC=y
+CONFIG_USBD_SERIAL_OUT_ENDPOINT=1
+CONFIG_USBD_SERIAL_IN_ENDPOINT=2
+CONFIG_USBD_SERIAL_INT_ENDPOINT=3
+CONFIG_USBD_SERIAL_IN_PKTSIZE=64
+CONFIG_USBD_SERIAL_OUT_PKTSIZE=64
+CONFIG_USBD_SERIAL_INT_PKTSIZE=16
+CONFIG_USBD_SERIAL_SAFE=y
+CONFIG_USBD_SERIAL_SAFE_DEFAULT=y
+CONFIG_USBD_SERIAL_SAFE_PADDED=y
+.fi
+.\"
+.\"
+.SH BUGS
+.\"
+.PP
+.\"
+.SH AUTHOR
+.TP
+Stuart Lynne <sl@lineo.com>
+.TP
+Bruce Balden <balden@lineo.com>
+.TP
+Tom Rushworth <tbr@lineo.com>
+.\"
+.\"
+.SH SEE ALSO
+.PP
+usbdcore(7), usbdfunc(7), usbdbus(7)
+.PP
+Universal Serial Bus Specification, Revision 2.0
+.PP
+Universal Serial Bus Class Definitions for Communications Devices, Version 1.1
+.\"
+.\"

@@ -1,0 +1,82 @@
+USB Events
+
+
+Device
+******
+
+Cradle
+	insertion		use hotplug to load usb device support
+	removal			use hotplut to unload usb device support
+
+	load bus driver		find device, initialize, enable usb port
+	unload bus driver	close function driver, disable usb port
+	sleep			close function driver, disable usb port
+	wakeup			find device, initialize, enable usb port
+	
+Cable
+	plug			wait for enumeration, address, etc
+	unplug			close function driver, wait for enumeration
+
+
+Host
+****
+
+	load usb driver		
+	unload usb driver
+
+
+
+
+
+1. System Start
+***************
+
+	load cradle monitor
+	enable port
+
+2. Plug
+*******
+
+	load usbdcore
+	load function
+	load bus interface
+
+3. Enumerate
+************
+
+	create function interface
+	hotplug function create
+
+4. Suspend
+**********
+
+	hotplug function suspend
+
+
+5. USB Resume
+*************
+
+	hotplug function suspned
+
+
+6. USB Unplug
+*************
+
+	disable port
+	hotplug function destroy
+	destroy function interface
+	
+
+7. PM Suspend
+*************
+
+	cradle monitor - disable port
+
+
+8. PM Resume
+************
+
+	cradle monitor - enable port
+
+
+

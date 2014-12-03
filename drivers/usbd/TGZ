@@ -1,0 +1,30 @@
+#!/bin/sh
+
+set -x
+
+USBD=`basename ${PWD}`
+ARCH=`./ARCH`
+
+echo ${USBD}
+[ -f usbd-build.h ] && rm usbd-build.h
+#egrep USBD ../../.config > CONFIG.USBD-EG
+
+(
+cd ../; 
+
+#find usbd 
+( find ${USBD} \
+	-name "[A-Z]*" -o \
+	-name "*.[hc]"  -o \
+	-name "*.[0-9]" ;
+  find usbd/doc usbd/man ) \
+	| sort -u | cpio -o -v -V -H ustar | gzip > /tmp/usbd-`date '+%Y%m%d'`-${ARCH}-`whoami`.tgz 
+)
+[ -f usbd-export.h ] && rm usbd-export.h
+
+
+#tar cvzhf /tmp/usbd-`whoami`-`date '+%Y%m%d'`.tgz \
+#	usbd/{Config.in,M*,*.h,*.c,TGZ,README*,PATCH*,P*,Files-*} \
+#	usbd/{cdsp_bi,sa1100_bi,net_fd,serial_fd}/{Config.in,Makefile,*.h,*.c} \
+#	sa1100_bi/READ*
+

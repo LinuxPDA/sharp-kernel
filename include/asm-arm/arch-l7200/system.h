@@ -23,6 +23,8 @@ extern inline void arch_reset(char mode)
 	if (mode == 's') {
 		cpu_reset(0);
 	}
+	/* !!!!!!!!!! for testing.... reboot at any mode ! !!!!!!!!!! */
+	cpu_reset(0);
 }
 
 #endif
