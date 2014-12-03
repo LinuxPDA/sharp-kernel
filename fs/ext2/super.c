@@ -407,7 +407,8 @@ struct super_block * ext2_read_super (struct super_block * sb, void * data,
 	unsigned long logic_sb_block = 1;
 	unsigned long offset = 0;
 	kdev_t dev = sb->s_dev;
-	int blocksize = BLOCK_SIZE;
+	int blocksize;
+	int hblock;
 	int db_count;
 	int i, j;
 
@@ -418,9 +419,10 @@ struct super_block * ext2_read_super (struct super_block * sb, void * data,
 	 * This is important for devices that have a hardware
 	 * sectorsize that is larger than the default.
 	 */
-	blocksize = get_hardsect_size(dev);
-	if(blocksize < BLOCK_SIZE )
-	    blocksize = BLOCK_SIZE;
+	blocksize = BLOCK_SIZE;
+	hblock = get_hardsect_size(dev);
+	if (blocksize < hblock)
+		blocksize = hblock;
 
 	sb->u.ext2_sb.s_mount_opt = 0;
 	if (!parse_options ((char *) data, &sb_block, &resuid, &resgid,
@@ -428,10 +430,11 @@ struct super_block * ext2_read_super (struct super_block * sb, void * data,
 		return NULL;
 	}
 
-	if (set_blocksize(dev, blocksize) < 0) {
-		printk ("EXT2-fs: unable to set blocksize %d\n", blocksize);
+	if(set_blocksize (dev, blocksize) < 0) {
+		printk (KERN_ERR "EXT2-fs: unable to set blocksize %d\n", blocksize);
 		return NULL;
 	}
+	
 
 	/*
 	 * If the superblock doesn't start on a sector boundary,
@@ -487,22 +490,30 @@ struct super_block * ext2_read_super (struct super_block * sb, void * data,
 	sb->s_blocksize_bits =
 		le32_to_cpu(EXT2_SB(sb)->s_es->s_log_block_size) + 10;
 	sb->s_blocksize = 1 << sb->s_blocksize_bits;
-
+	
 	sb->s_maxbytes = ext2_max_size(sb->s_blocksize_bits);
-
-	/* If the blocksize doesn't match, re-read the thing.. */
-	if (sb->s_blocksize != blocksize) {
-		blocksize = sb->s_blocksize;
-		brelse(bh);
-
-		if (set_blocksize(dev, blocksize) < 0) {
-			printk(KERN_ERR "EXT2-fs: blocksize too small for device.\n");
-			return NULL;
+	
+	if (sb->s_blocksize != blocksize &&
+	    (sb->s_blocksize == 1024 || sb->s_blocksize == 2048 ||
+	     sb->s_blocksize == 4096)) {
+		/*
+		 * Make sure the blocksize for the filesystem is larger
+		 * than the hardware sectorsize for the machine.
+		 */
+		if (sb->s_blocksize < hblock) {
+			printk("EXT2-fs: blocksize too small for device.\n");
+			goto failed_mount;
 		}
 
-		logic_sb_block = (sb_block*BLOCK_SIZE) / blocksize;
-		offset = (sb_block*BLOCK_SIZE) % blocksize;
-		bh = bread (dev, logic_sb_block, blocksize);
+		brelse (bh);
+		if(set_blocksize (dev, sb->s_blocksize))
+		{
+ 			printk(KERN_ERR "EXT2-fs: blocksize too small for device.\n");
+			goto failed_mount;		
+		}
+		logic_sb_block = (sb_block*BLOCK_SIZE) / sb->s_blocksize;
+		offset = (sb_block*BLOCK_SIZE) % sb->s_blocksize;
+		bh = bread (dev, logic_sb_block, sb->s_blocksize);
 		if(!bh) {
 			printk("EXT2-fs: Couldn't read superblock on "
 			       "2nd try.\n");
@@ -515,7 +526,6 @@ struct super_block * ext2_read_super (struct super_block * sb, void * data,
 			goto failed_mount;
 		}
 	}
-
 	if (le32_to_cpu(es->s_rev_level) == EXT2_GOOD_OLD_REV) {
 		sb->u.ext2_sb.s_inode_size = EXT2_GOOD_OLD_INODE_SIZE;
 		sb->u.ext2_sb.s_first_ino = EXT2_GOOD_OLD_FIRST_INO;
@@ -640,9 +650,9 @@ struct super_block * ext2_read_super (struct super_block * sb, void * data,
 		if (sb->s_root) {
 			dput(sb->s_root);
 			sb->s_root = NULL;
-			printk ("EXT2-fs: corrupt root inode, run e2fsck\n");
+			printk(KERN_ERR "EXT2-fs: corrupt root inode, run e2fsck\n");
 		} else
-			printk ("EXT2-fs: get root inode failed\n");
+			printk(KERN_ERR "EXT2-fs: get root inode failed\n");
 		goto failed_mount2;
 	}
 	ext2_setup_super (sb, es, sb->s_flags & MS_RDONLY);

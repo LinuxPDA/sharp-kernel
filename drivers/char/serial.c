@@ -85,6 +85,11 @@ static char *serial_revdate = "2001-07-08";
  * SERIAL_PARANOIA_CHECK
  * 		Check the magic number for the async_structure where
  * 		ever possible.
+ *
+ * CONFIG_SERIAL_ACPI
+ *		Enable support for serial console port and serial 
+ *		debug port as defined by the SPCR and DBGP tables in 
+ *		ACPI 2.0.
  */
 
 #include <linux/config.h>
@@ -111,6 +116,10 @@ static char *serial_revdate = "2001-07-08";
 #ifndef CONFIG_SERIAL_MANY_PORTS
 #define CONFIG_SERIAL_MANY_PORTS
 #endif
+#endif
+
+#ifdef CONFIG_SERIAL_ACPI
+#define ENABLE_SERIAL_ACPI
 #endif
 
 #if defined(CONFIG_ISAPNP)|| (defined(CONFIG_ISAPNP_MODULE) && defined(MODULE))
@@ -1766,13 +1775,11 @@ static void change_speed(struct async_struct *info,
 		if (I_IGNPAR(info->tty))
 			info->ignore_status_mask |= UART_LSR_OE;
 	}
-#if 0 /* breaks serial console during boot stage */
 	/*
 	 * !!! ignore all characters if CREAD is not set
 	 */
 	if ((cflag & CREAD) == 0)
 		info->ignore_status_mask |= UART_LSR_DR;
-#endif
 	save_flags(flags); cli();
 	if (uart_config[info->state->type].flags & UART_STARTECH) {
 		serial_outp(info, UART_LCR, 0xBF);
@@ -2355,7 +2362,7 @@ static int do_autoconfig(struct async_struct * info)
 
 	autoconfig(info->state);
 	if ((info->state->flags & ASYNC_AUTO_IRQ) &&
-	    (info->state->port != 0) &&
+	    (info->state->port != 0  || info->state->iomem_base != 0) &&
 	    (info->state->type != PORT_UNKNOWN)) {
 		irq = detect_uart_irq(info->state);
 		if (irq > 0)
@@ -2376,7 +2383,7 @@ static void send_break(	struct async_struct * info, int duration)
 {
 	if (!CONFIGURED_SERIAL_PORT(info))
 		return;
-	current->state = TASK_INTERRUPTIBLE;
+	set_current_state(TASK_INTERRUPTIBLE);
 	current->timeout = jiffies + duration;
 	cli();
 	info->LCR |= UART_LCR_SBC;
@@ -3384,6 +3391,10 @@ static char serial_options[] __initdata =
        " ISAPNP"
 #define SERIAL_OPT
 #endif
+#ifdef ENABLE_SERIAL_ACPI
+       " SERIAL_ACPI"
+#define SERIAL_OPT
+#endif
 #ifdef SERIAL_OPT
        " enabled\n";
 #else
@@ -4136,7 +4147,7 @@ pci_inteli960ni_fn(struct pci_dev *dev,
 {
 	unsigned long oldval;
 	
-	if (!(pci_get_subdevice(dev) & 0x1000))
+	if (!(pci_get_subvendor(dev) & 0x1000))
 		return(-1);
 
 	if (!enable) /* is there something to deinit? */
@@ -4882,8 +4893,11 @@ static struct pci_device_id serial_pci_tbl[] __devinitdata = {
 
 MODULE_DEVICE_TABLE(pci, serial_pci_tbl);
 
+/* serial_pci_driver_name[] gets truncated to ""  if the pci probe fails */
+static char serial_pci_driver_name[] = "serial";
+
 static struct pci_driver serial_pci_driver = {
-       name:           "serial",
+       name:           serial_pci_driver_name,
        probe:          serial_init_one,
        remove:	       serial_remove_one,
        id_table:       serial_pci_tbl,
@@ -4908,7 +4922,7 @@ static void __devinit probe_serial_pci(void)
 	 * not to attempt to unregister the driver later
 	 */
 	if (pci_module_init (&serial_pci_driver) != 0)
-		serial_pci_driver.name = "";
+		serial_pci_driver.name[0] = 0;
 
 #ifdef SERIAL_DEBUG_PCI
 	printk(KERN_DEBUG "Leaving probe_serial_pci() (probe finished)\n");
@@ -5386,6 +5400,7 @@ static int __init rs_init(void)
 #endif
 	serial_driver.major = TTY_MAJOR;
 	serial_driver.minor_start = 64 + SERIAL_DEV_OFFSET;
+	serial_driver.name_base = SERIAL_DEV_OFFSET;
 	serial_driver.num = NR_PORTS;
 	serial_driver.type = TTY_DRIVER_TYPE_SERIAL;
 	serial_driver.subtype = SERIAL_TYPE_NORMAL;
@@ -5475,13 +5490,22 @@ static int __init rs_init(void)
 			continue;
 		if (   (state->flags & ASYNC_BOOT_AUTOCONF)
 		    && (state->flags & ASYNC_AUTO_IRQ)
-		    && (state->port != 0))
+		    && (state->port != 0 || state->iomem_base != 0))
 			state->irq = detect_uart_irq(state);
-		printk(KERN_INFO "ttyS%02d%s at 0x%04lx (irq = %d) is a %s\n",
-		       state->line + SERIAL_DEV_OFFSET,
-		       (state->flags & ASYNC_FOURPORT) ? " FourPort" : "",
-		       state->port, state->irq,
-		       uart_config[state->type].name);
+		if (state->io_type == SERIAL_IO_MEM) {
+			printk(KERN_INFO"ttyS%02d%s at 0x%px (irq = %d) is a %s\n",
+	 		       state->line + SERIAL_DEV_OFFSET,
+			       (state->flags & ASYNC_FOURPORT) ? " FourPort" : "",
+			       state->iomem_base, state->irq,
+			       uart_config[state->type].name);
+		}
+		else {
+			printk(KERN_INFO "ttyS%02d%s at 0x%04lx (irq = %d) is a %s\n",
+	 		       state->line + SERIAL_DEV_OFFSET,
+			       (state->flags & ASYNC_FOURPORT) ? " FourPort" : "",
+			       state->port, state->irq,
+			       uart_config[state->type].name);
+		}
 		tty_register_devfs(&serial_driver, 0,
 				   serial_driver.minor_start + state->line);
 		tty_register_devfs(&callout_driver, 0,
@@ -5765,7 +5789,7 @@ static inline void wait_for_xmitr(struct async_struct *info)
  *	Print a string to the serial port trying not to disturb
  *	any possible real use of the port...
  *
- *	The console must be locked when we get here.
+ *	The console_lock must be held when we get here.
  */
 static void serial_console_write(struct console *co, const char *s,
 				unsigned count)

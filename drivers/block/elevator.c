@@ -220,3 +220,11 @@ void elevator_init(elevator_t * elevator, elevator_t type)
 	*elevator = type;
 	elevator->queue_ID = queue_ID++;
 }
+
+EXPORT_SYMBOL(elevator_init);
+EXPORT_SYMBOL(elevator_linus_merge);
+EXPORT_SYMBOL(elevator_linus_merge_cleanup);
+EXPORT_SYMBOL(elevator_linus_merge_req);
+EXPORT_SYMBOL(elevator_noop_merge);
+EXPORT_SYMBOL(elevator_noop_merge_cleanup);
+EXPORT_SYMBOL(elevator_noop_merge_req);

@@ -25,7 +25,7 @@ export-objs     :=	busmouse.o console.o keyboard.o sysrq.o \
 			misc.o pty.o random.o selection.o serial.o \
 			sonypi.o tty_io.o tty_ioctl.o generic_serial.o
 
-mod-subdirs	:=	joystick ftape drm pcmcia
+mod-subdirs	:=	joystick ftape drm pcmcia drm-4.0
 
 list-multi	:=	
 
@@ -70,6 +70,12 @@ ifeq ($(ARCH),arm)
   ifneq ($(CONFIG_PC_KEYB),y)
     KEYBD    =
   endif
+endif
+
+ifeq ($(ARCH),um)
+  KEYMAP   =
+  KEYBD    =
+  CONSOLE  =
 endif
 
 ifeq ($(ARCH),sh)
@@ -126,6 +132,7 @@ endif
 
 obj-$(CONFIG_VT) += vt.o vc_screen.o consolemap.o consolemap_deftbl.o $(CONSOLE) selection.o
 obj-$(CONFIG_SERIAL) += $(SERIAL)
+obj-$(CONFIG_SERIAL_ACPI) += acpi_serial.o
 obj-$(CONFIG_SERIAL_21285) += serial_21285.o
 obj-$(CONFIG_SERIAL_SA1100) += serial_sa1100.o
 obj-$(CONFIG_SERIAL_AMBA) += serial_amba.o
@@ -194,11 +201,13 @@ endif
 obj-$(CONFIG_TOSHIBA) += toshiba.o
 obj-$(CONFIG_DS1620) += ds1620.o
 obj-$(CONFIG_INTEL_RNG) += i810_rng.o
+obj-$(CONFIG_ITE_GPIO) += ite_gpio.o
 
 obj-$(CONFIG_QIC02_TAPE) += tpqic02.o
 
 subdir-$(CONFIG_FTAPE) += ftape
-subdir-$(CONFIG_DRM) += drm
+subdir-$(CONFIG_DRM_NEW) += drm
+subdir-$(CONFIG_DRM_OLD) += drm-4.0
 subdir-$(CONFIG_PCMCIA) += pcmcia
 subdir-$(CONFIG_AGP) += agp
 
@@ -230,6 +239,7 @@ obj-$(CONFIG_977_WATCHDOG) += wdt977.o
 obj-$(CONFIG_I810_TCO) += i810-tco.o
 obj-$(CONFIG_MACHZ_WDT) += machzwd.o
 obj-$(CONFIG_SH_WDT) += shwdt.o
+obj-$(CONFIG_EUROTECH_WDT) += eurotechwdt.o
 obj-$(CONFIG_SOFT_WATCHDOG) += softdog.o
 
 subdir-$(CONFIG_MWAVE) += mwave

@@ -93,8 +93,8 @@ enum nfs_ftype {
  */
 #define NFS_MAXFHSIZE		64
 struct nfs_fh {
-	unsigned short		size;
-	unsigned char		data[NFS_MAXFHSIZE];
+	unsigned int		size;
+	unsigned int		data[NFS_MAXFHSIZE / sizeof(int)];
 };
 
 /*

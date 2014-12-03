@@ -1483,7 +1483,7 @@ static int drain_dac(struct cs_state *state, int nonblock)
 	for (;;) {
 		/* It seems that we have to set the current state to TASK_INTERRUPTIBLE
 		   every time to make the process really go to sleep */
-		current->state = TASK_INTERRUPTIBLE;
+		set_current_state(TASK_INTERRUPTIBLE);
 
 		spin_lock_irqsave(&state->card->lock, flags);
 		count = dmabuf->count;
@@ -1497,7 +1497,7 @@ static int drain_dac(struct cs_state *state, int nonblock)
 
 		if (nonblock) {
 			remove_wait_queue(&dmabuf->wait, &wait);
-			current->state = TASK_RUNNING;
+			set_current_state(TASK_RUNNING);
 			return -EBUSY;
 		}
 
@@ -1511,7 +1511,7 @@ static int drain_dac(struct cs_state *state, int nonblock)
 		}
 	}
 	remove_wait_queue(&dmabuf->wait, &wait);
-	current->state = TASK_RUNNING;
+	set_current_state(TASK_RUNNING);
 	if (signal_pending(current))
 	{
 		CS_DBGOUT(CS_FUNCTION, 4, printk("cs46xx: drain_dac()- -ERESTARTSYS\n"));
@@ -1900,7 +1900,7 @@ static int cs_midi_release(struct inode *inode, struct file *file)
         unsigned count, tmo;
 
         if (file->f_mode & FMODE_WRITE) {
-                current->state = TASK_INTERRUPTIBLE;
+                set_current_state(TASK_INTERRUPTIBLE);
                 add_wait_queue(&card->midi.owait, &wait);
                 for (;;) {
                         spin_lock_irqsave(&card->midi.lock, flags);
@@ -1912,7 +1912,7 @@ static int cs_midi_release(struct inode *inode, struct file *file)
                                 break;
                         if (file->f_flags & O_NONBLOCK) {
                                 remove_wait_queue(&card->midi.owait, &wait);
-                                current->state = TASK_RUNNING;
+                                set_current_state(TASK_RUNNING);
                                 return -EBUSY;
                         }                      
                         tmo = (count * HZ) / 3100;
@@ -1920,7 +1920,7 @@ static int cs_midi_release(struct inode *inode, struct file *file)
                                 printk(KERN_DEBUG "cs46xx: midi timed out??\n");
                 }
                 remove_wait_queue(&card->midi.owait, &wait);
-                current->state = TASK_RUNNING;
+                set_current_state(TASK_RUNNING);
         }
         down(&card->midi.open_sem);
         card->midi.open_mode &= (~(file->f_mode & (FMODE_READ | FMODE_WRITE)));
@@ -5050,7 +5050,7 @@ static int cs_hardware_init(struct cs_card *card)
 		 */
 			if (cs461x_peekBA0(card, BA0_ACSTS) & ACSTS_CRDY)
 				break;
-			current->state = TASK_UNINTERRUPTIBLE;
+			set_current_state(TASK_UNINTERRUPTIBLE);
 			schedule_timeout(1);
 		} while (time_before(jiffies, end_time));
 	}
@@ -5098,7 +5098,7 @@ static int cs_hardware_init(struct cs_card *card)
 			 */
 			if ((cs461x_peekBA0(card, BA0_ACISV) & (ACISV_ISV3 | ACISV_ISV4)) == (ACISV_ISV3 | ACISV_ISV4))
 				break;
-			current->state = TASK_UNINTERRUPTIBLE;
+			set_current_state(TASK_UNINTERRUPTIBLE);
 			schedule_timeout(1);
 		} while (time_before(jiffies, end_time));
 	}

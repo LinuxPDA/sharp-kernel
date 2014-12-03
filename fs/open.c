@@ -14,7 +14,7 @@
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/tty.h>
-#include <linux/iobuf.h>
+#include <linux/pagemap.h>
 
 #include <asm/uaccess.h>
 
@@ -71,20 +71,28 @@ out:
 	return error;
 }
 
+/*
+ * i_sem is taken outside i_truncate_sem because that is the
+ * order in which these locks are taken on the path
+ * generic_file_write->copy_from_user->handle_mm_fault->do_no_page
+ */
+
 int do_truncate(struct dentry *dentry, loff_t length)
 {
 	struct inode *inode = dentry->d_inode;
 	int error;
 	struct iattr newattrs;
-
+	
 	/* Not pretty: "inode->i_size" shouldn't really be signed. But it is. */
 	if (length < 0)
 		return -EINVAL;
 
 	down(&inode->i_sem);
+	down_write(&inode->i_truncate_sem);
 	newattrs.ia_size = length;
 	newattrs.ia_valid = ATTR_SIZE | ATTR_CTIME;
 	error = notify_change(dentry, &newattrs);
+	up_write(&inode->i_truncate_sem);
 	up(&inode->i_sem);
 	return error;
 }
@@ -117,12 +125,8 @@ static inline long do_sys_truncate(const char * path, loff_t length)
 	if (error)
 		goto dput_and_out;
 
-	error = -EROFS;
-	if (IS_RDONLY(inode))
-		goto dput_and_out;
-
 	error = -EPERM;
-	if (IS_IMMUTABLE(inode) || IS_APPEND(inode))
+	if (IS_APPEND(inode))
 		goto dput_and_out;
 
 	/*
@@ -674,16 +678,6 @@ struct file *dentry_open(struct dentry *dentry, struct vfsmount *mnt, int flags)
 	f->f_reada = 0;
 	f->f_op = fops_get(inode->i_fop);
 	file_move(f, &inode->i_sb->s_files);
-
-	/* preallocate kiobuf for O_DIRECT */
-	f->f_iobuf = NULL;
-	f->f_iobuf_lock = 0;
-	if (f->f_flags & O_DIRECT) {
-		error = alloc_kiovec(1, &f->f_iobuf);
-		if (error)
-			goto cleanup_all;
-	}
-
 	if (f->f_op && f->f_op->open) {
 		error = f->f_op->open(inode,f);
 		if (error)
@@ -694,8 +688,6 @@ struct file *dentry_open(struct dentry *dentry, struct vfsmount *mnt, int flags)
 	return f;
 
 cleanup_all:
-	if (f->f_iobuf)
-		free_kiovec(1, &f->f_iobuf);
 	fops_put(f->f_op);
 	if (f->f_mode & FMODE_WRITE)
 		put_write_access(inode);

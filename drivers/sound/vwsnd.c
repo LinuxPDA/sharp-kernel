@@ -1839,7 +1839,7 @@ static void pcm_shutdown_port(vwsnd_dev_t *devc,
 			break;
 		schedule();
 	}
-	current->state = TASK_RUNNING;
+	set_current_state(TASK_RUNNING);
 	remove_wait_queue(&aport->queue, &wait);
 	li_disable_interrupts(&devc->lith, mask);
 	if (aport == &devc->rport)
@@ -2209,7 +2209,7 @@ static void pcm_write_sync(vwsnd_dev_t *devc)
 			break;
 		schedule();
 	}
-	current->state = TASK_RUNNING;
+	set_current_state(TASK_RUNNING);
 	remove_wait_queue(&wport->queue, &wait);
 	DBGPV("swstate = %d, hwstate = %d\n", wport->swstate, wport->hwstate);
 	DBGRV();
@@ -2285,18 +2285,18 @@ static ssize_t vwsnd_audio_do_read(struct file *file,
 			set_current_state(TASK_INTERRUPTIBLE);
 			if (rport->flags & DISABLED ||
 			    file->f_flags & O_NONBLOCK) {
-				current->state = TASK_RUNNING;
+				set_current_state(TASK_RUNNING);
 				remove_wait_queue(&rport->queue, &wait);
 				return ret ? ret : -EAGAIN;
 			}
 			schedule();
 			if (signal_pending(current)) {
-				current->state = TASK_RUNNING;
+				set_current_state(TASK_RUNNING);
 				remove_wait_queue(&rport->queue, &wait);
 				return ret ? ret : -ERESTARTSYS;
 			}
 		}
-		current->state = TASK_RUNNING;
+		set_current_state(TASK_RUNNING);
 		remove_wait_queue(&rport->queue, &wait);
 		pcm_input(devc, 0, 0);
 		/* nb bytes are available in userbuf. */
@@ -2360,18 +2360,18 @@ static ssize_t vwsnd_audio_do_write(struct file *file,
 			set_current_state(TASK_INTERRUPTIBLE);
 			if (wport->flags & DISABLED ||
 			    file->f_flags & O_NONBLOCK) {
-				current->state = TASK_RUNNING;
+				set_current_state(TASK_RUNNING);
 				remove_wait_queue(&wport->queue, &wait);
 				return ret ? ret : -EAGAIN;
 			}
 			schedule();
 			if (signal_pending(current)) {
-				current->state = TASK_RUNNING;
+				set_current_state(TASK_RUNNING);
 				remove_wait_queue(&wport->queue, &wait);
 				return ret ? ret : -ERESTARTSYS;
 			}
 		}
-		current->state = TASK_RUNNING;
+		set_current_state(TASK_RUNNING);
 		remove_wait_queue(&wport->queue, &wait);
 		/* nb bytes are available in userbuf. */
 		if (nb > count)
@@ -3449,6 +3449,7 @@ static struct address_info the_hw_config = {
 
 MODULE_DESCRIPTION("SGI Visual Workstation sound module");
 MODULE_AUTHOR("Bob Miller <kbob@sgi.com>");
+MODULE_LICENSE("GPL");
 
 static int __init init_vwsnd(void)
 {

@@ -30,6 +30,7 @@
 
 #include <asm/io.h>
 #include <asm/bugs.h>
+#include <asm/system.h>
 
 #if defined(CONFIG_ARCH_S390)
 #include <asm/s390mach.h>
@@ -60,9 +61,13 @@
 #include <linux/isapnp.h>
 #endif
 
+#ifdef CONFIG_PNPBIOS
+#include <linux/pnp_bios.h>
+#endif
+
 #ifdef CONFIG_IRDA
+#include <net/irda/irda_device.h>
 extern int irda_proto_init(void);
-extern int irda_device_init(void);
 #endif
 
 #ifdef CONFIG_X86_LOCAL_APIC
@@ -89,6 +94,7 @@ extern void init_modules(void);
 extern void sock_init(void);
 extern void fork_init(unsigned long);
 extern void mca_init(void);
+extern void gsc_init(void);
 extern void sbus_init(void);
 extern void ppc_init(void);
 extern void sysctl_init(void);
@@ -96,6 +102,8 @@ extern void signals_init(void);
 extern int init_pcmcia_ds(void);
 
 extern void free_initmem(void);
+
+extern void kiobuf_setup(void);
 
 #ifdef CONFIG_TC
 extern void tc_init(void);
@@ -210,6 +218,7 @@ static struct dev_name_struct {
 	{ "pf",		0x2f00 },
 	{ "apblock", APBLOCK_MAJOR << 8},
 	{ "ddv", DDV_MAJOR << 8},
+	{ "ubd", UBD_MAJOR << 8 },
 	{ "jsfd",    JSFD_MAJOR << 8},
 #if defined(CONFIG_ARCH_S390)
 	{ "dasda", (DASD_MAJOR << MINORBITS) },
@@ -220,8 +229,75 @@ static struct dev_name_struct {
 	{ "dasdf", (DASD_MAJOR << MINORBITS) + (5 << 2) },
 	{ "dasdg", (DASD_MAJOR << MINORBITS) + (6 << 2) },
 	{ "dasdh", (DASD_MAJOR << MINORBITS) + (7 << 2) },
+        { "dasdi", (DASD_MAJOR << MINORBITS) + (8 << 2) },
+        { "dasdj", (DASD_MAJOR << MINORBITS) + (9 << 2) },
+        { "dasdk", (DASD_MAJOR << MINORBITS) + (10 << 2) },
+        { "dasdl", (DASD_MAJOR << MINORBITS) + (11 << 2) },
+        { "dasdm", (DASD_MAJOR << MINORBITS) + (12 << 2) },
+        { "dasdn", (DASD_MAJOR << MINORBITS) + (13 << 2) },
+        { "dasdo", (DASD_MAJOR << MINORBITS) + (14 << 2) },
+        { "dasdp", (DASD_MAJOR << MINORBITS) + (15 << 2) },
+        { "dasdq", (DASD_MAJOR << MINORBITS) + (16 << 2) },
+        { "dasdr", (DASD_MAJOR << MINORBITS) + (17 << 2) },
+        { "dasds", (DASD_MAJOR << MINORBITS) + (18 << 2) },
+        { "dasdt", (DASD_MAJOR << MINORBITS) + (19 << 2) },
+        { "dasdu", (DASD_MAJOR << MINORBITS) + (20 << 2) },
+        { "dasdv", (DASD_MAJOR << MINORBITS) + (21 << 2) },
+        { "dasdw", (DASD_MAJOR << MINORBITS) + (22 << 2) },
+        { "dasdx", (DASD_MAJOR << MINORBITS) + (23 << 2) },
+        { "dasdy", (DASD_MAJOR << MINORBITS) + (24 << 2) },
+        { "dasdz", (DASD_MAJOR << MINORBITS) + (25 << 2) },
 #endif
-#if defined(CONFIG_BLK_CPQ_DA) || defined(CONFIG_BLK_CPQ_DA_MODULE)
+#ifdef CONFIG_BLK_DEV_XPRAM
+       { "xpram0", (XPRAM_MAJOR << MINORBITS) },
+       { "xpram1", (XPRAM_MAJOR << MINORBITS) + 1 },
+       { "xpram2", (XPRAM_MAJOR << MINORBITS) + 2 },
+       { "xpram3", (XPRAM_MAJOR << MINORBITS) + 3 },
+       { "xpram4", (XPRAM_MAJOR << MINORBITS) + 4 },
+       { "xpram5", (XPRAM_MAJOR << MINORBITS) + 5 },
+       { "xpram6", (XPRAM_MAJOR << MINORBITS) + 6 },
+       { "xpram7", (XPRAM_MAJOR << MINORBITS) + 7 },
+       { "xpram8", (XPRAM_MAJOR << MINORBITS) + 8 },
+       { "xpram9", (XPRAM_MAJOR << MINORBITS) + 9 },
+       { "xpram10", (XPRAM_MAJOR << MINORBITS) + 10 },
+       { "xpram11", (XPRAM_MAJOR << MINORBITS) + 11 },
+       { "xpram12", (XPRAM_MAJOR << MINORBITS) + 12 },
+       { "xpram13", (XPRAM_MAJOR << MINORBITS) + 13 },
+       { "xpram14", (XPRAM_MAJOR << MINORBITS) + 14 },
+       { "xpram15", (XPRAM_MAJOR << MINORBITS) + 15 },
+       { "xpram16", (XPRAM_MAJOR << MINORBITS) + 16 },
+       { "xpram17", (XPRAM_MAJOR << MINORBITS) + 17 },
+       { "xpram18", (XPRAM_MAJOR << MINORBITS) + 18 },
+       { "xpram19", (XPRAM_MAJOR << MINORBITS) + 19 },
+       { "xpram20", (XPRAM_MAJOR << MINORBITS) + 20 },
+       { "xpram21", (XPRAM_MAJOR << MINORBITS) + 21 },
+       { "xpram22", (XPRAM_MAJOR << MINORBITS) + 22 },
+       { "xpram23", (XPRAM_MAJOR << MINORBITS) + 23 },
+       { "xpram24", (XPRAM_MAJOR << MINORBITS) + 24 },
+       { "xpram25", (XPRAM_MAJOR << MINORBITS) + 25 },
+       { "xpram26", (XPRAM_MAJOR << MINORBITS) + 26 },
+       { "xpram27", (XPRAM_MAJOR << MINORBITS) + 27 },
+       { "xpram28", (XPRAM_MAJOR << MINORBITS) + 28 },
+       { "xpram29", (XPRAM_MAJOR << MINORBITS) + 29 },
+       { "xpram30", (XPRAM_MAJOR << MINORBITS) + 30 },
+       { "xpram31", (XPRAM_MAJOR << MINORBITS) + 31 },
+#endif
+	{ "rd/c0d0p",0x3000 },
+	{ "rd/c0d1p",0x3008 },
+	{ "rd/c0d2p",0x3010 },
+	{ "rd/c0d3p",0x3018 },
+	{ "rd/c0d4p",0x3020 },
+	{ "rd/c0d5p",0x3028 },
+	{ "rd/c0d6p",0x3030 },
+	{ "rd/c0d7p",0x3038 },
+	{ "rd/c0d8p",0x3040 },
+	{ "rd/c0d9p",0x3048 },
+	{ "rd/c0d10p",0x3050 },
+	{ "rd/c0d11p",0x3058 },
+	{ "rd/c0d12p",0x3060 },
+	{ "rd/c0d13p",0x3068 },
+	{ "rd/c0d14p",0x3070 },
+	{ "rd/c0d15p",0x3078 },
 	{ "ida/c0d0p",0x4800 },
 	{ "ida/c0d1p",0x4810 },
 	{ "ida/c0d2p",0x4820 },
@@ -238,8 +314,6 @@ static struct dev_name_struct {
 	{ "ida/c0d13p",0x48D0 },
 	{ "ida/c0d14p",0x48E0 },
 	{ "ida/c0d15p",0x48F0 },
-#endif
-#if defined(CONFIG_BLK_CPQ_CISS_DA) || defined(CONFIG_BLK_CPQ_CISS_DA_MODULE)
 	{ "cciss/c0d0p",0x6800 },
 	{ "cciss/c0d1p",0x6810 },
 	{ "cciss/c0d2p",0x6820 },
@@ -256,16 +330,31 @@ static struct dev_name_struct {
 	{ "cciss/c0d13p",0x68D0 },
 	{ "cciss/c0d14p",0x68E0 },
 	{ "cciss/c0d15p",0x68F0 },
-#endif
+	{ "ataraid/d0p",0x7200 },
+	{ "ataraid/d1p",0x7210 },
+	{ "ataraid/d2p",0x7220 },
+	{ "ataraid/d3p",0x7230 },
+	{ "ataraid/d4p",0x7240 },
+	{ "ataraid/d5p",0x7250 },
+	{ "ataraid/d6p",0x7260 },
+	{ "ataraid/d7p",0x7270 },
+	{ "ataraid/d8p",0x7280 },
+	{ "ataraid/d9p",0x7290 },
+	{ "ataraid/d10p",0x72A0 },
+	{ "ataraid/d11p",0x72B0 },
+	{ "ataraid/d12p",0x72C0 },
+	{ "ataraid/d13p",0x72D0 },
+	{ "ataraid/d14p",0x72E0 },
+	{ "ataraid/d15p",0x72F0 },
+ 	{ "mtdblock", 0x1f00 },
 	{ "nftla", 0x5d00 },
-	{ "nftlb", 0x5d10 },
+ 	{ "nftlb", 0x5d10 },
 	{ "nftlc", 0x5d20 },
 	{ "nftld", 0x5d30 },
 	{ "ftla", 0x2c00 },
 	{ "ftlb", 0x2c08 },
 	{ "ftlc", 0x2c10 },
 	{ "ftld", 0x2c18 },
-	{ "mtdblock", 0x1f00 },
 	{ NULL, 0 }
 };
 
@@ -297,11 +386,10 @@ static int __init root_dev_setup(char *line)
 	ROOT_DEV = name_to_kdev_t(line);
 	memset (root_device_name, 0, sizeof root_device_name);
 	if (strncmp (line, "/dev/", 5) == 0) line += 5;
-	for (i = 0; i < sizeof root_device_name - 1; ++i)
-	{
-	    ch = line[i];
-	    if ( isspace (ch) || (ch == ',') || (ch == '\0') ) break;
-	    root_device_name[i] = ch;
+	for (i = 0; i < sizeof root_device_name - 1; ++i) {
+		ch = line[i];
+		if ( isspace (ch) || (ch == ',') || (ch == '\0') ) break;
+		root_device_name[i] = ch;
 	}
 	return 1;
 }
@@ -505,18 +593,17 @@ static void __init smp_init(void)
 	smp_boot_cpus();
 	wait_init_idle = cpu_online_map;
 	clear_bit(current->processor, &wait_init_idle); /* Don't wait on me! */
-
+	printk(KERN_DEBUG "Waiting on wait_init_idle (map = 0x%lx)\n", wait_init_idle);
 	smp_threads_ready=1;
 	smp_commence();
 
 	/* Wait for the other cpus to set up their idle processes */
-	printk("Waiting on wait_init_idle (map = 0x%lx)\n", wait_init_idle);
-	while (wait_init_idle) {
-		cpu_relax();
-		barrier();
-	}
-	printk("All processors have done init_idle\n");
-}
+        while (wait_init_idle) {
+        	cpu_relax();
+        	barrier();
+        }
+	printk(KERN_DEBUG "All processors have done init_idle\n");
+}		
 
 #endif
 
@@ -538,7 +625,7 @@ static void rest_init(void)
 /*
  *	Activate the first processor.
  */
-
+ 
 asmlinkage void __init start_kernel(void)
 {
 	char * command_line;
@@ -591,6 +678,8 @@ asmlinkage void __init start_kernel(void)
 #endif
 	mem_init();
 	kmem_cache_sizes_init();
+	pgtable_cache_init();
+
 	mempages = num_physpages;
 
 	fork_init(mempages);
@@ -598,6 +687,8 @@ asmlinkage void __init start_kernel(void)
 	vfs_caches_init(mempages);
 	buffer_init(mempages);
 	page_cache_init(mempages);
+	
+	kiobuf_setup();
 #if defined(CONFIG_ARCH_S390)
 	ccwcache_init();
 #endif
@@ -692,6 +783,17 @@ static void __init do_basic_setup(void)
 	s390_init_machine_check();
 #endif
 
+#if defined(CONFIG_X86)
+	dmi_scan_machine();
+#endif
+
+#ifdef CONFIG_GSC
+	/*
+	 * GSC must initialise before PCI. On may HPPA boxes the PCI
+	 * hangs off GSC. PCI is not the primary host bus
+	 */
+	gsc_init();
+#endif
 #ifdef CONFIG_PCI
 	pci_init();
 #endif
@@ -719,6 +821,10 @@ static void __init do_basic_setup(void)
 #ifdef CONFIG_ISAPNP
 	isapnp_init();
 #endif
+#ifdef CONFIG_PNPBIOS
+        pnpbios_init();
+#endif
+
 #ifdef CONFIG_TC
 	tc_init();
 #endif
@@ -814,7 +920,7 @@ static int init(void * unused)
 
 	(void) dup(0);
 	(void) dup(0);
-	
+
 	/*
 	 * We try each of these until one succeeds.
 	 *

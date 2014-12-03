@@ -105,10 +105,16 @@ ENOSYS = 38
 	popl %edi;	\
 	popl %ebp;	\
 	popl %eax;	\
+	cmpl $__KERNEL_DS,(%esp); \
+	jne 1f ; \
+	cmpl $__KERNEL_DS,4(%esp); \
+	je 4f ; \
 1:	popl %ds;	\
 2:	popl %es;	\
 	addl $4,%esp;	\
 3:	iret;		\
+4:	addl $12,%esp;	\
+	iret; \
 .section .fixup,"ax";	\
 4:	movl $0,(%esp);	\
 	jmp 1b;		\
@@ -284,9 +290,13 @@ error_code:
 	pushl %esi			# push the error code
 	pushl %edx			# push the pt_regs pointer
 	movl $(__KERNEL_DS),%edx
-	movl %edx,%ds
+	cmpl %edx,%ecx
+	jz	1f
 	movl %edx,%es
-	GET_CURRENT(%ebx)
+1:	cmpl %edx,9*4(%esp)	# check ds on the stack
+	jz   2f	
+	movl %edx,%ds
+2:	GET_CURRENT(%ebx)
 	call *%edi
 	addl $8,%esp
 	jmp ret_from_exception

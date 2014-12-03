@@ -1352,6 +1352,8 @@ static void make_clip_tab(struct saa7146 *saa, struct video_clip *cr, int ncr)
 static int saa_ioctl(struct video_device *dev, unsigned int cmd, void *arg)
 {
 	struct saa7146 *saa = (struct saa7146 *) dev;
+	int err; 
+	
 	switch (cmd) {
 	case VIDIOCGCAP:
 		{
@@ -1400,6 +1402,7 @@ static int saa_ioctl(struct video_device *dev, unsigned int cmd, void *arg)
 				saa->win.color_fmt = format;
 				saawrite(format|0x60, SAA7146_CLIP_FORMAT_CTRL);
 			}
+			down(&saa->sem);
 			saawrite(((p.brightness & 0xff00) << 16) |
 				 ((p.contrast & 0xfe00) << 7) |
 			     ((p.colour & 0xfe00) >> 9), SAA7146_BCS_CTRL);
@@ -1409,12 +1412,14 @@ static int saa_ioctl(struct video_device *dev, unsigned int cmd, void *arg)
 				 SAA7146_MC2_UPLD_HPS_V) << 16) |
 				SAA7146_MC2_UPLD_HPS_H | SAA7146_MC2_UPLD_HPS_V,
 				 SAA7146_MC2);
+			up(&saa->sem);
 			return 0;
 		}
 	case VIDIOCSWIN:
 		{
 			struct video_window vw;
 			struct video_clip *vcp = NULL;
+			int err = -EFAULT;
 
 			if (copy_from_user(&vw, arg, sizeof(vw)))
 				return -EFAULT;
@@ -1442,6 +1447,8 @@ static int saa_ioctl(struct video_device *dev, unsigned int cmd, void *arg)
 				if (saa->win.height > 576)
 					saa->win.height = 576;
 			}
+			
+			down(&saa->sem);
 
 			/* stop capture */
 			saawrite((SAA7146_MC1_TR_E_1 << 16), SAA7146_MC1);
@@ -1453,16 +1460,22 @@ static int saa_ioctl(struct video_device *dev, unsigned int cmd, void *arg)
 			if (vw.clipcount < 0) {
 				if (copy_from_user(saa->dmavid2, vw.clips,
 						   VIDEO_CLIPMAP_SIZE))
-					return -EFAULT;
+					goto out;
+			} else if(vw.clipcount > 2048) {
+				err = -EINVAL;
+				goto out;
 			} else if (vw.clipcount > 0) {
 				if ((vcp = vmalloc(sizeof(struct video_clip) *
 					        (vw.clipcount))) == NULL)
-					 return -ENOMEM;
+				{
+					err = -ENOMEM;
+					goto out;
+				}
 				if (copy_from_user(vcp, vw.clips,
 					      sizeof(struct video_clip) *
 						   vw.clipcount)) {
 					vfree(vcp);
-					return -EFAULT;
+					goto out;
 				}
 			} else	/* nothing clipped */
 				memset(saa->dmavid2, 0, VIDEO_CLIPMAP_SIZE);
@@ -1475,7 +1488,10 @@ static int saa_ioctl(struct video_device *dev, unsigned int cmd, void *arg)
 				saawrite(((SAA7146_MC1_TR_E_1 |
 					SAA7146_MC1_TR_E_2) << 16) | 0xffff,
 					SAA7146_MC1);
-			return 0;
+			err = 0;
+out:			
+			up(&saa->sem);
+			return err;
 		}
 	case VIDIOCGWIN:
 		{
@@ -1495,18 +1511,22 @@ static int saa_ioctl(struct video_device *dev, unsigned int cmd, void *arg)
 			int v;
 			if (copy_from_user(&v, arg, sizeof(v)))
 				return -EFAULT;
+			down(&saa->sem);
 			if (v == 0) {
 				saa->cap &= ~1;
 				saawrite((SAA7146_MC1_TR_E_1 << 16),
 					 SAA7146_MC1);
 			} else {
 				if (saa->win.vidadr == 0 || saa->win.width == 0
-				    || saa->win.height == 0)
+				    || saa->win.height == 0) {
+					up(&saa->sem);
 					return -EINVAL;
+				}
 				saa->cap |= 1;
 				saawrite((SAA7146_MC1_TR_E_1 << 16) | 0xffff,
 					 SAA7146_MC1);
 			}
+			up(&saa->sem);
 			return 0;
 		}
 	case VIDIOCGFBUF:
@@ -1533,6 +1553,8 @@ static int saa_ioctl(struct video_device *dev, unsigned int cmd, void *arg)
 			v.depth != 24 && v.depth != 32 && v.width > 16 &&
 			    v.height > 16 && v.bytesperline > 16)
 				return -EINVAL;
+				
+			down(&saa->sem);
 			if (v.base)
 				saa->win.vidadr = (unsigned long) v.base;
 			saa->win.sheight = v.height;
@@ -1544,6 +1566,7 @@ static int saa_ioctl(struct video_device *dev, unsigned int cmd, void *arg)
 			DEBUG(printk("Display at %p is %d by %d, bytedepth %d, bpl %d\n",
 				     v.base, v.width, v.height, saa->win.bpp, saa->win.bpl));
 			saa7146_set_winsize(saa);
+			up(&saa->sem);
 			return 0;
 		}
 	case VIDIOCKEY:
@@ -1571,6 +1594,9 @@ static int saa_ioctl(struct video_device *dev, unsigned int cmd, void *arg)
 			if (copy_from_user(&v, arg, sizeof(v)))
 				return -EFAULT;
 			i = (~(v.volume>>8))&0xff;
+			
+			down(&saa->sem);
+			
 			if (!HaveCS4341) {
 				if (v.flags & VIDEO_AUDIO_MUTE) {
 					debiwrite(saa, debNormal,
@@ -1594,6 +1620,8 @@ static int saa_ioctl(struct video_device *dev, unsigned int cmd, void *arg)
 					cs4341_setlevel(saa, i, i);
 			}
 			saa->audio_dev = v;
+			
+			up(&saa->sem);
 			return 0;
 		}
 
@@ -1615,13 +1643,19 @@ static int saa_ioctl(struct video_device *dev, unsigned int cmd, void *arg)
 			if (copy_from_user((void *) &pmode, arg,
 				sizeof(struct video_play_mode)))
 				return -EFAULT;
+				
+			down(&saa->sem);
+			
 			switch (pmode.mode) {
 				case VID_PLAY_VID_OUT_MODE:
 					if (pmode.p1 != VIDEO_MODE_NTSC &&
 						pmode.p1 != VIDEO_MODE_PAL)
+					{
+						up(&saa->sem);
 						return -EINVAL;
+					}
 					set_out_format(saa, pmode.p1);
-					return 0;
+					break;
 				case VID_PLAY_GENLOCK:
 					debiwrite(saa, debNormal,
 						  XILINX_CTL0,
@@ -1630,7 +1664,7 @@ static int saa_ioctl(struct video_device *dev, unsigned int cmd, void *arg)
 					if (NewCard)
 						set_genlock_offset(saa,
 							pmode.p2);
-					return 0;
+					break;
 				case VID_PLAY_NORMAL:
 					debiwrite(saa, debNormal,
 						IBM_MP2_CHIP_CONTROL,
@@ -1638,7 +1672,7 @@ static int saa_ioctl(struct video_device *dev, unsigned int cmd, void *arg)
 					ibm_send_command(saa,
 						IBM_MP2_PLAY, 0, 0);
 					saa->playmode = pmode.mode;
-					return 0;
+					break;
 				case VID_PLAY_PAUSE:
 					/* IBM removed the PAUSE command */
 					/* they say use SINGLE_FRAME now */
@@ -1652,18 +1686,18 @@ static int saa_ioctl(struct video_device *dev, unsigned int cmd, void *arg)
 							ChipControl, 2);
 					}
 					saa->playmode = pmode.mode;
-					return 0;
+					break;
 				case VID_PLAY_FAST_FORWARD:
 					ibm_send_command(saa,
 						IBM_MP2_FAST_FORWARD, 0, 0);
 					saa->playmode = pmode.mode;
-					return 0;
+					break;
 				case VID_PLAY_SLOW_MOTION:
 					ibm_send_command(saa,
 						IBM_MP2_SLOW_MOTION,
 						pmode.p1, 0);
 					saa->playmode = pmode.mode;
-					return 0;
+					break;
 				case VID_PLAY_IMMEDIATE_NORMAL:
 					/* ensure transfers resume */
 					debiwrite(saa, debNormal,
@@ -1672,7 +1706,7 @@ static int saa_ioctl(struct video_device *dev, unsigned int cmd, void *arg)
 					ibm_send_command(saa,
 						IBM_MP2_IMED_NORM_PLAY, 0, 0);
 					saa->playmode = VID_PLAY_NORMAL;
-					return 0;
+					break;
 				case VID_PLAY_SWITCH_CHANNELS:
 					saa->audhead = saa->audtail = 0;
 					saa->vidhead = saa->vidtail = 0;
@@ -1690,17 +1724,17 @@ static int saa_ioctl(struct video_device *dev, unsigned int cmd, void *arg)
 					ibm_send_command(saa,
 						IBM_MP2_PLAY, 0, 0);
 					saa->playmode = VID_PLAY_NORMAL;
-					return 0;
+					break;
 				case VID_PLAY_FREEZE_FRAME:
 					ibm_send_command(saa,
 						IBM_MP2_FREEZE_FRAME, 0, 0);
 					saa->playmode = pmode.mode;
-					return 0;
+					break;
 				case VID_PLAY_STILL_MODE:
 					ibm_send_command(saa,
 						IBM_MP2_SET_STILL_MODE, 0, 0);
 					saa->playmode = pmode.mode;
-					return 0;
+					break;
 				case VID_PLAY_MASTER_MODE:
 					if (pmode.p1 == VID_PLAY_MASTER_NONE)
 						saa->boardcfg[1] = 0x13;
@@ -1715,7 +1749,7 @@ static int saa_ioctl(struct video_device *dev, unsigned int cmd, void *arg)
 					debiwrite(saa, debNormal,
 						IBM_MP2_CHIP_CONTROL,
 						ChipControl, 2);
-					return 0;
+					break;
 				case VID_PLAY_ACTIVE_SCANLINES:
 					if (CurrentMode == VIDEO_MODE_PAL) {
 						if (pmode.p1 < 1 ||
@@ -1736,28 +1770,37 @@ static int saa_ioctl(struct video_device *dev, unsigned int cmd, void *arg)
 					}
 					set_out_format(saa, CurrentMode);
 				case VID_PLAY_RESET:
-					return do_ibm_reset(saa);
+					err = do_ibm_reset(saa);
+					up(&saa->sem);
+					return err;
 				case VID_PLAY_END_MARK:
 					if (saa->endmarktail <  
 						saa->endmarkhead) {
 						if (saa->endmarkhead -
-							saa->endmarktail < 2)
+							saa->endmarktail < 2) {
+							up(&saa->sem);
 							return -ENOSPC;
-					} else if (saa->endmarkhead <=
-						saa->endmarktail) {
+						}
+					} else {
 						if (saa->endmarktail -
 							saa->endmarkhead >
-							(MAX_MARKS - 2))
+							(MAX_MARKS - 2)) {
+							up(&saa->sem);
 							return -ENOSPC;
-					} else
-						return -ENOSPC;
+						}
+					}
 					saa->endmark[saa->endmarktail] =
 						saa->audtail;
 					saa->endmarktail++;
 					if (saa->endmarktail >= MAX_MARKS)
 						saa->endmarktail = 0;
+					break;
+				default:
+					up(&saa->sem);
+					return -EINVAL;
 			}
-			return -EINVAL;
+			up(&saa->sem);
+			return 0;
 		}
 	case VIDIOCSWRITEMODE:
 		{
@@ -1793,11 +1836,13 @@ static int saa_ioctl(struct video_device *dev, unsigned int cmd, void *arg)
 				return -EFAULT;
 			}
 			ucode.data = udata;
+			down(&saa->sem);
 			if (!strncmp(ucode.loadwhat, "decoder.aud", 11)
 				|| !strncmp(ucode.loadwhat, "decoder.vid", 11))
 				i = initialize_ibmmpeg2(&ucode);
 			else
 				i = initialize_fpga(&ucode);
+			up(&saa->sem);
 			vfree(udata);
 			if (i)
 				return -EINVAL;
@@ -1818,14 +1863,6 @@ static int saa_ioctl(struct video_device *dev, unsigned int cmd, void *arg)
 				return -EFAULT;
 			return 0;
 		}
-	case VIDIOCSCHAN:	/* this makes xawtv happy */
-		{
-			struct video_channel v;
-			if (copy_from_user(&v, arg, sizeof(v)))
-				return -EFAULT;
-			/* do nothing */
-			return 0;
-		}
 	default:
 		return -ENOIOCTLCMD;
 	}
@@ -1835,8 +1872,6 @@ static int saa_ioctl(struct video_device *dev, unsigned int cmd, void *arg)
 static int saa_mmap(struct video_device *dev, const char *adr,
 		    unsigned long size)
 {
-	struct saa7146 *saa = (struct saa7146 *) dev;
-	printk(KERN_DEBUG "stradis%d: saa_mmap called\n", saa->nr);
 	return -EINVAL;
 }
 
@@ -1853,6 +1888,8 @@ static long saa_write(struct video_device *dev, const char *buf,
 	unsigned long todo = count;
 	int blocksize, split;
 	unsigned long flags;
+	
+	down(&saa->sem);
 
 	while (todo > 0) {
 		if (saa->writemode == VID_WRITE_MPEG_AUD) {
@@ -1883,19 +1920,27 @@ static long saa_write(struct video_device *dev, const char *buf,
 				blocksize = todo;
 			/* double check that we really have space */
 			if (!blocksize)
-				return -ENOSPC;
+			{
+				count =-ENOSPC;
+				goto out;
+			}
 			if (split < blocksize) {
 				if (copy_from_user(saa->audbuf +
 					saa->audtail, buf, split)) 
-					return -EFAULT;
+				{
+					count =-EFAULT;
+					goto out;
+				}
 				buf += split;
 				todo -= split;
 				blocksize -= split;
 				saa->audtail = 0;
 			}
 			if (copy_from_user(saa->audbuf + saa->audtail, buf,
-				blocksize)) 
-				return -EFAULT;
+				blocksize)) {
+				count = -EFAULT;
+				goto out;
+			}
 			saa->audtail += blocksize;
 			todo -= blocksize;
 			buf += blocksize;
@@ -1928,11 +1973,17 @@ static long saa_write(struct video_device *dev, const char *buf,
 				blocksize = todo;
 			/* double check that we really have space */
 			if (!blocksize)
-				return -ENOSPC;
+			{
+				count =-ENOSPC;
+				goto out;
+			}
 			if (split < blocksize) {
 				if (copy_from_user(saa->vidbuf +
 					saa->vidtail, buf, split)) 
-					return -EFAULT;
+				{
+					count =-EFAULT;
+					goto out;
+				}
 				buf += split;
 				todo -= split;
 				blocksize -= split;
@@ -1940,16 +1991,25 @@ static long saa_write(struct video_device *dev, const char *buf,
 			}
 			if (copy_from_user(saa->vidbuf + saa->vidtail, buf,
 				blocksize)) 
-				return -EFAULT;
+			{
+				count =-EFAULT;
+				goto out;
+			}
 			saa->vidtail += blocksize;
 			todo -= blocksize;
 			buf += blocksize;
 			saa->vidtail &= 0x7ffff;
 		} else if (saa->writemode == VID_WRITE_OSD) {
 			if (count > 131072)
-				return -ENOSPC;
+			{
+				count = -ENOSPC;
+				goto out;
+			}
 			if (copy_from_user(saa->osdbuf, buf, count))
-				return -EFAULT;
+			{
+				count = -EFAULT;
+				goto out;
+			}
 			buf += count;
 			saa->osdhead = 0;
 			saa->osdtail = count;
@@ -1965,6 +2025,8 @@ static long saa_write(struct video_device *dev, const char *buf,
 			saawrite(SAA7146_PSR_PIN1, SAA7146_PSR);
 		}
 	}
+out:
+	up(&saa->sem);
 	return count;
 }
 
@@ -2012,6 +2074,7 @@ static int configure_saa7146(struct pci_dev *dev, int num)
 
 	saa = &saa7146s[num];
 	
+	init_MUTEX(&saa->sem);
 	saa->endmarkhead = saa->endmarktail = 0;
 	saa->win.x = saa->win.y = 0;
 	saa->win.width = saa->win.cropwidth = 720;

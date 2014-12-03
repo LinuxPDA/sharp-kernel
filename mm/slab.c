@@ -72,7 +72,6 @@
 #include	<linux/slab.h>
 #include	<linux/interrupt.h>
 #include	<linux/init.h>
-#include	<linux/compiler.h>
 #include	<asm/uaccess.h>
 
 /*
@@ -109,9 +108,11 @@
 #if DEBUG
 # define CREATE_MASK	(SLAB_DEBUG_INITIAL | SLAB_RED_ZONE | \
 			 SLAB_POISON | SLAB_HWCACHE_ALIGN | \
-			 SLAB_NO_REAP | SLAB_CACHE_DMA)
+			 SLAB_NO_REAP | SLAB_CACHE_DMA | \
+			 SLAB_MUST_HWCACHE_ALIGN)
 #else
-# define CREATE_MASK	(SLAB_HWCACHE_ALIGN | SLAB_NO_REAP | SLAB_CACHE_DMA)
+# define CREATE_MASK	(SLAB_HWCACHE_ALIGN | SLAB_NO_REAP | \
+			 SLAB_CACHE_DMA | SLAB_MUST_HWCACHE_ALIGN)
 #endif
 
 /*
@@ -456,7 +457,7 @@ void __init kmem_cache_sizes_init(void)
 		/* Inc off-slab bufctl limit until the ceiling is hit. */
 		if (!(OFF_SLAB(sizes->cs_cachep))) {
 			offslab_limit = sizes->cs_size-sizeof(slab_t);
-			offslab_limit /= 2;
+			offslab_limit /= sizeof(kmem_bufctl_t);
 		}
 		sprintf(name, "size-%Zd(DMA)",sizes->cs_size);
 		sizes->cs_dmacachep = kmem_cache_create(name, sizes->cs_size, 0,
@@ -649,7 +650,7 @@ kmem_cache_create (const char *name, size_t size, size_t offset,
 		flags &= ~SLAB_POISON;
 	}
 #if FORCED_DEBUG
-	if (size < (PAGE_SIZE>>3))
+	if ((size < (PAGE_SIZE>>3)) && !(flags & SLAB_MUST_HWCACHE_ALIGN))
 		/*
 		 * do not red zone large object, causes severe
 		 * fragmentation.
@@ -927,10 +928,8 @@ static int __kmem_cache_shrink(kmem_cache_t *cachep)
 			break;
 
 		slabp = list_entry(cachep->slabs_free.prev, slab_t, list);
-#if DEBUG
 		if (slabp->inuse)
 			BUG();
-#endif
 		list_del(&slabp->list);
 
 		spin_unlock_irq(&cachep->spinlock);
@@ -1208,6 +1207,7 @@ static int kmem_extra_free_checks (kmem_cache_t * cachep,
 
 static inline void kmem_cache_alloc_head(kmem_cache_t *cachep, int flags)
 {
+#if DEBUG
 	if (flags & SLAB_DMA) {
 		if (!(cachep->gfpflags & GFP_DMA))
 			BUG();
@@ -1215,10 +1215,11 @@ static inline void kmem_cache_alloc_head(kmem_cache_t *cachep, int flags)
 		if (cachep->gfpflags & GFP_DMA)
 			BUG();
 	}
+#endif
 }
 
 static inline void * kmem_cache_alloc_one_tail (kmem_cache_t *cachep,
-						slab_t *slabp)
+						slab_t *slabp, int partial)
 {
 	void *objp;
 
@@ -1231,9 +1232,14 @@ static inline void * kmem_cache_alloc_one_tail (kmem_cache_t *cachep,
 	objp = slabp->s_mem + slabp->free*cachep->objsize;
 	slabp->free=slab_bufctl(slabp)[slabp->free];
 
-	if (unlikely(slabp->free == BUFCTL_END)) {
+	if (slabp->free == BUFCTL_END) {
 		list_del(&slabp->list);
 		list_add(&slabp->list, &cachep->slabs_full);
+	} else {
+		if (!partial) {
+			list_del(&slabp->list);
+			list_add(&slabp->list, &cachep->slabs_partial);
+		}
 	}
 #if DEBUG
 	if (cachep->flags & SLAB_POISON)
@@ -1260,23 +1266,20 @@ static inline void * kmem_cache_alloc_one_tail (kmem_cache_t *cachep,
  */
 #define kmem_cache_alloc_one(cachep)				\
 ({								\
-	struct list_head * slabs_partial, * entry;		\
-	slab_t *slabp;						\
+	slab_t	*slabp;						\
+	struct list_head * slab_freelist;			\
+	int partial = 1;					\
 								\
-	slabs_partial = &(cachep)->slabs_partial;		\
-	entry = slabs_partial->next;				\
-	if (unlikely(entry == slabs_partial)) {			\
-		struct list_head * slabs_free;			\
-		slabs_free = &(cachep)->slabs_free;		\
-		entry = slabs_free->next;			\
-		if (unlikely(entry == slabs_free))		\
+	slab_freelist = &(cachep)->slabs_partial;		\
+	if (list_empty(slab_freelist)) {			\
+		partial = 0;					\
+		slab_freelist = &(cachep)->slabs_free;		\
+		if (list_empty(slab_freelist))			\
 			goto alloc_new_slab;			\
-		list_del(entry);				\
-		list_add(entry, slabs_partial);			\
 	}							\
 								\
-	slabp = list_entry(entry, slab_t, list);		\
-	kmem_cache_alloc_one_tail(cachep, slabp);		\
+	slabp = list_entry(slab_freelist->next, slab_t, list);	\
+	kmem_cache_alloc_one_tail(cachep, slabp, partial);	\
 })
 
 #ifdef CONFIG_SMP
@@ -1284,27 +1287,25 @@ void* kmem_cache_alloc_batch(kmem_cache_t* cachep, int flags)
 {
 	int batchcount = cachep->batchcount;
 	cpucache_t* cc = cc_data(cachep);
+	struct list_head * slab_freelist;
+	int partial;
+	slab_t *slabp;
 
 	spin_lock(&cachep->spinlock);
 	while (batchcount--) {
-		struct list_head * slabs_partial, * entry;
-		slab_t *slabp;
 		/* Get slab alloc is to come from. */
-		slabs_partial = &(cachep)->slabs_partial;
-		entry = slabs_partial->next;
-		if (unlikely(entry == slabs_partial)) {
-			struct list_head * slabs_free;
-			slabs_free = &(cachep)->slabs_free;
-			entry = slabs_free->next;
-			if (unlikely(entry == slabs_free))
+		slab_freelist = &(cachep)->slabs_partial;
+		partial = 1;
+		if (list_empty(slab_freelist)) {
+			partial = 0;
+			slab_freelist = &(cachep)->slabs_free;
+			if (list_empty(slab_freelist))
 				break;
-			list_del(entry);
-			list_add(entry, slabs_partial);
 		}
 
-		slabp = list_entry(entry, slab_t, list);
+		slabp = list_entry(slab_freelist->next, slab_t, list);
 		cc_entry(cc)[cc->avail++] =
-				kmem_cache_alloc_one_tail(cachep, slabp);
+				kmem_cache_alloc_one_tail(cachep, slabp, partial);
 	}
 	spin_unlock(&cachep->spinlock);
 
@@ -1435,18 +1436,23 @@ static inline void kmem_cache_free_one(kmem_cache_t *cachep, void *objp)
 	STATS_DEC_ACTIVE(cachep);
 	
 	/* fixup slab chains */
-	{
-		int inuse = slabp->inuse;
-		if (unlikely(!--slabp->inuse)) {
-			/* Was partial or full, now empty. */
-			list_del(&slabp->list);
-			list_add(&slabp->list, &cachep->slabs_free);
-		} else if (unlikely(inuse == cachep->num)) {
-			/* Was full. */
-			list_del(&slabp->list);
-			list_add(&slabp->list, &cachep->slabs_partial);
-		}
-	}
+	if (!--slabp->inuse)
+		goto moveslab_free;
+	if (slabp->inuse + 1 == cachep->num)
+		goto moveslab_partial;
+	return;
+
+moveslab_partial:
+    	/* Was full. */
+	list_del(&slabp->list);
+	list_add(&slabp->list, &cachep->slabs_partial);
+	return;
+
+moveslab_free:
+	/* Was partial, now empty. */
+	list_del(&slabp->list);
+	list_add(&slabp->list, &cachep->slabs_free);
+	return;
 }
 
 #ifdef CONFIG_SMP
@@ -1705,7 +1711,7 @@ static void enable_all_cpucaches (void)
  *
  * Called from do_try_to_free_pages() and __alloc_pages()
  */
-int kmem_cache_reap (int gfp_mask)
+void kmem_cache_reap (int gfp_mask)
 {
 	slab_t *slabp;
 	kmem_cache_t *searchp;
@@ -1713,13 +1719,12 @@ int kmem_cache_reap (int gfp_mask)
 	unsigned int best_pages;
 	unsigned int best_len;
 	unsigned int scan;
-	int ret = 0;
 
 	if (gfp_mask & __GFP_WAIT)
 		down(&cache_chain_sem);
 	else
 		if (down_trylock(&cache_chain_sem))
-			return 0;
+			return;
 
 	scan = REAP_SCANLEN;
 	best_len = 0;
@@ -1755,10 +1760,8 @@ int kmem_cache_reap (int gfp_mask)
 		p = searchp->slabs_free.next;
 		while (p != &searchp->slabs_free) {
 			slabp = list_entry(p, slab_t, list);
-#if DEBUG
 			if (slabp->inuse)
 				BUG();
-#endif
 			full_free++;
 			p = p->next;
 		}
@@ -1808,10 +1811,8 @@ perfect:
 		if (p == &best_cachep->slabs_free)
 			break;
 		slabp = list_entry(p,slab_t,list);
-#if DEBUG
 		if (slabp->inuse)
 			BUG();
-#endif
 		list_del(&slabp->list);
 		STATS_INC_REAPED(best_cachep);
 
@@ -1823,10 +1824,9 @@ perfect:
 		spin_lock_irq(&best_cachep->spinlock);
 	}
 	spin_unlock_irq(&best_cachep->spinlock);
-	ret = scan * (1 << best_cachep->gfporder);
 out:
 	up(&cache_chain_sem);
-	return ret;
+	return;
 }
 
 #ifdef CONFIG_PROC_FS

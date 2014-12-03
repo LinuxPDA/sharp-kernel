@@ -144,6 +144,12 @@ struct vblk {
 	u64	num_sectors;
 };
 
+struct ldm_part {
+	struct list_head part_list;
+	unsigned long start;
+	unsigned long size;
+};
+
 int ldm_partition(struct gendisk *hd, struct block_device *bdev,
 		unsigned long first_sector, int first_part_minor);
 

@@ -45,6 +45,7 @@ struct cpuinfo_x86 {
 	char	x86_model_id[64];
 	int 	x86_cache_size;  /* in KB - valid for CPUS which support this
 				    call  */
+	__u16	clockmul;	 /* Clock multiplier */
 	int	fdiv_bug;
 	int	f00f_bug;
 	int	coma_bug;
@@ -392,6 +393,9 @@ struct thread_struct {
 	0,0,0,0,0,0,						\
 	0,{~0,}			/* io permissions */		\
 }
+
+#define INIT_MMAP \
+{ &init_mm, 0, 0, NULL, PAGE_SHARED, VM_READ | VM_WRITE | VM_EXEC, 1, NULL, NULL }
 
 #define INIT_TSS  {						\
 	0,0, /* back_link, __blh */				\

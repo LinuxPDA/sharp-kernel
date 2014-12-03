@@ -149,6 +149,7 @@
 #include <linux/ide.h>
 #include <linux/devfs_fs_kernel.h>
 #include <linux/completion.h>
+#include <linux/reboot.h>
 
 #include <asm/byteorder.h>
 #include <asm/irq.h>
@@ -2660,11 +2661,6 @@ static int ide_ioctl (struct inode *inode, struct file *file,
 			return 0;
 		}
 
-	 	case BLKGETSIZE:   /* Return device size */
-			return put_user(drive->part[MINOR(inode->i_rdev)&PARTN_MASK].nr_sects, (unsigned long *) arg);
-	 	case BLKGETSIZE64:
-			return put_user((u64)drive->part[MINOR(inode->i_rdev)&PARTN_MASK].nr_sects << 9, (u64 *) arg);
-
 		case BLKRRPART: /* Re-read partition tables */
 			if (!capable(CAP_SYS_ADMIN)) return -EACCES;
 			return ide_revalidate_disk(inode->i_rdev);
@@ -2782,6 +2778,8 @@ static int ide_ioctl (struct inode *inode, struct file *file,
 			}
 			return 0;
 
+	 	case BLKGETSIZE:
+	 	case BLKGETSIZE64:
 		case BLKROSET:
 		case BLKROGET:
 		case BLKFLSBUF:
@@ -3716,6 +3714,58 @@ EXPORT_SYMBOL(current_capacity);
 
 EXPORT_SYMBOL(system_bus_clock);
 
+static int ide_notify_reboot(struct notifier_block *this,
+			     unsigned long event, void *x)
+{
+	unsigned long flags;
+	ide_hwif_t *hwif;
+	ide_drive_t *drive;
+	int i, unit;
+
+	switch (event) {
+	case SYS_HALT:
+	case SYS_POWER_OFF:
+	case SYS_RESTART:
+		break;
+	default:
+		return NOTIFY_DONE;
+	}
+
+	printk("flushing ide devices: ");
+
+	spin_lock_irqsave(&io_request_lock, flags);
+	for (i = 0; i < MAX_HWIFS; i++) {
+		hwif = &ide_hwifs[i];
+		if (!hwif->present)
+			continue;
+		for (unit = 0; unit < MAX_DRIVES; ++unit) {
+			drive = &hwif->drives[unit];
+			if (!drive->present)
+				continue;
+
+			/* set the drive to standby */
+			printk("%s ", drive->name);
+			SELECT_DRIVE(hwif,drive);
+			udelay (20);
+			OUT_BYTE (event == SYS_RESTART ? 
+				  WIN_FLUSH_CACHE : WIN_STANDBYNOW1, 
+				  IDE_COMMAND_REG);
+			if (drive->driver != NULL && 
+			    DRIVER(drive)->cleanup(drive))
+			        continue;
+		}
+	}
+	printk("\n");
+	spin_unlock_irqrestore(&io_request_lock, flags);
+	return NOTIFY_DONE;
+}
+
+static struct notifier_block ide_notifier = {
+	ide_notify_reboot,
+	NULL,
+	5
+};
+
 /*
  * This is gets invoked once during initialization, to set *everything* up
  */
@@ -3743,6 +3793,7 @@ int __init ide_init (void)
 			ide_geninit(hwif);
 	}
 
+	register_reboot_notifier(&ide_notifier); 
 	return 0;
 }
 
@@ -3775,6 +3826,7 @@ void cleanup_module (void)
 {
 	int index;
 
+	unregister_reboot_notifier(&ide_notifier); 
 	for (index = 0; index < MAX_HWIFS; ++index) {
 		ide_unregister(index);
 #if defined(CONFIG_BLK_DEV_IDEDMA) && !defined(CONFIG_DMA_NONPCI)

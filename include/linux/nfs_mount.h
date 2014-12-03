@@ -9,7 +9,8 @@
  *  structure passed from user-space to kernel-space during an nfs mount
  */
 #include <linux/in.h>
-#include <linux/nfs.h>
+#include <linux/nfs2.h>
+#include <linux/nfs3.h>
 
 /*
  * WARNING!  Do not delete or change the order of these fields.  If
@@ -37,7 +38,7 @@ struct nfs_mount_data {
 	char		hostname[256];		/* 1 */
 	int		namlen;			/* 2 */
 	unsigned int	bsize;			/* 3 */
-	struct nfs_fh	root;			/* 4 */
+	struct nfs3_fh	root;			/* 4 */
 };
 
 /* bits in the flags field */

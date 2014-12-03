@@ -1044,9 +1044,22 @@ get_nr_processors(struct percpu_struct *cpubase, unsigned long num)
 
 
 /*
- * BUFFER is PAGE_SIZE bytes long.
+ * get_cpuinfo - Get information on one CPU for use by the procfs.
+ *
+ *	Prints info on the next CPU into buffer.  Beware, doesn't check for
+ *	buffer overflow.  Current implementation of procfs assumes that the
+ *	resulting data is <= 1K.
+ *
+ *	BUFFER is PAGE_SIZE - 1K bytes long.
+ *
+ * Args:
+ *	buffer	-- you guessed it, the data buffer
+ *	cpu_np	-- Input: next cpu to get (start at 0).  Output: Updated.
+ *
+ *	Returns number of bytes written to buffer.
  */
-int get_cpuinfo(char *buffer)
+
+int get_cpuinfo(char *buffer, unsigned *cpu_np)
 {
 	extern struct unaligned_stat {
 		unsigned long count, va, pc;
@@ -1063,6 +1076,14 @@ int get_cpuinfo(char *buffer)
 	char *systype_name;
 	char *sysvariation_name;
 	int len, nr_processors;
+	unsigned n;
+
+	/* Unlike some archs, don't have per-CPU info, so just toggle 0/1 */
+	n = *cpu_np;
+	*cpu_np = 1;
+	if (n != 0) {
+		return (0);
+	}
 
 	cpu = (struct percpu_struct*)((char*)hwrpb + hwrpb->processor_offset);
 	cpu_index = (unsigned) (cpu->type - 1);

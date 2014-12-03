@@ -29,6 +29,7 @@
 #include "acpi.h"
 #include "achware.h"
 #include "acnamesp.h"
+#include <asm/system.h>
 
 #define _COMPONENT          ACPI_HARDWARE
 	 MODULE_NAME         ("hwregs")
@@ -162,6 +163,24 @@ acpi_hw_obtain_sleep_type_register_data (
 	if ((sleep_state > ACPI_S_STATES_MAX) ||
 		!slp_typ_a || !slp_typ_b) {
 		return_ACPI_STATUS (AE_BAD_PARAMETER);
+	}
+
+	if (dmi_broken & BROKEN_ACPI_Sx) {
+		printk("Attempted to enter %d\n", sleep_state);
+		switch (sleep_state) {
+			/* 0,3,4,6,7,8,11,15 is nop */
+			/* 5 is nop, too? No. 5 is some valid state, just not S1 nor S3 (strange). */
+			/* 13 is lockup when used in S1 or S3 context */
+			/* 14 is "keep monitor on and than all goes off when power is pressed in S1 context */
+			/* 1,2,10,9,14 are known working */
+			/* 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15 */
+		case 1:	*slp_typ_a = *slp_typ_b =12; return_ACPI_STATUS (status);	/* Hey, seems okay! */
+		case 3:	*slp_typ_a = *slp_typ_b =15; return_ACPI_STATUS (status);	/* Not known, yet */
+		case 4:	*slp_typ_a = *slp_typ_b = 1; return_ACPI_STATUS (status);	/* Seems ok, but it times somehow long to wakeup. Is it possible this is S3? (same as 9) */
+		case 5:	*slp_typ_a = *slp_typ_b =10; return_ACPI_STATUS (status);	/* Seems ok, (same as 2) */
+		default: return_ACPI_STATUS (AE_BAD_PARAMETER);
+		}
+		
 	}
 
 	/*

@@ -535,8 +535,7 @@ static int handle_ide_mess(struct block_device *bdev)
 reread:
 	put_dev_sector(sect);
 	/* Flush the cache */
-	invalidate_bdev(bdev, 1);
-	truncate_inode_pages(bdev->bd_inode->i_mapping, 0);
+	invalidate_buffers(dev);
 #endif /* CONFIG_BLK_DEV_IDE */
 	return 1;
 }

@@ -283,6 +283,7 @@ void __init smp_boot_cpus(void)
 	printk("Entering SMP Mode...\n");
 	smp_num_cpus = 1;
         smp_store_cpu_info(0);
+	cpu_online_map = 1UL;
 
 	/*
 	 * assume for now that the first cpu booted is

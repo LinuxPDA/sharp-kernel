@@ -336,14 +336,15 @@ region_locked(struct inode *inode, struct nfs_page *req)
 static inline void
 nfs_inode_add_request(struct inode *inode, struct nfs_page *req)
 {
+	struct nfs_inode_info *nfsi = NFS_I(inode);
 	if (!list_empty(&req->wb_hash))
 		return;
 	if (!NFS_WBACK_BUSY(req))
 		printk(KERN_ERR "NFS: unlocked request attempted hashed!\n");
-	if (list_empty(&inode->u.nfs_i.writeback))
+	if (list_empty(&nfsi->writeback))
 		atomic_inc(&inode->i_count);
-	inode->u.nfs_i.npages++;
-	list_add(&req->wb_hash, &inode->u.nfs_i.writeback);
+	nfsi->npages++;
+	list_add(&req->wb_hash, &nfsi->writeback);
 	req->wb_count++;
 }
 
@@ -354,6 +355,7 @@ static inline void
 nfs_inode_remove_request(struct nfs_page *req)
 {
 	struct inode *inode;
+	struct nfs_inode_info *nfsi;
 	spin_lock(&nfs_wreq_lock);
 	if (list_empty(&req->wb_hash)) {
 		spin_unlock(&nfs_wreq_lock);
@@ -362,12 +364,13 @@ nfs_inode_remove_request(struct nfs_page *req)
 	if (!NFS_WBACK_BUSY(req))
 		printk(KERN_ERR "NFS: unlocked request attempted unhashed!\n");
 	inode = req->wb_inode;
+	nfsi = NFS_I(inode);
 	list_del(&req->wb_hash);
 	INIT_LIST_HEAD(&req->wb_hash);
-	inode->u.nfs_i.npages--;
-	if ((inode->u.nfs_i.npages == 0) != list_empty(&inode->u.nfs_i.writeback))
+	nfsi->npages--;
+	if ((nfsi->npages == 0) != list_empty(&nfsi->writeback))
 		printk(KERN_ERR "NFS: desynchronized value of nfs_i.npages.\n");
-	if (list_empty(&inode->u.nfs_i.writeback))
+	if (list_empty(&nfsi->writeback))
 		iput(inode);
 	if (!nfs_have_writebacks(inode) && !nfs_have_read(inode))
 		inode_remove_flushd(inode);
@@ -383,7 +386,7 @@ _nfs_find_request(struct inode *inode, struct page *page)
 {
 	struct list_head	*head, *next;
 
-	head = &inode->u.nfs_i.writeback;
+	head = &NFS_I(inode)->writeback;
 	next = head->next;
 	while (next != head) {
 		struct nfs_page *req = nfs_inode_wb_entry(next);
@@ -455,8 +458,9 @@ nfs_mark_request_dirty(struct nfs_page *req)
 
 	spin_lock(&nfs_wreq_lock);
 	if (list_empty(&req->wb_list)) {
-		nfs_list_add_request(req, &inode->u.nfs_i.dirty);
-		inode->u.nfs_i.ndirty++;
+		struct nfs_inode_info *nfsi = NFS_I(inode);
+		nfs_list_add_request(req, &nfsi->dirty);
+		nfsi->ndirty++;
 	}
 	spin_unlock(&nfs_wreq_lock);
 	/*
@@ -474,7 +478,7 @@ static inline int
 nfs_dirty_request(struct nfs_page *req)
 {
 	struct inode *inode = req->wb_inode;
-	return !list_empty(&req->wb_list) && req->wb_list_head == &inode->u.nfs_i.dirty;
+	return !list_empty(&req->wb_list) && req->wb_list_head == &NFS_I(inode)->dirty;
 }
 
 #ifdef CONFIG_NFS_V3
@@ -488,8 +492,9 @@ nfs_mark_request_commit(struct nfs_page *req)
 
 	spin_lock(&nfs_wreq_lock);
 	if (list_empty(&req->wb_list)) {
-		nfs_list_add_request(req, &inode->u.nfs_i.commit);
-		inode->u.nfs_i.ncommit++;
+		struct nfs_inode_info *nfsi = NFS_I(inode);
+		nfs_list_add_request(req, &nfsi->commit);
+		nfsi->ncommit++;
 	}
 	spin_unlock(&nfs_wreq_lock);
 	/*
@@ -664,7 +669,7 @@ nfs_wait_on_requests(struct inode *inode, struct file *file, unsigned long idx_s
 		idx_end = idx_start + npages - 1;
 
 	spin_lock(&nfs_wreq_lock);
-	head = &inode->u.nfs_i.writeback;
+	head = &NFS_I(inode)->writeback;
 	p = head->next;
 	while (p != head) {
 		unsigned long pg_idx;
@@ -727,10 +732,11 @@ static int
 nfs_scan_dirty_timeout(struct inode *inode, struct list_head *dst)
 {
 	int	pages;
+	struct nfs_inode_info *nfsi = NFS_I(inode);
 	spin_lock(&nfs_wreq_lock);
-	pages = nfs_scan_list_timeout(&inode->u.nfs_i.dirty, dst, inode);
-	inode->u.nfs_i.ndirty -= pages;
-	if ((inode->u.nfs_i.ndirty == 0) != list_empty(&inode->u.nfs_i.dirty))
+	pages = nfs_scan_list_timeout(&nfsi->dirty, dst, inode);
+	nfsi->ndirty -= pages;
+	if ((nfsi->ndirty == 0) != list_empty(&nfsi->dirty))
 		printk(KERN_ERR "NFS: desynchronized value of nfs_i.ndirty.\n");
 	spin_unlock(&nfs_wreq_lock);
 	return pages;
@@ -741,10 +747,11 @@ static int
 nfs_scan_commit_timeout(struct inode *inode, struct list_head *dst)
 {
 	int	pages;
+	struct nfs_inode_info *nfsi = NFS_I(inode);
 	spin_lock(&nfs_wreq_lock);
-	pages = nfs_scan_list_timeout(&inode->u.nfs_i.commit, dst, inode);
-	inode->u.nfs_i.ncommit -= pages;
-	if ((inode->u.nfs_i.ncommit == 0) != list_empty(&inode->u.nfs_i.commit))
+	pages = nfs_scan_list_timeout(&nfsi->commit, dst, inode);
+	nfsi->ncommit -= pages;
+	if ((nfsi->ncommit == 0) != list_empty(&nfsi->commit))
 		printk(KERN_ERR "NFS: desynchronized value of nfs_i.ncommit.\n");
 	spin_unlock(&nfs_wreq_lock);
 	return pages;
@@ -790,10 +797,11 @@ static int
 nfs_scan_dirty(struct inode *inode, struct list_head *dst, struct file *file, unsigned long idx_start, unsigned int npages)
 {
 	int	res;
+	struct nfs_inode_info *nfsi = NFS_I(inode);
 	spin_lock(&nfs_wreq_lock);
-	res = nfs_scan_list(&inode->u.nfs_i.dirty, dst, file, idx_start, npages);
-	inode->u.nfs_i.ndirty -= res;
-	if ((inode->u.nfs_i.ndirty == 0) != list_empty(&inode->u.nfs_i.dirty))
+	res = nfs_scan_list(&nfsi->dirty, dst, file, idx_start, npages);
+	nfsi->ndirty -= res;
+	if ((nfsi->ndirty == 0) != list_empty(&nfsi->dirty))
 		printk(KERN_ERR "NFS: desynchronized value of nfs_i.ndirty.\n");
 	spin_unlock(&nfs_wreq_lock);
 	return res;
@@ -804,10 +812,11 @@ static int
 nfs_scan_commit(struct inode *inode, struct list_head *dst, struct file *file, unsigned long idx_start, unsigned int npages)
 {
 	int	res;
+	struct nfs_inode_info *nfsi = NFS_I(inode);
 	spin_lock(&nfs_wreq_lock);
-	res = nfs_scan_list(&inode->u.nfs_i.commit, dst, file, idx_start, npages);
-	inode->u.nfs_i.ncommit -= res;
-	if ((inode->u.nfs_i.ncommit == 0) != list_empty(&inode->u.nfs_i.commit))
+	res = nfs_scan_list(&nfsi->commit, dst, file, idx_start, npages);
+	nfsi->ncommit -= res;
+	if ((nfsi->ncommit == 0) != list_empty(&nfsi->commit))
 		printk(KERN_ERR "NFS: desynchronized value of nfs_i.ncommit.\n");
 	spin_unlock(&nfs_wreq_lock);
 	return res;
@@ -895,7 +904,7 @@ nfs_update_request(struct file* file, struct inode *inode, struct page *page,
 		/*
 		 * If we're over the soft limit, flush out old requests
 		 */
-		if (inode->u.nfs_i.npages >= MAX_REQUEST_SOFT)
+		if (NFS_I(inode)->npages >= MAX_REQUEST_SOFT)
 			nfs_wb_file(inode, file);
 		new = nfs_create_request(file, inode, page, offset, bytes);
 		if (!new)
@@ -960,8 +969,9 @@ static void
 nfs_strategy(struct inode *inode)
 {
 	unsigned int	dirty, wpages;
+	struct nfs_inode_info *nfsi = NFS_I(inode);
 
-	dirty  = inode->u.nfs_i.ndirty;
+	dirty  = nfsi->ndirty;
 	wpages = NFS_SERVER(inode)->wpages;
 #ifdef CONFIG_NFS_V3
 	if (NFS_PROTO(inode)->version == 2) {
@@ -970,7 +980,7 @@ nfs_strategy(struct inode *inode)
 	} else {
 		if (dirty >= wpages)
 			nfs_flush_file(inode, NULL, 0, 0, 0);
-		if (inode->u.nfs_i.ncommit > NFS_STRATEGY_PAGES * wpages &&
+		if (nfsi->ncommit > NFS_STRATEGY_PAGES * wpages &&
 		    atomic_read(&nfs_nr_requests) > MAX_REQUEST_SOFT)
 			nfs_commit_file(inode, NULL, 0, 0, 0);
 	}
@@ -982,7 +992,7 @@ nfs_strategy(struct inode *inode)
 	 * If we're running out of free requests, flush out everything
 	 * in order to reduce memory useage...
 	 */
-	if (inode->u.nfs_i.npages > MAX_REQUEST_SOFT)
+	if (nfsi->npages > MAX_REQUEST_SOFT)
 		nfs_wb_all(inode);
 }
 
@@ -1139,7 +1149,7 @@ nfs_flush_one(struct list_head *head, struct inode *inode, int how)
 	/* Set up the argument struct */
 	nfs_write_rpcsetup(head, data);
 	if (stable) {
-		if (!inode->u.nfs_i.ncommit)
+		if (!NFS_I(inode)->ncommit)
 			data->args.stable = NFS_FILE_SYNC;
 		else
 			data->args.stable = NFS_DATA_SYNC;

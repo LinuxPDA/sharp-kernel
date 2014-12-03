@@ -93,7 +93,7 @@ static unsigned char crystal_key[] __initdata =	/* A 32 byte magic key sequence 
 
 static void sleep(unsigned howlong)
 {
-	current->state = TASK_INTERRUPTIBLE;
+	set_current_state(TASK_INTERRUPTIBLE);
 	schedule_timeout(howlong);
 }
 

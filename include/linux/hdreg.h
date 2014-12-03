@@ -59,6 +59,7 @@
 #define WIN_SLEEPNOW2		0x99
 #define WIN_CHECKPOWERMODE1	0xE5
 #define WIN_CHECKPOWERMODE2	0x98
+#define WIN_FLUSH_CACHE		0xE7
 
 #define WIN_DOORLOCK		0xDE	/* lock door on removable drives */
 #define WIN_DOORUNLOCK		0xDF	/* unlock door on removable drives */

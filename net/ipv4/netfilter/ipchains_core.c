@@ -1101,9 +1101,9 @@ static struct ip_chain *ip_init_chain(ip_chainlabel name,
 {
 	unsigned int i;
 	struct ip_chain *label
-		= kmalloc(SIZEOF_STRUCT_IP_CHAIN, GFP_KERNEL);
+		= kmalloc(SIZEOF_STRUCT_IP_CHAIN, GFP_ATOMIC);
 	if (label == NULL)
-		panic("Can't kmalloc for firewall chains.\n");
+		return NULL;
 	strcpy(label->label,name);
 	label->next = NULL;
 	label->chain = NULL;
@@ -1141,7 +1141,7 @@ static int create_chain(ip_chainlabel label)
 					      * user defined chain *
 					      * and therefore can be
 					      * deleted */
-	return 0;
+	return tmp->next ? 0 : ENOMEM;
 }
 
 /* This function simply changes the policy on one of the built in

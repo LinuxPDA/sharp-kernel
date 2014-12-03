@@ -13,3 +13,8 @@ asmlinkage long sys_quotactl(int cmd, const char *special, int id, caddr_t addr)
 {
 	return(-ENOSYS);
 }
+
+void shrink_dqcache_memory(int priority, unsigned int gfp_mask)
+{
+	;
+}

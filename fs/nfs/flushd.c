@@ -162,11 +162,11 @@ static void inode_append_flushd(struct inode *inode)
 
 	if (NFS_FLAGS(inode) & NFS_INO_FLUSH)
 		goto out;
-	inode->u.nfs_i.hash_next = NULL;
+	NFS_I(inode)->hash_next = NULL;
 
 	q = &cache->inodes;
 	while (*q)
-		q = &(*q)->u.nfs_i.hash_next;
+		q = &NFS_I(*q)->hash_next;
 	*q = inode;
 
 	/* Note: we increase the inode i_count in order to prevent
@@ -188,9 +188,9 @@ void inode_remove_flushd(struct inode *inode)
 
 	q = &cache->inodes;
 	while (*q && *q != inode)
-		q = &(*q)->u.nfs_i.hash_next;
+		q = &NFS_I(*q)->hash_next;
 	if (*q) {
-		*q = inode->u.nfs_i.hash_next;
+		*q = NFS_I(inode)->hash_next;
 		NFS_FLAGS(inode) &= ~NFS_INO_FLUSH;
 		iput(inode);
 	}
@@ -238,8 +238,8 @@ nfs_flushd(struct rpc_task *task)
 	cache->inodes = NULL;
 
 	while ((inode = next) != NULL) {
-		next = next->u.nfs_i.hash_next;
-		inode->u.nfs_i.hash_next = NULL;
+		next = NFS_I(next)->hash_next;
+		NFS_I(inode)->hash_next = NULL;
 		NFS_FLAGS(inode) &= ~NFS_INO_FLUSH;
 
 		if (flush) {

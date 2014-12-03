@@ -570,7 +570,7 @@ struct sunos_fh_t {
 
 struct sunos_nfs_mount_args {
 	struct sockaddr_in  *addr; /* file server address */
-	struct nfs_fh *fh;     /* File handle to be mounted */
+	struct nfs3_fh *fh;    /* File handle to be mounted */
 	int        flags;      /* flags */
 	int        wsize;      /* write size in bytes */
 	int        rsize;      /* read size in bytes */

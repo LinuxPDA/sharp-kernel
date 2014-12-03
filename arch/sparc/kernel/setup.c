@@ -1,4 +1,4 @@
-/*  $Id: setup.c,v 1.125 2001/09/20 00:35:30 davem Exp $
+/*  $Id: setup.c,v 1.124 2001/04/14 21:13:46 davem Exp $
  *  linux/arch/sparc/kernel/setup.c
  *
  *  Copyright (C) 1995  David S. Miller (davem@caip.rutgers.edu)
@@ -441,6 +441,10 @@ void __init setup_arch(char **cmdline_p)
 		breakpoint();
 	}
 
+	/* Due to stack alignment restrictions and assumptions... */
+	init_mm.mmap->vm_page_prot = PAGE_SHARED;
+	init_mm.mmap->vm_start = PAGE_OFFSET;
+	init_mm.mmap->vm_end = PAGE_OFFSET + highest_paddr;
 	init_mm.context = (unsigned long) NO_CONTEXT;
 	init_task.thread.kregs = &fake_swapper_regs;
 
@@ -455,15 +459,37 @@ asmlinkage int sys_ioperm(unsigned long from, unsigned long num, int on)
 	return -EIO;
 }
 
-/* BUFFER is PAGE_SIZE bytes long. */
+/*
+ * get_cpuinfo - Get information on one CPU for use by procfs.
+ *
+ *	Prints info on the next CPU into buffer.  Beware, doesn't check for
+ *	buffer overflow.  Current implementation of procfs assumes that the
+ *	resulting data is <= 1K.
+ *
+ *	BUFFER is PAGE_SIZE - 1K bytes long.
+ *
+ * Args:
+ *	buffer	-- you guessed it, the data buffer
+ *	cpu_np	-- Input: next cpu to get (start at 0).  Output: Updated.
+ *
+ *	Returns number of bytes written to buffer.
+ */
 
 extern char *sparc_cpu_type[];
 extern char *sparc_fpu_type[];
 
-int get_cpuinfo(char *buffer)
+int get_cpuinfo(char *buffer, unsigned *cpu_np)
 {
 	int cpuid=hard_smp_processor_id();
 	int len;
+	unsigned n;
+
+	/* Don't have much per-CPU info, so just toggle 0/1 */
+	n = *cpu_np;
+	*cpu_np = 1;
+	if (n != 0) {
+		return (0);
+	}
 
 	len = sprintf(buffer, "cpu\t\t: %s\n"
             "fpu\t\t: %s\n"

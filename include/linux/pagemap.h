@@ -29,6 +29,7 @@
 #define PAGE_CACHE_ALIGN(addr)	(((addr)+PAGE_CACHE_SIZE-1)&PAGE_CACHE_MASK)
 
 #define page_cache_get(x)	get_page(x)
+#define page_cache_free(x)	__free_page(x)
 #define page_cache_release(x)	__free_page(x)
 
 static inline struct page *page_cache_alloc(struct address_space *x)
@@ -76,9 +77,6 @@ extern struct page * __find_get_page(struct address_space *mapping,
 	__find_get_page(mapping, index, page_hash(mapping, index))
 extern struct page * __find_lock_page (struct address_space * mapping,
 				unsigned long index, struct page **hash);
-extern struct page * find_or_create_page(struct address_space *mapping,
-				unsigned long index, unsigned int gfp_mask);
-
 extern void lock_page(struct page *page);
 #define find_lock_page(mapping, index) \
 	__find_lock_page(mapping, index, page_hash(mapping, index))
@@ -96,6 +94,7 @@ static inline void wait_on_page(struct page * page)
 }
 
 extern struct page * grab_cache_page (struct address_space *, unsigned long);
+extern struct page * grab_cache_page_nowait (struct address_space *, unsigned long);
 
 typedef int filler_t(void *, struct page*);
 

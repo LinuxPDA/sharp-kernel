@@ -713,7 +713,7 @@ mptscsih_release(struct Scsi_Host *host)
 		spin_unlock_irqrestore(&mpt_scsih_taskQ_lock, flags);
 
 		while(mpt_scsih_taskQ_bh_active && --count) {
-			current->state = TASK_INTERRUPTIBLE;
+			set_current_state(TASK_INTERRUPTIBLE);
 			schedule_timeout(1);
 		}
 		if (!count)
@@ -1701,7 +1701,7 @@ mptscsih_taskmgmt_bh(void *sc)
 	spin_unlock_irqrestore(&mpt_scsih_taskQ_lock, flags);
 
 	while (1) {
-		current->state = TASK_INTERRUPTIBLE;
+		set_current_state(TASK_INTERRUPTIBLE);
 		schedule_timeout(HZ/4);
 
 		/*
@@ -1804,7 +1804,7 @@ mptscsih_taskmgmt_bh(void *sc)
 		} else {
 			/* Spin-Wait for TaskMgmt complete!!! */
 			while (mpt_scsih_active_taskmgmt_mf != NULL) {
-				current->state = TASK_INTERRUPTIBLE;
+				set_current_state(TASK_INTERRUPTIBLE);
 				schedule_timeout(HZ/4);
 			}
 		}

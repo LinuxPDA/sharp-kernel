@@ -58,6 +58,7 @@ struct pt_regs {
 #define user_mode(regs) ((VM_MASK & (regs)->eflags) || (3 & (regs)->xcs))
 #define instruction_pointer(regs) ((regs)->eip)
 extern void show_regs(struct pt_regs *);
+extern void show_registers(struct pt_regs *regs);
 #endif
 
 #endif

@@ -153,7 +153,7 @@ _nfs_find_read(struct inode *inode, struct page *page)
 {
 	struct list_head	*head, *next;
 
-	head = &inode->u.nfs_i.read;
+	head = &NFS_I(inode)->read;
 	next = head->next;
 	while (next != head) {
 		struct nfs_page *req = nfs_list_entry(next);
@@ -183,11 +183,12 @@ static inline void
 nfs_mark_request_read(struct nfs_page *req)
 {
 	struct inode *inode = req->wb_inode;
+	struct nfs_inode_info *nfsi = NFS_I(inode);
 
 	spin_lock(&nfs_wreq_lock);
 	if (list_empty(&req->wb_list)) {
-		nfs_list_add_request(req, &inode->u.nfs_i.read);
-		inode->u.nfs_i.nread++;
+		nfs_list_add_request(req, &nfsi->read);
+		nfsi->nread++;
 	}
 	spin_unlock(&nfs_wreq_lock);
 	/*
@@ -234,7 +235,7 @@ nfs_readpage_async(struct file *file, struct inode *inode, struct page *page)
 			break;
 	}
 
-	if (inode->u.nfs_i.nread >= NFS_SERVER(inode)->rpages ||
+	if (NFS_I(inode)->nread >= NFS_SERVER(inode)->rpages ||
 	    page_index(page) == (inode->i_size + PAGE_CACHE_SIZE - 1) >> PAGE_CACHE_SHIFT)
 		nfs_pagein_inode(inode, 0, 0);
 	if (new)
@@ -372,10 +373,11 @@ static int
 nfs_scan_read_timeout(struct inode *inode, struct list_head *dst)
 {
 	int	pages;
+	struct nfs_inode_info *nfsi = NFS_I(inode);
 	spin_lock(&nfs_wreq_lock);
-	pages = nfs_scan_list_timeout(&inode->u.nfs_i.read, dst, inode);
-	inode->u.nfs_i.nread -= pages;
-	if ((inode->u.nfs_i.nread == 0) != list_empty(&inode->u.nfs_i.read))
+	pages = nfs_scan_list_timeout(&nfsi->read, dst, inode);
+	nfsi->nread -= pages;
+	if ((nfsi->nread == 0) != list_empty(&nfsi->read))
 		printk(KERN_ERR "NFS: desynchronized value of nfs_i.nread.\n");
 	spin_unlock(&nfs_wreq_lock);
 	return pages;
@@ -385,10 +387,11 @@ static int
 nfs_scan_read(struct inode *inode, struct list_head *dst, unsigned long idx_start, unsigned int npages)
 {
 	int	res;
+	struct nfs_inode_info *nfsi = NFS_I(inode);
 	spin_lock(&nfs_wreq_lock);
-	res = nfs_scan_list(&inode->u.nfs_i.read, dst, NULL, idx_start, npages);
-	inode->u.nfs_i.nread -= res;
-	if ((inode->u.nfs_i.nread == 0) != list_empty(&inode->u.nfs_i.read))
+	res = nfs_scan_list(&nfsi->read, dst, NULL, idx_start, npages);
+	nfsi->nread -= res;
+	if ((nfsi->nread == 0) != list_empty(&nfsi->read))
 		printk(KERN_ERR "NFS: desynchronized value of nfs_i.nread.\n");
 	spin_unlock(&nfs_wreq_lock);
 	return res;

@@ -92,7 +92,15 @@ struct saa7146
 	wait_queue_head_t i2cq, debiq, audq, vidq;
 	u8  *vidbuf, *audbuf, *osdbuf, *dmadebi;
 	int audhead, vidhead, osdhead, audtail, vidtail, osdtail;
+	
+	/*	lock guards between IRQ and writer. sem guards between 
+	 *	parallel writes/ioctls and provides ioctl level atomicity
+	 *	to the apps
+	 */
+	 
 	spinlock_t lock;	/* the device lock */
+	struct semaphore sem;	/* operation level lock */
+	
 };
 #endif
 

@@ -497,10 +497,34 @@ static void timer_interrupt(int irq, void *dev_id, struct pt_regs *regs)
 		rdtscl(last_tsc_low);
 
 		spin_lock(&i8253_lock);
+		
 		outb_p(0x00, 0x43);     /* latch the count ASAP */
 
 		count = inb_p(0x40);    /* read the latched count */
 		count |= inb(0x40) << 8;
+		
+
+                /* VIA686a test code... reset the latch if count > max */
+                if (count > LATCH) {
+                
+                	/* Not everyone seems to get latching right - double check */
+                	count = inb_p(0x40);
+                	count |= inb(0x40) << 8;
+                	
+                	if(count > LATCH) {
+	                        static int last_whine;
+	                        outb_p(0x34, 0x43);   
+	                        outb_p(LATCH & 0xff, 0x40);
+	                        outb(LATCH >> 8, 0x40);
+	                        count = LATCH - 1;
+	                        if(time_after(jiffies, last_whine))
+	                        {
+	                                printk(KERN_WARNING "probable hardware bug: clock timer configuration lost - probably a VIA686a motherboard.\n");
+	                                printk(KERN_WARNING "probable hardware bug: restoring chip configuration.\n");
+	                                last_whine = jiffies + HZ;
+	                        }                       
+	                }                               
+		}	
 		spin_unlock(&i8253_lock);
 
 		count = ((LATCH-1) - count) * TICK_SIZE;
@@ -519,6 +543,7 @@ unsigned long get_cmos_time(void)
 	unsigned int year, mon, day, hour, min, sec;
 	int i;
 
+	spin_lock(&rtc_lock);
 	/* The Linux interpretation of the CMOS clock register contents:
 	 * When the Update-In-Progress (UIP) flag goes from 1 to 0, the
 	 * RTC registers show the second which has precisely just started.
@@ -548,6 +573,7 @@ unsigned long get_cmos_time(void)
 	    BCD_TO_BIN(mon);
 	    BCD_TO_BIN(year);
 	  }
+	spin_unlock(&rtc_lock);
 	if ((year += 1900) < 1970)
 		year += 100;
 	return mktime(year, mon, day, hour, min, sec);

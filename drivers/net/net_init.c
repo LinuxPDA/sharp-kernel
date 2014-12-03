@@ -244,11 +244,23 @@ static int eth_mac_addr(struct net_device *dev, void *p)
 
 static int eth_change_mtu(struct net_device *dev, int new_mtu)
 {
-	if ((new_mtu < 68) || (new_mtu > 1500))
+	if (new_mtu > 1500)
 		return -EINVAL;
 	dev->mtu = new_mtu;
 	return 0;
 }
+
+#if defined(CONFIG_VETH) || defined(CONFIG_VETH_MODULE)
+
+struct net_device *init_vethdev(struct net_device *dev, int sizeof_priv, int veth)
+{
+    char name[32];
+
+    sprintf(name, "veth%d", veth);
+    return init_netdev(dev, sizeof_priv, name, ether_setup);
+}
+
+#endif
 
 #ifdef CONFIG_FDDI
 

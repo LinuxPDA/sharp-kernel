@@ -55,7 +55,7 @@ static unsigned long tcp_timeouts[]
     2 MINS,	/*	TCP_CONNTRACK_FIN_WAIT,	*/
     2 MINS,	/*	TCP_CONNTRACK_TIME_WAIT,	*/
     10 SECS,	/*	TCP_CONNTRACK_CLOSE,	*/
-    60 SECS,	/*	TCP_CONNTRACK_CLOSE_WAIT,	*/
+    2 MINS,	/*	TCP_CONNTRACK_CLOSE_WAIT,	*/
     30 SECS,	/*	TCP_CONNTRACK_LAST_ACK,	*/
     2 MINS,	/*	TCP_CONNTRACK_LISTEN,	*/
 };

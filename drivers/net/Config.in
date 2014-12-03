@@ -27,7 +27,7 @@ mainmenu_option next_comment
 comment 'Ethernet (10 or 100Mbit)'
 bool 'Ethernet (10 or 100Mbit)' CONFIG_NET_ETHERNET
 if [ "$CONFIG_NET_ETHERNET" = "y" ]; then
-   if [ "$CONFIG_ARM" = "y" ]; then  
+   if [ "$CONFIG_ARM" = "y" ]; then
       dep_bool '  ARM EBSA110 AM79C961A support' CONFIG_ARM_AM79C961A $CONFIG_ARCH_EBSA110
       if [ "$CONFIG_ARCH_ACORN" = "y" ]; then
          source drivers/acorn/net/Config.in
@@ -273,6 +273,9 @@ if [ ! "$CONFIG_PPP" = "n" ]; then
    dep_tristate '  PPP BSD-Compress compression' CONFIG_PPP_BSDCOMP $CONFIG_PPP
    if [ "$CONFIG_EXPERIMENTAL" = "y" ]; then
       dep_tristate '  PPP over Ethernet (EXPERIMENTAL)' CONFIG_PPPOE $CONFIG_PPP
+   fi
+   if [ ! "$CONFIG_ATM" = "n" ]; then
+      dep_tristate '  PPP over ATM (EXPERIMENTAL)' CONFIG_PPPOATM $CONFIG_PPP
    fi
 fi
 

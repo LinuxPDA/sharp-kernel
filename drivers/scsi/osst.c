@@ -628,7 +628,7 @@ static int osst_wait_ready(OS_Scsi_Tape * STp, Scsi_Request ** aSRpnt, unsigned 
 		debugging = 0;
 	    }
 #endif
-	    current->state = TASK_INTERRUPTIBLE;
+	    set_current_state(TASK_INTERRUPTIBLE);
 	    schedule_timeout(HZ / 10);
 
 	    memset(cmd, 0, MAX_COMMAND_SIZE);
@@ -743,7 +743,7 @@ static int osst_wait_frame(OS_Scsi_Tape * STp, Scsi_Request ** aSRpnt, int curr,
 			notyetprinted--;
 		}
 #endif
-		current->state = TASK_INTERRUPTIBLE;
+		set_current_state(TASK_INTERRUPTIBLE);
 		schedule_timeout (HZ / OSST_POLL_PER_SEC);
 	}
 #if DEBUG

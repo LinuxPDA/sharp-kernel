@@ -683,7 +683,7 @@ static void pf_eject( int unit )
 
 static void pf_sleep( int cs )
 
-{       current->state = TASK_INTERRUPTIBLE;
+{       set_current_state(TASK_INTERRUPTIBLE);
         schedule_timeout(cs);
 }
 

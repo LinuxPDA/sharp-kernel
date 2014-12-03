@@ -1472,6 +1472,8 @@ static int sg_build_sgat(Sg_scatter_hold * schp, const Sg_fd * sfp)
 
 static void sg_unmap_and(Sg_scatter_hold * schp, int free_also)
 {
+	int	nbhs = KIO_MAX_SECTORS;
+
 #ifdef SG_ALLOW_DIO_CODE
     if (schp && schp->kiobp) {
 	if (schp->mapped) {
@@ -1479,7 +1481,7 @@ static void sg_unmap_and(Sg_scatter_hold * schp, int free_also)
 	    schp->mapped = 0;
 	}
 	if (free_also) {
-	    free_kiovec(1, &schp->kiobp);
+	    free_kiovec_sz(1, &schp->kiobp, &nbhs);
 	    schp->kiobp = NULL;
 	}
     }
@@ -1498,7 +1500,9 @@ static int sg_build_dir(Sg_request * srp, Sg_fd * sfp, int dxfer_len)
     Sg_scatter_hold * schp = &srp->data;
     int sg_tablesize = sfp->parentdp->sg_tablesize;
 
-    res = alloc_kiovec(1, &schp->kiobp);
+	int	nbhs	= KIO_MAX_SECTORS;
+	
+    res = alloc_kiovec_sz(1, &schp->kiobp, &nbhs);
     if (0 != res) {
 	SCSI_LOG_TIMEOUT(5, printk("sg_build_dir: alloc_kiovec res=%d\n", res));
 	return 1;

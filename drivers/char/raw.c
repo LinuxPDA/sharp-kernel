@@ -20,6 +20,8 @@
 #define dprintk(x...) 
 
 typedef struct raw_device_data_s {
+	struct kiobuf * iobuf;
+	long iobuf_lock;
 	struct block_device *binding;
 	int inuse, sector_size, sector_bits;
 	struct semaphore mutex;
@@ -73,6 +75,7 @@ int raw_open(struct inode *inode, struct file *filp)
 	int err;
 	int sector_size;
 	int sector_bits;
+	int		nbhs = KIO_MAX_SECTORS;
 
 	minor = MINOR(inode->i_rdev);
 	
@@ -85,12 +88,6 @@ int raw_open(struct inode *inode, struct file *filp)
 		return 0;
 	}
 	
-	if (!filp->f_iobuf) {
-		err = alloc_kiovec(1, &filp->f_iobuf);
-		if (err)
-			return err;
-	}
-
 	down(&raw_devices[minor].mutex);
 	/*
 	 * No, it is a normal raw device.  All we need to do on open is
@@ -103,8 +100,8 @@ int raw_open(struct inode *inode, struct file *filp)
 	if (!bdev)
 		goto out;
 
-	atomic_inc(&bdev->bd_count);
 	rdev = to_kdev_t(bdev->bd_dev);
+	atomic_inc(&bdev->bd_count);
 	err = blkdev_get(bdev, filp->f_mode, 0, BDEV_RAW);
 	if (err)
 		goto out;
@@ -117,6 +114,18 @@ int raw_open(struct inode *inode, struct file *filp)
 	if (raw_devices[minor].inuse++)
 		goto out;
 
+	/* 
+	 * We'll just use one kiobuf
+	 */
+	err = alloc_kiovec_sz(1, &raw_devices[minor].iobuf, &nbhs);
+	if (err) {
+		raw_devices[minor].inuse--;
+		up(&raw_devices[minor].mutex);
+		blkdev_put(bdev, BDEV_RAW);
+		return err;
+	}
+
+	
 	/* 
 	 * Don't interfere with mounted devices: we cannot safely set
 	 * the blocksize on a device which is already mounted.  
@@ -148,11 +157,13 @@ int raw_release(struct inode *inode, struct file *filp)
 {
 	int minor;
 	struct block_device *bdev;
+	int	nbhs = KIO_MAX_SECTORS;
 	
 	minor = MINOR(inode->i_rdev);
 	down(&raw_devices[minor].mutex);
 	bdev = raw_devices[minor].binding;
-	raw_devices[minor].inuse--;
+	if (!--raw_devices[minor].inuse)
+		free_kiovec_sz(1, &raw_devices[minor].iobuf, &nbhs);
 	up(&raw_devices[minor].mutex);
 	blkdev_put(bdev, BDEV_RAW);
 	return 0;
@@ -283,7 +294,7 @@ ssize_t	rw_raw_dev(int rw, struct file *filp, char *buf,
 
 	int		sector_size, sector_bits, sector_mask;
 	int		max_sectors;
-	
+	int		nbhs;
 	/*
 	 * First, a few checks on device size limits 
 	 */
@@ -291,24 +302,26 @@ ssize_t	rw_raw_dev(int rw, struct file *filp, char *buf,
 	minor = MINOR(filp->f_dentry->d_inode->i_rdev);
 
 	new_iobuf = 0;
-	iobuf = filp->f_iobuf;
-	if (test_and_set_bit(0, &filp->f_iobuf_lock)) {
-		/*
-		 * A parallel read/write is using the preallocated iobuf
-		 * so just run slow and allocate a new one.
-		 */
-		err = alloc_kiovec(1, &iobuf);
-		if (err)
-			goto out;
-		new_iobuf = 1;
-	}
-
+	iobuf = raw_devices[minor].iobuf;
 	dev = to_kdev_t(raw_devices[minor].binding->bd_dev);
 	sector_size = raw_devices[minor].sector_size;
 	sector_bits = raw_devices[minor].sector_bits;
 	sector_mask = sector_size- 1;
 	max_sectors = KIO_MAX_SECTORS >> (sector_bits - 9);
 	
+	if (test_and_set_bit(0, &raw_devices[minor].iobuf_lock)) {
+		/*
+		 * A parallel read/write is using the preallocated iobuf
+		 * so just run slow and allocate a new one.
+		 */
+		nbhs = (size >> sector_bits);
+		if (nbhs > KIO_MAX_SECTORS) 
+			nbhs = KIO_MAX_SECTORS;
+		err = alloc_kiovec_sz(1, &iobuf, &nbhs);
+		if (err)
+			goto out;
+		new_iobuf = 1;
+	}
 	if (blk_size[MAJOR(dev)])
 		limit = (((loff_t) blk_size[MAJOR(dev)][MINOR(dev)]) << BLOCK_SIZE_BITS) >> sector_bits;
 	else
@@ -375,9 +388,9 @@ ssize_t	rw_raw_dev(int rw, struct file *filp, char *buf,
 
  out_free:
 	if (!new_iobuf)
-		clear_bit(0, &filp->f_iobuf_lock);
+		clear_bit(0, &raw_devices[minor].iobuf_lock);
 	else
-		free_kiovec(1, &iobuf);
+		free_kiovec_sz(1, &iobuf, &nbhs);
  out:	
 	return err;
 }

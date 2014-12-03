@@ -499,6 +499,40 @@ static int svwks_dmaproc(ide_dma_action_t func, ide_drive_t *drive)
 	switch (func) {
 		case ide_dma_check:
 			return config_drive_xfer_rate(drive);
+		case ide_dma_end:
+		{
+			ide_hwif_t *hwif		= HWIF(drive);
+			unsigned long dma_base		= hwif->dma_base;
+	
+			if(inb(dma_base+0x02)&1)
+			{
+#if 0		
+				int i;
+				printk(KERN_ERR "Curious - OSB4 thinks the DMA is still running.\n");
+				for(i=0;i<10;i++)
+				{
+					if(!(inb(dma_base+0x02)&1))
+					{
+						printk(KERN_ERR "OSB4 now finished.\n");
+						break;
+					}
+					udelay(5);
+				}
+#endif		
+				printk(KERN_CRIT "Serverworks OSB4 in impossible state.\n");
+				printk(KERN_CRIT "Disable UDMA or if you are using Seagate then try switching disk types\n");
+				printk(KERN_CRIT "on this controller. Please report this event to osb4-bug@ide.cabal.tm\n");
+#if 0		
+				/* Panic might sys_sync -> death by corrupt disk */
+				panic("OSB4: continuing might cause disk corruption.\n");
+#else
+				printk(KERN_CRIT "OSB4: continuing might cause disk corruption.\n");
+				while(1)
+					cpu_relax();
+#endif				
+			}
+			/* and drop through */
+		}
 		default :
 			break;
 	}

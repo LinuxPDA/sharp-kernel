@@ -1,5 +1,5 @@
 /*
- * BK Id: SCCS/s.gemini_setup.c 1.11 08/20/01 14:34:41 paulus
+ * BK Id: SCCS/s.gemini_setup.c 1.12 09/25/01 07:54:40 trini
  */
 /*
  *  linux/arch/ppc/kernel/setup.c
@@ -150,6 +150,9 @@ extern char cmd_line[];
 void
 gemini_heartbeat(void)
 {
+	/* We only want to do this on 1 CPU */
+	if ( smp_processor_id() )
+		return;
 	static unsigned long led = GEMINI_LEDBASE+(4*8);
 	static char direction = 8;
 	*(char *)led = 0;

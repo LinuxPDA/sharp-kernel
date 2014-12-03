@@ -1,5 +1,5 @@
 /*
- * BK Id: SCCS/s.open_pic.c 1.28 09/08/01 15:47:42 paulus
+ * BK Id: SCCS/s.open_pic.c 1.30 09/24/01 16:13:57 trini
  */
 /*
  *  arch/ppc/kernel/open_pic.c -- OpenPIC Interrupt Handling
@@ -517,8 +517,10 @@ static inline u32 physmask(u32 cpumask)
 
 void openpic_init_processor(u_int cpumask)
 {
+	/* physmask won't work at this point since smp_num_cpus
+	 * isn't valid yet. */
 	openpic_write(&OpenPIC->Global.Processor_Initialization,
-		      physmask(cpumask));
+		      cpumask);
 }
 
 static spinlock_t openpic_setup_lock = SPIN_LOCK_UNLOCKED;

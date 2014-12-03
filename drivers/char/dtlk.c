@@ -365,7 +365,7 @@ static int __init dtlk_init(void)
 static void __exit dtlk_cleanup (void)
 {
 	dtlk_write_bytes("goodbye", 8);
-	current->state = TASK_INTERRUPTIBLE;
+	set_current_state(TASK_INTERRUPTIBLE);
 	schedule_timeout(5 * HZ / 10);		/* nap 0.50 sec but
 						   could be awakened
 						   earlier by
@@ -385,7 +385,7 @@ module_exit(dtlk_cleanup);
 /* sleep for ms milliseconds */
 static void dtlk_delay(int ms)
 {
-	current->state = TASK_INTERRUPTIBLE;
+	set_current_state(TASK_INTERRUPTIBLE);
 	schedule_timeout((ms * HZ + 1000 - HZ) / 1000);
 }
 

@@ -1,0 +1,157 @@
+Ver 2.7.2
+=========
+Mon Sep 10 14:50:24 JST 2001
+	* nsp_cs.c : 新しい eh エラーハンドラが動くようになったが
+	カードを引き抜くとクラッシュするので元に戻す。
+	* MAINTAINER.nsp_cs : 追加
+
+Fri Sep  7 13:28:45 JST 2001
+	* nsp_cs.c : *abort(), *reset() の返値が間違っていたので直す。
+
+Tue Aug 14 12:50:53 JST 2001
+	* *.[ch], COPYING : GPL 記述と COPYING を追加
+
+Ver 2.7.1
+=========
+Thu Aug  9 13:32:43 JST 2001
+	* nsp_cs.[ch], nsp_debug.c : 不要なデバッグオプションを整理
+		(Thanks! Kazuhiko <kazuhiko@archi.kyoto-u.ac.jp>)
+
+Ver 2.7
+=======
+Thu Jul  5 19:56:53 JST 2001
+	* nsp_message.c : nsp_message_seq.c からファイル名変更
+	* Configure.help{,.eng} : ファイルを日本語と英語に分けた
+
+Wed Jul  4 23:47:54 JST 2001
+	* *.[ch] : メッセージ処理改良
+	* *.[ch] : ハードウェアのデータの持ち方を変更
+
+Ver 2.6.1
+=========
+Thu May 31 12:07:39 JST 2001
+	* nsp_cs.[ch], nsp_message_seq.c : メッセージ処理の記述を追加
+
+Ver 2.6
+=======
+Mon May 21 14:43:24 JST 2001
+	* nsp_cs.c : メッセージ送受信時の ATN 制御条件が足りなかったので
+	追加
+	* nsp_message_seq.c : メッセージ処理を分離して別のファイルに
+
+Ver 2.5
+=======
+Thu Feb 15 11:39:49 JST 2001
+	* nsp_cs.c : Kernel 2.2 でカードを抜き差しする時にクラッシュするのは
+	procfs のエントリの書き方がまずいからと分かる。IBMMCA カードのエントリを
+	借用して、クラッシュしないように直した。
+
+Wed Feb 14 23:19:29 JST 2001
+	* nsp_cs.c : "Yushi_Okamoto" <DZH05136@nifty.ne.jp> さんの協力により
+	KXL-820AN 向け電源供給オプションをテストしてみる。いろいろやってみたが
+	結局駄目な事が分かる。これ以上の作業には KXL-820AN の仕様書が必要に
+	なるだろう。変更は取り止めた。
+
+Ver 2.4
+=======
+Thu Feb  8 16:25:47 JST 2001
+	* nsp_cs.c : 転送量が少なかったり、4バイト境界に無い場合は
+	8ビット転送にする
+	* nsp_cs.c : KXL-820AN 向け電源供給オプション "term_power" 追加
+	動くかどうか不明
+
+Ver 2.3
+=======
+Mon Feb  5 08:53:04 JST 2001
+	* nsp_cs.c : 待ち受けアルゴリズムの待ち条件が一つ不足していたので追加
+
+Ver 2.2
+=======
+Wed Jan 31 21:48:38 JST 2001
+	* nsp_cs.c : 待ち受けアルゴリズムを改良してウェイトなしで動くようにする
+	* nsp_cs.c : SCpnt-> resid の使い方が分かった
+
+Ver 2.1
+=======
+Tue Jan 30 13:52:59 JST 2001
+	* nsp_cs.c : 転送速度が早過ぎてエラーが出るので適当にウェイトを入れる
+
+Ver 2.0
+=======
+Thu Jan 25 23:37:00 JST 2001
+	* nsp_cs.c : 32bit 単位でない場合の転送を記述
+
+Tue Jan 23 23:18:58 JST 2001
+	* nsp_cs.c, nsp_io.h : 8bit PIO モードから 32bit PIO モードに移行。
+	この結果、高速デバイス使用時および高負荷時の速度が改善された。
+
+Wed Jan 10 08:56:36 JST 2001
+	* nsp_cs.c : モジュールの説明を追加
+	* nsp_cs.[ch] : 不要な処理を削除
+
+Ver 1.1.4
+=========
+Tue Dec 19 18:02:54 JST 2000
+	* nsp_cs.c : SCpnt->resid の使用法が間違っていたので元に戻す。
+
+Ver 1.1.3
+=========
+Fri Dec 15 01:58:56 JST 2000
+	* nsp_cs.c : 複数のバッファをまたがる読み込みの時に正しく操作できなかった
+	のを直す。
+
+Ver 1.1.2
+=========
+Thu Nov 30 18:10:23 JST 2000
+	* nsp_cs.c : データ読み書き中のタイムアウト処理が間違っていたのを直す
+
+Ver 1.1.1
+=========
+Wed Nov 29 12:08:32 JST 2000
+	* Mafeile : タイプミス修正
+
+Ver 1.1
+=======
+Mon Nov 27 09:44:46 JST 2000
+	* nsp_cs.c : scatterlist 実装。激的な速度向上が見込まれる。
+	cdparanoia も正しく動くようななった。
+
+Ver 1.0
+=======
+Fri Nov 24 06:09:42 JST 2000
+	* nsp_cs.c : ドライバを一から作り直す。やっと完成。
+
+Thu Jun  8 03:10:18 JST 2000
+	* nin_cs.c : Kernel 2.4.0-test1 ではまともに動かない事が判明。
+
+Fri Jun  2 08:25:30 JST 2000
+	* nin_cs.c : cdparanoia 対応の結果 MO が動かなくなったので元に戻す
+
+Fri Jun  2 04:03:22 JST 2000
+	* nin_cs.c : /dev/sg? デバイスに対する反応を修正。
+	cdparanoia が動くようになった。
+	* nin_cs.c : Kernel 2.3.99 対応 (Thanks! suzukis@cmpt.phys.tohoku.ac.jp)
+
+Sat Apr 29 18:07:52 JST 2000
+	* nin_cs.c : ディスクの交換を認識させるようになった。
+
+Fri Mar 24 11:10:01 JST 2000
+	* nin_cs.4, nin_cs.4j : マニュアル作成
+
+Fri Mar 24 10:30:13 JST 2000
+	* nin_cs.c, nin_cs.h : カードの設定アルゴリズムを単純にする。
+	I/O アドレスを範囲で表示するようにする。
+
+Wed Mar 22 03:13:54 JST 2000
+	* nin_cs.c : NinjaSCSI-32Bi 16bit mode サポート
+	* nin_cs.c : 32bit PIO, BrindWrite サポート
+	* nin_cs.c : 動作モード切替え用のオプションサポート
+	* nin_cs.c : モジュールに埋め込み情報を入れる
+	* nin_cs.conf : WorkBit, IO-DATA, KME の cis 情報を記述
+
+Sun Jan  9 16:28:17 JST 2000
+	* etc/nin_cs.conf : config ファイルの include 文に対応した。
+
+Sun Nov  7 23:25:20 JST 1999
+	* doc/README.nin_cs* : カーネルの再構築の項を追加して説明文を
+	より詳しくした。項目 [2] 追加 [3] 修正

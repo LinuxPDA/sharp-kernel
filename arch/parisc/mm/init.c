@@ -458,7 +458,7 @@ void si_meminfo(struct sysinfo *val)
 
 	i = max_mapnr;
 	val->totalram = totalram_pages;
-	val->sharedram = 0;
+	val->sharedram = atomic_read(&shmem_nrpages);
 	val->freeram = nr_free_pages();
 	val->bufferram = atomic_read(&buffermem_pages);
 #if 0

@@ -4,6 +4,7 @@
 #
 define_bool CONFIG_MIPS y
 define_bool CONFIG_SMP n
+define_bool CONFIG_GENERIC_ISA_DMA y
 
 mainmenu_name "Linux Kernel Configuration"
 
@@ -70,6 +71,7 @@ bool 'Support for Alchemy Semi PB1000 board' CONFIG_MIPS_PB1000
 
 define_bool CONFIG_RWSEM_GENERIC_SPINLOCK y
 define_bool CONFIG_RWSEM_XCHGADD_ALGORITHM n
+define_bool CONFIG_GENERIC_BUST_SPINLOCK n
 
 #
 # Select some configuration options automatically for certain systems.

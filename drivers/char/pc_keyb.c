@@ -34,6 +34,7 @@
 #include <linux/vt_kern.h>
 #include <linux/smp_lock.h>
 #include <linux/kd.h>
+#include <linux/pm.h>
 
 #include <asm/keyboard.h>
 #include <asm/bitops.h>
@@ -397,29 +398,32 @@ char pckbd_unexpected_up(unsigned char keycode)
 	    return 0200;
 }
 
-void pckbd_pm_resume(void)
+int pckbd_pm_resume(struct pm_dev *dev, pm_request_t rqst, void *data) 
 {
 #if defined CONFIG_PSMOUSE
        unsigned long flags;
 
-       if (queue) {                    /* Aux port detected */
-               if (aux_count == 0) {   /* Mouse not in use */ 
-                       spin_lock_irqsave(&kbd_controller_lock, flags);
-                       /*
-                        * Dell Lat. C600 A06 enables mouse after resume.
-                        * When user touches the pad, it posts IRQ 12
-                        * (which we do not process), thus holding keyboard.
-                        */
-                       kbd_write_command(KBD_CCMD_MOUSE_DISABLE);
-                       /* kbd_write_cmd(AUX_INTS_OFF); */ /* Config & lock */
-                       kb_wait();
-                       kbd_write_command(KBD_CCMD_WRITE_MODE);
-                       kb_wait();
-                       kbd_write_output(AUX_INTS_OFF);
-                       spin_unlock_irqrestore(&kbd_controller_lock, flags);
-               }
+       if (rqst == PM_RESUME) {
+               if (queue) {                    /* Aux port detected */
+                       if (aux_count == 0) {   /* Mouse not in use */ 
+                               spin_lock_irqsave(&kbd_controller_lock, flags);
+			       /*
+				* Dell Lat. C600 A06 enables mouse after resume.
+				* When user touches the pad, it posts IRQ 12
+				* (which we do not process), thus holding keyboard.
+				*/
+			       kbd_write_command(KBD_CCMD_MOUSE_DISABLE);
+			       /* kbd_write_cmd(AUX_INTS_OFF); */ /* Config & lock */
+			       kb_wait();
+			       kbd_write_command(KBD_CCMD_WRITE_MODE);
+			       kb_wait();
+			       kbd_write_output(AUX_INTS_OFF);
+			       spin_unlock_irqrestore(&kbd_controller_lock, flags);
+		       }
+	       }
        }
-#endif       
+#endif
+       return 0;
 }
 
 
@@ -1104,7 +1108,7 @@ repeat:
 			schedule();
 			goto repeat;
 		}
-		current->state = TASK_RUNNING;
+		set_current_state(TASK_RUNNING);
 		remove_wait_queue(&queue->proc_list, &wait);
 	}
 	while (i > 0 && !queue_empty()) {
@@ -1211,3 +1215,26 @@ static int __init psaux_init(void)
 }
 
 #endif /* CONFIG_PSMOUSE */
+
+
+/* Tell the user who may be running in X and not see the console that we have 
+   panic'ed. This is to distingush panics from "real" lockups. 
+   Could in theory send the panic message as morse, but that is left as an
+   exercise for the reader.  */ 
+void panic_blink(void)
+{ 
+	static unsigned long last_jiffie;
+	static char led;
+	/* Roughly 1/2s frequency. KDB uses about 1s. Make sure it is 
+	   different. */
+	if (jiffies - last_jiffie > HZ/2) {
+		led ^= 0x01 | 0x04;
+		while (kbd_read_status() & KBD_STAT_IBF) mdelay(1); 
+		kbd_write_output(KBD_CMD_SET_LEDS);
+		mdelay(1); 
+		while (kbd_read_status() & KBD_STAT_IBF) mdelay(1); 
+		mdelay(1); 
+		kbd_write_output(led);
+		last_jiffie = jiffies;
+	}
+}  

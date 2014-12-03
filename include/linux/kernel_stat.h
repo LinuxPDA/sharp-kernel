@@ -12,7 +12,7 @@
  * used by rstatd/perfmeter
  */
 
-#define DK_MAX_MAJOR 16
+#define DK_MAX_MAJOR 99
 #define DK_MAX_DISK 16
 
 struct kernel_stat {

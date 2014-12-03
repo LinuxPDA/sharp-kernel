@@ -15,6 +15,7 @@
 
 #include <asm/io.h>
 #include <asm/smp.h>
+#include <asm/mpspec.h>
 #include <asm/io_apic.h>
 
 #include "pci-i386.h"
@@ -222,15 +223,18 @@ static int pirq_opti_set(struct pci_dev *router, struct pci_dev *dev, int pirq, 
 
 /*
  * Cyrix: nibble offset 0x5C
+ * 0x5C bits 7:4 is INTB bits 3:0 is INTA
+ * 0x5D bits 7:4 is INTD bits 3:0 is INTC
  */
+ 
 static int pirq_cyrix_get(struct pci_dev *router, struct pci_dev *dev, int pirq)
 {
-	return read_config_nybble(router, 0x5C, pirq-1);
+	return read_config_nybble(router, 0x5C, pirq^1);
 }
 
 static int pirq_cyrix_set(struct pci_dev *router, struct pci_dev *dev, int pirq, int irq)
 {
-	write_config_nybble(router, 0x5C, pirq-1, irq);
+	write_config_nybble(router, 0x5C, pirq^1, irq);
 	return 1;
 }
 

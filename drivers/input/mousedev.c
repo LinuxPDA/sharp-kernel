@@ -346,7 +346,7 @@ static ssize_t mousedev_read(struct file * file, char * buffer, size_t count, lo
 	if (!list->ready && !list->buffer) {
 
 		add_wait_queue(&list->mousedev->wait, &wait);
-		current->state = TASK_INTERRUPTIBLE;
+		set_current_state(TASK_INTERRUPTIBLE);
 
 		while (!list->ready) {
 
@@ -362,7 +362,7 @@ static ssize_t mousedev_read(struct file * file, char * buffer, size_t count, lo
 			schedule();
 		}
 
-		current->state = TASK_RUNNING;
+		set_current_state(TASK_RUNNING);
 		remove_wait_queue(&list->mousedev->wait, &wait);
 	}
 

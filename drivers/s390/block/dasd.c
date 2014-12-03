@@ -2294,18 +2294,6 @@ do_dasd_ioctl (struct inode *inp, /* unsigned */ int no, unsigned long data)
 			rc = put_user(ver, (int *) data);
 			break;
         }
-	case BLKGETSIZE:{	/* Return device size */
-			unsigned long blocks = major_info->gendisk.sizes
-						[MINOR (inp->i_rdev)] << 1;
-			rc = put_user(blocks, (unsigned long *) data);
-			break;
-		}
-	case BLKGETSIZE64:{
-			u64 blocks = major_info->gendisk.sizes 
-                                      [MINOR (inp->i_rdev)];
-			rc = put_user(blocks << 10, (u64 *) data);
-			break;
-		}
 	case BLKRRPART:{
 			if (!capable (CAP_SYS_ADMIN)) {
 				rc = -EACCES;
@@ -2501,6 +2489,8 @@ do_dasd_ioctl (struct inode *inp, /* unsigned */ int no, unsigned long data)
 		break;
 		}
 #endif /* 0 */
+	case BLKGETSIZE:
+	case BLKGETSIZE64:
 	case BLKSSZGET:
 	case BLKROSET:
 	case BLKROGET:

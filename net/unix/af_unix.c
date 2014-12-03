@@ -1317,8 +1317,13 @@ static int unix_stream_sendmsg(struct socket *sock, struct msghdr *msg, int len,
 		if (size > sk->sndbuf/2 - 64)
 			size = sk->sndbuf/2 - 64;
 
-		if (size > (128 * 1024) / 2)
-			size = (128 * 1024) / 2;
+		/* Until we figure a better way to express this goal. Its
+		   arguable btw that it should be based on the size of the
+		   cache / (2 * number of colours) */
+#define KMALLOC_MAXSIZE	131072
+
+		if( size > KMALLOC_MAXSIZE / 2)
+			size = KMALLOC_MAXSIZE / 2;
 			
 		/*
 		 *	Grab a buffer

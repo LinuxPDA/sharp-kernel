@@ -95,6 +95,10 @@ extern char _stext, _etext;
 #define __STR(x) #x
 #define STR(x) __STR(x)
 
+/* 
+ * A segment register reload is rather expensive. Try to avoid it 
+ * if possible. 
+ */ 
 #define SAVE_ALL \
 	"cld\n\t" \
 	"pushl %es\n\t" \
@@ -106,9 +110,14 @@ extern char _stext, _etext;
 	"pushl %edx\n\t" \
 	"pushl %ecx\n\t" \
 	"pushl %ebx\n\t" \
-	"movl $" STR(__KERNEL_DS) ",%edx\n\t" \
-	"movl %edx,%ds\n\t" \
-	"movl %edx,%es\n\t"
+	"movl $" STR(__KERNEL_DS) ",%eax\n\t" \
+	"cmpl %eax,7*4(%esp)\n\t"  \
+	"je 1f\n\t"  \
+	"movl %eax,%ds\n\t" \
+	"1: cmpl %eax,8*4(%esp)\n\t" \
+	"je 2f\n\t" \
+	"movl %eax,%es\n\t" \
+	"2:\n\t"
 
 #define IRQ_NAME2(nr) nr##_interrupt(void)
 #define IRQ_NAME(nr) IRQ_NAME2(IRQ##nr)

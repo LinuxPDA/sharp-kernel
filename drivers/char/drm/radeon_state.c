@@ -991,6 +991,7 @@ static int radeon_cp_dispatch_texture( drm_device_t *dev,
 	/* The compiler won't optimize away a division by a variable,
 	 * even if the only legal values are powers of two.  Thus, we'll
 	 * use a shift instead.
+	 * (It probably would if you used unsigned.. -ac)
 	 */
 	switch ( tex->format ) {
 	case RADEON_TXFORMAT_ARGB8888:
@@ -1061,6 +1062,8 @@ static int radeon_cp_dispatch_texture( drm_device_t *dev,
 	} else if ( size < 4 ) {
 		size = 4;
 	}
+
+#warning "FIX tex_width checks"
 
 	dwords = size / 4;
 

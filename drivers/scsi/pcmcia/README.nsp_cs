@@ -1,0 +1,144 @@
+
+         WorkBiT NinjaSCSI-3/32Bi driver for Linux
+
+1. 解説
+ これは Workbit社(http://www.workbit.co.jp/) の NinjaSCSI-3
+(http://www.workbit.co.jp/ts/z_nj3r.html) や NinjaSCSI-32Bi
+(http://www.workbit.co.jp/ts/z_njsc32bi.html) を搭載した PCMCIA カードを
+Linux で使うためのドライバモジュールです。
+
+2. 動作環境
+Linux kernel: 2.4.7 / 2.2.19
+pcmcia-cs:    3.1.27
+gcc:          gcc-2.95.4
+PCカード:     I-O data PCSC-F (NinjaSCSI-3 が搭載されているカード)
+              I-O data CBSC-II (NinjaSCSI-32Bi が搭載されているカード)
+SCSIドライブ: I-O data CDPS-PX24 (CD-ROM)
+              Media Intelligent MMO-640GT (MO)
+
+3. インストール
+[1] まず、あなたのカードが NinjaSCSI-3 のカードか確かめて下さい。
+    pcmcia-cs をインストールして このカードを差し込むと pcmcia-cs は詳細不明の
+    カードとして "WBT", "NinjaSCSI-3", "R1.0" 等と画面またはログファイルに
+    表示するので確認して下さい。
+    pcmcia-cs のパッケージに含まれている cardctl プログラムを使えば、
+    もっと詳しい情報を表示する事も出来ます。
+
+# cat /var/log/messgaes
+...
+Jan  2 03:45:06 lindberg cardmgr[78]: unsupported card in socket 1
+Jan  2 03:45:06 lindberg cardmgr[78]:   product info: "WBT", "NinjaSCSI-3", "R1.0"
+...
+# cardctl ident
+Socket 0:
+  no product info available
+Socket 1:
+  product info: "IO DATA", "CBSC16       ", "1"
+
+[2] 適当なバージョンの Linux ソースコードを手に入れ、 /usr/src に展開します。
+    これはカーネルのソースコードに含まれる SCSI 関連のヘッダファイルが必要な
+    ためです。
+    PCMCIA モジュールはカーネルの構造に深く依存しているため、現在動いている
+    カーネルのバージョンと違うソースコードを使うと PCMCIA モジュールの構築に
+    失敗するかも知れません。いい機会ですのでカーネルの再構築などをして下さい。
+    構築したカーネルを有効にするためにリブートもお忘れなく。
+$ cd /usr/src
+$ tar -zxvf linux-2.x.x.tar.gz
+$ cd linux
+$ make config
+...
+
+[3] Kernel 2.2 で使用するなら、 pcmcia-cs のソースコードを持ってきて、
+    あるディレクトリに展開して構築とインストールを行って下さい。
+    NinjaSCSI ドライバはこの時構築されるヘッダが必要になります。
+$ cd /usr/src
+$ tar -zxvf pcmcia-cs-3.x.x.tar.gz
+$ cd pcmcia-cs-3.x.x
+$ make config all
+$ su
+# make install
+
+[4] この NinjaSCSI-3 のパッケージを 好みのディレクトリで
+    展開します。 Makefile を編集して make して下さい。
+$ tar -zxvf nsp_cs-x.x.tar.gz
+$ cd nsp_cs-x.x
+$ emacs Makefile
+...
+$ make
+
+[5] できあがったモジュール nsp_cs.o をシステムで指定されているディレクトリに
+    コピーして下さい。大抵は /lib/modules/<カーネルバージョン番号>/pcmcia/ の
+    はずです。コピーしたら "depmod -a" コマンドで依存情報も更新して下さい。
+
+[6] 以下のようなエントリを /etc/pcmcia/config に追加します。
+    pcmcia-cs-3.1.8 以降なら source 構文が使えるので、あらかじめ用意しておいた
+    nsp_cs.conf ファイルを使うのでこの作業は必要ありません。単純に nsp_cs.conf
+    を /etc/pcmcia/ にコピーして下さい。
+
+-------------------------------------
+device "nsp_cs"
+  class "scsi" module "nsp_cs"
+
+card "WorkBit NinjaSCSI-3"
+  version "WBT", "NinjaSCSI-3", "R1.0"
+  bind "nsp_cs"
+
+card "WorkBit NinjaSCSI-32Bi (16bit)"
+  version "WORKBIT", "UltraNinja-16", "1"
+  bind "nsp_cs"
+
+# OEM
+card "WorkBit NinjaSCSI-32Bi (16bit) / IO-DATA"
+  version "IO DATA", "CBSC16       ", "1"
+  bind "nsp_cs"
+
+# OEM
+card "WorkBit NinjaSCSI-32Bi (16bit) / KME-1"
+  version "KME    ", "SCSI-CARD-001", "1"
+  bind "nsp_cs"
+card "WorkBit NinjaSCSI-32Bi (16bit) / KME-2"
+  version "KME    ", "SCSI-CARD-002", "1"
+  bind "nsp_cs"
+card "WorkBit NinjaSCSI-32Bi (16bit) / KME-3"
+  version "KME    ", "SCSI-CARD-003", "1"
+  bind "nsp_cs"
+card "WorkBit NinjaSCSI-32Bi (16bit) / KME-4"
+  version "KME    ", "SCSI-CARD-004", "1"
+  bind "nsp_cs"
+
+-------------------------------------
+
+[7] pcmcia-cs を起動(再起動)すればカードが使えるようになります。
+# /etc/rc.d/rc.pcmcia start         (BSD 形式)
+または
+# /etc/init.d/pcmcia start          (SYSV 形式)
+
+
+4. 経歴
+ このソフトは *BSD 用の nsp ドライバを参考に 横田 裕思 が Linux 用に
+新たに作成したものです。
+
+5. 注意
+ このドライバを使って外部のSCSI機器を操作している間にカードを引き抜いたり、
+コンピュータをサスペンドしたりすると予期しない結果を引き起こします。
+最悪ファイルシステムやディスクが壊れますので注意して下さい。
+正しい手順で使う限りでは大丈夫のようですがそれを保証するものではありません。
+データの保全は各自の責任で行なって下さい。
+
+6. 分かっているバグ
+ カーネル 2.4 で 640MB MO がうまく動かないのは SCSI 上位ドライバ側の
+ 問題のようです。
+
+7. 動作テスト
+ 他の環境での動作報告やバグの報告をして下さると有難いです。
+その時は
+	使用したカードの型番
+	カーネルのバージョン
+	使用した SCSI デバイスの種類(ハードディスク, CD-ROM, etc...)
+等も教えて下さい。
+
+8. 著作権
+ このソフトは GPL により保護されています。
+
+
+2001/08/08 yokota@netlab.is.tsukuba.ac.jp <横田 裕思>

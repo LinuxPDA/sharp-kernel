@@ -4,6 +4,7 @@
  *  Copyright (C) 1995  Linus Torvalds
  */
 
+#include <linux/config.h>
 #include <linux/signal.h>
 #include <linux/sched.h>
 #include <linux/kernel.h>
@@ -55,14 +56,8 @@ good_area:
 	start &= PAGE_MASK;
 
 	for (;;) {
-	survive:
-		{
-			int fault = handle_mm_fault(current->mm, vma, start, 1);
-			if (!fault)
-				goto bad_area;
-			if (fault < 0)
-				goto out_of_memory;
-		}
+		if (handle_mm_fault(current->mm, vma, start, 1) <= 0)
+			goto bad_area;
 		if (!size)
 			break;
 		size--;
@@ -85,14 +80,6 @@ check_stack:
 
 bad_area:
 	return 0;
-
-out_of_memory:
-	if (current->pid == 1) {
-		current->policy |= SCHED_YIELD;
-		schedule();
-		goto survive;
-	}
-	goto bad_area;
 }
 
 extern spinlock_t timerlist_lock;
@@ -131,6 +118,33 @@ void do_BUG(const char *file, int line)
 {
 	bust_spinlocks(1);
 	printk("kernel BUG at %s:%d!\n", file, line);
+}
+
+static void print_pagetable_entries (pgd_t *pgdir, unsigned long address)
+{
+	pgd_t *pgd;
+	pmd_t *pmd;
+	pte_t *pte;
+
+	pgd = pgdir + __pgd_offset(address);
+	printk("pgd entry %p: %016Lx\n", pgd, (long long)pgd_val(*pgd));
+
+	if (!pgd_present(*pgd)) {
+		printk("... pgd not present!\n");
+		return;
+	}
+	pmd = pmd_offset(pgd, address);
+	printk("pmd entry %p: %016Lx\n", pmd, (long long)pmd_val(*pmd));
+
+	if (!pmd_present(*pmd)) {
+		printk("... pmd not present!\n");
+		return;
+	}
+	pte = pte_offset(pmd, address);
+	printk("pte entry %p: %016Lx\n", pte, (long long)pte_val(*pte));
+
+	if (!pte_present(*pte))
+		printk("... pte not present!\n");
 }
 
 asmlinkage void do_invalid_op(struct pt_regs *, unsigned long);
@@ -239,7 +253,6 @@ good_area:
 				goto bad_area;
 	}
 
- survive:
 	/*
 	 * If for any reason at all we couldn't handle the fault,
 	 * make sure we exit gracefully rather than endlessly redo
@@ -334,7 +347,6 @@ no_context:
 		printk(KERN_ALERT "*pte = %08lx\n", page);
 	}
 	die("Oops", regs, error_code);
-	bust_spinlocks(0);
 	do_exit(SIGKILL);
 
 /*
@@ -343,12 +355,6 @@ no_context:
  */
 out_of_memory:
 	up_read(&mm->mmap_sem);
-	if (tsk->pid == 1) {
-		tsk->policy |= SCHED_YIELD;
-		schedule();
-		down_read(&mm->mmap_sem);
-		goto survive;
-	}
 	printk("VM: killing process %s\n", tsk->comm);
 	if (error_code & 4)
 		do_exit(SIGKILL);

@@ -1,4 +1,4 @@
-# BK Id: SCCS/s.config.in 1.40 08/24/01 20:31:47 paulus
+# BK Id: SCCS/s.config.in 1.42 09/19/01 16:58:37 trini
 #
 # For a description of the syntax of this configuration file,
 # see Documentation/kbuild/config-language.txt.
@@ -6,6 +6,8 @@
 define_bool CONFIG_UID16 n
 define_bool CONFIG_RWSEM_GENERIC_SPINLOCK n
 define_bool CONFIG_RWSEM_XCHGADD_ALGORITHM y
+define_bool CONFIG_GENERIC_BUST_SPINLOCK n
+define_bool CONFIG_GENERIC_ISA_DMA y
 
 mainmenu_name "Linux/PowerPC Kernel Configuration"
 
@@ -95,10 +97,6 @@ if [ "$CONFIG_6xx" = "y" -a "$CONFIG_8260" = "n" ]; then
 	 Synergy-Gemini        	CONFIG_GEMINI"		CHRP/PowerMac/PReP
 fi
 
-if [ "$CONFIG_PPC64BRIDGE" != "y" ]; then
-  bool 'Workarounds for PPC601 bugs' CONFIG_PPC601_SYNC_FIX
-fi
-
 if [ "$CONFIG_POWER3" = "n" -a "$CONFIG_POWER4" = "n" -a \
 	"$CONFIG_6xx" = "n" ]; then
   define_bool CONFIG_ALL_PPC n
@@ -186,6 +184,7 @@ if [ "$CONFIG_4xx" != "y" ]; then
 fi
 
 if [ "$CONFIG_ALL_PPC" = "y" ]; then
+  bool 'Workarounds for PPC601 bugs' CONFIG_PPC601_SYNC_FIX
   bool 'Support for Open Firmware device tree in /proc' CONFIG_PROC_DEVICETREE
   bool 'Support for RTAS (RunTime Abstraction Services) in /proc' CONFIG_PPC_RTAS
   bool 'Support for early boot text console (BootX or OpenFirmware only)' CONFIG_BOOTX_TEXT

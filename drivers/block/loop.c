@@ -180,12 +180,16 @@ static int lo_send(struct loop_device *lo, struct buffer_head *bh, int bsize,
 	unsigned size, offset;
 	int len;
 
+	down(&(file->f_dentry->d_inode->i_sem));
+
 	index = pos >> PAGE_CACHE_SHIFT;
 	offset = pos & (PAGE_CACHE_SIZE - 1);
 	len = bh->b_size;
 	data = bh->b_data;
 	while (len > 0) {
 		int IV = index * (PAGE_CACHE_SIZE/bsize) + offset/bsize;
+		int transfer_result;
+
 		size = PAGE_CACHE_SIZE - offset;
 		if (size > len)
 			size = len;
@@ -197,9 +201,18 @@ static int lo_send(struct loop_device *lo, struct buffer_head *bh, int bsize,
 			goto unlock;
 		kaddr = page_address(page);
 		flush_dcache_page(page);
-		if (lo_do_transfer(lo, WRITE, kaddr + offset, data, size, IV))
-			goto write_fail;
+		transfer_result = lo_do_transfer(lo, WRITE, kaddr + offset, data, size, IV);
+		if (transfer_result) {
+			/*
+			 * The transfer failed, but we still write the data to
+			 * keep prepare/commit calls balanced.
+			 */
+			printk(KERN_ERR "loop: transfer error block %ld\n", index);
+			memset(kaddr + offset, 0, size);
+		}
 		if (aops->commit_write(file, page, offset, offset+size))
+			goto unlock;
+		if (transfer_result)
 			goto unlock;
 		data += size;
 		len -= size;
@@ -210,17 +223,15 @@ static int lo_send(struct loop_device *lo, struct buffer_head *bh, int bsize,
 		deactivate_page(page);
 		page_cache_release(page);
 	}
+	up(&(file->f_dentry->d_inode->i_sem));
 	return 0;
 
-write_fail:
-	printk(KERN_ERR "loop: transfer error block %ld\n", index);
-	ClearPageUptodate(page);
-	kunmap(page);
 unlock:
 	UnlockPage(page);
 	deactivate_page(page);
 	page_cache_release(page);
 fail:
+	up(&(file->f_dentry->d_inode->i_sem));
 	return -1;
 }
 
@@ -719,7 +730,7 @@ static int loop_init_xfer(struct loop_device *lo, int type,struct loop_info *i)
 	return err;
 }  
 
-static int loop_clr_fd(struct loop_device *lo, struct block_device *bdev)
+static int loop_clr_fd(struct loop_device *lo, kdev_t dev)
 {
 	struct file *filp = lo->lo_backing_file;
 	int gfp = lo->old_gfp_mask;
@@ -752,7 +763,7 @@ static int loop_clr_fd(struct loop_device *lo, struct block_device *bdev)
 	memset(lo->lo_encrypt_key, 0, LO_KEY_SIZE);
 	memset(lo->lo_name, 0, LO_NAME_SIZE);
 	loop_sizes[lo->lo_number] = 0;
-	invalidate_bdev(bdev, 0);
+	invalidate_buffers(dev);
 	filp->f_dentry->d_inode->i_mapping->gfp_mask = gfp;
 	lo->lo_state = Lo_unbound;
 	fput(filp);
@@ -852,7 +863,7 @@ static int lo_ioctl(struct inode * inode, struct file * file,
 		err = loop_set_fd(lo, file, inode->i_rdev, arg);
 		break;
 	case LOOP_CLR_FD:
-		err = loop_clr_fd(lo, inode->i_bdev);
+		err = loop_clr_fd(lo, inode->i_rdev);
 		break;
 	case LOOP_SET_STATUS:
 		err = loop_set_status(lo, (struct loop_info *) arg);
@@ -951,6 +962,7 @@ static struct block_device_operations lo_fops = {
  */
 MODULE_PARM(max_loop, "i");
 MODULE_PARM_DESC(max_loop, "Maximum number of loop devices (1-255)");
+MODULE_LICENSE("GPL");
 
 int loop_register_transfer(struct loop_func_table *funcs)
 {

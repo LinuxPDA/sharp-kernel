@@ -869,7 +869,7 @@ static int block_til_ready(struct tty_struct *tty, struct file * filp,
 #endif
 		schedule();
 	}
-	current->state = TASK_RUNNING;
+	set_current_state(TASK_RUNNING);
 	remove_wait_queue(&info->open_wait, &wait);
 	cli();
 	if (extra_count)
@@ -1134,7 +1134,7 @@ static void rp_close(struct tty_struct *tty, struct file * filp)
 	xmit_flags[info->line >> 5] &= ~(1 << (info->line & 0x1f));
 	if (info->blocked_open) {
 		if (info->close_delay) {
-			current->state = TASK_INTERRUPTIBLE;
+			set_current_state(TASK_INTERRUPTIBLE);
 			schedule_timeout(info->close_delay);
 		}
 		wake_up_interruptible(&info->open_wait);
@@ -1221,7 +1221,7 @@ static void rp_set_termios(struct tty_struct *tty, struct termios *old_termios)
 #if (LINUX_VERSION_CODE < 131394) /* Linux 2.1.66 */
 static void send_break(	struct r_port * info, int duration)
 {
-	current->state = TASK_INTERRUPTIBLE;
+	set_current_state(TASK_INTERRUPTIBLE);
 	cli();
 	sSendBreak(&info->channel);
 	schedule_timeout(duration);
@@ -1616,12 +1616,12 @@ static void rp_wait_until_sent(struct tty_struct *tty, int timeout)
 		printk("txcnt = %d (jiff=%lu,check=%d)...", txcnt,
 		       jiffies, check_time);
 #endif
-		current->state = TASK_INTERRUPTIBLE;
+		set_current_state(TASK_INTERRUPTIBLE);
 		schedule_timeout(check_time);
 		if (signal_pending(current))
 			break;
 	}
-	current->state = TASK_RUNNING;
+	set_current_state(TASK_RUNNING);
 #ifdef ROCKET_DEBUG_WAIT_UNTIL_SENT
 	printk("txcnt = %d (jiff=%lu)...done\n", txcnt, jiffies);
 #endif

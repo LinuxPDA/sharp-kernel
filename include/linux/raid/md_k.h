@@ -15,6 +15,8 @@
 #ifndef _MD_K_H
 #define _MD_K_H
 
+#include <linux/kernel.h>	// for panic()
+
 #define MD_RESERVED       0UL
 #define LINEAR            1UL
 #define RAID0             2UL
@@ -90,7 +92,7 @@ static inline mddev_t * kdev_to_mddev (kdev_t dev)
 /*
  * default readahead
  */
-#define MD_READAHEAD	MAX_READAHEAD
+#define MD_READAHEAD	vm_max_readahead
 
 static inline int disk_faulty(mdp_disk_t * d)
 {

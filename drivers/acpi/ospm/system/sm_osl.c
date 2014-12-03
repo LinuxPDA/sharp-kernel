@@ -719,6 +719,11 @@ sm_osl_suspend(u32 state)
 	/* TODO: resume devices and restore their state */
 
 	enable();
+
+	if (dmi_broken & BROKEN_INIT_AFTER_S1) {
+		printk("Broken toshiba laptop -> kicking interrupts\n");
+		init_8259A(0);
+	}
 	return status;
 }
 

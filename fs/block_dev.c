@@ -2,7 +2,6 @@
  *  linux/fs/block_dev.c
  *
  *  Copyright (C) 1991, 1992  Linus Torvalds
- *  Copyright (C) 2001  Andrea Arcangeli <andrea@suse.de> SuSE
  */
 
 #include <linux/config.h>
@@ -15,122 +14,310 @@
 #include <linux/major.h>
 #include <linux/devfs_fs_kernel.h>
 #include <linux/smp_lock.h>
-#include <linux/iobuf.h>
-#include <linux/highmem.h>
-#include <linux/blkdev.h>
-#include <linux/module.h>
 
 #include <asm/uaccess.h>
 
-#define MAX_BUF_PER_PAGE (PAGE_CACHE_SIZE / 512)
+extern int *blk_size[];
+extern int *blksize_size[];
 
-static unsigned long max_block(kdev_t dev)
+#define NBUF 64
+
+ssize_t block_write(struct file * filp, const char * buf,
+		    size_t count, loff_t *ppos)
 {
-	unsigned int retval = ~0U;
-	int major = MAJOR(dev);
+	struct inode * inode = filp->f_dentry->d_inode;
+	ssize_t blocksize, blocksize_bits, i, buffercount, write_error;
+	ssize_t block, blocks;
+	loff_t offset;
+	ssize_t chars;
+	ssize_t written, retval;
+	struct buffer_head * bhlist[NBUF];
+	size_t size;
+	kdev_t dev = inode->i_rdev;
+	struct buffer_head * bh, *bufferlist[NBUF];
+	register char * p;
 
-	if (blk_size[major]) {
-		int minor = MINOR(dev);
-		unsigned int blocks = blk_size[major][minor];
-		if (blocks) {
-			unsigned int size = block_size(dev);
-			unsigned int sizebits = blksize_bits(size);
-			blocks += (size-1) >> BLOCK_SIZE_BITS;
-			retval = blocks << (BLOCK_SIZE_BITS - sizebits);
-			if (sizebits > BLOCK_SIZE_BITS)
-				retval = blocks >> (sizebits - BLOCK_SIZE_BITS);
+	if (is_read_only(dev))
+		return -EPERM;
+
+	retval = written = write_error = buffercount = 0;
+	blocksize = BLOCK_SIZE;
+	if (blksize_size[MAJOR(dev)] && blksize_size[MAJOR(dev)][MINOR(dev)])
+		blocksize = blksize_size[MAJOR(dev)][MINOR(dev)];
+
+	i = blocksize;
+	blocksize_bits = 0;
+	while(i != 1) {
+		blocksize_bits++;
+		i >>= 1;
+	}
+
+	block = *ppos >> blocksize_bits;
+	offset = *ppos & (blocksize-1);
+
+	if (blk_size[MAJOR(dev)])
+		size = ((loff_t) blk_size[MAJOR(dev)][MINOR(dev)] << BLOCK_SIZE_BITS) >> blocksize_bits;
+	else
+		size = INT_MAX;
+	while (count>0) {
+		if (block >= size) {
+			retval = -ENOSPC;
+			goto cleanup;
 		}
+		chars = blocksize - offset;
+		if (chars > count)
+			chars=count;
+
+#if 0
+		/* get the buffer head */
+		{
+			struct buffer_head * (*fn)(kdev_t, int, int) = getblk;
+			if (chars != blocksize)
+				fn = bread;
+			bh = fn(dev, block, blocksize);
+			if (!bh) {
+				retval = -EIO;
+				goto cleanup;
+			}
+			if (!buffer_uptodate(bh))
+				wait_on_buffer(bh);
+		}
+#else
+		bh = getblk(dev, block, blocksize);
+		if (!bh) {
+			retval = -EIO;
+			goto cleanup;
+		}
+
+		if (!buffer_uptodate(bh))
+		{
+		  if (chars == blocksize)
+		    wait_on_buffer(bh);
+		  else
+		  {
+		    bhlist[0] = bh;
+		    if (!filp->f_reada || !read_ahead[MAJOR(dev)]) {
+		      /* We do this to force the read of a single buffer */
+		      blocks = 1;
+		    } else {
+		      /* Read-ahead before write */
+		      blocks = read_ahead[MAJOR(dev)] / (blocksize >> 9) / 2;
+		      if (block + blocks > size) blocks = size - block;
+		      if (blocks > NBUF) blocks=NBUF;
+		      if (!blocks) blocks = 1;
+		      for(i=1; i<blocks; i++)
+		      {
+		        bhlist[i] = getblk (dev, block+i, blocksize);
+		        if (!bhlist[i])
+			{
+			  while(i >= 0) brelse(bhlist[i--]);
+			  retval = -EIO;
+			  goto cleanup;
+		        }
+		      }
+		    }
+		    ll_rw_block(READ, blocks, bhlist);
+		    for(i=1; i<blocks; i++) brelse(bhlist[i]);
+		    wait_on_buffer(bh);
+		    if (!buffer_uptodate(bh)) {
+			  brelse(bh);
+			  retval = -EIO;
+			  goto cleanup;
+		    }
+		  };
+		};
+#endif
+		block++;
+		p = offset + bh->b_data;
+		offset = 0;
+		*ppos += chars;
+		written += chars;
+		count -= chars;
+		copy_from_user(p,buf,chars);
+		p += chars;
+		buf += chars;
+		mark_buffer_uptodate(bh, 1);
+		mark_buffer_dirty(bh);
+		if (filp->f_flags & O_SYNC)
+			bufferlist[buffercount++] = bh;
+		else
+			brelse(bh);
+		if (buffercount == NBUF){
+			ll_rw_block(WRITE, buffercount, bufferlist);
+			for(i=0; i<buffercount; i++){
+				wait_on_buffer(bufferlist[i]);
+				if (!buffer_uptodate(bufferlist[i]))
+					write_error=1;
+				brelse(bufferlist[i]);
+			}
+			buffercount=0;
+		}
+		balance_dirty(dev);
+		if (write_error)
+			break;
 	}
-	return retval;
-}
-
-static loff_t blkdev_size(kdev_t dev)
-{
-	unsigned int blocks = ~0U;
-	int major = MAJOR(dev);
-
-	if (blk_size[major]) {
-		int minor = MINOR(dev);
-		blocks = blk_size[major][minor];
-	}
-	return (loff_t) blocks << BLOCK_SIZE_BITS;
-}
-
-/* Kill _all_ buffers, dirty or not.. */
-static void kill_bdev(struct block_device *bdev)
-{
-	invalidate_bdev(bdev, 1);
-	truncate_inode_pages(bdev->bd_inode->i_mapping, 0);
-}	
-
-int set_blocksize(kdev_t dev, int size)
-{
-	int oldsize;
-	struct block_device *bdev;
-
-	/* Size must be a power of two, and between 512 and PAGE_SIZE */
-	if (size > PAGE_SIZE || size < 512 || (size & (size-1)))
-		return -EINVAL;
-
-	/* Size cannot be smaller than the size supported by the device */
-	if (size < get_hardsect_size(dev))
-		return -EINVAL;
-
-	/* No blocksize array? Implies hardcoded BLOCK_SIZE */
-	if (!blksize_size[MAJOR(dev)]) {
-		if (size == BLOCK_SIZE)
-			return 0;
-		return -EINVAL;
-	}
-
-	oldsize = blksize_size[MAJOR(dev)][MINOR(dev)];
-	if (oldsize == size)
-		return 0;
-
-	if (!oldsize && size == BLOCK_SIZE) {
-		blksize_size[MAJOR(dev)][MINOR(dev)] = size;
-		return 0;
-	}
-
-	/* Ok, we're actually changing the blocksize.. */
-	bdev = bdget(dev);
-	sync_buffers(dev, 2);
-	blksize_size[MAJOR(dev)][MINOR(dev)] = size;
-	bdev->bd_inode->i_blkbits = blksize_bits(size);
-	kill_bdev(bdev);
-	bdput(bdev);
-	return 0;
-}
-
-static int blkdev_get_block(struct inode * inode, long iblock, struct buffer_head * bh, int create)
-{
-	if (iblock >= max_block(inode->i_rdev))
+	cleanup:
+	if ( buffercount ){
+		ll_rw_block(WRITE, buffercount, bufferlist);
+		for(i=0; i<buffercount; i++){
+			wait_on_buffer(bufferlist[i]);
+			if (!buffer_uptodate(bufferlist[i]))
+				write_error=1;
+			brelse(bufferlist[i]);
+		}
+	}		
+	if(!retval)
+		filp->f_reada = 1;
+	if(write_error)
 		return -EIO;
-
-	bh->b_dev = inode->i_rdev;
-	bh->b_blocknr = iblock;
-	bh->b_state |= 1UL << BH_Mapped;
-	return 0;
+	return written ? written : retval;
 }
 
-static int blkdev_writepage(struct page * page)
+ssize_t block_read(struct file * filp, char * buf, size_t count, loff_t *ppos)
 {
-	return block_write_full_page(page, blkdev_get_block);
-}
+	struct inode * inode = filp->f_dentry->d_inode;
+	size_t block;
+	loff_t offset;
+	ssize_t blocksize;
+	ssize_t blocksize_bits, i;
+	size_t blocks, rblocks, left;
+	int bhrequest, uptodate;
+	struct buffer_head ** bhb, ** bhe;
+	struct buffer_head * buflist[NBUF];
+	struct buffer_head * bhreq[NBUF];
+	unsigned int chars;
+	loff_t size;
+	kdev_t dev;
+	ssize_t read;
 
-static int blkdev_readpage(struct file * file, struct page * page)
-{
-	return block_read_full_page(page, blkdev_get_block);
-}
+	dev = inode->i_rdev;
+	blocksize = BLOCK_SIZE;
+	if (blksize_size[MAJOR(dev)] && blksize_size[MAJOR(dev)][MINOR(dev)])
+		blocksize = blksize_size[MAJOR(dev)][MINOR(dev)];
+	i = blocksize;
+	blocksize_bits = 0;
+	while (i != 1) {
+		blocksize_bits++;
+		i >>= 1;
+	}
 
-static int blkdev_prepare_write(struct file *file, struct page *page, unsigned from, unsigned to)
-{
-	return block_prepare_write(page, from, to, blkdev_get_block);
-}
+	offset = *ppos;
+	if (blk_size[MAJOR(dev)])
+		size = (loff_t) blk_size[MAJOR(dev)][MINOR(dev)] << BLOCK_SIZE_BITS;
+	else
+		size = (loff_t) INT_MAX << BLOCK_SIZE_BITS;
 
-static int blkdev_commit_write(struct file *file, struct page *page, unsigned from, unsigned to)
-{
-	return block_commit_write(page, from, to);
+	if (offset > size)
+		left = 0;
+	/* size - offset might not fit into left, so check explicitly. */
+	else if (size - offset > INT_MAX)
+		left = INT_MAX;
+	else
+		left = size - offset;
+	if (left > count)
+		left = count;
+	if (left <= 0)
+		return 0;
+	read = 0;
+	block = offset >> blocksize_bits;
+	offset &= blocksize-1;
+	size >>= blocksize_bits;
+	rblocks = blocks = (left + offset + blocksize - 1) >> blocksize_bits;
+	bhb = bhe = buflist;
+	if (filp->f_reada) {
+	        if (blocks < read_ahead[MAJOR(dev)] / (blocksize >> 9))
+			blocks = read_ahead[MAJOR(dev)] / (blocksize >> 9);
+		if (rblocks > blocks)
+			blocks = rblocks;
+		
+	}
+	if (block + blocks > size) {
+		blocks = size - block;
+		if (blocks == 0)
+			return 0;
+	}
+
+	/* We do this in a two stage process.  We first try to request
+	   as many blocks as we can, then we wait for the first one to
+	   complete, and then we try to wrap up as many as are actually
+	   done.  This routine is rather generic, in that it can be used
+	   in a filesystem by substituting the appropriate function in
+	   for getblk.
+
+	   This routine is optimized to make maximum use of the various
+	   buffers and caches. */
+
+	do {
+		bhrequest = 0;
+		uptodate = 1;
+		while (blocks) {
+			--blocks;
+			*bhb = getblk(dev, block++, blocksize);
+			if (*bhb && !buffer_uptodate(*bhb)) {
+				uptodate = 0;
+				bhreq[bhrequest++] = *bhb;
+			}
+
+			if (++bhb == &buflist[NBUF])
+				bhb = buflist;
+
+			/* If the block we have on hand is uptodate, go ahead
+			   and complete processing. */
+			if (uptodate)
+				break;
+			if (bhb == bhe)
+				break;
+		}
+
+		/* Now request them all */
+		if (bhrequest) {
+			ll_rw_block(READ, bhrequest, bhreq);
+		}
+
+		do { /* Finish off all I/O that has actually completed */
+			if (*bhe) {
+				wait_on_buffer(*bhe);
+				if (!buffer_uptodate(*bhe)) {	/* read error? */
+				        brelse(*bhe);
+					if (++bhe == &buflist[NBUF])
+					  bhe = buflist;
+					left = 0;
+					break;
+				}
+			}			
+			if (left < blocksize - offset)
+				chars = left;
+			else
+				chars = blocksize - offset;
+			*ppos += chars;
+			left -= chars;
+			read += chars;
+			if (*bhe) {
+				copy_to_user(buf,offset+(*bhe)->b_data,chars);
+				brelse(*bhe);
+				buf += chars;
+			} else {
+				while (chars-- > 0)
+					put_user(0,buf++);
+			}
+			offset = 0;
+			if (++bhe == &buflist[NBUF])
+				bhe = buflist;
+		} while (left > 0 && bhe != bhb && (!*bhe || !buffer_locked(*bhe)));
+		if (bhe == bhb && !blocks)
+			break;
+	} while (left > 0);
+
+/* Release the read-ahead blocks */
+	while (bhe != bhb) {
+		brelse(*bhe);
+		if (++bhe == &buflist[NBUF])
+			bhe = buflist;
+	}
+	if (!read)
+		return -EIO;
+	filp->f_reada = 1;
+	return read;
 }
 
 /*
@@ -140,19 +327,21 @@ static int blkdev_commit_write(struct file *file, struct page *page, unsigned fr
  */
 static loff_t block_llseek(struct file *file, loff_t offset, int origin)
 {
-	/* ewww */
-	loff_t size = file->f_dentry->d_inode->i_bdev->bd_inode->i_size;
-	loff_t retval;
+	long long retval;
+	kdev_t dev;
 
 	switch (origin) {
 		case 2:
-			offset += size;
+			dev = file->f_dentry->d_inode->i_rdev;
+			if (blk_size[MAJOR(dev)])
+				offset += (loff_t) blk_size[MAJOR(dev)][MINOR(dev)] << BLOCK_SIZE_BITS;
+			/* else?  return -EINVAL? */
 			break;
 		case 1:
 			offset += file->f_pos;
 	}
 	retval = -EINVAL;
-	if (offset >= 0 && offset <= size) {
+	if (offset >= 0) {
 		if (offset != file->f_pos) {
 			file->f_pos = offset;
 			file->f_reada = 0;
@@ -164,17 +353,6 @@ static loff_t block_llseek(struct file *file, loff_t offset, int origin)
 }
 	
 
-static int __block_fsync(struct inode * inode)
-{
-	int ret;
-
-	filemap_fdatasync(inode->i_mapping);
-	ret = sync_buffers(inode->i_rdev, 1);
-	filemap_fdatawait(inode->i_mapping);
-
-	return ret;
-}
-
 /*
  *	Filp may be NULL when we are called by an msync of a vma
  *	since the vma has no handle.
@@ -182,43 +360,8 @@ static int __block_fsync(struct inode * inode)
  
 static int block_fsync(struct file *filp, struct dentry *dentry, int datasync)
 {
-	struct inode * inode = dentry->d_inode;
-
-	return __block_fsync(inode);
+	return fsync_dev(dentry->d_inode->i_rdev);
 }
-
-/*
- * pseudo-fs
- */
-
-static struct super_block *bd_read_super(struct super_block *sb, void *data, int silent)
-{
-	static struct super_operations sops = {};
-	struct inode *root = new_inode(sb);
-	if (!root)
-		return NULL;
-	root->i_mode = S_IFDIR | S_IRUSR | S_IWUSR;
-	root->i_uid = root->i_gid = 0;
-	root->i_atime = root->i_mtime = root->i_ctime = CURRENT_TIME;
-	sb->s_maxbytes = ~0ULL;
-	sb->s_blocksize = 1024;
-	sb->s_blocksize_bits = 10;
-	sb->s_magic = 0x62646576;
-	sb->s_op = &sops;
-	sb->s_root = d_alloc(NULL, &(const struct qstr) { "bdev:", 5, 0 });
-	if (!sb->s_root) {
-		iput(root);
-		return NULL;
-	}
-	sb->s_root->d_sb = sb;
-	sb->s_root->d_parent = sb->s_root;
-	d_instantiate(sb->s_root, root);
-	return sb;
-}
-
-static DECLARE_FSTYPE(bd_type, "bdev", bd_read_super, FS_NOMOUNT);
-
-static struct vfsmount *bd_mnt;
 
 /*
  * bdev cache handling - shamelessly stolen from inode.c
@@ -251,7 +394,7 @@ static void init_once(void * foo, kmem_cache_t * cachep, unsigned long flags)
 
 void __init bdev_cache_init(void)
 {
-	int i, err;
+	int i;
 	struct list_head *head = bdev_hashtable;
 
 	i = HASH_SIZE;
@@ -267,13 +410,6 @@ void __init bdev_cache_init(void)
 					 NULL);
 	if (!bdev_cachep)
 		panic("Cannot create bdev_cache SLAB cache");
-	err = register_filesystem(&bd_type);
-	if (err)
-		panic("Cannot register bdev pseudo-fs");
-	bd_mnt = kern_mount(&bd_type);
-	err = PTR_ERR(bd_mnt);
-	if (IS_ERR(bd_mnt))
-		panic("Cannot create bdev pseudo-fs");
 }
 
 /*
@@ -311,31 +447,20 @@ struct block_device *bdget(dev_t dev)
 	if (bdev)
 		return bdev;
 	new_bdev = alloc_bdev();
-	if (new_bdev) {
-		struct inode *inode = new_inode(bd_mnt->mnt_sb);
-		if (inode) {
-			kdev_t kdev = to_kdev_t(dev);
-			atomic_set(&new_bdev->bd_count,1);
-			new_bdev->bd_dev = dev;
-			new_bdev->bd_op = NULL;
-			new_bdev->bd_inode = inode;
-			inode->i_rdev = kdev;
-			inode->i_dev = kdev;
-			inode->i_bdev = new_bdev;
-			inode->i_data.a_ops = &def_blk_aops;
-			inode->i_data.gfp_mask = GFP_USER;
-			spin_lock(&bdev_lock);
-			bdev = bdfind(dev, head);
-			if (!bdev) {
-				list_add(&new_bdev->bd_hash, head);
-				spin_unlock(&bdev_lock);
-				return new_bdev;
-			}
-			spin_unlock(&bdev_lock);
-			iput(new_bdev->bd_inode);
-		}
-		destroy_bdev(new_bdev);
+	if (!new_bdev)
+		return NULL;
+	atomic_set(&new_bdev->bd_count,1);
+	new_bdev->bd_dev = dev;
+	new_bdev->bd_op = NULL;
+	spin_lock(&bdev_lock);
+	bdev = bdfind(dev, head);
+	if (!bdev) {
+		list_add(&new_bdev->bd_hash, head);
+		spin_unlock(&bdev_lock);
+		return new_bdev;
 	}
+	spin_unlock(&bdev_lock);
+	destroy_bdev(new_bdev);
 	return bdev;
 }
 
@@ -343,25 +468,22 @@ static inline void __bd_forget(struct inode *inode)
 {
 	list_del_init(&inode->i_devices);
 	inode->i_bdev = NULL;
-	inode->i_mapping = &inode->i_data;
 }
 
 void bdput(struct block_device *bdev)
 {
 	if (atomic_dec_and_lock(&bdev->bd_count, &bdev_lock)) {
 		struct list_head *p;
-		if (bdev->bd_openers)
+		if (atomic_read(&bdev->bd_openers))
 			BUG();
 		list_del(&bdev->bd_hash);
-		while ( (p = bdev->bd_inodes.next) != &bdev->bd_inodes ) {
+		while ( (p = bdev->bd_inodes.next) != &bdev->bd_inodes )
 			__bd_forget(list_entry(p, struct inode, i_devices));
-		}
 		spin_unlock(&bdev_lock);
-		iput(bdev->bd_inode);
 		destroy_bdev(bdev);
 	}
 }
- 
+
 int bd_acquire(struct inode *inode)
 {
 	struct block_device *bdev;
@@ -378,7 +500,6 @@ int bd_acquire(struct inode *inode)
 	spin_lock(&bdev_lock);
 	if (!inode->i_bdev) {
 		inode->i_bdev = bdev;
-		inode->i_mapping = bdev->bd_inode->i_mapping;
 		list_add(&inode->i_devices, &bdev->bd_inodes);
 	} else if (inode->i_bdev != bdev)
 		BUG();
@@ -515,105 +636,120 @@ int check_disk_change(kdev_t dev)
 
 int ioctl_by_bdev(struct block_device *bdev, unsigned cmd, unsigned long arg)
 {
+	struct inode inode_fake;
 	int res;
 	mm_segment_t old_fs = get_fs();
 
 	if (!bdev->bd_op->ioctl)
 		return -EINVAL;
+	memset(&inode_fake, 0, sizeof(inode_fake));
+	inode_fake.i_rdev = to_kdev_t(bdev->bd_dev);
+	inode_fake.i_bdev = bdev;
+	init_waitqueue_head(&inode_fake.i_wait);
 	set_fs(KERNEL_DS);
-	res = bdev->bd_op->ioctl(bdev->bd_inode, NULL, cmd, arg);
+	res = bdev->bd_op->ioctl(&inode_fake, NULL, cmd, arg);
 	set_fs(old_fs);
 	return res;
 }
 
-static int do_open(struct block_device *bdev, struct inode *inode, struct file *file)
+int blkdev_get(struct block_device *bdev, mode_t mode, unsigned flags, int kind)
 {
-	int ret = -ENXIO;
-	kdev_t dev = to_kdev_t(bdev->bd_dev);
-
+	int ret = -ENODEV;
+	kdev_t rdev = to_kdev_t(bdev->bd_dev); /* this should become bdev */
 	down(&bdev->bd_sem);
-	lock_kernel();
 	if (!bdev->bd_op)
-		bdev->bd_op = get_blkfops(MAJOR(dev));
+		bdev->bd_op = get_blkfops(MAJOR(rdev));
 	if (bdev->bd_op) {
-		ret = 0;
-		if (bdev->bd_op->open)
-			ret = bdev->bd_op->open(inode, file);
-		if (!ret) {
-			bdev->bd_openers++;
-			bdev->bd_inode->i_size = blkdev_size(dev);
-			bdev->bd_inode->i_blkbits = blksize_bits(block_size(dev));
-		} else if (!bdev->bd_openers)
-			bdev->bd_op = NULL;
+		/*
+		 * This crockload is due to bad choice of ->open() type.
+		 * It will go away.
+		 * For now, block device ->open() routine must _not_
+		 * examine anything in 'inode' argument except ->i_rdev.
+		 */
+		struct file fake_file = {};
+		struct dentry fake_dentry = {};
+		struct inode *fake_inode = get_empty_inode();
+		ret = -ENOMEM;
+		if (fake_inode) {
+			fake_file.f_mode = mode;
+			fake_file.f_flags = flags;
+			fake_file.f_dentry = &fake_dentry;
+			fake_dentry.d_inode = fake_inode;
+			fake_inode->i_rdev = rdev;
+			ret = 0;
+			if (bdev->bd_op->open)
+				ret = bdev->bd_op->open(fake_inode, &fake_file);
+			if (!ret)
+				atomic_inc(&bdev->bd_openers);
+			else if (!atomic_read(&bdev->bd_openers))
+				bdev->bd_op = NULL;
+			iput(fake_inode);
+		}
 	}
-	unlock_kernel();
 	up(&bdev->bd_sem);
 	if (ret)
 		bdput(bdev);
 	return ret;
 }
 
-int blkdev_get(struct block_device *bdev, mode_t mode, unsigned flags, int kind)
-{
-	/*
-	 * This crockload is due to bad choice of ->open() type.
-	 * It will go away.
-	 * For now, block device ->open() routine must _not_
-	 * examine anything in 'inode' argument except ->i_rdev.
-	 */
-	struct file fake_file = {};
-	struct dentry fake_dentry = {};
-	fake_file.f_mode = mode;
-	fake_file.f_flags = flags;
-	fake_file.f_dentry = &fake_dentry;
-	fake_dentry.d_inode = bdev->bd_inode;
-
-	return do_open(bdev, bdev->bd_inode, &fake_file);
-}
-
 int blkdev_open(struct inode * inode, struct file * filp)
 {
+	int ret = -ENXIO;
 	struct block_device *bdev;
-
-	/*
-	 * Preserve backwards compatibility and allow large file access
-	 * even if userspace doesn't ask for it explicitly. Some mkfs
-	 * binary needs it. We might want to drop this workaround
-	 * during an unstable branch.
-	 */
-	filp->f_flags |= O_LARGEFILE;
 
 	bd_acquire(inode);
 	bdev = inode->i_bdev;
-
-	return do_open(bdev, inode, filp);
+	down(&bdev->bd_sem);
+	lock_kernel();
+	if (!bdev->bd_op)
+		bdev->bd_op = get_blkfops(MAJOR(inode->i_rdev));
+	if (bdev->bd_op) {
+		ret = 0;
+		if (bdev->bd_op->open)
+			ret = bdev->bd_op->open(inode,filp);
+		if (!ret)
+			atomic_inc(&bdev->bd_openers);
+		else if (!atomic_read(&bdev->bd_openers))
+			bdev->bd_op = NULL;
+	}	
+	unlock_kernel();
+	up(&bdev->bd_sem);
+	if (ret)
+		bdput(bdev);
+	return ret;
 }	
 
 int blkdev_put(struct block_device *bdev, int kind)
 {
 	int ret = 0;
 	kdev_t rdev = to_kdev_t(bdev->bd_dev); /* this should become bdev */
-	struct inode *bd_inode = bdev->bd_inode;
-
 	down(&bdev->bd_sem);
 	lock_kernel();
 	if (kind == BDEV_FILE)
-		__block_fsync(bd_inode);
+		fsync_dev(rdev);
 	else if (kind == BDEV_FS)
 		fsync_no_super(rdev);
-	if (!--bdev->bd_openers)
-		kill_bdev(bdev);
-	if (bdev->bd_op->release)
-		ret = bdev->bd_op->release(bd_inode, NULL);
-	if (!bdev->bd_openers)
-		bdev->bd_op = NULL;
+	if (atomic_dec_and_test(&bdev->bd_openers))
+		invalidate_buffers(rdev);
+	if (bdev->bd_op->release) {
+		struct inode * fake_inode = get_empty_inode();
+		ret = -ENOMEM;
+		if (fake_inode) {
+			fake_inode->i_rdev = rdev;
+			ret = bdev->bd_op->release(fake_inode, NULL);
+			iput(fake_inode);
+		}
+	}
+	if (!atomic_read(&bdev->bd_openers))
+		bdev->bd_op = NULL;	/* we can't rely on driver being */
+					/* kind to stay around. */
 	unlock_kernel();
 	up(&bdev->bd_sem);
 	bdput(bdev);
 	return ret;
 }
 
-int blkdev_close(struct inode * inode, struct file * filp)
+static int blkdev_close(struct inode * inode, struct file * filp)
 {
 	return blkdev_put(inode->i_bdev, BDEV_FILE);
 }
@@ -626,21 +762,12 @@ static int blkdev_ioctl(struct inode *inode, struct file *file, unsigned cmd,
 	return -EINVAL;
 }
 
-struct address_space_operations def_blk_aops = {
-	readpage: blkdev_readpage,
-	writepage: blkdev_writepage,
-	sync_page: block_sync_page,
-	prepare_write: blkdev_prepare_write,
-	commit_write: blkdev_commit_write,
-};
-
 struct file_operations def_blk_fops = {
 	open:		blkdev_open,
 	release:	blkdev_close,
 	llseek:		block_llseek,
-	read:		generic_file_read,
-	write:		generic_file_write,
-	mmap:		generic_file_mmap,
+	read:		block_read,
+	write:		block_write,
 	fsync:		block_fsync,
 	ioctl:		blkdev_ioctl,
 };

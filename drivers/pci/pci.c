@@ -684,6 +684,28 @@ run_sbin_hotplug(struct pci_dev *pdev, int insert)
 }
 
 /**
+ * pci_announce_device_to_drivers - tell the drivers a new device has appeared
+ * @dev: the device that has shown up
+ *
+ * Notifys the drivers that a new device has appeared, and also notifys
+ * userspace through /sbin/hotplug.
+ */
+void
+pci_announce_device_to_drivers(struct pci_dev *dev)
+{
+	struct list_head *ln;
+
+	for(ln=pci_drivers.next; ln != &pci_drivers; ln=ln->next) {
+		struct pci_driver *drv = list_entry(ln, struct pci_driver, node);
+		if (drv->remove && pci_announce_device(drv, dev))
+			break;
+	}
+
+	/* notify userspace of new hotplug device */
+	run_sbin_hotplug(dev, TRUE);
+}
+
+/**
  * pci_insert_device - insert a hotplug device
  * @dev: the device to insert
  * @bus: where to insert it
@@ -693,21 +715,12 @@ run_sbin_hotplug(struct pci_dev *pdev, int insert)
 void
 pci_insert_device(struct pci_dev *dev, struct pci_bus *bus)
 {
-	struct list_head *ln;
-
 	list_add_tail(&dev->bus_list, &bus->devices);
 	list_add_tail(&dev->global_list, &pci_devices);
 #ifdef CONFIG_PROC_FS
 	pci_proc_attach_device(dev);
 #endif
-	for(ln=pci_drivers.next; ln != &pci_drivers; ln=ln->next) {
-		struct pci_driver *drv = list_entry(ln, struct pci_driver, node);
-		if (drv->remove && pci_announce_device(drv, dev))
-			break;
-	}
-
-	/* notify userspace of new hotplug device */
-	run_sbin_hotplug(dev, TRUE);
+	pci_announce_device_to_drivers(dev);
 }
 
 static void
@@ -951,7 +964,7 @@ static void pci_read_bases(struct pci_dev *dev, unsigned int howmany, int rom)
 	}
 }
 
-void __init pci_read_bridge_bases(struct pci_bus *child)
+void __devinit  pci_read_bridge_bases(struct pci_bus *child)
 {
 	struct pci_dev *dev = child->self;
 	u8 io_base_lo, io_limit_lo;
@@ -969,10 +982,10 @@ void __init pci_read_bridge_bases(struct pci_bus *child)
 	res = child->resource[0];
 	pci_read_config_byte(dev, PCI_IO_BASE, &io_base_lo);
 	pci_read_config_byte(dev, PCI_IO_LIMIT, &io_limit_lo);
-	base = (io_base_lo & PCI_IO_RANGE_MASK) << 8;
-	limit = (io_limit_lo & PCI_IO_RANGE_MASK) << 8;
+	base = (unsigned long)(io_base_lo & PCI_IO_RANGE_MASK) << 8;
+	limit = (unsigned long)(io_limit_lo & PCI_IO_RANGE_MASK) << 8;
 
-	if ((base & PCI_IO_RANGE_TYPE_MASK) == PCI_IO_RANGE_TYPE_32) {
+	if ((io_base_lo & PCI_IO_RANGE_TYPE_MASK) == PCI_IO_RANGE_TYPE_32) {
 		u16 io_base_hi, io_limit_hi;
 		pci_read_config_word(dev, PCI_IO_BASE_UPPER16, &io_base_hi);
 		pci_read_config_word(dev, PCI_IO_LIMIT_UPPER16, &io_limit_hi);
@@ -997,8 +1010,8 @@ void __init pci_read_bridge_bases(struct pci_bus *child)
 	res = child->resource[1];
 	pci_read_config_word(dev, PCI_MEMORY_BASE, &mem_base_lo);
 	pci_read_config_word(dev, PCI_MEMORY_LIMIT, &mem_limit_lo);
-	base = (mem_base_lo & PCI_MEMORY_RANGE_MASK) << 16;
-	limit = (mem_limit_lo & PCI_MEMORY_RANGE_MASK) << 16;
+	base = (unsigned long)(mem_base_lo & PCI_MEMORY_RANGE_MASK) << 16;
+	limit = (unsigned long)(mem_limit_lo & PCI_MEMORY_RANGE_MASK) << 16;
 	if (base && base <= limit) {
 		res->flags = (mem_base_lo & PCI_MEMORY_RANGE_TYPE_MASK) | IORESOURCE_MEM;
 		res->start = base;
@@ -1013,16 +1026,16 @@ void __init pci_read_bridge_bases(struct pci_bus *child)
 	res = child->resource[2];
 	pci_read_config_word(dev, PCI_PREF_MEMORY_BASE, &mem_base_lo);
 	pci_read_config_word(dev, PCI_PREF_MEMORY_LIMIT, &mem_limit_lo);
-	base = (mem_base_lo & PCI_PREF_RANGE_MASK) << 16;
-	limit = (mem_limit_lo & PCI_PREF_RANGE_MASK) << 16;
+	base = (unsigned long)(mem_base_lo & PCI_PREF_RANGE_MASK) << 16;
+	limit = (unsigned long)(mem_limit_lo & PCI_PREF_RANGE_MASK) << 16;
 
 	if ((mem_base_lo & PCI_PREF_RANGE_TYPE_MASK) == PCI_PREF_RANGE_TYPE_64) {
 		u32 mem_base_hi, mem_limit_hi;
 		pci_read_config_dword(dev, PCI_PREF_BASE_UPPER32, &mem_base_hi);
 		pci_read_config_dword(dev, PCI_PREF_LIMIT_UPPER32, &mem_limit_hi);
 #if BITS_PER_LONG == 64
-		base |= ((long) mem_base_hi) << 32;
-		limit |= ((long) mem_limit_hi) << 32;
+		base |= ((unsigned long) mem_base_hi) << 32;
+		limit |= ((unsigned long) mem_limit_hi) << 32;
 #else
 		if (mem_base_hi || mem_limit_hi) {
 			printk(KERN_ERR "PCI: Unable to handle 64-bit address space for %s\n", child->name);
@@ -1042,7 +1055,7 @@ void __init pci_read_bridge_bases(struct pci_bus *child)
 	}
 }
 
-static struct pci_bus * __init pci_alloc_bus(void)
+static struct pci_bus * __devinit  pci_alloc_bus(void)
 {
 	struct pci_bus *b;
 
@@ -1055,7 +1068,7 @@ static struct pci_bus * __init pci_alloc_bus(void)
 	return b;
 }
 
-static struct pci_bus * __init pci_add_new_bus(struct pci_bus *parent, struct pci_dev *dev, int busnr)
+struct pci_bus * __devinit pci_add_new_bus(struct pci_bus *parent, struct pci_dev *dev, int busnr)
 {
 	struct pci_bus *child;
 	int i;
@@ -1087,7 +1100,7 @@ static struct pci_bus * __init pci_add_new_bus(struct pci_bus *parent, struct pc
 	return child;
 }
 
-static unsigned int __init pci_do_scan_bus(struct pci_bus *bus);
+unsigned int __devinit pci_do_scan_bus(struct pci_bus *bus);
 
 /*
  * If it's a bridge, configure it and scan the bus behind it.
@@ -1099,7 +1112,7 @@ static unsigned int __init pci_do_scan_bus(struct pci_bus *bus);
  * them, we proceed to assigning numbers to the remaining buses in
  * order to avoid overlaps between old and new bus numbers.
  */
-static int __init pci_scan_bridge(struct pci_bus *bus, struct pci_dev * dev, int max, int pass)
+static int __devinit pci_scan_bridge(struct pci_bus *bus, struct pci_dev * dev, int max, int pass)
 {
 	unsigned int buses;
 	unsigned short cr;
@@ -1255,7 +1268,7 @@ int pci_setup_device(struct pci_dev * dev)
  * Read the config data for a PCI device, sanity-check it
  * and fill in the dev structure...
  */
-static struct pci_dev * __init pci_scan_device(struct pci_dev *temp)
+struct pci_dev * __devinit pci_scan_device(struct pci_dev *temp)
 {
 	struct pci_dev *dev;
 	u32 l;
@@ -1285,7 +1298,7 @@ static struct pci_dev * __init pci_scan_device(struct pci_dev *temp)
 	return dev;
 }
 
-struct pci_dev * __init pci_scan_slot(struct pci_dev *temp)
+struct pci_dev * __devinit pci_scan_slot(struct pci_dev *temp)
 {
 	struct pci_bus *bus = temp->bus;
 	struct pci_dev *dev;
@@ -1323,7 +1336,7 @@ struct pci_dev * __init pci_scan_slot(struct pci_dev *temp)
 	return first_dev;
 }
 
-static unsigned int __init pci_do_scan_bus(struct pci_bus *bus)
+unsigned int __devinit pci_do_scan_bus(struct pci_bus *bus)
 {
 	unsigned int devfn, max, pass;
 	struct list_head *ln;
@@ -1367,7 +1380,7 @@ static unsigned int __init pci_do_scan_bus(struct pci_bus *bus)
 	return max;
 }
 
-int __init pci_bus_exists(const struct list_head *list, int nr)
+int __devinit  pci_bus_exists(const struct list_head *list, int nr)
 {
 	const struct list_head *l;
 
@@ -1379,7 +1392,7 @@ int __init pci_bus_exists(const struct list_head *list, int nr)
 	return 0;
 }
 
-struct pci_bus * __init pci_alloc_primary_bus(int bus)
+struct pci_bus * __devinit  pci_alloc_primary_bus(int bus)
 {
 	struct pci_bus *b;
 
@@ -1398,7 +1411,7 @@ struct pci_bus * __init pci_alloc_primary_bus(int bus)
 	return b;
 }
 
-struct pci_bus * __init pci_scan_bus(int bus, struct pci_ops *ops, void *sysdata)
+struct pci_bus * __devinit  pci_scan_bus(int bus, struct pci_ops *ops, void *sysdata)
 {
 	struct pci_bus *b = pci_alloc_primary_bus(bus);
 	if (b) {
@@ -1809,13 +1822,13 @@ restart:
 		if (mem_flags == SLAB_KERNEL) {
 			DECLARE_WAITQUEUE (wait, current);
 
-			current->state = TASK_INTERRUPTIBLE;
+			set_current_state(TASK_INTERRUPTIBLE);
 			add_wait_queue (&pool->waitq, &wait);
 			spin_unlock_irqrestore (&pool->lock, flags);
 
 			schedule_timeout (POOL_TIMEOUT_JIFFIES);
 
-			current->state = TASK_RUNNING;
+			set_current_state(TASK_RUNNING);
 			remove_wait_queue (&pool->waitq, &wait);
 			goto restart;
 		}
@@ -1916,7 +1929,7 @@ pci_pool_free (struct pci_pool *pool, void *vaddr, dma_addr_t dma)
 }
 
 
-void __init pci_init(void)
+void __devinit  pci_init(void)
 {
 	struct pci_dev *dev;
 
@@ -1931,7 +1944,7 @@ void __init pci_init(void)
 #endif
 }
 
-static int __init pci_setup(char *str)
+static int __devinit  pci_setup(char *str)
 {
 	while (str) {
 		char *k = strchr(str, ',');
@@ -1979,6 +1992,14 @@ EXPORT_SYMBOL(pci_find_parent_resource);
 EXPORT_SYMBOL(pci_setup_device);
 EXPORT_SYMBOL(pci_insert_device);
 EXPORT_SYMBOL(pci_remove_device);
+EXPORT_SYMBOL(pci_announce_device_to_drivers);
+EXPORT_SYMBOL(pci_add_new_bus);
+EXPORT_SYMBOL(pci_do_scan_bus);
+EXPORT_SYMBOL(pci_scan_slot);
+EXPORT_SYMBOL(pci_proc_attach_device);
+EXPORT_SYMBOL(pci_proc_detach_device);
+EXPORT_SYMBOL(pci_proc_attach_bus);
+EXPORT_SYMBOL(pci_proc_detach_bus);
 #endif
 
 EXPORT_SYMBOL(pci_set_power_state);

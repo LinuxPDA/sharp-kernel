@@ -235,7 +235,7 @@ airport_attach(struct device_node* of_node)
 		
 	/* Power up card */
 	feature_set_airport_power(card->node, 1);
-	current->state = TASK_UNINTERRUPTIBLE;
+	set_current_state(TASK_UNINTERRUPTIBLE);
 	schedule_timeout(HZ);
 
 	/* Reset it before we get the interrupt */
@@ -305,7 +305,7 @@ airport_detach(dldwd_priv_t *priv)
 //	ndev->base_addr = 0;
 	
 	feature_set_airport_power(card->node, 0);
-	current->state = TASK_UNINTERRUPTIBLE;
+	set_current_state(TASK_UNINTERRUPTIBLE);
 	schedule_timeout(HZ);
 	
 	kfree(card);

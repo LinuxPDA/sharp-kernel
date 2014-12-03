@@ -53,6 +53,7 @@
 
 #include <asm/uaccess.h>
 #include <asm/checksum.h>
+#include <asm/processor.h>
 
 /* Define this to allow debugging output */
 #undef IPCONFIG_DEBUG
@@ -605,6 +606,12 @@ static void __init ic_bootp_init_ext(u8 *e)
 	*e++ = 17;		/* Boot path */
 	*e++ = 40;
 	e += 40;
+
+	*e++ = 57;		/* set extension buffer size for reply */ 
+	*e++ = 2;
+	*e++ = 1;		/* 128+236+8+20+14, see dhcpd sources */ 
+	*e++ = 150;
+
 	*e++ = 255;		/* End of the list */
 }
 
@@ -993,8 +1000,10 @@ static int __init ic_dynamic(void)
 #endif
 
 		jiff = jiffies + (d->next ? CONF_INTER_TIMEOUT : timeout);
-		while (jiffies < jiff && !ic_got_reply)
+		while (jiffies < jiff && !ic_got_reply) {
 			barrier();
+			cpu_relax();
+		}
 #ifdef IPCONFIG_DHCP
 		/* DHCP isn't done until we get a DHCPACK. */
 		if ((ic_got_reply & IC_BOOTP)

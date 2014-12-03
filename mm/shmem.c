@@ -47,9 +47,14 @@ static struct vm_operations_struct shmem_vm_ops;
 
 LIST_HEAD (shmem_inodes);
 static spinlock_t shmem_ilock = SPIN_LOCK_UNLOCKED;
-atomic_t shmem_nrpages = ATOMIC_INIT(0); /* Not used right now */
+atomic_t shmem_nrpages = ATOMIC_INIT(0);
 
 #define BLOCKS_PER_PAGE (PAGE_CACHE_SIZE/512)
+
+static void shmem_removepage(struct page *page)
+{
+	atomic_dec(&shmem_nrpages);
+}
 
 /*
  * shmem_recalc_inode - recalculate the size of an inode
@@ -388,6 +393,7 @@ static int shmem_unuse_inode (struct shmem_inode_info *info, swp_entry_t entry, 
 found:
 	delete_from_swap_cache(page);
 	add_to_page_cache(page, info->inode->i_mapping, offset + idx);
+	atomic_inc(&shmem_nrpages);
 	SetPageDirty(page);
 	SetPageUptodate(page);
 	info->swapped--;
@@ -465,6 +471,7 @@ getswap:
 		 * Add page back to page cache, unref swap, try again.
 		 */
 		add_to_page_cache_locked(page, mapping, index);
+		atomic_inc(&shmem_nrpages);
 		spin_unlock(&info->lock);
 		swap_free(swap);
 		goto getswap;
@@ -587,6 +594,7 @@ repeat:
 	}
 
 	/* We have the page */
+	atomic_inc(&shmem_nrpages);
 	SetPageUptodate(page);
 	if (info->locked)
 		page_cache_get(page);
@@ -1151,16 +1159,16 @@ static int shmem_symlink(struct inode * dir, struct dentry *dentry, const char *
 	if (error)
 		return error;
 
-	len = strlen(symname) + 1;
-	if (len > PAGE_CACHE_SIZE)
+	len = strlen(symname);
+	if (len >= PAGE_CACHE_SIZE)
 		return -ENAMETOOLONG;
 		
 	inode = dentry->d_inode;
 	info = SHMEM_I(inode);
 	inode->i_size = len;
-	if (len <= sizeof(struct shmem_inode_info)) {
+	if (len < sizeof(struct shmem_inode_info)) {
 		/* do it inline */
-		memcpy(info, symname, len);
+		memcpy(info, symname, len + 1);
 		inode->i_op = &shmem_symlink_inline_operations;
 	} else {
 		spin_lock (&shmem_ilock);
@@ -1173,7 +1181,7 @@ static int shmem_symlink(struct inode * dir, struct dentry *dentry, const char *
 			return PTR_ERR(page);
 		}
 		kaddr = kmap(page);
-		memcpy(kaddr, symname, len);
+		memcpy(kaddr, symname, len + 1);
 		kunmap(page);
 		SetPageDirty(page);
 		UnlockPage(page);
@@ -1351,6 +1359,7 @@ static struct super_block *shmem_read_super(struct super_block * sb, void * data
 
 
 static struct address_space_operations shmem_aops = {
+	removepage:	shmem_removepage,
 	writepage:	shmem_writepage,
 };
 

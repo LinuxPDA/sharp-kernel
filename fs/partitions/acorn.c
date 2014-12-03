@@ -31,6 +31,7 @@ adfspart_setgeometry(kdev_t dev, unsigned int secspertrack, unsigned int heads)
 	if (MAJOR(dev) == MFM_ACORN_MAJOR) {
 		unsigned long totalblocks = hd->part[MINOR(dev)].nr_sects;
 		xd_set_geometry(dev, secspertrack, heads, totalblocks, 1);
+		invalidate_buffers(dev);
 	}
 #endif
 }
@@ -255,8 +256,6 @@ adfspart_check_ADFS(struct gendisk *hd, struct block_device *bdev,
 	put_dev_sector(sect);
 
 	adfspart_setgeometry(to_kdev_t(bdev->bd_dev), dr->secspertrack, heads);
-	invalidate_bdev(bdev, 1);
-	truncate_inode_pages(bdev->bd_inode->i_mapping, 0);
 
 	/*
 	 * Work out start of non-adfs partition.

@@ -429,8 +429,6 @@
 #include <asm/bitops.h>
 
 
-#define NO_LONGER_REQUIRED	(1)
-
 /*
  *	OnStream support
  */
@@ -2101,10 +2099,6 @@ static ide_startstop_t idetape_pc_intr (ide_drive_t *drive)
 		if (status.b.check && pc->c[0] == IDETAPE_REQUEST_SENSE_CMD)
 			status.b.check = 0;
 		if (status.b.check || test_bit (PC_DMA_ERROR, &pc->flags)) {	/* Error detected */
-#if IDETAPE_DEBUG_LOG
-			if (tape->debug_level >= 1)
-				printk (KERN_INFO "ide-tape: %s: I/O error, ",tape->name);
-#endif /* IDETAPE_DEBUG_LOG */
 			if (pc->c[0] == IDETAPE_REQUEST_SENSE_CMD) {
 				printk (KERN_ERR "ide-tape: I/O error in request sense command\n");
 				return ide_do_reset (drive);
@@ -2178,7 +2172,7 @@ static ide_startstop_t idetape_pc_intr (ide_drive_t *drive)
 	pc->current_position+=bcount.all;
 #if IDETAPE_DEBUG_LOG
 	if (tape->debug_level >= 2)
-		printk(KERN_INFO "ide-tape: [cmd %x] transferred %d bytes on that interrupt\n", pc->c[0], bcount.all);
+		printk(KERN_INFO "ide-tape: [cmd %x] done %d\n", pc->c[0], bcount.all);
 #endif
 	ide_set_handler (drive, &idetape_pc_intr, IDETAPE_WAIT_CMD, NULL);	/* And set the interrupt handler again */
 	return ide_started;
@@ -2297,7 +2291,7 @@ static ide_startstop_t idetape_issue_packet_command (ide_drive_t *drive, idetape
 	}
 #if IDETAPE_DEBUG_LOG
 	if (tape->debug_level >= 2)
-		printk (KERN_INFO "ide-tape: Retry number - %d\n", pc->retries);
+		printk (KERN_INFO "ide-tape: Retry number - %d, [cmd %x]\n", pc->retries, pc->c[0]);
 #endif /* IDETAPE_DEBUG_LOG */
 
 	pc->retries++;
@@ -2472,7 +2466,8 @@ static ide_startstop_t idetape_media_access_finished (ide_drive_t *drive)
 	status.all = GET_STAT();
 	if (status.b.dsc) {
 		if (status.b.check) {					/* Error detected */
-			printk (KERN_ERR "ide-tape: %s: I/O error, ",tape->name);
+			printk (KERN_ERR "ide-tape: %s: I/O error: pc = %2x, key = %2x, asc = %2x, ascq = %2x\n",
+					tape->name, pc->c[0], tape->sense_key, tape->asc, tape->ascq);
 			return idetape_retry_pc (drive);			/* Retry operation */
 		}
 		pc->error = 0;
@@ -3096,10 +3091,10 @@ static ide_startstop_t idetape_read_position_callback (ide_drive_t *drive)
 	idetape_tape_t *tape = drive->driver_data;
 	idetape_read_position_result_t *result;
 	
-//#if IDETAPE_DEBUG_LOG
-//	if (tape->debug_level >= 4)
+#if IDETAPE_DEBUG_LOG
+	if (tape->debug_level >= 4)
 		printk (KERN_INFO "ide-tape: Reached idetape_read_position_callback\n");
-//#endif /* IDETAPE_DEBUG_LOG */
+#endif /* IDETAPE_DEBUG_LOG */
 
 	if (!tape->pc->error) {
 		result = (idetape_read_position_result_t *) tape->pc->buffer;
@@ -3273,30 +3268,15 @@ static int idetape_read_position (ide_drive_t *drive)
 	idetape_pc_t pc;
 	int position;
 
-//#if IDETAPE_DEBUG_LOG
-//        if (tape->debug_level >= 4)
-	printk (KERN_INFO "ide-tape: Reached idetape_read_position\n");
-//#endif /* IDETAPE_DEBUG_LOG */
+#if IDETAPE_DEBUG_LOG
+	if (tape->debug_level >= 4)
+		printk (KERN_INFO "ide-tape: Reached idetape_read_position\n");
+#endif /* IDETAPE_DEBUG_LOG */
 
-#ifdef NO_LONGER_REQUIRED
-	idetape_flush_tape_buffers(drive);
-#endif
 	idetape_create_read_position_cmd(&pc);
 	if (idetape_queue_pc_tail (drive, &pc))
 		return -1;
 	position = tape->first_frame_position;
-#ifdef NO_LONGER_REQUIRED
-	if (tape->onstream) {
-		if ((position != tape->last_frame_position - tape->blocks_in_buffer) &&
-		    (position != tape->last_frame_position + tape->blocks_in_buffer)) {
-			if (tape->blocks_in_buffer == 0) {
-				printk("ide-tape: %s: correcting read position %d, %d, %d\n", tape->name, position, tape->last_frame_position, tape->blocks_in_buffer);
-				position = tape->last_frame_position;
-				tape->first_frame_position = position;
-			}
-		}
-	}
-#endif
 	return position;
 }
 
@@ -4804,7 +4784,7 @@ static ssize_t idetape_chrdev_write (struct file *file, const char *buf,
 		 */
 		if (tape->first_frame_position + tape->nr_stages >= tape->capacity - OS_EW)  {
 #if ONSTREAM_DEBUG
-			printk(KERN_INFO, "chrdev_write: Write truncated at EOM early warning");
+			printk(KERN_INFO "chrdev_write: Write truncated at EOM early warning");
 #endif
 			if (tape->chrdev_direction == idetape_direction_write)
 				idetape_write_release(inode);
@@ -6182,6 +6162,8 @@ static struct file_operations idetape_fops = {
 };
 
 MODULE_DESCRIPTION("ATAPI Streaming TAPE Driver");
+MODULE_LICENSE("GPL");
+
 
 static void __exit idetape_exit (void)
 {

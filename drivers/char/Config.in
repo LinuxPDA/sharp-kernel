@@ -16,6 +16,9 @@ if [ "$CONFIG_SERIAL" = "y" ]; then
       tristate '   Dual serial port support' CONFIG_DUALSP_SERIAL
    fi
 fi
+if [ "$CONFIG_ACPI" = "y" ]; then
+   bool '  Support for serial ports defined by ACPI tables' CONFIG_SERIAL_ACPI
+fi
 dep_mbool 'Extended dumb serial driver options' CONFIG_SERIAL_EXTENDED $CONFIG_SERIAL
 if [ "$CONFIG_SERIAL_EXTENDED" = "y" ]; then
    bool '  Support more than 4 serial ports' CONFIG_SERIAL_MANY_PORTS
@@ -155,17 +158,18 @@ if [ "$CONFIG_WATCHDOG" != "n" ]; then
    tristate '  Berkshire Products PC Watchdog' CONFIG_PCWATCHDOG
    tristate '  Acquire SBC Watchdog Timer' CONFIG_ACQUIRE_WDT
    tristate '  Advantech SBC Watchdog Timer' CONFIG_ADVANTECH_WDT
-   tristate '  IB700 SBC Watchdog Timer' CONFIG_IB700_WDT
-   tristate '  SBC-60XX Watchdog Timer' CONFIG_60XX_WDT
-   tristate '  W83877F (EMACS) Watchdog Timer' CONFIG_W83877F_WDT
-   tristate '  Mixcom Watchdog' CONFIG_MIXCOMWD 
-   tristate '  Intel i810 TCO timer / Watchdog' CONFIG_I810_TCO
    if [ "$CONFIG_FOOTBRIDGE" = "y" ]; then
       tristate '  DC21285 watchdog' CONFIG_21285_WATCHDOG
       if [ "$CONFIG_ARCH_NETWINDER" = "y" ]; then
          tristate '  NetWinder WB83C977 watchdog' CONFIG_977_WATCHDOG
       fi
    fi
+   tristate '  Eurotech CPU-1220/1410 Watchdog Timer' CONFIG_EUROTECH_WDT
+   tristate '  IB700 SBC Watchdog Timer' CONFIG_IB700_WDT
+   tristate '  Intel i810 TCO timer / Watchdog' CONFIG_I810_TCO
+   tristate '  Mixcom Watchdog' CONFIG_MIXCOMWD 
+   tristate '  SBC-60XX Watchdog Timer' CONFIG_60XX_WDT
+   tristate '  W83877F (EMACS) Watchdog Timer' CONFIG_W83877F_WDT
    tristate '  ZF MachZ Watchdog' CONFIG_MACHZ_WDT
 fi
 endmenu
@@ -206,21 +210,38 @@ endmenu
 
 dep_tristate '/dev/agpgart (AGP Support)' CONFIG_AGP $CONFIG_DRM_AGP
 if [ "$CONFIG_AGP" != "n" ]; then
-   bool '  Intel 440LX/BX/GX and I815/I830M/I840/I850 support' CONFIG_AGP_INTEL
-   bool '  Intel I810/I815/I830M (on-board) support' CONFIG_AGP_I810
-   bool '  VIA chipset support' CONFIG_AGP_VIA
+   bool '  ALI chipset support' CONFIG_AGP_ALI
    bool '  AMD Irongate, 761, and 762 support' CONFIG_AGP_AMD
    bool '  Generic SiS support' CONFIG_AGP_SIS
-   bool '  ALI chipset support' CONFIG_AGP_ALI
+   bool '  Intel 440LX/BX/GX and I815/I830/I840/I850/I860 support' CONFIG_AGP_INTEL
+   bool '  Intel I810/I815/I830M (on-board) support' CONFIG_AGP_I810
    bool '  Serverworks LE/HE support' CONFIG_AGP_SWORKS
+   bool '  VIA chipset support' CONFIG_AGP_VIA
 fi
 
-source drivers/char/drm/Config.in
+bool 'Direct Rendering Manager (XFree86 DRI support)' CONFIG_DRM
+
+if [ "$CONFIG_DRM" = "y" ]; then
+   bool '  Build drivers for new (XFree 4.1) DRM' CONFIG_DRM_NEW
+   if [ "$CONFIG_DRM_NEW" = "y" ]; then
+      comment 'DRM 4.1 drivers'
+      source drivers/char/drm/Config.in
+   else
+      comment 'DRM 4.0 drivers'
+      define_bool CONFIG_DRM_OLD y
+      source drivers/char/drm-4.0/Config.in
+   fi
+fi
 
 if [ "$CONFIG_HOTPLUG" = "y" -a "$CONFIG_PCMCIA" != "n" ]; then
    source drivers/char/pcmcia/Config.in
 fi
+if [ "$CONFIG_MIPS_ITE8172" = "y" ]; then
+   tristate 'ITE GPIO' CONFIG_ITE_GPIO
+fi
 
-tristate 'ACP Modem (Mwave) support' CONFIG_MWAVE
+if [ "$CONFIG_X86" = "y" ]; then
+   tristate 'ACP Modem (Mwave) support' CONFIG_MWAVE
+fi
 
 endmenu

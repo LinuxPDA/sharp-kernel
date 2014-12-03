@@ -15,6 +15,11 @@
 
 extern int vm_enough_memory(long pages);
 
+/*
+ * Throughout all the following functions, mm->mmap_sem must be held for
+ * writing, and mm->page_table_lock must be held
+ */
+
 static inline pte_t *get_one_pte(struct mm_struct *mm, unsigned long addr)
 {
 	pgd_t * pgd;
@@ -126,53 +131,19 @@ static inline unsigned long move_vma(struct vm_area_struct * vma,
 	unsigned long addr, unsigned long old_len, unsigned long new_len,
 	unsigned long new_addr)
 {
-	struct mm_struct * mm = vma->vm_mm;
-	struct vm_area_struct * new_vma, * next, * prev;
-	int allocated_vma;
+	struct vm_area_struct * new_vma;
+	int allocated_vma = 0;
 
-	new_vma = NULL;
-	next = find_vma_prev(mm, new_addr, &prev);
-	if (next) {
-		if (prev && prev->vm_end == new_addr &&
-		    can_vma_merge(prev, vma->vm_flags) && !vma->vm_file && !(vma->vm_flags & VM_SHARED)) {
-			spin_lock(&mm->page_table_lock);
-			prev->vm_end = new_addr + new_len;
-			spin_unlock(&mm->page_table_lock);
-			new_vma = prev;
-			if (next != prev->vm_next)
-				BUG();
-			if (prev->vm_end == next->vm_start && can_vma_merge(next, prev->vm_flags)) {
-				spin_lock(&mm->page_table_lock);
-				prev->vm_end = next->vm_end;
-				__vma_unlink(mm, next, prev);
-				spin_unlock(&mm->page_table_lock);
-
-				mm->map_count--;
-				kmem_cache_free(vm_area_cachep, next);
-			}
-		} else if (next->vm_start == new_addr + new_len &&
-			   can_vma_merge(next, vma->vm_flags) && !vma->vm_file && !(vma->vm_flags & VM_SHARED)) {
-			spin_lock(&mm->page_table_lock);
-			next->vm_start = new_addr;
-			spin_unlock(&mm->page_table_lock);
-			new_vma = next;
-		}
+	/* First, check if we can merge a mapping. -ben */
+	new_vma = find_vma(current->mm, new_addr-1);
+	if (new_vma && !vma->vm_file && !(vma->vm_flags & VM_SHARED) &&
+	    new_vma->vm_end == new_addr && !new_vma->vm_file && 
+		new_vma->vm_flags == vma->vm_flags) {
+		new_vma->vm_end = new_addr + new_len;
 	} else {
-		prev = find_vma(mm, new_addr-1);
-		if (prev && prev->vm_end == new_addr &&
-		    can_vma_merge(prev, vma->vm_flags) && !vma->vm_file && !(vma->vm_flags & VM_SHARED)) {
-			spin_lock(&mm->page_table_lock);
-			prev->vm_end = new_addr + new_len;
-			spin_unlock(&mm->page_table_lock);
-			new_vma = prev;
-		}
-	}
-
-	allocated_vma = 0;
-	if (!new_vma) {
 		new_vma = kmem_cache_alloc(vm_area_cachep, SLAB_KERNEL);
 		if (!new_vma)
-			goto out;
+			goto no_mem;
 		allocated_vma = 1;
 	}
 
@@ -200,7 +171,8 @@ static inline unsigned long move_vma(struct vm_area_struct * vma,
 	}
 	if (allocated_vma)
 		kmem_cache_free(vm_area_cachep, new_vma);
- out:
+
+no_mem:
 	return -ENOMEM;
 }
 

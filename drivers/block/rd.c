@@ -187,134 +187,6 @@ __setup("ramdisk_blocksize=", ramdisk_blocksize);
 #endif
 
 /*
- * Copyright (C) 2000 Linus Torvalds.
- *               2000 Transmeta Corp.
- * aops copied from ramfs.
- */
-static int ramdisk_readpage(struct file *file, struct page * page)
-{
-	if (!Page_Uptodate(page)) {
-		memset(kmap(page), 0, PAGE_CACHE_SIZE);
-		kunmap(page);
-		flush_dcache_page(page);
-		SetPageUptodate(page);
-	}
-	UnlockPage(page);
-	return 0;
-}
-
-/*
- * Writing: just make sure the page gets marked dirty, so that
- * the page stealer won't grab it.
- */
-static int ramdisk_writepage(struct page *page)
-{
-	SetPageDirty(page);
-	UnlockPage(page);
-	return 0;
-}
-
-static int ramdisk_prepare_write(struct file *file, struct page *page, unsigned offset, unsigned to)
-{
-	if (!Page_Uptodate(page)) {
-		void *addr = page_address(page);
-		memset(addr, 0, PAGE_CACHE_SIZE);
-		flush_dcache_page(page);
-		SetPageUptodate(page);
-	}
-	SetPageDirty(page);
-	return 0;
-}
-
-static int ramdisk_commit_write(struct file *file, struct page *page, unsigned offset, unsigned to)
-{
-	return 0;
-}
-
-static struct address_space_operations ramdisk_aops = {
-	readpage: ramdisk_readpage,
-	writepage: ramdisk_writepage,
-	prepare_write: ramdisk_prepare_write,
-	commit_write: ramdisk_commit_write,
-};
-
-static int rd_blkdev_pagecache_IO(int rw, struct buffer_head * sbh, int minor)
-{
-	struct address_space * mapping;
-	unsigned long index;
-	int offset, size, err;
-
-	err = -EIO;
-	err = 0;
-	mapping = rd_bdev[minor]->bd_inode->i_mapping;
-
-	index = sbh->b_rsector >> (PAGE_CACHE_SHIFT - 9);
-	offset = (sbh->b_rsector << 9) & ~PAGE_CACHE_MASK;
-	size = sbh->b_size;
-
-	do {
-		int count;
-		struct page ** hash;
-		struct page * page;
-		char * src, * dst;
-		int unlock = 0;
-
-		count = PAGE_CACHE_SIZE - offset;
-		if (count > size)
-			count = size;
-		size -= count;
-
-		hash = page_hash(mapping, index);
-		page = __find_get_page(mapping, index, hash);
-		if (!page) {
-			page = grab_cache_page(mapping, index);
-			err = -ENOMEM;
-			if (!page)
-				goto out;
-			err = 0;
-
-			if (!Page_Uptodate(page)) {
-				memset(kmap(page), 0, PAGE_CACHE_SIZE);
-				kunmap(page);
-				SetPageUptodate(page);
-			}
-
-			unlock = 1;
-		}
-
-		index++;
-
-		if (rw == READ) {
-			src = kmap(page);
-			src += offset;
-			dst = bh_kmap(sbh);
-		} else {
-			dst = kmap(page);
-			dst += offset;
-			src = bh_kmap(sbh);
-		}
-		offset = 0;
-
-		memcpy(dst, src, count);
-
-		kunmap(page);
-		bh_kunmap(sbh);
-
-		if (rw == READ) {
-			flush_dcache_page(page);
-		} else {
-			SetPageDirty(page);
-		}
-		if (unlock)
-			UnlockPage(page);
-		__free_page(page);
-	} while (size);
-
- out:
-	return err;
-}
-
-/*
  *  Basically, my strategy here is to set up a buffer-head which can't be
  *  deleted, and make that my Ramdisk.  If the request is outside of the
  *  allocated size, we must get rid of it...
@@ -326,7 +198,10 @@ static int rd_make_request(request_queue_t * q, int rw, struct buffer_head *sbh)
 {
 	unsigned int minor;
 	unsigned long offset, len;
+	struct buffer_head *rbh;
+	char *bdata;
 
+	
 	minor = MINOR(sbh->b_rdev);
 
 	if (minor >= NUM_RAMDISKS)
@@ -346,8 +221,20 @@ static int rd_make_request(request_queue_t * q, int rw, struct buffer_head *sbh)
 		goto fail;
 	}
 
-	if (rd_blkdev_pagecache_IO(rw, sbh, minor))
-		goto fail;
+	rbh = getblk(sbh->b_rdev, sbh->b_rsector/(sbh->b_size>>9), sbh->b_size);
+	/* I think that it is safe to assume that rbh is not in HighMem, though
+	 * sbh might be - NeilBrown
+	 */
+	bdata = bh_kmap(sbh);
+	if (rw == READ) {
+		if (sbh != rbh)
+			memcpy(bdata, rbh->b_data, rbh->b_size);
+	} else
+		if (sbh != rbh)
+			memcpy(rbh->b_data, bdata, rbh->b_size);
+	bh_kunmap(sbh);
+	mark_buffer_protected(rbh);
+	brelse(rbh);
 
 	sbh->b_end_io(sbh,1);
 	return 0;
@@ -358,11 +245,10 @@ static int rd_make_request(request_queue_t * q, int rw, struct buffer_head *sbh)
 
 static int rd_ioctl(struct inode *inode, struct file *file, unsigned int cmd, unsigned long arg)
 {
-	int error = -EINVAL;
 	unsigned int minor;
 
 	if (!inode || !inode->i_rdev) 	
-		goto out;
+		return -EINVAL;
 
 	minor = MINOR(inode->i_rdev);
 
@@ -373,29 +259,29 @@ static int rd_ioctl(struct inode *inode, struct file *file, unsigned int cmd, un
 			/* special: we want to release the ramdisk memory,
 			   it's not like with the other blockdevices where
 			   this ioctl only flushes away the buffer cache. */
-			error = -EBUSY;
-			down(&inode->i_bdev->bd_sem);
-			if (inode->i_bdev->bd_openers <= 2) {
-				truncate_inode_pages(inode->i_mapping, 0);
-				error = 0;
-			}
-			up(&inode->i_bdev->bd_sem);
+			if ((atomic_read(&rd_bdev[minor]->bd_openers) > 2))
+				return -EBUSY;
+			destroy_buffers(inode->i_rdev);
+			rd_blocksizes[minor] = 0;
 			break;
+
          	case BLKGETSIZE:   /* Return device size */
-			if (!arg)
-				break;
-			error = put_user(rd_kbsize[minor] << 1, (unsigned long *) arg);
-			break;
+			if (!arg)  return -EINVAL;
+			return put_user(rd_kbsize[minor] << 1, (unsigned long *) arg);
+
          	case BLKGETSIZE64:
-			error = put_user((u64)rd_kbsize[minor]<<10, (u64*)arg);
-			break;
+			return put_user((u64)rd_kbsize[minor] << 10, (u64*)arg);
+
 		case BLKROSET:
 		case BLKROGET:
 		case BLKSSZGET:
-			error = blk_ioctl(inode->i_rdev, cmd, arg);
+			return blk_ioctl(inode->i_rdev, cmd, arg);
+
+		default:
+			return -EINVAL;
 	};
-out:
-	return error;
+
+	return 0;
 }
 
 
@@ -421,11 +307,11 @@ static int initrd_release(struct inode *inode,struct file *file)
 
 	lock_kernel();
 	if (!--initrd_users) {
+		blkdev_put(inode->i_bdev, BDEV_FILE);
 		free_initrd_mem(initrd_start, initrd_end);
 		initrd_start = 0;
 	}
 	unlock_kernel();
-	blkdev_put(inode->i_bdev, BDEV_FILE);
 	return 0;
 }
 
@@ -459,8 +345,7 @@ static int rd_open(struct inode * inode, struct file * filp)
 	 */
 	if (rd_bdev[unit] == NULL) {
 		rd_bdev[unit] = bdget(kdev_t_to_nr(inode->i_rdev));
-		rd_bdev[unit]->bd_openers++;
-		rd_bdev[unit]->bd_inode->i_mapping->a_ops = &ramdisk_aops;
+		atomic_inc(&rd_bdev[unit]->bd_openers);
 	}
 
 	MOD_INC_USE_COUNT;
@@ -474,7 +359,7 @@ static int rd_release(struct inode * inode, struct file * filp)
 	return 0;
 }
 
-static struct block_device_operations rd_bd_op = {
+static struct block_device_operations fd_fops = {
 	open:		rd_open,
 	release:	rd_release,
 	ioctl:		rd_ioctl,
@@ -515,7 +400,7 @@ int __init rd_init (void)
 		rd_blocksize = BLOCK_SIZE;
 	}
 
-	if (register_blkdev(MAJOR_NR, "ramdisk", &rd_bd_op)) {
+	if (register_blkdev(MAJOR_NR, "ramdisk", &fd_fops)) {
 		printk("RAMDISK: Could not get major %d", MAJOR_NR);
 		return -EIO;
 	}
@@ -533,14 +418,14 @@ int __init rd_init (void)
 	devfs_register_series (devfs_handle, "%u", NUM_RAMDISKS,
 			       DEVFS_FL_DEFAULT, MAJOR_NR, 0,
 			       S_IFBLK | S_IRUSR | S_IWUSR,
-			       &rd_bd_op, NULL);
+			       &fd_fops, NULL);
 
 	for (i = 0; i < NUM_RAMDISKS; i++)
-		register_disk(NULL, MKDEV(MAJOR_NR,i), 1, &rd_bd_op, rd_size<<1);
+		register_disk(NULL, MKDEV(MAJOR_NR,i), 1, &fd_fops, rd_size<<1);
 
 #ifdef CONFIG_BLK_DEV_INITRD
 	/* We ought to separate initrd operations here */
-	register_disk(NULL, MKDEV(MAJOR_NR,INITRD_MINOR), 1, &rd_bd_op, rd_size<<1);
+	register_disk(NULL, MKDEV(MAJOR_NR,INITRD_MINOR), 1, &fd_fops, rd_size<<1);
 #endif
 
 	hardsect_size[MAJOR_NR] = rd_hardsec;		/* Size of the RAM disk blocks */
@@ -712,10 +597,8 @@ static void __init rd_load_image(kdev_t device, int offset, int unit)
 	outfile.f_op = &def_blk_fops;
 	init_special_inode(out_inode, S_IFBLK | S_IRUSR | S_IWUSR, kdev_t_to_nr(ram_device));
 
-	if (blkdev_open(inode, &infile) != 0) {
-		iput(out_inode);
+	if (blkdev_open(inode, &infile) != 0)
 		goto free_inode;
-	}
 	if (blkdev_open(out_inode, &outfile) != 0)
 		goto free_inodes;
 
@@ -778,15 +661,14 @@ static void __init rd_load_image(kdev_t device, int offset, int unit)
 		if (i && (i % devblocks == 0)) {
 			printk("done disk #%d.\n", i/devblocks);
 			rotate = 0;
-			if (infile.f_op->release(inode, &infile) != 0) {
-				printk("Error closing the disk.\n");
-				goto noclose_input;
-			}
+			invalidate_buffers(device);
+			if (infile.f_op->release)
+				infile.f_op->release(inode, &infile);
 			printk("Please insert disk #%d and press ENTER\n", i/devblocks+1);
 			wait_for_keypress();
 			if (blkdev_open(inode, &infile) != 0)  {
 				printk("Error opening disk.\n");
-				goto noclose_input;
+				goto done;
 			}
 			infile.f_pos = 0;
 			printk("Loading disk #%d... ", i/devblocks+1);
@@ -804,20 +686,18 @@ static void __init rd_load_image(kdev_t device, int offset, int unit)
 	kfree(buf);
 
 successful_load:
+	invalidate_buffers(device);
 	ROOT_DEV = MKDEV(MAJOR_NR, unit);
 	if (ROOT_DEVICE_NAME != NULL) strcpy (ROOT_DEVICE_NAME, "rd/0");
 
 done:
-	infile.f_op->release(inode, &infile);
-noclose_input:
-	blkdev_close(out_inode, &outfile);
-	iput(inode);
-	iput(out_inode);
+	if (infile.f_op->release)
+		infile.f_op->release(inode, &infile);
 	set_fs(fs);
 	return;
 free_inodes: /* free inodes on error */ 
 	iput(out_inode);
-	infile.f_op->release(inode, &infile);
+	blkdev_put(inode->i_bdev, BDEV_FILE);
 free_inode:
 	iput(inode);
 }
@@ -975,10 +855,15 @@ static int __init fill_inbuf(void)
 static void __init flush_window(void)
 {
     ulg c = crc;         /* temporary variable */
-    unsigned n;
+    unsigned n, written;
     uch *in, ch;
     
-    crd_outfp->f_op->write(crd_outfp, window, outcnt, &crd_outfp->f_pos);
+    written = crd_outfp->f_op->write(crd_outfp, window, outcnt, &crd_outfp->f_pos);
+    if (written != outcnt && exit_code == 0) {
+    	printk(KERN_ERR "RAMDISK: incomplete write (ramdisk too small?) "
+		"(%d != %d)\n", written, outcnt);
+	exit_code = 1;
+    }
     in = window;
     for (n = 0; n < outcnt; n++) {
 	    ch = *in++;

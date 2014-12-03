@@ -150,7 +150,6 @@ good_area:
 	 * make sure we exit gracefully rather than endlessly redo
 	 * the fault.
 	 */
- survive:
         switch (handle_mm_fault(mm, vma, address, is_write)) {
         case 1:
                 current->min_flt++;
@@ -196,12 +195,6 @@ bad_area:
  */
 out_of_memory:
 	up_read(&mm->mmap_sem);
-	if (current->pid == 1) {
-		current->policy |= SCHED_YIELD;
-		schedule();
-		down_read(&mm->mmap_sem);
-		goto survive;
-	}
 	printk("VM: killing process %s\n", current->comm);
 	if (user_mode(regs))
 		do_exit(SIGKILL);

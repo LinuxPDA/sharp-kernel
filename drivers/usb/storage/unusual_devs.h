@@ -60,6 +60,11 @@ UNUSUAL_DEV(  0x03f0, 0x0207, 0x0001, 0x0001,
 		US_SC_8070, US_PR_SCM_ATAPI, init_8200e, 0), 
 #endif
 
+UNUSUAL_DEV(  0x04cb, 0x0100, 0x0000, 0x2210,
+		"Fujifilm",
+		"FinePix 1400Zoom",
+		US_SC_8070, US_PR_CBI, NULL, US_FL_FIX_INQUIRY),
+
 #ifdef CONFIG_USB_STORAGE_DPCM
 UNUSUAL_DEV(  0x0436, 0x0005, 0x0100, 0x0100,
 		"Microtech",
@@ -293,18 +298,17 @@ UNUSUAL_DEV(  0x0781, 0x0100, 0x0100, 0x0100,
                 US_FL_SINGLE_LUN ),
 
 #ifdef CONFIG_USB_STORAGE_SDDR09
-UNUSUAL_DEV(  0x0781, 0x0200, 0x0000, 0x9999, 
+UNUSUAL_DEV(  0x0781, 0x0200, 0x0100, 0x0208, 
 		"Sandisk",
 		"ImageMate SDDR-09",
 		US_SC_SCSI, US_PR_EUSB_SDDR09, NULL,
 		US_FL_SINGLE_LUN | US_FL_START_STOP ),
-#endif
 
-#ifdef CONFIG_USB_STORAGE_FREECOM
-UNUSUAL_DEV(  0x07ab, 0xfc01, 0x0000, 0x9999,
-                "Freecom",
-                "USB-IDE",
-                US_SC_QIC, US_PR_FREECOM, freecom_init, 0),
+UNUSUAL_DEV(  0x0781, 0x0200, 0x0000, 0x9999, 
+ 		"Sandisk",
+ 		"ImageMate SDDR-09",
+ 		US_SC_SCSI, US_PR_EUSB_SDDR09, NULL,
+ 		US_FL_SINGLE_LUN | US_FL_START_STOP ),
 #endif
 
 UNUSUAL_DEV(  0x07af, 0x0004, 0x0100, 0x0100, 
@@ -312,6 +316,13 @@ UNUSUAL_DEV(  0x07af, 0x0004, 0x0100, 0x0100,
 		"USB-SCSI-DB25",
 		US_SC_SCSI, US_PR_BULK, usb_stor_euscsi_init,
 		US_FL_SCM_MULT_TARG ), 
+
+#ifdef CONFIG_USB_STORAGE_FREECOM
+UNUSUAL_DEV( 0x07ab, 0xfc01, 0x0000, 0x9999,
+                "Freecom",
+                "USB-IDE",
+                US_SC_QIC, US_PR_FREECOM, freecom_init, 0),
+#endif
 
 UNUSUAL_DEV(  0x07af, 0x0005, 0x0100, 0x0100, 
 		"Microtech",
@@ -383,6 +394,12 @@ UNUSUAL_DEV( 0x07c4, 0xa006, 0x0000, 0xffff,
  * - They don't like the INQUIRY command. So we must handle this command
  *   of the SCSI layer ourselves.
  */
+UNUSUAL_DEV( 0x07cf, 0x1001, 0x1000, 0x1000,
+                "Casio",
+                "QV DigitalCamera",
+                US_SC_8070, US_PR_CB, NULL,
+                US_FL_FIX_INQUIRY ),
+
 UNUSUAL_DEV( 0x07cf, 0x1001, 0x9009, 0x9009,
                 "Casio",
                 "QV DigitalCamera",

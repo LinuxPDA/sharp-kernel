@@ -53,13 +53,6 @@ static unsigned int pcnet32_portlist[] __initdata = {0x300, 0x320, 0x340, 0x360,
 static struct pci_device_id pcnet32_pci_tbl[] __devinitdata = {
     { PCI_VENDOR_ID_AMD, PCI_DEVICE_ID_AMD_LANCE_HOME, PCI_ANY_ID, PCI_ANY_ID, 0, 0, 0 },
     { PCI_VENDOR_ID_AMD, PCI_DEVICE_ID_AMD_LANCE, PCI_ANY_ID, PCI_ANY_ID, 0, 0, 0 },
-/* this id is never reached as the match above occurs first.
- * However it clearly has significance, so let's not remove it
- * until we know what that significance is.  -jgarzik
- */
-#if 0
-    { PCI_VENDOR_ID_AMD, PCI_DEVICE_ID_AMD_LANCE, 0x1014, 0x2000, 0, 0, 0 },
-#endif
     { 0, }
 };
 
@@ -1379,6 +1372,13 @@ pcnet32_close(struct net_device *dev)
      * DOS packet driver after a warm reboot
      */
     lp->a.write_bcr (ioaddr, 20, 4);
+
+    /*
+     *	FIXME: What happens if the bcr write is posted, the buffers are
+     *	freed and there is still incoming DMA traffic
+     */
+
+#warning "PCI posting bug"
 
     free_irq(dev->irq, dev);
     

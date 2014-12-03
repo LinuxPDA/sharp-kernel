@@ -118,6 +118,12 @@ extern int sisfb_init(void);
 extern int sisfb_setup(char*);
 extern int stifb_init(void);
 extern int stifb_setup(char*);
+extern int pmagbafb_init(void);
+extern int pmagbafb_setup(char *);
+extern int pmagbbfb_init(void);
+extern int pmagbbfb_setup(char *options, int *ints);
+extern void maxinefb_init(void);
+extern int tx3912fb_init(void);
 extern int radeonfb_init(void);
 extern int radeonfb_setup(char*);
 extern int e1355fb_init(void);
@@ -178,9 +184,6 @@ static struct {
 #ifdef CONFIG_FB_RIVA
 	{ "riva", rivafb_init, rivafb_setup },
 #endif
-#ifdef CONFIG_FB_RADEON
-	{ "radeon", radeonfb_init, radeonfb_setup },
-#endif
 #ifdef CONFIG_FB_CONTROL
 	{ "controlfb", control_init, control_setup },
 #endif
@@ -202,8 +205,11 @@ static struct {
 #ifdef CONFIG_FB_FM2
 	{ "fm2fb", fm2fb_init, fm2fb_setup },
 #endif 
-#ifdef CONFIG_FB_SIS
+#if defined(CONFIG_FB_SIS) && (defined(CONFIG_FB_SIS_300) || defined(CONFIG_FB_SIS_315))
 	{ "sisfb", sisfb_init, sisfb_setup },
+#endif
+#ifdef CONFIG_FB_VOODOO1
+	{ "sstfb", sstfb_init, sstfb_setup },
 #endif
 
 	/*
@@ -270,15 +276,28 @@ static struct {
 #ifdef CONFIG_FB_HIT
 	{ "hitfb", hitfb_init, NULL },
 #endif
+#ifdef CONFIG_FB_TX3912
+	{ "tx3912", tx3912fb_init, NULL },
+#endif
 #ifdef CONFIG_FB_E1355
 	{ "e1355fb", e1355fb_init, e1355fb_setup },
 #endif
 #ifdef CONFIG_FB_PVR2
 	{ "pvr2", pvr2fb_init, pvr2fb_setup },
 #endif
-#ifdef CONFIG_FB_VOODOO1
-	{ "sst", sstfb_init, sstfb_setup },
+#ifdef CONFIG_FB_RADEON
+	{ "radeon", radeonfb_init, radeonfb_setup },
 #endif
+#ifdef CONFIG_FB_PMAG_BA
+	{ "pmagbafb", pmagbafb_init, pmagbafb_setup },
+#endif
+#ifdef CONFIG_FB_PMAGB_B
+	{ "pmagbbfb", pmagbbfb_init, pmagbbfb_setup },
+#endif
+#ifdef CONFIG_FB_MAXINE
+	{ "maxinefb", maxinefb_init, NULL },
+#endif
+
 	/*
 	 * Generic drivers that don't use resource management (yet)
 	 */
@@ -564,7 +583,10 @@ fb_mmap(struct file *file, struct vm_area_struct * vma)
 		off -= len;
 		fb->fb_get_var(&var, PROC_CONSOLE(info), info);
 		if (var.accel_flags)
+		{
+			unlock_kernel();
 			return -EINVAL;
+		}
 		start = fix.mmio_start;
 		len = PAGE_ALIGN((start & ~PAGE_MASK)+fix.mmio_len);
 	}
@@ -929,3 +951,5 @@ EXPORT_SYMBOL(num_registered_fb);
 #if 1 /* to go away in 2.5.0 */
 EXPORT_SYMBOL(GET_FB_IDX);
 #endif
+
+MODULE_LICENSE("GPL");

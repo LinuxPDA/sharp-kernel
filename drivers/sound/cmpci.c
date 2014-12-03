@@ -884,9 +884,9 @@ static int set_dac_channels(struct cm_state *s, int channels)
 
 		spin_unlock_irqrestore(&s->lock, flags);
 		ret = prog_dmabuf(s, 1);
+		if (ret) return ret;
 		spin_lock_irqsave(&s->lock, flags);
 
-		if (ret) return ret;
 		// copy the hw state
 		fmtm &= ~((CM_CFMT_STEREO | CM_CFMT_16BIT) << CM_CFMT_DACSHIFT);
 		fmtm &= ~((CM_CFMT_STEREO | CM_CFMT_16BIT) << CM_CFMT_ADCSHIFT);

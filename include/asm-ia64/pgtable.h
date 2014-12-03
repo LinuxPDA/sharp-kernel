@@ -473,4 +473,9 @@ extern unsigned long empty_zero_page[PAGE_SIZE/sizeof(unsigned long)];
 #define KERNEL_PG_SIZE		(1 << KERNEL_PG_SHIFT)
 #define KERNEL_PG_NUM		((KERNEL_START - PAGE_OFFSET) / KERNEL_PG_SIZE)
 
+/*
+ * No page table caches to initialise
+ */
+#define pgtable_cache_init()	do { } while (0)
+
 #endif /* _ASM_IA64_PGTABLE_H */

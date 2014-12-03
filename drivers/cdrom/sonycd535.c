@@ -339,7 +339,7 @@ static inline void
 sony_sleep(void)
 {
 	if (sony535_irq_used <= 0) {	/* poll */
-		current->state = TASK_INTERRUPTIBLE;
+		set_current_state(TASK_INTERRUPTIBLE);
 		schedule_timeout(0);
 	} else {	/* Interrupt driven */
 		cli();
@@ -894,7 +894,7 @@ do_cdu535_request(request_queue_t * q)
 						}
 						if (readStatus == BAD_STATUS) {
 							/* Sleep for a while, then retry */
-							current->state = TASK_INTERRUPTIBLE;
+							set_current_state(TASK_INTERRUPTIBLE);
 							schedule_timeout(RETRY_FOR_BAD_STATUS*HZ/10);
 						}
 #if DEBUG > 0
@@ -1519,7 +1519,7 @@ sony535_init(void)
 	/* look for the CD-ROM, follows the procedure in the DOS driver */
 	inb(select_unit_reg);
 	/* wait for 40 18 Hz ticks (reverse-engineered from DOS driver) */
-	current->state = TASK_INTERRUPTIBLE;
+	set_current_state(TASK_INTERRUPTIBLE);
 	schedule_timeout((HZ+17)*40/18);
 	inb(result_reg);
 

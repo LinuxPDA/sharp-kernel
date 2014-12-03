@@ -4,7 +4,7 @@
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/pci.h>
-#include <linux/malloc.h>
+#include <linux/slab.h>
 
 #include <asm/machdep.h>
 #include <asm/gemini.h>

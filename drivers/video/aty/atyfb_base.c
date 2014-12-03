@@ -251,7 +251,7 @@ static int default_pll __initdata = 0;
 static int default_mclk __initdata = 0;
 
 #ifndef MODULE
-static const char *mode_option __initdata = NULL;
+static char *mode_option __initdata = NULL;
 #endif
 
 #ifdef CONFIG_PPC
@@ -271,33 +271,33 @@ static unsigned long phys_size[FB_MAX] __initdata = { 0, };
 static unsigned long phys_guiregbase[FB_MAX] __initdata = { 0, };
 #endif
 
-static const char m64n_gx[] __initdata = "mach64GX (ATI888GX00)";
-static const char m64n_cx[] __initdata = "mach64CX (ATI888CX00)";
-static const char m64n_ct[] __initdata = "mach64CT (ATI264CT)";
-static const char m64n_et[] __initdata = "mach64ET (ATI264ET)";
-static const char m64n_vta3[] __initdata = "mach64VTA3 (ATI264VT)";
-static const char m64n_vta4[] __initdata = "mach64VTA4 (ATI264VT)";
-static const char m64n_vtb[] __initdata = "mach64VTB (ATI264VTB)";
-static const char m64n_vt4[] __initdata = "mach64VT4 (ATI264VT4)";
-static const char m64n_gt[] __initdata = "3D RAGE (GT)";
-static const char m64n_gtb[] __initdata = "3D RAGE II+ (GTB)";
-static const char m64n_iic_p[] __initdata = "3D RAGE IIC (PCI)";
-static const char m64n_iic_a[] __initdata = "3D RAGE IIC (AGP)";
-static const char m64n_lt[] __initdata = "3D RAGE LT";
-static const char m64n_ltg[] __initdata = "3D RAGE LT-G";
-static const char m64n_gtc_ba[] __initdata = "3D RAGE PRO (BGA, AGP)";
-static const char m64n_gtc_ba1[] __initdata = "3D RAGE PRO (BGA, AGP, 1x only)";
-static const char m64n_gtc_bp[] __initdata = "3D RAGE PRO (BGA, PCI)";
-static const char m64n_gtc_pp[] __initdata = "3D RAGE PRO (PQFP, PCI)";
-static const char m64n_gtc_ppl[] __initdata = "3D RAGE PRO (PQFP, PCI, limited 3D)";
-static const char m64n_xl[] __initdata = "3D RAGE (XL)";
-static const char m64n_ltp_a[] __initdata = "3D RAGE LT PRO (AGP)";
-static const char m64n_ltp_p[] __initdata = "3D RAGE LT PRO (PCI)";
-static const char m64n_mob_p[] __initdata = "3D RAGE Mobility (PCI)";
-static const char m64n_mob_a[] __initdata = "3D RAGE Mobility (AGP)";
+static char m64n_gx[] __initdata = "mach64GX (ATI888GX00)";
+static char m64n_cx[] __initdata = "mach64CX (ATI888CX00)";
+static char m64n_ct[] __initdata = "mach64CT (ATI264CT)";
+static char m64n_et[] __initdata = "mach64ET (ATI264ET)";
+static char m64n_vta3[] __initdata = "mach64VTA3 (ATI264VT)";
+static char m64n_vta4[] __initdata = "mach64VTA4 (ATI264VT)";
+static char m64n_vtb[] __initdata = "mach64VTB (ATI264VTB)";
+static char m64n_vt4[] __initdata = "mach64VT4 (ATI264VT4)";
+static char m64n_gt[] __initdata = "3D RAGE (GT)";
+static char m64n_gtb[] __initdata = "3D RAGE II+ (GTB)";
+static char m64n_iic_p[] __initdata = "3D RAGE IIC (PCI)";
+static char m64n_iic_a[] __initdata = "3D RAGE IIC (AGP)";
+static char m64n_lt[] __initdata = "3D RAGE LT";
+static char m64n_ltg[] __initdata = "3D RAGE LT-G";
+static char m64n_gtc_ba[] __initdata = "3D RAGE PRO (BGA, AGP)";
+static char m64n_gtc_ba1[] __initdata = "3D RAGE PRO (BGA, AGP, 1x only)";
+static char m64n_gtc_bp[] __initdata = "3D RAGE PRO (BGA, PCI)";
+static char m64n_gtc_pp[] __initdata = "3D RAGE PRO (PQFP, PCI)";
+static char m64n_gtc_ppl[] __initdata = "3D RAGE PRO (PQFP, PCI, limited 3D)";
+static char m64n_xl[] __initdata = "3D RAGE (XL)";
+static char m64n_ltp_a[] __initdata = "3D RAGE LT PRO (AGP)";
+static char m64n_ltp_p[] __initdata = "3D RAGE LT PRO (PCI)";
+static char m64n_mob_p[] __initdata = "3D RAGE Mobility (PCI)";
+static char m64n_mob_a[] __initdata = "3D RAGE Mobility (AGP)";
 
 
-static const struct {
+static struct {
     u16 pci_id, chip_type;
     u8 rev_mask, rev_val;
     const char *name;
@@ -353,28 +353,29 @@ static const struct {
 
     /* 3D RAGE Mobility */
     { 0x4c4d, 0x4c4d, 0x00, 0x00, m64n_mob_p,   230,  50, M64F_GT | M64F_INTEGRATED | M64F_RESET_3D | M64F_GTB_DSP | M64F_MOBIL_BUS },
+    { 0x4c52, 0x4c52, 0x00, 0x00, m64n_mob_p,   230,  40, M64F_GT | M64F_INTEGRATED | M64F_RESET_3D | M64F_GTB_DSP | M64F_MOBIL_BUS | M64F_MAGIC_POSTDIV | M64F_SDRAM_MAGIC_PLL | M64F_XL_DLL },
     { 0x4c4e, 0x4c4e, 0x00, 0x00, m64n_mob_a,   230,  50, M64F_GT | M64F_INTEGRATED | M64F_RESET_3D | M64F_GTB_DSP | M64F_MOBIL_BUS },
 #endif /* CONFIG_FB_ATY_CT */
 };
 
-static const char ram_dram[] __initdata = "DRAM";
-static const char ram_vram[] __initdata = "VRAM";
-static const char ram_edo[] __initdata = "EDO";
-static const char ram_sdram[] __initdata = "SDRAM";
-static const char ram_sgram[] __initdata = "SGRAM";
-static const char ram_wram[] __initdata = "WRAM";
-static const char ram_off[] __initdata = "OFF";
-static const char ram_resv[] __initdata = "RESV";
+static char ram_dram[] __initdata = "DRAM";
+static char ram_vram[] __initdata = "VRAM";
+static char ram_edo[] __initdata = "EDO";
+static char ram_sdram[] __initdata = "SDRAM";
+static char ram_sgram[] __initdata = "SGRAM";
+static char ram_wram[] __initdata = "WRAM";
+static char ram_off[] __initdata = "OFF";
+static char ram_resv[] __initdata = "RESV";
 
 #ifdef CONFIG_FB_ATY_GX
-static const char *aty_gx_ram[8] __initdata = {
+static char *aty_gx_ram[8] __initdata = {
     ram_dram, ram_vram, ram_vram, ram_dram,
     ram_dram, ram_vram, ram_vram, ram_resv
 };
 #endif /* CONFIG_FB_ATY_GX */
 
 #ifdef CONFIG_FB_ATY_CT
-static const char *aty_ct_ram[8] __initdata = {
+static char *aty_ct_ram[8] __initdata = {
     ram_off, ram_dram, ram_edo, ram_edo,
     ram_sdram, ram_sgram, ram_wram, ram_resv
 };
@@ -423,7 +424,7 @@ static int __init read_aty_sense(const struct fb_info_aty *info)
 
 #endif /* defined(CONFIG_PPC) */
 
-#if defined(CONFIG_PMAC_PBOOK) || defined(CONFIG_PMAC_BACKLIGHT)
+#if defined(CONFIG_PMAC_PBOOK) || defined(CONFIG_PMAC_BACKLIGHT) || defined(CONFIG_FB_ATY_CT_VAIO_LCD)
 static void aty_st_lcd(int index, u32 val, const struct fb_info_aty *info)
 {
     unsigned long temp;
@@ -445,7 +446,7 @@ static u32 aty_ld_lcd(int index, const struct fb_info_aty *info)
     /* read the register value */
     return aty_ld_le32(LCD_DATA, info);
 }
-#endif /* CONFIG_PMAC_PBOOK || CONFIG_PMAC_BACKLIGHT */
+#endif /* CONFIG_PMAC_PBOOK || CONFIG_PMAC_BACKLIGHT || CONFIG_FB_ATY_CT_VAIO_LCD */
 
 /* ------------------------------------------------------------------------- */
 
@@ -1744,6 +1745,9 @@ static int __init aty_init(struct fb_info_aty *info, const char *name)
 #if defined(CONFIG_PPC)
     int sense;
 #endif
+#if defined(CONFIG_FB_ATY_CT_VAIO_LCD)
+	u32 pm, hs;
+#endif
     u8 pll_ref_div;
 
     info->aty_cmap_regs = (struct aty_cmap_regs *)(info->ati_regbase+0xc0);
@@ -2068,6 +2072,35 @@ found:
 	var = default_var;
 #endif /* !__sparc__ */
 #endif /* !CONFIG_PPC */
+#if defined(CONFIG_FB_ATY_CT_VAIO_LCD)
+	/* Power Management */
+	pm=aty_ld_lcd(POWER_MANAGEMENT, info);
+	pm=(pm & ~PWR_MGT_MODE_MASK) | PWR_MGT_MODE_PCI;
+	pm|=PWR_MGT_ON;
+	aty_st_lcd(POWER_MANAGEMENT, pm, info);
+	udelay(10);
+	
+	/* OVR_WID_LEFT_RIGHT */
+	hs=aty_ld_le32(OVR_WID_LEFT_RIGHT,info);
+	hs= 0x00000000;
+	aty_st_le32(OVR_WID_LEFT_RIGHT, hs, info);
+	udelay(10);
+
+	/* CONFIG_PANEL */
+	hs=aty_ld_lcd(CONFIG_PANEL,info);
+	hs|=DONT_SHADOW_HEND ;
+	aty_st_lcd(CONFIG_PANEL, hs, info);
+	udelay(10);
+
+#if defined(DEBUG)
+	printk("LCD_INDEX CONFIG_PANEL LCD_GEN_CTRL POWER_MANAGEMENT\n"
+	"%08x  %08x     %08x     %08x\n",
+	aty_ld_le32(LCD_INDEX, info), 
+	aty_ld_lcd(CONFIG_PANEL, info),
+	aty_ld_lcd(LCD_GEN_CTRL, info), 
+	aty_ld_lcd(POWER_MANAGEMENT, info),
+#endif /* DEBUG */	
+#endif /* CONFIG_FB_ATY_CT_VAIO_LCD */
 #endif /* !MODULE */
     if (noaccel)
         var.accel_flags &= ~FB_ACCELF_TEXT;
@@ -2676,6 +2709,23 @@ static int atyfbcon_switch(int con, struct fb_info *fb)
     /*
      *  Blank the display.
      */
+#if defined(CONFIG_FB_ATY_CT_VAIO_LCD)
+static int set_backlight_enable(int on, struct fb_info_aty *info)
+{
+	unsigned int reg = aty_ld_lcd(POWER_MANAGEMENT, info);
+	if(on) {
+		reg=(reg & ~SUSPEND_NOW) | PWR_BLON;
+	} else {
+		reg=(reg & ~PWR_BLON) | SUSPEND_NOW;
+	}
+	aty_st_lcd(POWER_MANAGEMENT, reg, info);
+	udelay(10);
+#ifdef DEBUG		
+		printk(KERN_INFO "set_backlight_enable(%i): %08x\n", on, aty_ld_lcd(POWER_MANAGEMENT, info) );
+#endif		
+	return 0;
+}
+#endif /* CONFIG_FB_ATY_CT_VAIO_LCD */
 
 static void atyfbcon_blank(int blank, struct fb_info *fb)
 {
@@ -2687,6 +2737,9 @@ static void atyfbcon_blank(int blank, struct fb_info *fb)
     	set_backlight_enable(0);
 #endif /* CONFIG_PMAC_BACKLIGHT */
 
+#if defined(CONFIG_FB_ATY_CT_VAIO_LCD) 
+	set_backlight_enable(!blank, info);
+#endif /* CONFIG_FB_ATY_CT_VAIO_LCD */	
     gen_cntl = aty_ld_8(CRTC_GEN_CNTL, info);
     if (blank > 0)
 	switch (blank-1) {
@@ -2891,3 +2944,4 @@ void cleanup_module(void)
 }
 
 #endif
+MODULE_LICENSE("GPL");

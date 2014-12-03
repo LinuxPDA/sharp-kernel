@@ -3,6 +3,7 @@
 */
 
 #include <linux/config.h>
+#include <linux/module.h>
 #define CONFIG_IP_FIREWALL
 #define CONFIG_IP_FIREWALL_VERBOSE
 #define CONFIG_IP_MASQUERADE
@@ -20,7 +21,7 @@
  *	license in recognition of the original copyright.
  *				-- Alan Cox.
  *
- *	$Id: ipfwadm_core.c,v 1.9 2001/09/18 22:29:10 davem Exp $
+ *	$Id: ipfwadm_core.c,v 1.5 2001/06/01 14:56:53 davem Exp $
  *
  *	Ported from BSD to Linux,
  *		Alan Cox 22/Nov/1994.
@@ -1360,6 +1361,7 @@ static struct notifier_block ipfw_dev_notifier={
 
 int ipfw_init_or_cleanup(int init)
 {
+	struct proc_dir_entry *proc;
 	int ret = 0;
 
 	if (!init)
@@ -1370,11 +1372,15 @@ int ipfw_init_or_cleanup(int init)
 		goto cleanup_nothing;
 
 #ifdef CONFIG_IP_ACCT
-	proc_net_create("ip_acct", S_IFREG | S_IRUGO | S_IWUSR, ip_acct_procinfo);
+	proc = proc_net_create("ip_acct", S_IFREG | S_IRUGO | S_IWUSR, ip_acct_procinfo);
+	if (proc) proc->owner = THIS_MODULE;
 #endif
-	proc_net_create("ip_input", S_IFREG | S_IRUGO | S_IWUSR, ip_fw_in_procinfo);
-	proc_net_create("ip_output", S_IFREG | S_IRUGO | S_IWUSR, ip_fw_out_procinfo);
-	proc_net_create("ip_forward", S_IFREG | S_IRUGO | S_IWUSR, ip_fw_fwd_procinfo);
+	proc = proc_net_create("ip_input", S_IFREG | S_IRUGO | S_IWUSR, ip_fw_in_procinfo);
+	if (proc) proc->owner = THIS_MODULE;
+	proc = proc_net_create("ip_output", S_IFREG | S_IRUGO | S_IWUSR, ip_fw_out_procinfo);
+	if (proc) proc->owner = THIS_MODULE;
+	proc = proc_net_create("ip_forward", S_IFREG | S_IRUGO | S_IWUSR, ip_fw_fwd_procinfo);
+	if (proc) proc->owner = THIS_MODULE;
 
 	/* Register for device up/down reports */
 	register_netdevice_notifier(&ipfw_dev_notifier);
@@ -1385,6 +1391,7 @@ int ipfw_init_or_cleanup(int init)
 	return ret;
 
  cleanup:
+	unregister_firewall(PF_INET, &ipfw_ops);
 #ifdef CONFIG_IP_FIREWALL_NETLINK
 	sock_release(ipfwsk->socket);
 #endif
@@ -1402,8 +1409,8 @@ int ipfw_init_or_cleanup(int init)
 	free_fw_chain(chains[IP_FW_OUT]);
 	free_fw_chain(chains[IP_FW_ACCT]);
 
-	unregister_firewall(PF_INET, &ipfw_ops);
-
  cleanup_nothing:
 	return ret;
 }
+
+MODULE_LICENSE("Dual BSD/GPL");

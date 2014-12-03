@@ -31,32 +31,32 @@
  */
 
 static int			nfs_gen_mount(struct sockaddr_in *,
-					      char *, struct nfs_fh *, int);
+					      char *, struct nfs3_fh *, int);
 static struct rpc_clnt *	mnt_create(char *, struct sockaddr_in *, int);
 extern struct rpc_program	mnt_program;
 
 struct mnt_fhstatus {
 	unsigned int		status;
-	struct nfs_fh *		fh;
+	struct nfs3_fh *	fh;
 };
 
 /*
  * Obtain an NFS file handle for the given host and path
  */
 int
-nfs_mount(struct sockaddr_in *addr, char *path, struct nfs_fh *fh)
+nfs_mount(struct sockaddr_in *addr, char *path, struct nfs3_fh *fh)
 {
 	return nfs_gen_mount(addr, path, fh, NFS_MNT_VERSION);
 }
 
 int
-nfs3_mount(struct sockaddr_in *addr, char *path, struct nfs_fh *fh)
+nfs3_mount(struct sockaddr_in *addr, char *path, struct nfs3_fh *fh)
 {
 	return nfs_gen_mount(addr, path, fh, NFS_MNT3_VERSION);
 }
 
 static int
-nfs_gen_mount(struct sockaddr_in *addr, char *path, struct nfs_fh *fh, int version)
+nfs_gen_mount(struct sockaddr_in *addr, char *path, struct nfs3_fh *fh, int version)
 {
 	struct rpc_clnt		*mnt_clnt;
 	struct mnt_fhstatus	result = { 0, fh };
@@ -120,7 +120,7 @@ xdr_encode_dirpath(struct rpc_rqst *req, u32 *p, const char *path)
 static int
 xdr_decode_fhstatus(struct rpc_rqst *req, u32 *p, struct mnt_fhstatus *res)
 {
-	struct nfs_fh *fh = res->fh;
+	struct nfs3_fh *fh = res->fh;
 
 	memset((void *)fh, 0, sizeof(*fh));
 	if ((res->status = ntohl(*p++)) == 0) {
@@ -133,7 +133,7 @@ xdr_decode_fhstatus(struct rpc_rqst *req, u32 *p, struct mnt_fhstatus *res)
 static int
 xdr_decode_fhstatus3(struct rpc_rqst *req, u32 *p, struct mnt_fhstatus *res)
 {
-	struct nfs_fh *fh = res->fh;
+	struct nfs3_fh *fh = res->fh;
 
 	memset((void *)fh, 0, sizeof(*fh));
 	if ((res->status = ntohl(*p++)) == 0) {

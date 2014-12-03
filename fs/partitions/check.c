@@ -215,6 +215,49 @@ void add_gd_partition(struct gendisk *hd, int minor, int start, int size)
 #endif
 }
 
+unsigned int get_ptable_blocksize(kdev_t dev)
+{
+	int ret = 1024;
+
+	/*
+	 * See whether the low-level driver has given us a minumum blocksize.
+	 * If so, check to see whether it is larger than the default of 1024.
+	 */
+	if (!blksize_size[MAJOR(dev)])
+		return ret;
+
+	/*
+	 * Check for certain special power of two sizes that we allow.
+	 * With anything larger than 1024, we must force the blocksize up to
+	 * the natural blocksize for the device so that we don't have to try
+	 * and read partial sectors.  Anything smaller should be just fine.
+	 */
+
+	switch (blksize_size[MAJOR(dev)][MINOR(dev)]) {
+		case 2048:
+			ret = 2048;
+			break;
+		case 4096:
+			ret = 4096;
+			break;
+		case 8192:
+			ret = 8192;
+			break;
+		case 1024:
+		case 512:
+		case 256:
+		case 0:
+			/*
+			 * These are all OK.
+			 */
+			break;
+		default:
+			panic("Strange blocksize for partition table\n");
+	}
+
+	return ret;
+}
+
 static void check_partition(struct gendisk *hd, kdev_t dev, int first_part_minor)
 {
 	devfs_handle_t de = NULL;
@@ -246,8 +289,6 @@ static void check_partition(struct gendisk *hd, kdev_t dev, int first_part_minor
 	else
 		printk(KERN_INFO " %s:", disk_name(hd, MINOR(dev), buf));
 	bdev = bdget(kdev_t_to_nr(dev));
-	bdev->bd_inode->i_size = (loff_t)hd->part[MINOR(dev)].nr_sects << 9;
-	bdev->bd_inode->i_blkbits = blksize_bits(block_size(dev));
 	for (i = 0; check_part[i]; i++) {
 		int res;
 		res = check_part[i](hd, bdev, first_sector, first_part_minor);
@@ -260,8 +301,7 @@ static void check_partition(struct gendisk *hd, kdev_t dev, int first_part_minor
 
 	printk(" unknown partition table\n");
 setup_devfs:
-	invalidate_bdev(bdev, 1);
-	truncate_inode_pages(bdev->bd_inode->i_mapping, 0);
+	invalidate_buffers(dev);
 	bdput(bdev);
 	i = first_part_minor - 1;
 	devfs_register_partitions (hd, i, hd->sizes ? 0 : 1);
@@ -406,23 +446,11 @@ void grok_partitions(struct gendisk *dev, int drive, unsigned minors, long size)
 
 unsigned char *read_dev_sector(struct block_device *bdev, unsigned long n, Sector *p)
 {
-	struct address_space *mapping = bdev->bd_inode->i_mapping;
 	int sect = PAGE_CACHE_SIZE / 512;
-	struct page *page;
+	kdev_t dev = to_kdev_t(bdev->bd_dev);
 
-	page = read_cache_page(mapping, n/sect,
-			(filler_t *)mapping->a_ops->readpage, NULL);
-	if (!IS_ERR(page)) {
-		wait_on_page(page);
-		if (!Page_Uptodate(page))
-			goto fail;
-		if (PageError(page))
-			goto fail;
-		p->v = page;
-		return (unsigned char *)page_address(page) + 512 * (n % sect);
-fail:
-		page_cache_release(page);
-	}
-	p->v = NULL;
+	if ((p->v = bread(dev, n/sect, PAGE_CACHE_SIZE)) != NULL)
+		return (unsigned char *)p->v->b_data + 512 * (n % sect);
+
 	return NULL;
 }

@@ -638,18 +638,13 @@ static int hd_ioctl(struct inode * inode, struct file * file,
 			return copy_to_user(loc, &g, sizeof g) ? -EFAULT : 0; 
 		}
 
-         	case BLKGETSIZE:   /* Return device size */
-			return put_user(hd[MINOR(inode->i_rdev)].nr_sects, 
-					(unsigned long *) arg);
-         	case BLKGETSIZE64:
-			return put_user((u64)hd[MINOR(inode->i_rdev)].nr_sects << 9, 
-					(u64 *) arg);
-
 		case BLKRRPART: /* Re-read partition tables */
 			if (!capable(CAP_SYS_ADMIN))
 				return -EACCES;
 			return revalidate_hddisk(inode->i_rdev, 1);
 
+         	case BLKGETSIZE:
+         	case BLKGETSIZE64:
 		case BLKROSET:
 		case BLKROGET:
 		case BLKRASET:

@@ -256,21 +256,30 @@ static inline unsigned int disk_index (kdev_t dev)
 	unsigned int index;
 
 	switch (major) {
-		case DAC960_MAJOR+0:
-			index = (minor & 0x00f8) >> 3;
-			break;
 		case SCSI_DISK0_MAJOR:
 			index = (minor & 0x00f0) >> 4;
 			break;
 		case IDE0_MAJOR:	/* same as HD_MAJOR */
 		case XT_DISK_MAJOR:
+		case IDE1_MAJOR:
+		case IDE2_MAJOR:
+		case IDE3_MAJOR:
+		case IDE4_MAJOR:
+		case IDE5_MAJOR:
 			index = (minor & 0x0040) >> 6;
 			break;
-		case IDE1_MAJOR:
-			index = ((minor & 0x0040) >> 6) + 2;
+		case SCSI_CDROM_MAJOR:
+			index = minor & 0x000f;
 			break;
 		default:
-			return 0;
+			if (major >= SCSI_DISK1_MAJOR && major <= SCSI_DISK7_MAJOR)
+				index = (minor & 0x00f0) >> 4;
+			else if (major >= DAC960_MAJOR && major <= DAC960_MAJOR + 7)
+				index = (minor & 0x00f8) >> 3;
+			else if (major >= IDE6_MAJOR && major <= IDE9_MAJOR)
+				index = (minor & 0x0040) >> 6;
+			else
+				return 0;
 	}
 	return index;
 }

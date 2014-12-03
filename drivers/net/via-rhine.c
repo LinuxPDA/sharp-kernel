@@ -1587,7 +1587,6 @@ static int via_rhine_close(struct net_device *dev)
 static void __devexit via_rhine_remove_one (struct pci_dev *pdev)
 {
 	struct net_device *dev = pci_get_drvdata(pdev);
-	struct netdev_private *np = dev->priv;
 	
 	unregister_netdev(dev);
 
@@ -1598,7 +1597,7 @@ static void __devexit via_rhine_remove_one (struct pci_dev *pdev)
 #endif
 
 	kfree(dev);
-
+	pci_disable_device(pdev);
 	pci_set_drvdata(pdev, NULL);
 }
 

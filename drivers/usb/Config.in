@@ -16,7 +16,6 @@ comment 'Miscellaneous USB options'
       define_bool CONFIG_USB_BANDWIDTH n
    fi
    bool '  Long timeout for slow-responding devices (some MGE Ellipse UPSes)' CONFIG_USB_LONG_TIMEOUT
-   bool '  Large report fetching for "broken" devices (some APC UPSes)' CONFIG_USB_LARGE_CONFIG
 fi
 
 comment 'USB Controllers'
@@ -56,6 +55,7 @@ else
       dep_tristate '  USB HIDBP Mouse (basic) support' CONFIG_USB_MOUSE $CONFIG_USB $CONFIG_INPUT
    fi
    dep_tristate '  Wacom Intuos/Graphire tablet support' CONFIG_USB_WACOM $CONFIG_USB $CONFIG_INPUT
+   dep_tristate '  Aiptek 8000U tablet support (EXPERIMENTAL)' CONFIG_USB_AIPTEK $CONFIG_USB $CONFIG_INPUT $CONFIG_EXPERIMENTAL
 fi
 
 comment 'USB Imaging devices'
@@ -94,5 +94,5 @@ source drivers/usb/serial/Config.in
 
 comment 'USB Miscellaneous drivers'
 dep_tristate '  USB Diamond Rio500 support (EXPERIMENTAL)' CONFIG_USB_RIO500 $CONFIG_USB $CONFIG_EXPERIMENTAL
-
+dep_tristate '  USB MassWorks ID-75 (EXPERIMENTAL)' CONFIG_USB_ID75 $CONFIG_USB $CONFIG_EXPERIMENTAL
 endmenu

@@ -30,13 +30,26 @@ arch_get_unmapped_area (struct file *filp, unsigned long addr, unsigned long len
 
 	if (len > RGN_MAP_LIMIT)
 		return -ENOMEM;
-	if (!addr)
-		addr = TASK_UNMAPPED_BASE;
 
-	if (map_shared)
-		addr = COLOR_ALIGN(addr);
-	else
-		addr = PAGE_ALIGN(addr);
+	if (addr) {
+		if (map_shared)
+			addr = COLOR_ALIGN(addr);
+		else
+			addr = PAGE_ALIGN(addr);
+		vmm = find_vma(current->mm, addr);
+		if (TASK_SIZE - len >= addr &&
+		    rgn_offset(addr) + len <= RGN_MAP_LIMIT &&
+		    (!vmm || addr + len <= vmm->vm_start))
+			return addr;
+		if (addr > TASK_UNMAPPED_BASE)
+			addr = 0;
+	}
+	if (!addr) {
+		if (map_shared)
+			addr = COLOR_ALIGN(TASK_UNMAPPED_BASE);
+		else
+			addr = PAGE_ALIGN(TASK_UNMAPPED_BASE);
+	}
 
 	for (vmm = find_vma(current->mm, addr); ; vmm = vmm->vm_next) {
 		/* At this point:  (!vmm || addr < vmm->vm_end). */

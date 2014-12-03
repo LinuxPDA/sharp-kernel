@@ -11,7 +11,6 @@
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/smp_lock.h>
-#include <linux/iobuf.h>
 
 /* sysctl tunables... */
 struct files_stat_struct files_stat = {0, 0, NR_FILE};
@@ -105,10 +104,6 @@ void fput(struct file * file)
 
 	if (atomic_dec_and_test(&file->f_count)) {
 		locks_remove_flock(file);
-
-		if (file->f_iobuf)
-			free_kiovec(1, &file->f_iobuf);
-
 		if (file->f_op && file->f_op->release)
 			file->f_op->release(inode, file);
 		fops_put(file->f_op);

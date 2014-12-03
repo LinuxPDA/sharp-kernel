@@ -598,7 +598,7 @@ static void pc_close(struct tty_struct * tty, struct file * filp)
 
 			if (ch->close_delay) 
 			{
-				current->state = TASK_INTERRUPTIBLE;
+				set_current_state(TASK_INTERRUPTIBLE);
 				schedule_timeout(ch->close_delay);
 			}
 
@@ -1349,7 +1349,7 @@ static int block_til_ready(struct tty_struct *tty,
 
 	} /* End forever while  */
 
-	current->state = TASK_RUNNING;
+	set_current_state(TASK_RUNNING);
 	remove_wait_queue(&ch->open_wait, &wait);
 	cli();
 	if (!tty_hung_up_p(filp))

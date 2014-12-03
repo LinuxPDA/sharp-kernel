@@ -290,34 +290,32 @@ int ufs_check_dir_entry (const char * function,	struct inode * dir,
 	struct ufs_dir_entry * de, struct buffer_head * bh, 
 	unsigned long offset)
 {
-	struct super_block * sb;
-	const char * error_msg;
-	unsigned flags, swab;
-	
-	sb = dir->i_sb;
-	flags = sb->u.ufs_sb.s_flags;
-	swab = sb->u.ufs_sb.s_swab;
-	error_msg = NULL;
-			
-	if (SWAB16(de->d_reclen) < UFS_DIR_REC_LEN(1))
+	struct super_block *sb = dir->i_sb;
+	const char *error_msg = NULL;
+	unsigned flags = sb->u.ufs_sb.s_flags;
+	unsigned swab = sb->u.ufs_sb.s_swab;
+	int rlen = SWAB16(de->d_reclen);
+
+	if (rlen < UFS_DIR_REC_LEN(1))
 		error_msg = "reclen is smaller than minimal";
-	else if (SWAB16(de->d_reclen) % 4 != 0)
+	else if (rlen % 4 != 0)
 		error_msg = "reclen % 4 != 0";
-	else if (SWAB16(de->d_reclen) < UFS_DIR_REC_LEN(ufs_get_de_namlen(de)))
+	else if (rlen < UFS_DIR_REC_LEN(ufs_get_de_namlen(de)))
 		error_msg = "reclen is too small for namlen";
-	else if (dir && ((char *) de - bh->b_data) + SWAB16(de->d_reclen) >
-		 dir->i_sb->s_blocksize)
+	else if (((char *) de - bh->b_data) + rlen > dir->i_sb->s_blocksize)
 		error_msg = "directory entry across blocks";
-	else if (dir && SWAB32(de->d_ino) > (sb->u.ufs_sb.s_uspi->s_ipg * sb->u.ufs_sb.s_uspi->s_ncg))
+	else if (SWAB32(de->d_ino) > (sb->u.ufs_sb.s_uspi->s_ipg *
+				      sb->u.ufs_sb.s_uspi->s_ncg))
 		error_msg = "inode out of bounds";
 
 	if (error_msg != NULL)
-		ufs_error (sb, function, "bad entry in directory #%lu, size %Lu: %s - "
+		ufs_error (sb, function,
+			   "bad entry in directory #%lu, size %Lu: %s - "
 			    "offset=%lu, inode=%lu, reclen=%d, namlen=%d",
 			    dir->i_ino, dir->i_size, error_msg, offset,
 			    (unsigned long) SWAB32(de->d_ino),
-			    SWAB16(de->d_reclen), ufs_get_de_namlen(de));
-	
+			    rlen, ufs_get_de_namlen(de));
+
 	return (error_msg == NULL ? 1 : 0);
 }
 

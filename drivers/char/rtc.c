@@ -203,7 +203,7 @@ static ssize_t rtc_read(struct file *file, char *buf,
 
 	add_wait_queue(&rtc_wait, &wait);
 
-	current->state = TASK_INTERRUPTIBLE;
+	set_current_state(TASK_INTERRUPTIBLE);
 		
 	do {
 		/* First make it right. Then make it fast. Putting this whole
@@ -232,7 +232,7 @@ static ssize_t rtc_read(struct file *file, char *buf,
 	if (!retval)
 		retval = sizeof(unsigned long); 
  out:
-	current->state = TASK_RUNNING;
+	set_current_state(TASK_RUNNING);
 	remove_wait_queue(&rtc_wait, &wait);
 
 	return retval;
@@ -712,8 +712,10 @@ found:
 	
 	uip_watchdog = jiffies;
 	if (rtc_is_updating() != 0)
-		while (jiffies - uip_watchdog < 2*HZ/100)
+		while (jiffies - uip_watchdog < 2*HZ/100) { 
 			barrier();
+			cpu_relax();
+		}
 	
 	spin_lock_irq(&rtc_lock);
 	year = CMOS_READ(RTC_YEAR);
@@ -946,8 +948,10 @@ static void get_rtc_time(struct rtc_time *rtc_tm)
 	 */
 
 	if (rtc_is_updating() != 0)
-		while (jiffies - uip_watchdog < 2*HZ/100)
+		while (jiffies - uip_watchdog < 2*HZ/100) {
 			barrier();
+			cpu_relax();
+		}
 
 	/*
 	 * Only the values that we read from the RTC are set. We leave

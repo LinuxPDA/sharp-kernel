@@ -361,11 +361,21 @@ setup_arch (char **cmdline_p)
 	unw_create_gate_table();
 }
 
-/*
- * Display cpu info for all cpu's.
- */
+ /*
+  * get_cpuinfo - Get information on one CPU for use by the procfs.
+  *
+  *	Prints info on the next CPU into buffer.  Beware, doesn't check for
+  *	buffer overflow.  Current implementation of procfs assumes that the
+  *	resulting data is <= 1K.
+  *
+  * Args:
+  *	buffer	-- you guessed it, the data buffer
+  *	cpu_np	-- Input: next cpu to get (start at 0).  Output: Updated.
+  *
+  *	Returns number of bytes written to buffer.
+  */
 int
-get_cpuinfo (char *buffer)
+get_cpuinfo(char *buffer, unsigned *cpu_np)
 {
 #ifdef CONFIG_SMP
 #	define lpj	c->loops_per_jiffy
@@ -374,48 +384,57 @@ get_cpuinfo (char *buffer)
 #endif
 	char family[32], features[128], *cp, *p = buffer;
 	struct cpuinfo_ia64 *c;
-	unsigned long mask, cpu;
+	unsigned long mask;
+	unsigned n;
 
-	for (cpu = 0; cpu < smp_num_cpus; ++cpu) {
-		c = cpu_data(cpu);
-		mask = c->features;
-
-		switch (c->family) {
-		      case 0x07:	memcpy(family, "Itanium", 8); break;
-		      case 0x1f:	memcpy(family, "McKinley", 9); break;
-		      default:		sprintf(family, "%u", c->family); break;
-		}
-
-		/* build the feature string: */
-		memcpy(features, " standard", 10);
-		cp = features;
-		if (mask & 1) {
-			strcpy(cp, " branchlong");
-			cp = strchr(cp, '\0');
-			mask &= ~1UL;
-		}
-		if (mask)
-			sprintf(cp, " 0x%lx", mask);
-
-		p += sprintf(p,
-			     "processor  : %lu\n"
-			     "vendor     : %s\n"
-			     "arch       : IA-64\n"
-			     "family     : %s\n"
-			     "model      : %u\n"
-			     "revision   : %u\n"
-			     "archrev    : %u\n"
-			     "features   :%s\n"	/* don't change this---it _is_ right! */
-			     "cpu number : %lu\n"
-			     "cpu regs   : %u\n"
-			     "cpu MHz    : %lu.%06lu\n"
-			     "itc MHz    : %lu.%06lu\n"
-			     "BogoMIPS   : %lu.%02lu\n\n",
-			     cpu, c->vendor, family, c->model, c->revision, c->archrev, features,
-			     c->ppn, c->number, c->proc_freq / 1000000, c->proc_freq % 1000000,
-			     c->itc_freq / 1000000, c->itc_freq % 1000000,
-			     lpj*HZ/500000, (lpj*HZ/5000) % 100);
+	n = *cpu_np;
+	while (n < NR_CPUS && (cpu_online_map & (1 << n)) == 0) {
+		++n;
 	}
+	if (n >= NR_CPUS) {
+		*cpu_np = NR_CPUS;
+		return (0);
+	}
+	*cpu_np = n + 1;
+	c = cpu_data((unsigned long)n);
+
+	mask = c->features;
+
+	switch (c->family) {
+	      case 0x07:	memcpy(family, "Itanium", 8); break;
+	      case 0x1f:	memcpy(family, "McKinley", 9); break;
+	      default:		sprintf(family, "%u", c->family); break;
+	}
+
+	/* build the feature string: */
+	memcpy(features, " standard", 10);
+	cp = features;
+	if (mask & 1) {
+		strcpy(cp, " branchlong");
+		cp = strchr(cp, '\0');
+		mask &= ~1UL;
+	}
+	if (mask)
+		sprintf(cp, " 0x%lx", mask);
+
+	p += sprintf(p,
+		     "processor  : %u\n"
+		     "vendor     : %s\n"
+		     "arch       : IA-64\n"
+		     "family     : %s\n"
+		     "model      : %u\n"
+		     "revision   : %u\n"
+		     "archrev    : %u\n"
+		     "features   :%s\n"	/* don't change this---it _is_ right! */
+		     "cpu number : %lu\n"
+		     "cpu regs   : %u\n"
+		     "cpu MHz    : %lu.%06lu\n"
+		     "itc MHz    : %lu.%06lu\n"
+		     "BogoMIPS   : %lu.%02lu\n\n",
+		     n, c->vendor, family, c->model, c->revision, c->archrev, features,
+		     c->ppn, c->number, c->proc_freq / 1000000, c->proc_freq % 1000000,
+		     c->itc_freq / 1000000, c->itc_freq % 1000000,
+		     lpj*HZ/500000, (lpj*HZ/5000) % 100);
 	return p - buffer;
 }
 

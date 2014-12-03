@@ -65,41 +65,41 @@
 
 static inline struct nfs_inode_info *NFS_I(struct inode *inode)
 {
-	return &inode->u.nfs_i;
+	return (struct nfs_inode_info *)inode->u.generic_ip;
 }
 
-#define NFS_FH(inode)			(&(inode)->u.nfs_i.fh)
+#define NFS_FH(inode)			(&NFS_I(inode)->fh)
 #define NFS_SERVER(inode)		(&(inode)->i_sb->u.nfs_sb.s_server)
 #define NFS_CLIENT(inode)		(NFS_SERVER(inode)->client)
 #define NFS_PROTO(inode)		(NFS_SERVER(inode)->rpc_ops)
 #define NFS_REQUESTLIST(inode)		(NFS_SERVER(inode)->rw_requests)
 #define NFS_ADDR(inode)			(RPC_PEERADDR(NFS_CLIENT(inode)))
 #define NFS_CONGESTED(inode)		(RPC_CONGESTED(NFS_CLIENT(inode)))
-#define NFS_COOKIEVERF(inode)		((inode)->u.nfs_i.cookieverf)
-#define NFS_READTIME(inode)		((inode)->u.nfs_i.read_cache_jiffies)
-#define NFS_CACHE_CTIME(inode)		((inode)->u.nfs_i.read_cache_ctime)
-#define NFS_CACHE_MTIME(inode)		((inode)->u.nfs_i.read_cache_mtime)
-#define NFS_CACHE_ISIZE(inode)		((inode)->u.nfs_i.read_cache_isize)
-#define NFS_NEXTSCAN(inode)		((inode)->u.nfs_i.nextscan)
+#define NFS_COOKIEVERF(inode)		(NFS_I(inode)->cookieverf)
+#define NFS_READTIME(inode)		(NFS_I(inode)->read_cache_jiffies)
+#define NFS_CACHE_CTIME(inode)		(NFS_I(inode)->read_cache_ctime)
+#define NFS_CACHE_MTIME(inode)		(NFS_I(inode)->read_cache_mtime)
+#define NFS_CACHE_ISIZE(inode)		(NFS_I(inode)->read_cache_isize)
+#define NFS_NEXTSCAN(inode)		(NFS_I(inode)->nextscan)
 #define NFS_CACHEINV(inode) \
 do { \
 	NFS_READTIME(inode) = jiffies - NFS_MAXATTRTIMEO(inode) - 1; \
 } while (0)
-#define NFS_ATTRTIMEO(inode)		((inode)->u.nfs_i.attrtimeo)
+#define NFS_ATTRTIMEO(inode)		(NFS_I(inode)->attrtimeo)
 #define NFS_MINATTRTIMEO(inode) \
 	(S_ISDIR(inode->i_mode)? NFS_SERVER(inode)->acdirmin \
 			       : NFS_SERVER(inode)->acregmin)
 #define NFS_MAXATTRTIMEO(inode) \
 	(S_ISDIR(inode->i_mode)? NFS_SERVER(inode)->acdirmax \
 			       : NFS_SERVER(inode)->acregmax)
-#define NFS_ATTRTIMEO_UPDATE(inode)	((inode)->u.nfs_i.attrtimeo_timestamp)
+#define NFS_ATTRTIMEO_UPDATE(inode)	(NFS_I(inode)->attrtimeo_timestamp)
 
-#define NFS_FLAGS(inode)		((inode)->u.nfs_i.flags)
+#define NFS_FLAGS(inode)		(NFS_I(inode)->flags)
 #define NFS_REVALIDATING(inode)		(NFS_FLAGS(inode) & NFS_INO_REVALIDATING)
 #define NFS_STALE(inode)		(NFS_FLAGS(inode) & NFS_INO_STALE)
 
-#define NFS_FILEID(inode)		((inode)->u.nfs_i.fileid)
-#define NFS_FSID(inode)			((inode)->u.nfs_i.fsid)
+#define NFS_FILEID(inode)		(NFS_I(inode)->fileid)
+#define NFS_FSID(inode)			(NFS_I(inode)->fsid)
 
 /* Inode Flags */
 #define NFS_USE_READDIRPLUS(inode)	((NFS_FLAGS(inode) & NFS_INO_ADVISE_RDPLUS) ? 1 : 0)
@@ -216,13 +216,13 @@ extern int  nfs_commit_timeout(struct inode *, int);
 static inline int
 nfs_have_read(struct inode *inode)
 {
-	return !list_empty(&inode->u.nfs_i.read);
+	return !list_empty(&NFS_I(inode)->read);
 }
 
 static inline int
 nfs_have_writebacks(struct inode *inode)
 {
-	return !list_empty(&inode->u.nfs_i.writeback);
+	return !list_empty(&NFS_I(inode)->writeback);
 }
 
 static inline int
@@ -263,8 +263,8 @@ extern int  nfs_pagein_timeout(struct inode *);
  * linux/fs/mount_clnt.c
  * (Used only by nfsroot module)
  */
-extern int  nfs_mount(struct sockaddr_in *, char *, struct nfs_fh *);
-extern int  nfs3_mount(struct sockaddr_in *, char *, struct nfs_fh *);
+extern int  nfs_mount(struct sockaddr_in *, char *, struct nfs3_fh *);
+extern int  nfs3_mount(struct sockaddr_in *, char *, struct nfs3_fh *);
 
 /*
  * inline functions

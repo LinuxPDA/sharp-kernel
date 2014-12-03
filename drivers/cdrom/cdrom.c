@@ -279,11 +279,16 @@ static int autoeject;
 static int lockdoor = 1;
 /* will we ever get to use this... sigh. */
 static int check_media_type;
+static unsigned long *cdrom_numbers;
+static DECLARE_MUTEX(cdrom_sem);
+
 MODULE_PARM(debug, "i");
 MODULE_PARM(autoclose, "i");
 MODULE_PARM(autoeject, "i");
 MODULE_PARM(lockdoor, "i");
 MODULE_PARM(check_media_type, "i");
+
+MODULE_LICENSE("GPL");
 
 #if (ERRLOGMASK!=CD_NOTHING)
 #define cdinfo(type, fmt, args...) \
@@ -323,15 +328,14 @@ static void sanitize_format(union cdrom_addr *addr,
 static int mmc_ioctl(struct cdrom_device_info *cdi, unsigned int cmd,
 		     unsigned long arg);
 
-int cdrom_get_last_written(kdev_t dev, long *last_written);
-int cdrom_get_next_writable(kdev_t dev, long *next_writable);
+int cdrom_get_last_written(kdev_t dev, unsigned int *last_written);
+int cdrom_get_next_writable(kdev_t dev, unsigned int *next_writable);
 
 #ifdef CONFIG_SYSCTL
 static void cdrom_sysctl_register(void);
 #endif /* CONFIG_SYSCTL */ 
 static struct cdrom_device_info *topCdromPtr;
 static devfs_handle_t devfs_handle;
-static struct unique_numspace cdrom_numspace = UNIQUE_NUMBERSPACE_INITIALISER;
 
 struct block_device_operations cdrom_fops =
 {
@@ -341,13 +345,45 @@ struct block_device_operations cdrom_fops =
 	check_media_change:	cdrom_media_changed,
 };
 
+/*
+ * get or clear a new cdrom number, run under cdrom_sem
+ */
+static int cdrom_get_entry(void)
+{
+	int i, nr, foo;
+
+	nr = 0;
+	foo = -1;
+	for (i = 0; i < CDROM_MAX_CDROMS / (sizeof(unsigned long) * 8); i++) {
+		if (cdrom_numbers[i] == ~0UL) {
+			nr += sizeof(unsigned long) * 8;
+			continue;
+		}
+		foo = ffz(cdrom_numbers[i]);
+		set_bit(foo, &cdrom_numbers[i]);
+		nr += foo;
+		break;
+	}
+
+	return foo == -1 ? foo : nr;
+}
+
+static void cdrom_clear_entry(struct cdrom_device_info *cdi)
+{
+	int bit_nr = cdi->nr & ~(sizeof(unsigned long) * 8);
+	int cd_index = cdi->nr / (sizeof(unsigned long) * 8);
+
+	clear_bit(bit_nr, &cdrom_numbers[cd_index]);
+}
+
+
 /* This macro makes sure we don't have to check on cdrom_device_ops
  * existence in the run-time routines below. Change_capability is a
  * hack to have the capability flags defined const, while we can still
  * change it here without gcc complaining at every line.
  */
 #define ENSURE(call, bits) if (cdo->call == NULL) *change_capability &= ~(bits)
-
+static int cdrom_init(void);
 int register_cdrom(struct cdrom_device_info *cdi)
 {
 	static char banner_printed;
@@ -363,11 +399,9 @@ int register_cdrom(struct cdrom_device_info *cdi)
 	if (cdo->open == NULL || cdo->release == NULL)
 		return -2;
 	if ( !banner_printed ) {
-		printk(KERN_INFO "Uniform CD-ROM driver " REVISION "\n");
 		banner_printed = 1;
-#ifdef CONFIG_SYSCTL
-		cdrom_sysctl_register();
-#endif /* CONFIG_SYSCTL */ 
+		printk(KERN_INFO "Uniform CD-ROM driver " REVISION "\n");
+		cdrom_init();
 	}
 	ENSURE(drive_status, CDC_DRIVE_STATUS );
 	ENSURE(media_changed, CDC_MEDIA_CHANGED);
@@ -395,8 +429,17 @@ int register_cdrom(struct cdrom_device_info *cdi)
 
 	if (!devfs_handle)
 		devfs_handle = devfs_mk_dir (NULL, "cdroms", NULL);
-	cdi->number = devfs_alloc_unique_number (&cdrom_numspace);
-	sprintf (vname, "cdrom%d", cdi->number);
+
+	/*
+	 * get new cdrom number
+	 */
+	down(&cdrom_sem);
+	cdi->nr = cdrom_get_entry();
+	up(&cdrom_sem);
+	if (cdi->nr == -1)
+		return -ENOMEM;
+
+	sprintf(vname, "cdrom%u", cdi->nr);
 	if (cdi->de) {
 		int pos;
 		devfs_handle_t slave;
@@ -419,9 +462,13 @@ int register_cdrom(struct cdrom_device_info *cdi)
 				    S_IFBLK | S_IRUGO | S_IWUGO,
 				    &cdrom_fops, NULL);
 	}
-	cdinfo(CD_REG_UNREG, "drive \"/dev/%s\" registered\n", cdi->name);
+
+	down(&cdrom_sem);
 	cdi->next = topCdromPtr; 	
 	topCdromPtr = cdi;
+	up(&cdrom_sem);
+
+	cdinfo(CD_REG_UNREG, "drive \"/dev/%s\" registered\n", cdi->name);
 	return 0;
 }
 #undef ENSURE
@@ -436,6 +483,7 @@ int unregister_cdrom(struct cdrom_device_info *unreg)
 	if (major < 0 || major >= MAX_BLKDEV)
 		return -1;
 
+	down(&cdrom_sem);
 	prev = NULL;
 	cdi = topCdromPtr;
 	while (cdi != NULL && cdi->dev != unreg->dev) {
@@ -443,15 +491,20 @@ int unregister_cdrom(struct cdrom_device_info *unreg)
 		cdi = cdi->next;
 	}
 
-	if (cdi == NULL)
+	if (cdi == NULL) {
+		up(&cdrom_sem);
 		return -2;
+	}
+
+	cdrom_clear_entry(cdi);
+
 	if (prev)
 		prev->next = cdi->next;
 	else
 		topCdromPtr = cdi->next;
+	up(&cdrom_sem);
 	cdi->ops->n_minors--;
-	devfs_unregister (cdi->de);
-	devfs_dealloc_unique_number (&cdrom_numspace, cdi->number);
+	devfs_unregister(cdi->de);
 	cdinfo(CD_REG_UNREG, "drive \"/dev/%s\" unregistered\n", cdi->name);
 	return 0;
 }
@@ -460,9 +513,13 @@ struct cdrom_device_info *cdrom_find_device(kdev_t dev)
 {
 	struct cdrom_device_info *cdi;
 
+	down(&cdrom_sem);
+
 	cdi = topCdromPtr;
 	while (cdi != NULL && cdi->dev != dev)
 		cdi = cdi->next;
+
+	up(&cdrom_sem);
 
 	return cdi;
 }
@@ -1142,14 +1199,23 @@ static int dvd_do_auth(struct cdrom_device_info *cdi, dvd_authinfo *ai)
 		memset(&rpc_state, 0, sizeof(rpc_state_t));
 		cgc.buffer = (char *) &rpc_state;
 
-		if ((ret = cdo->generic_packet(cdi, &cgc)))
-			return ret;
-
-		ai->lrpcs.type = rpc_state.type_code;
-		ai->lrpcs.vra = rpc_state.vra;
-		ai->lrpcs.ucca = rpc_state.ucca;
-		ai->lrpcs.region_mask = rpc_state.region_mask;
-		ai->lrpcs.rpc_scheme = rpc_state.rpc_scheme;
+		/*
+		 * we already checked dvd capability, so if it fails
+		 * assume it's a rpc phase-1 drive and report that back.
+		 * this is necessary at least on some toshiba drives,
+		 * that don't support REPORT_KEY with key format 001000b
+		 */
+		cgc.quiet = 1;
+		if ((ret = cdo->generic_packet(cdi, &cgc))) {
+			ai->lrpcs.type = 0;
+			ai->lrpcs.rpc_scheme = 0;
+		} else {
+			ai->lrpcs.type = rpc_state.type_code;
+			ai->lrpcs.vra = rpc_state.vra;
+			ai->lrpcs.ucca = rpc_state.ucca;
+			ai->lrpcs.region_mask = rpc_state.region_mask;
+			ai->lrpcs.rpc_scheme = rpc_state.rpc_scheme;
+		}
 		break;
 
 	/* Set region settings */
@@ -1899,8 +1965,10 @@ static int cdrom_do_cmd(struct cdrom_device_info *cdi,
 
 	if (cgc->data_direction == CGC_DATA_UNKNOWN)
 		return -EINVAL;
+	if (cgc->data_direction == CGC_DATA_NONE && cgc->buflen)
+		return -EINVAL;
 
-	if (cgc->buflen < 0 || cgc->buflen >= 131072)
+	if (cgc->buflen >= 131072)
 		return -EINVAL;
 
 	if ((ubuf = cgc->buffer)) {
@@ -1911,24 +1979,24 @@ static int cdrom_do_cmd(struct cdrom_device_info *cdi,
 
 	usense = cgc->sense;
 	cgc->sense = &sense;
+	ret = -EFAULT;
 	if (usense && !access_ok(VERIFY_WRITE, usense, sizeof(*usense)))
-		return -EFAULT;
+		goto out;
 
 	if (cgc->data_direction == CGC_DATA_READ) {
 		if (!access_ok(VERIFY_READ, ubuf, cgc->buflen))
-			return -EFAULT;
-	} else if (cgc->data_direction == CGC_DATA_WRITE) {
-		if (copy_from_user(cgc->buffer, ubuf, cgc->buflen)) {
-			kfree(cgc->buffer);
-			return -EFAULT;
-		}
-	}
+			goto out;
+	} else if (cgc->data_direction == CGC_DATA_WRITE)
+		if (copy_from_user(cgc->buffer, ubuf, cgc->buflen))
+			goto out;
 
 	ret = cdi->ops->generic_packet(cdi, cgc);
 	__copy_to_user(usense, cgc->sense, sizeof(*usense));
 	if (!ret && cgc->data_direction == CGC_DATA_READ)
 		__copy_to_user(ubuf, cgc->buffer, cgc->buflen);
-	kfree(cgc->buffer);
+out:
+	if (cgc->buffer)
+		kfree(cgc->buffer);
 	return ret;
 }
 
@@ -1938,7 +2006,7 @@ static int mmc_ioctl(struct cdrom_device_info *cdi, unsigned int cmd,
 	struct cdrom_device_ops *cdo = cdi->ops;
 	struct cdrom_generic_command cgc;
 	kdev_t dev = cdi->dev;
-	char buffer[32];
+	unsigned char buffer[32];
 	int ret = 0;
 
 	memset(&cgc, 0, sizeof(cgc));
@@ -2008,7 +2076,6 @@ static int mmc_ioctl(struct cdrom_device_info *cdi, unsigned int cmd,
 		else
 			return -EINVAL;
 
-		/* FIXME: we need upper bound checking, too!! */
 		if (lba < 0 || ra.nframes <= 0)
 			return -EINVAL;
 
@@ -2016,6 +2083,9 @@ static int mmc_ioctl(struct cdrom_device_info *cdi, unsigned int cmd,
 		 * start with will ra.nframes size, back down if alloc fails
 		 */
 		nr = ra.nframes;
+		if(nr > 64)
+			nr = 64;
+			
 		do {
 			cgc.buffer = kmalloc(CD_FRAMESIZE_RAW * nr, GFP_KERNEL);
 			if (cgc.buffer)
@@ -2096,7 +2166,7 @@ static int mmc_ioctl(struct cdrom_device_info *cdi, unsigned int cmd,
 	case CDROMVOLCTRL:
 	case CDROMVOLREAD: {
 		struct cdrom_volctrl volctrl;
-		char mask[32];
+		unsigned char mask[32];
 		unsigned short offset;
 		cdinfo(CD_DO_IOCTL, "entering CDROMVOLUME\n");
 
@@ -2207,19 +2277,19 @@ static int mmc_ioctl(struct cdrom_device_info *cdi, unsigned int cmd,
 		return cdrom_do_cmd(cdi, &cgc);
 		}
 	case CDROM_NEXT_WRITABLE: {
-		long next = 0;
+		unsigned int next = 0;
 		cdinfo(CD_DO_IOCTL, "entering CDROM_NEXT_WRITABLE\n"); 
 		if ((ret = cdrom_get_next_writable(dev, &next)))
 			return ret;
-		IOCTL_OUT(arg, long, next);
+		IOCTL_OUT(arg, unsigned int, next);
 		return 0;
 		}
 	case CDROM_LAST_WRITTEN: {
-		long last = 0;
+		unsigned int last = 0;
 		cdinfo(CD_DO_IOCTL, "entering CDROM_LAST_WRITTEN\n"); 
 		if ((ret = cdrom_get_last_written(dev, &last)))
 			return ret;
-		IOCTL_OUT(arg, long, last);
+		IOCTL_OUT(arg, unsigned int, last);
 		return 0;
 		}
 	} /* switch */
@@ -2289,7 +2359,7 @@ int cdrom_get_disc_info(kdev_t dev, disc_information *di)
 
 /* return the last written block on the CD-R media. this is for the udf
    file system. */
-int cdrom_get_last_written(kdev_t dev, long *last_written)
+int cdrom_get_last_written(kdev_t dev, unsigned int *last_written)
 {	
 	struct cdrom_device_info *cdi = cdrom_find_device(dev);
 	struct cdrom_tocentry toc;
@@ -2341,7 +2411,7 @@ use_toc:
 }
 
 /* return the next writable block. also for udf file system. */
-int cdrom_get_next_writable(kdev_t dev, long *next_writable)
+int cdrom_get_next_writable(kdev_t dev, unsigned int *next_writable)
 {
 	struct cdrom_device_info *cdi = cdrom_find_device(dev);
 	disc_information di;
@@ -2425,6 +2495,8 @@ int cdrom_sysctl_info(ctl_table *ctl, int write, struct file * filp,
 	}
 
 	pos = sprintf(info, "CD-ROM information, " VERSION "\n");
+
+	down(&cdrom_sem);
 	
 	pos += sprintf(info+pos, "\ndrive name:\t");
 	for (cdi=topCdromPtr;cdi!=NULL;cdi=cdi->next)
@@ -2493,6 +2565,8 @@ int cdrom_sysctl_info(ctl_table *ctl, int write, struct file * filp,
 	pos += sprintf(info+pos, "\nCan write DVD-RAM:");
 	for (cdi=topCdromPtr;cdi!=NULL;cdi=cdi->next)
 	    pos += sprintf(info+pos, "\t%d", CDROM_CAN(CDC_DVD_RAM) != 0);
+
+	up(&cdrom_sem);
 
 	strcpy(info+pos,"\n\n");
 		
@@ -2639,8 +2713,12 @@ static void cdrom_sysctl_unregister(void)
 
 #endif /* CONFIG_SYSCTL */
 
-static int __init cdrom_init(void)
+static int cdrom_init(void)
 {
+	int n_entries = CDROM_MAX_CDROMS / (sizeof(unsigned long) * 8);
+
+	cdrom_numbers = kmalloc(n_entries * sizeof(unsigned long), GFP_KERNEL);
+
 #ifdef CONFIG_SYSCTL
 	cdrom_sysctl_register();
 #endif
@@ -2651,12 +2729,11 @@ static int __init cdrom_init(void)
 static void __exit cdrom_exit(void)
 {
 	printk(KERN_INFO "Uniform CD-ROM driver unloaded\n");
+	kfree(cdrom_numbers);
 #ifdef CONFIG_SYSCTL
 	cdrom_sysctl_unregister();
 #endif
 	devfs_unregister(devfs_handle);
 }
 
-module_init(cdrom_init);
 module_exit(cdrom_exit);
-MODULE_LICENSE("GPL");

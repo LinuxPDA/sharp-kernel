@@ -1148,6 +1148,8 @@
 #define APC_LUT_MN		0x39
 #define APC_LUT_OP		0x3A
 
+/* Values in CONFIG_PANEL */
+#define DONT_SHADOW_HEND	0x00004000
 
 /* Values in LCD_MISC_CNTL */
 #define BIAS_MOD_LEVEL_MASK	0x0000ff00

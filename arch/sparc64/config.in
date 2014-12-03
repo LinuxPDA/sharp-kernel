@@ -35,6 +35,8 @@ define_bool CONFIG_SPARC64 y
 define_bool CONFIG_HAVE_DEC_LOCK y
 define_bool CONFIG_RWSEM_GENERIC_SPINLOCK n
 define_bool CONFIG_RWSEM_XCHGADD_ALGORITHM y
+define_bool CONFIG_GENERIC_BUST_SPINLOCK n
+define_bool CONFIG_GENERIC_ISA_DMA y
 define_bool CONFIG_ISA n
 define_bool CONFIG_ISAPNP n
 define_bool CONFIG_EISA n
@@ -211,7 +213,9 @@ endmenu
 
 source drivers/fc4/Config.in
 
-source drivers/message/fusion/Config.in
+if [ "$CONFIG_PCI" = "y" ]; then
+   source drivers/message/fusion/Config.in
+fi
 
 source drivers/ieee1394/Config.in
 

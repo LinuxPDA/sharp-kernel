@@ -266,7 +266,7 @@ repeat:
 			goto repeat;
 		}
 
-		current->state = TASK_RUNNING;
+		set_current_state(TASK_RUNNING);
 		remove_wait_queue(&mse->wait, &wait);
 
 		if (signal_pending(current)) {

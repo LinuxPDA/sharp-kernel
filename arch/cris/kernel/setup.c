@@ -218,15 +218,35 @@ static struct cpu_info {
 };
 
 /*
- * BUFFER is PAGE_SIZE bytes long.
+ * get_cpuinfo - Get information on one CPU for use by the procfs.
+ *
+ *	Prints info on the next CPU into buffer.  Beware, doesn't check for
+ *	buffer overflow.  Current implementation of procfs assumes that the
+ *	resulting data is <= 1K.
+ *
+ *	BUFFER is PAGE_SIZE - 1K bytes long.
+ *
+ * Args:
+ *	buffer	-- you guessed it, the data buffer
+ *	cpu_np	-- Input: next cpu to get (start at 0).  Output: Updated.
+ *
+ *	Returns number of bytes written to buffer.
  */
-int get_cpuinfo(char *buffer)
+int get_cpuinfo(char *buffer, unsigned *cpu_np)
 {
 	int revision;
+	unsigned n;
 
 	/* read the version register in the CPU and print some stuff */
 
 	revision = rdvr();
+
+  	/* No SMP at the moment, so just toggle 0/1 */
+	n = *cpu_np;
+	*cpu_np = 1;
+	if (n != 0) {
+		return (0);
+	}
 
 	return sprintf(buffer,
 		       "cpu\t\t: CRIS\n"

@@ -44,7 +44,6 @@ int ext2_fsync_inode(struct inode *inode, int datasync)
 	int err;
 	
 	err  = fsync_inode_buffers(inode);
-	err |= fsync_inode_data_buffers(inode);
 	if (!(inode->i_state & I_DIRTY))
 		return err;
 	if (datasync && !(inode->i_state & I_DIRTY_DATASYNC))

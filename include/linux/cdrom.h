@@ -577,6 +577,8 @@ typedef union {
 	struct dvd_manufact	manufact;
 } dvd_struct;
 
+#define CDROM_MAX_CDROMS	256
+
 /*
  * DVD authentication ioctl
  */
@@ -733,6 +735,7 @@ struct cdrom_device_info {
 	int number;			/* generic driver updates this  */
 /* specifications */
         kdev_t dev;	                /* device number */
+	int nr;				/* cdrom entry */
 	int mask;                       /* mask of capability: disables them */
 	int speed;			/* maximum speed for reading data */
 	int capacity;			/* number of discs in jukebox */
@@ -791,8 +794,8 @@ typedef struct {
 } tracktype;
 
 extern void cdrom_count_tracks(struct cdrom_device_info *cdi,tracktype* tracks);
-extern int cdrom_get_next_writable(kdev_t dev, long *next_writable);
-extern int cdrom_get_last_written(kdev_t dev, long *last_written);
+extern int cdrom_get_next_writable(kdev_t dev, unsigned int *next_writable);
+extern int cdrom_get_last_written(kdev_t dev, unsigned int *last_written);
 extern int cdrom_number_of_slots(struct cdrom_device_info *cdi);
 extern int cdrom_select_disc(struct cdrom_device_info *cdi, int slot);
 extern int cdrom_mode_select(struct cdrom_device_info *cdi,

@@ -46,11 +46,13 @@ extern int ez_init(void);
 extern int bpcd_init(void);
 extern int ps2esdi_init(void);
 extern int jsfd_init(void);
+extern int viodasd_init(void);
+extern int viocd_init(void);
 
 #if defined(CONFIG_ARCH_S390)
-extern int mdisk_init(void);
 extern int dasd_init(void);
 extern int xpram_init(void);
+extern int tapeblock_init(void);
 #endif /* CONFIG_ARCH_S390 */
 
 extern void set_device_ro(kdev_t dev,int flag);
@@ -320,6 +322,15 @@ static void floppy_off(unsigned int nr);
 #define TIMEOUT_VALUE (25*HZ)
 #define DEVICE_REQUEST do_ida_request
 #define DEVICE_NR(device) (MINOR(device) >> 4)
+
+#elif (MAJOR_NR == UBD_MAJOR)
+
+#define DEVICE_NAME "User-mode block device"
+#define DEVICE_INTR do_ubd
+#define DEVICE_REQUEST do_ubd_request
+#define DEVICE_NR(device) (MINOR(device))
+#define DEVICE_ON(device)
+#define DEVICE_OFF(device)
 
 #endif /* MAJOR_NR == whatever */
 

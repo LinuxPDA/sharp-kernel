@@ -93,7 +93,12 @@ M:	ajk@iehk.rwth-aachen.de
 L:	linux-hams@vger.kernel.org
 S:	Maintained
 
-8139TOO ETHERNET DRIVER
+8139CP 10/100 FAST ETHERNET DRIVER
+P:	Jeff Garzik
+M:	jgarzik@mandrakesoft.com
+S:	Maintained
+
+8139TOO 10/100 FAST ETHERNET DRIVER
 P:	Jeff Garzik
 M:	jgarzik@mandrakesoft.com
 W:	http://sourceforge.net/projects/gkernel/
@@ -196,6 +201,12 @@ P:	Dave Gilbert
 M:	linux@treblig.org
 S:	Maintained
 
+ARM/SHARK MACHINE SUPPORT
+P:	Alexander Schulz
+M:	alex@shark-linux.de
+W:	http://www.shark-linux.de/shark.html
+S:	Maintained
+
 ARM/STRONGARM110 PORT
 P:	Russell King
 M:	rmk@arm.linux.org.uk
@@ -296,9 +307,7 @@ W:	ftp.compaq.com/pub/products/drivers/linux
 S:	Supported 
 
 COMPUTONE INTELLIPORT MULTIPORT CARD
-P:     Doug McNash
 P:     Michael H. Warfield
-M:     Doug McNash <dougm@computone.com>
 M:     Michael H. Warfield <mhw@wittsend.com>
 W:     http://www.computone.com/
 W:     http://www.wittsend.com/computone.html
@@ -642,6 +651,13 @@ M:	rhw@memalpha.cx
 L:	Linux-Kernel@vger.kernel.org
 S:	Maintained
 
+i386 SETUP CODE / CPU ERRATA WORKAROUNDS
+P:	Dave Jones
+M:	davej@suse.de
+P:	H. Peter Anvin
+M:	hpa@zytor.com
+S:	Maintained
+
 i810 TCO TIMER WATCHDOG
 P:	Nils Faerber
 M:	nils@kernelconcepts.de
@@ -747,6 +763,13 @@ INTEL IA32 MICROCODE UPDATE SUPPORT
 P:	Tigran Aivazian
 M:	tigran@veritas.com
 S:	Maintained
+
+INTERMEZZO FILE SYSTEM
+P:	Peter J. Braam
+M:      braam@clusterfs.com
+W:      http://www.inter-mezzo.org/
+L:      intermezzo-discuss@lists.sourceforge.net
+S:      Maintained
 
 IP MASQUERADING:
 P:	Juanjo Ciarlante
@@ -874,6 +897,13 @@ M:	benh@kernel.crashing.org
 W:	http://www.linuxppc.org/
 L:	linuxppc-dev@lists.linuxppc.org
 S:	Maintained
+
+LINUX FOR 64BIT POWERPC
+P:	David Engebretsen
+M:	engebret@us.ibm.com
+W:	http://linuxppc64.org
+L:	linuxppc64-dev@lists.linuxppc.org
+S:	Supported
 
 LOGICAL DISK MANAGER SUPPORT (LDM, Windows 2000/XP Dynamic Disks)
 P:	Richard Russon (FlatCap)
@@ -1145,6 +1175,17 @@ M:	mj@suse.cz
 L:	linux-kernel@vger.kernel.org
 S:	Supported
 
+PCI HOTPLUG CORE
+P:	Greg Kroah-Hartman
+M:	greg@kroah.com
+M:	gregkh@us.ibm.com
+S:	Supported
+
+PCI HOTPLUG COMPAQ DRIVER
+P:	Greg Kroah-Hartman
+M:	greg@kroah.com
+S:	Maintained
+
 PCMCIA SUBSYSTEM
 P:	David Hinds
 M:	dhinds@zen.stanford.edu
@@ -1170,6 +1211,11 @@ PPP PROTOCOL DRIVERS AND COMPRESSORS
 P:	Paul Mackerras
 M:	paulus@samba.org
 L:	linux-ppp@vger.kernel.org
+S:	Maintained
+
+PPP OVER ATM (RFC 2364)
+P:	Mitchell Blank Jr
+M:	mitch@sfgoth.com
 S:	Maintained
 
 PPP OVER ETHERNET
@@ -1629,6 +1675,14 @@ L:	linux-usb-users@lists.sourceforge.net
 L:	linux-usb-devel@lists.sourceforge.net
 W:	http://usb.in.tum.de
 S:	Maintained
+
+USER-MODE PORT
+P:	Jeff Dike
+M:	jdike@karaya.com
+L:	user-mode-linux-devel@lists.sourceforge.net
+L:	user-mode-linux-user@lists.sourceforge.net
+W:	http://user-mode-linux.sourceforge.net
+S:	Maintained
 	
 VFAT FILESYSTEM:
 P:	Gordon Chaffee
@@ -1685,6 +1739,13 @@ S:	Maintained
 X86 3-LEVEL PAGING (PAE) SUPPORT
 P:	Ingo Molnar
 M:	mingo@redhat.com
+S:	Maintained
+
+X86-64 port
+P:	Andi Kleen
+M:	ak@suse.de
+L:	discuss@x86-64.org
+W:	http://www.x86-64.org
 S:	Maintained
 
 YAM DRIVER FOR AX.25

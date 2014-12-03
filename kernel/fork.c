@@ -133,6 +133,7 @@ static inline int dup_mmap(struct mm_struct * mm)
 	flush_cache_mm(current->mm);
 	mm->locked_vm = 0;
 	mm->mmap = NULL;
+	mm->mmap_avl = NULL;
 	mm->mmap_cache = NULL;
 	mm->map_count = 0;
 	mm->rss = 0;
@@ -199,7 +200,8 @@ static inline int dup_mmap(struct mm_struct * mm)
 			goto fail_nomem;
 	}
 	retval = 0;
-	build_mmap_rb(mm);
+	if (mm->map_count >= AVL_MIN_MAP_COUNT)
+		build_mmap_avl(mm);
 
 fail_nomem:
 	flush_tlb_mm(current->mm);
@@ -585,7 +587,14 @@ int do_fork(unsigned long clone_flags, unsigned long stack_start,
 	*p = *current;
 
 	retval = -EAGAIN;
-	if (atomic_read(&p->user->processes) >= p->rlim[RLIMIT_NPROC].rlim_cur)
+	/*
+	 * Check if we are over our maximum process limit, but be sure to
+	 * exclude root. This is needed to make it possible for login and
+	 * friends to set the per-user process limit to something lower
+	 * than the amount of processes root is running. -- Rik
+	 */
+	if (atomic_read(&p->user->processes) >= p->rlim[RLIMIT_NPROC].rlim_cur
+	              && !capable(CAP_SYS_ADMIN) && !capable(CAP_SYS_RESOURCE))
 		goto bad_fork_free;
 
 	atomic_inc(&p->user->__count);
@@ -649,8 +658,6 @@ int do_fork(unsigned long clone_flags, unsigned long stack_start,
 	p->lock_depth = -1;		/* -1 = no lock */
 	p->start_time = jiffies;
 
-	INIT_LIST_HEAD(&p->local_pages);
-
 	retval = -ENOMEM;
 	/* copy all the process information */
 	if (copy_files(clone_flags, p))
@@ -703,7 +710,7 @@ int do_fork(unsigned long clone_flags, unsigned long stack_start,
 	/* CLONE_PARENT and CLONE_THREAD re-use the old parent */
 	p->p_opptr = current->p_opptr;
 	p->p_pptr = current->p_pptr;
-	if (!(clone_flags & (CLONE_PARENT | CLONE_THREAD))) {
+	if (!(clone_flags & CLONE_PARENT)) {
 		p->p_opptr = current;
 		if (!(p->ptrace & PT_PTRACED))
 			p->p_pptr = current;

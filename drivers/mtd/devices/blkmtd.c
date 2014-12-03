@@ -1,5 +1,7 @@
 /* 
  * $Id: blkmtd.c,v 1.3 2001/10/02 15:33:20 dwmw2 Exp $
+ *  - With alloc_kiovec_sz patches to work in 2.4.x-ac kernels.
+ *
  * blkmtd.c - use a block device as a fake MTD
  *
  * Author: Simon Evans <spse@secret.org.uk>
@@ -157,6 +159,7 @@ static int blkmtd_readpage(struct file *file, struct page *page)
   struct kiobuf *iobuf;
   mtd_raw_dev_data_t *rawdevice = (mtd_raw_dev_data_t *)file->private_data;
   kdev_t dev;
+  int nbhs = KIO_MAX_SECTORS;
 
   if(!rawdevice) {
     printk("blkmtd: readpage: PANIC file->private_data == NULL\n");
@@ -206,7 +209,7 @@ static int blkmtd_readpage(struct file *file, struct page *page)
 
 
   DEBUG(3, "blkmtd: readpage: getting kiovec\n");
-  err = alloc_kiovec(1, &iobuf);
+  err = alloc_kiovec_sz(1, &iobuf, &nbhs);
   if (err) {
     return err;
   }
@@ -226,7 +229,7 @@ static int blkmtd_readpage(struct file *file, struct page *page)
   err = brw_kiovec(READ, 1, &iobuf, dev, iobuf->blocks, rawdevice->sector_size);
   DEBUG(3, "blkmtd: readpage: finished, err = %d\n", err);
   iobuf->locked = 0;
-  free_kiovec(1, &iobuf);
+  free_kiovec_sz(1, &iobuf, &nbhs);
   if(err != PAGE_SIZE) {
     printk("blkmtd: readpage: error reading page %ld\n", page->index);
     memset(page_address(page), 0, PAGE_SIZE);
@@ -256,6 +259,7 @@ static int write_queue_task(void *data)
   int err;
   struct task_struct *tsk = current;
   struct kiobuf *iobuf;
+  int nbhs = KIO_MAX_SECTORS;
 
   DECLARE_WAITQUEUE(wait, tsk);
   DEBUG(1, "blkmtd: writetask: starting (pid = %d)\n", tsk->pid);
@@ -268,7 +272,7 @@ static int write_queue_task(void *data)
   spin_unlock_irq(&tsk->sigmask_lock);
   exit_sighand(tsk);
 
-  if(alloc_kiovec(1, &iobuf))
+  if(alloc_kiovec_sz(1, &iobuf, &nbhs))
     return 0;
   DEBUG(2, "blkmtd: writetask: entering main loop\n");
   add_wait_queue(&thr_wq, &wait);
@@ -360,7 +364,7 @@ static int write_queue_task(void *data)
   }
   remove_wait_queue(&thr_wq, &wait);
   DEBUG(1, "blkmtd: writetask: exiting\n");
-  free_kiovec(1, &iobuf);
+  free_kiovec_sz(1, &iobuf, &nbhs);
   /* Tell people we have exitd */
   up(&thread_sem);
   return 0;

@@ -72,6 +72,9 @@ struct thread_struct {
 	int bpt_nsaved;
 };
 
+#define INIT_MMAP { &init_mm, PAGE_OFFSET,  PAGE_OFFSET+0x10000000, \
+	NULL, PAGE_SHARED, VM_READ | VM_WRITE | VM_EXEC, 1, NULL, NULL }
+
 #define INIT_THREAD  { \
 	0, 0, 0, \
 	0, 0, 0, \

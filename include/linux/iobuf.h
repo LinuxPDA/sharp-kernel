@@ -71,8 +71,8 @@ void	mark_dirty_kiobuf(struct kiobuf *iobuf, int bytes);
 
 void	end_kio_request(struct kiobuf *, int);
 void	simple_wakeup_kiobuf(struct kiobuf *);
-int	alloc_kiovec(int nr, struct kiobuf **);
-void	free_kiovec(int nr, struct kiobuf **);
+int	alloc_kiovec_sz(int nr, struct kiobuf **, int *);
+void	free_kiovec_sz(int nr, struct kiobuf **, int *);
 int	expand_kiobuf(struct kiobuf *, int);
 void	kiobuf_wait_for_io(struct kiobuf *);
 extern int alloc_kiobuf_bhs(struct kiobuf *);

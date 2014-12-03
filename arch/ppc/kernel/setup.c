@@ -136,7 +136,21 @@ extern u32 cpu_temp(unsigned long cpu);
 extern u32 cpu_temp_both(unsigned long cpu);
 #endif /* CONFIG_TAU */
 
-int get_cpuinfo(char *buffer)
+/*
+ * get_cpuinfo - Get information on one CPU for use by procfs.
+ *
+ *	Prints info on the next CPU into buffer.  Beware, doesn't check for
+ *	buffer overflow.  Current implementation of procfs assumes that the
+ *	resulting data is <= 1K.
+ *
+ * Args:
+ *	buffer	-- you guessed it, the data buffer
+ *	cpu_np	-- Input: next cpu to get (start at 0).  Output: Updated.
+ *
+ *	Returns number of bytes written to buffer.
+ */
+
+int get_cpuinfo(char *buffer, unsigned *cpu_np)
 {
 	unsigned long len = 0;
 	unsigned long bogosum = 0;
@@ -155,127 +169,114 @@ int get_cpuinfo(char *buffer)
 #define CD(x) (x)
 #endif	
 
-	for ( i = 0; i < smp_num_cpus ; i++ )
-	{
-		if ( !CPU_PRESENT(i) )
-			continue;
-		if ( i )
-			len += sprintf(len+buffer,"\n");
-		len += sprintf(len+buffer,"processor\t: %lu\n",i);
-		len += sprintf(len+buffer,"cpu\t\t: ");
-
-		pvr = GET_PVR;
-
-		if (cur_cpu_spec[i]->pvr_mask)
-			len += sprintf(len+buffer, "%s", cur_cpu_spec[i]->cpu_name);
-		else
-			len += sprintf(len+buffer, "unknown (%08x)", pvr);
-#ifdef CONFIG_ALTIVEC
-		if (cur_cpu_spec[i]->cpu_features & CPU_FTR_ALTIVEC)
-			len += sprintf(len+buffer, ", altivec supported");
-#endif		
-		len += sprintf(len+buffer, "\n");
-#ifdef CONFIG_TAU
-		if (cur_cpu_spec[i]->cpu_features & CPU_FTR_TAU) {
-#ifdef CONFIG_TAU_AVERAGE	/* more straightforward, but potentially misleading */
-			len += sprintf(len+buffer, "temperature \t: %u C (uncalibrated)\n",
-				       cpu_temp(i));
-#else
-			/* show the actual temp sensor range */
-			u32 temp;
-			temp = cpu_temp_both(i);
-			len += sprintf(len+buffer, "temperature \t: %u-%u C (uncalibrated)\n",
-					temp & 0xff, temp >> 16);
-#endif
-		}
-#endif
-
-		/*
-		 * Assume here that all clock rates are the same in a
-		 * smp system.  -- Cort
-		 */
-#if defined(CONFIG_ALL_PPC)
-		if ( have_of )
-		{
-			struct device_node *cpu_node;
-			int *fp;
-			
-			cpu_node = find_type_devices("cpu");
-			if ( !cpu_node ) break;
-			{
-				int s;
-				for ( s = 0; (s < i) && cpu_node->next ;
-				      s++, cpu_node = cpu_node->next )
-					/* nothing */ ;
-#if 0 /* SMP Pmacs don't have all cpu nodes -- Cort */
-				if ( s != i )
-					printk("get_cpuinfo(): ran out of "
-					       "cpu nodes.\n");
-#endif
-			}
-			fp = (int *) get_property(cpu_node, "clock-frequency", NULL);
-			if ( !fp ) break;
-			len += sprintf(len+buffer, "clock\t\t: %dMHz\n",
-				       *fp / 1000000);
-		}
-#endif /* CONFIG_ALL_PPC */
-
-		if (ppc_md.setup_residual != NULL)
-		{
-			len += ppc_md.setup_residual(buffer + len);
-		}
-		
-		switch (PVR_VER(pvr))
-		{
-		case 0x0020:
-			maj = PVR_MAJ(pvr) + 1;
-			min = PVR_MIN(pvr);
-			break;
-		case 0x1008:
-			maj = ((pvr >> 8) & 0xFF) - 1;
-			min = pvr & 0xFF;
-			break;
-		default:
-			maj = (pvr >> 8) & 0xFF;
-			min = pvr & 0xFF;
-			break;
-		}
-
-		len += sprintf(len+buffer, "revision\t: %hd.%hd (pvr %04x %04x)\n", 
-				maj, min, PVR_VER(pvr), PVR_REV(pvr));
-
-		len += sprintf(buffer+len, "bogomips\t: %lu.%02lu\n",
-			       CD(loops_per_jiffy)/(500000/HZ),
-			       CD(loops_per_jiffy)/(5000/HZ) % 100);
-		bogosum += CD(loops_per_jiffy);
+	i = *cpu_np;
+	while (i < NR_CPUS && (cpu_online_map & (1 << i)) == 0) {
+		++i;
 	}
-
+	if (i >= NR_CPUS) {
+		/* Insert summary data as a fake CPU at NR_CPUS. */
+		if (i > NR_CPUS) {
+			*cpu_np = NR_CPUS + 1;
+			return (0);
+		}
 #ifdef CONFIG_SMP
-	if ( i && smp_num_cpus > 1)
-		len += sprintf(buffer+len, "\n");
-	len += sprintf(buffer+len,"total bogomips\t: %lu.%02lu\n",
-		       bogosum/(500000/HZ),
-		       bogosum/(5000/HZ) % 100);
+		for ( i = 0; i < smp_num_cpus ; i++ )
+		{
+			if ( !CPU_PRESENT(i) )
+				continue;
+			bogosum += CD(loops_per_jiffy);
+		}
+		len += sprintf(buffer+len,"total bogomips\t: %lu.%02lu\n",
+			       bogosum/(500000/HZ),
+			       bogosum/(5000/HZ) % 100);
 #endif /* CONFIG_SMP */
 
-	/*
-	 * Ooh's and aah's info about zero'd pages in idle task
-	 */ 
-	len += sprintf(buffer+len,"zero pages\t: total: %u (%luKb) "
-		       "current: %u (%luKb) hits: %u/%u (%u%%)\n",
-		       atomic_read(&zero_cache_total),
-		       (atomic_read(&zero_cache_total)*PAGE_SIZE)>>10,
-		       atomic_read(&zero_cache_sz),
-		       (atomic_read(&zero_cache_sz)*PAGE_SIZE)>>10,
-		       atomic_read(&zero_cache_hits),atomic_read(&zero_cache_calls),
-		       /* : 1 below is so we don't div by zero */
-		       (atomic_read(&zero_cache_hits)*100) /
-		       ((atomic_read(&zero_cache_calls))?atomic_read(&zero_cache_calls):1));
-
-	if (ppc_md.get_cpuinfo != NULL)
-	{
-		len += ppc_md.get_cpuinfo(buffer+len);
+		if (ppc_md.get_cpuinfo != NULL)
+		{
+			len += ppc_md.get_cpuinfo(buffer+len);
+		}
+		*cpu_np = NR_CPUS + 1;
+		return (len);
 	}
+	*cpu_np = i + 1;
+
+	len += sprintf(len+buffer,"processor\t: %lu\n",i);
+	len += sprintf(len+buffer,"cpu\t\t: ");
+
+	pvr = GET_PVR;
+
+	if (cur_cpu_spec[i]->pvr_mask)
+		len += sprintf(len+buffer, "%s", cur_cpu_spec[i]->cpu_name);
+	else
+		len += sprintf(len+buffer, "unknown (%08x)", pvr);
+#ifdef CONFIG_ALTIVEC
+	if (cur_cpu_spec[i]->cpu_features & CPU_FTR_ALTIVEC)
+		len += sprintf(len+buffer, ", altivec supported");
+#endif		
+	len += sprintf(len+buffer, "\n");
+#ifdef CONFIG_TAU
+	if (cur_cpu_spec[i]->cpu_features & CPU_FTR_TAU) {
+#ifdef CONFIG_TAU_AVERAGE	/* more straightforward, but potentially misleading */
+		len += sprintf(len+buffer, "temperature \t: %u C (uncalibrated)\n",
+			       cpu_temp(i));
+#else
+		/* show the actual temp sensor range */
+		u32 temp;
+		temp = cpu_temp_both(i);
+		len += sprintf(len+buffer, "temperature \t: %u-%u C (uncalibrated)\n",
+				temp & 0xff, temp >> 16);
+#endif
+	}
+#endif
+
+	/*
+	 * Assume here that all clock rates are the same in a
+	 * smp system.  -- Cort
+	 */
+#if defined(CONFIG_ALL_PPC)
+	if (have_of) {
+		struct device_node *cpu_node;
+		int s, *fp = NULL;
+		
+		cpu_node = find_type_devices("cpu");
+		fp = (int *) get_property(cpu_node, "clock-frequency", NULL);
+		for (s = 0; s < i && cpu_node != NULL; s++)
+			cpu_node = cpu_node->next;
+		if (cpu_node != NULL)
+			fp = (int *) get_property(cpu_node, "clock-frequency", NULL);
+		if (fp != NULL)
+			len += sprintf(len+buffer, "clock\t\t: %dMHz\n",
+				       *fp / 1000000);
+	}
+#endif /* CONFIG_ALL_PPC */
+
+	if (ppc_md.setup_residual != NULL)
+	{
+		len += ppc_md.setup_residual(buffer + len);
+	}
+	
+	switch (PVR_VER(pvr))
+	{
+	case 0x0020:
+		maj = PVR_MAJ(pvr) + 1;
+		min = PVR_MIN(pvr);
+		break;
+	case 0x1008:
+		maj = ((pvr >> 8) & 0xFF) - 1;
+		min = pvr & 0xFF;
+		break;
+	default:
+		maj = (pvr >> 8) & 0xFF;
+		min = pvr & 0xFF;
+		break;
+	}
+
+	len += sprintf(len+buffer, "revision\t: %hd.%hd (pvr %04x %04x)\n", 
+			maj, min, PVR_VER(pvr), PVR_REV(pvr));
+
+	len += sprintf(buffer+len, "bogomips\t: %lu.%02lu\n\n",
+		       CD(loops_per_jiffy)/(500000/HZ),
+		       CD(loops_per_jiffy)/(5000/HZ) % 100);
 
 	return len;
 }

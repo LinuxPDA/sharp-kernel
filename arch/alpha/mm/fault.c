@@ -24,9 +24,36 @@
 #include <linux/smp.h>
 #include <linux/smp_lock.h>
 #include <linux/interrupt.h>
+#include <linux/vt_kern.h>
 
 #include <asm/system.h>
 #include <asm/uaccess.h>
+
+extern spinlock_t timerlist_lock;
+void bust_spinlocks(int yes)
+{
+        spin_lock_init(&timerlist_lock);
+        if (yes) {
+                oops_in_progress = 1;
+#ifdef CONFIG_SMP
+		spin_lock_init(&global_irq_lock);    /* Many serial drivers do __global_cli() */
+#endif
+        } else {
+                int loglevel_save = console_loglevel;
+                unblank_screen();
+                oops_in_progress = 0;
+                /*
+                 * OK, the message is on the console.  Now we call printk()
+                 * without oops_in_progress set so that printk will give klogd
+                 * a poke.  Hold onto your hats...
+                 */
+                console_loglevel = 15;          /* NMI oopser may have shut the console up */
+                printk(" ");
+                console_loglevel = loglevel_save;
+        }
+}
+
+
 
 extern void die_if_kernel(char *,struct pt_regs *,long, unsigned long *);
 
@@ -140,7 +167,6 @@ good_area:
 			goto bad_area;
 	}
 
- survive:
 	/*
 	 * If for any reason at all we couldn't handle the fault,
 	 * make sure we exit gracefully rather than endlessly redo
@@ -195,12 +221,6 @@ no_context:
  * us unable to handle the page fault gracefully.
  */
 out_of_memory:
-	if (current->pid == 1) {
-		current->policy |= SCHED_YIELD;
-		schedule();
-		down_read(&mm->mmap_sem);
-		goto survive;
-	}
 	printk(KERN_ALERT "VM: killing process %s(%d)\n",
 	       current->comm, current->pid);
 	if (!user_mode(regs))

@@ -526,7 +526,7 @@ static ssize_t btaudio_dsp_read(struct file *file, char *buffer,
 				break;
 			}
 			up(&bta->lock);
-			current->state = TASK_INTERRUPTIBLE;
+			set_current_state(TASK_INTERRUPTIBLE);
 			schedule();
 			down(&bta->lock);
 			if(signal_pending(current)) {
@@ -603,7 +603,7 @@ static ssize_t btaudio_dsp_read(struct file *file, char *buffer,
 	}
 	up(&bta->lock);
 	remove_wait_queue(&bta->readq, &wait);
-	current->state = TASK_RUNNING;
+	set_current_state(TASK_RUNNING);
 	return ret;
 }
 

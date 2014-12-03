@@ -100,7 +100,6 @@
 #define disable() __cli()
 #define enable()  __sti()
 #define halt()    __asm__ __volatile__ ("sti; hlt":::"memory")
-#define wbinvd()  __asm__ __volatile__ ("wbinvd":::"memory")
 
 /*! [Begin] no source code translation
  *

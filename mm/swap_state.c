@@ -70,18 +70,24 @@ void show_swap_cache_info(void)
 
 int add_to_swap_cache(struct page *page, swp_entry_t entry)
 {
+	int referenced;
+
 	if (page->mapping)
 		BUG();
 	if (!swap_duplicate(entry)) {
 		INC_CACHE_INFO(noent_race);
 		return -ENOENT;
 	}
+	page->age = PAGE_AGE_START;
+	referenced = PageReferenced(page);
 	if (add_to_page_cache_unique(page, &swapper_space, entry.val,
 			page_hash(&swapper_space, entry.val)) != 0) {
 		swap_free(entry);
 		INC_CACHE_INFO(exist_race);
 		return -EEXIST;
 	}
+	if (referenced)
+		SetPageReferenced(page);
 	SetPageUptodate(page);
 	if (!PageLocked(page))
 		BUG();
@@ -173,8 +179,10 @@ struct page * lookup_swap_cache(swp_entry_t entry)
 	 * that, but no need to change: we _have_ got the right page.
 	 */
 	INC_CACHE_INFO(find_total);
-	if (found)
+	if (found) {
+		touch_page(found);
 		INC_CACHE_INFO(find_success);
+	}
 	return found;
 }
 

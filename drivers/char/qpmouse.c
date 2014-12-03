@@ -243,7 +243,7 @@ static int poll_qp_status(void)
 
 		if (inb_p(qp_status)&(QP_RX_FULL))
 			inb_p(qp_data);
-		current->state = TASK_INTERRUPTIBLE;
+		set_current_state(TASK_INTERRUPTIBLE);
 		schedule_timeout((5*HZ + 99) / 100);
 		retries++;
 	}
@@ -271,7 +271,7 @@ repeat:
 			schedule();
 			goto repeat;
 		}
-		current->state = TASK_RUNNING;
+		set_current_state(TASK_RUNNING);
 		remove_wait_queue(&queue->proc_list, &wait);
 	}
 	while (i > 0 && !queue_empty()) {

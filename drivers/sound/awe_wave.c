@@ -724,7 +724,7 @@ awe_wait(unsigned short delay)
 
 static void awe_wait(unsigned short delay)
 {
-	current->state = TASK_INTERRUPTIBLE;
+	set_current_state(TASK_INTERRUPTIBLE);
 	schedule_timeout((HZ*(unsigned long)delay + 44099)/44100);
 }
 /*

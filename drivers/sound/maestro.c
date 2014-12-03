@@ -2184,7 +2184,7 @@ static int drain_dac(struct ess_state *s, int nonblock)
 
 	if (s->dma_dac.mapped || !s->dma_dac.ready)
 		return 0;
-	current->state = TASK_INTERRUPTIBLE;
+	set_current_state(TASK_INTERRUPTIBLE);
         add_wait_queue(&s->dma_dac.wait, &wait);
         for (;;) {
 		/* XXX uhm.. questionable locking*/
@@ -2197,7 +2197,7 @@ static int drain_dac(struct ess_state *s, int nonblock)
                         break;
                 if (nonblock) {
                         remove_wait_queue(&s->dma_dac.wait, &wait);
-			current->state = TASK_RUNNING;
+			set_current_state(TASK_RUNNING);
                         return -EBUSY;
                 }
 		tmo = (count * HZ) / s->ratedac;
@@ -2208,7 +2208,7 @@ static int drain_dac(struct ess_state *s, int nonblock)
 			M_printk(KERN_DEBUG "maestro: dma timed out?? %ld\n",jiffies);
         }
         remove_wait_queue(&s->dma_dac.wait, &wait);
-	current->state = TASK_RUNNING;
+	set_current_state(TASK_RUNNING);
         if (signal_pending(current))
                 return -ERESTARTSYS;
         return 0;
@@ -3657,10 +3657,10 @@ check_suspend(struct ess_card *card)
 
 	card->in_suspend++;
 	add_wait_queue(&(card->suspend_queue), &wait);
-	current->state = TASK_UNINTERRUPTIBLE;
+	set_current_state(TASK_UNINTERRUPTIBLE);
 	schedule();
 	remove_wait_queue(&(card->suspend_queue), &wait);
-	current->state = TASK_RUNNING;
+	set_current_state(TASK_RUNNING);
 }
 
 static int 

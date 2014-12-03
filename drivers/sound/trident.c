@@ -640,13 +640,21 @@ static struct trident_channel * trident_alloc_pcm_channel(struct trident_card *c
 static void trident_free_pcm_channel(struct trident_card *card, unsigned int channel)
 {
 	int bank;
+        unsigned char b;
 
 	if (channel < 31 || channel > 63)
 		return;
 
+	if (card->pci_id == PCI_DEVICE_ID_TRIDENT_4DWAVE_DX ||
+            card->pci_id == PCI_DEVICE_ID_TRIDENT_4DWAVE_NX) {
+          b = inb (TRID_REG(card, T4D_REC_CH));
+          if ((b & ~0x80) == channel)
+            outb(0x0, TRID_REG(card, T4D_REC_CH));
+        }
+            
 	bank = channel >> 5;
 	channel = channel & 0x1f;
-
+        
 	card->banks[bank].bitmap &= ~(1 << (channel));
 }
 
@@ -4104,7 +4112,7 @@ static int __init trident_probe(struct pci_dev *pci_dev, const struct pci_device
 			if ((hwrpb->sys_type) == 201) {
 				printk(KERN_INFO "trident: Running on Alpha system type Nautilus\n");
 				ac97_data = ali_ac97_get(card, 0, AC97_POWER_CONTROL);
-				ali_ac97_set(card, 0, AC97_POWER_CONTROL, ac97_data |
+				ali_ac97_set(card, 0, AC97_POWER_CONTROL, ac97_data | ALI_EAPD_POWER_DOWN);
 			}
 		}
 #endif

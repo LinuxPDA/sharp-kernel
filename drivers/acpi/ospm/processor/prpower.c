@@ -274,7 +274,7 @@ pr_power_idle (void)
 			 * by this state's promotion policy, prevents
 			 * promotions from occuring.
 			 */
-			if (bm_control && !(processor->power.bm_activity &
+			if (!bm_control || !(processor->power.bm_activity &
 				c_state->promotion.bm_threshold)) {
 				next_state = c_state->promotion.target_state;
 			}

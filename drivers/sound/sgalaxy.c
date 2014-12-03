@@ -30,7 +30,7 @@
 
 static void sleep( unsigned howlong )
 {
-	current->state   = TASK_INTERRUPTIBLE;
+	set_current_state(TASK_INTERRUPTIBLE);
 	schedule_timeout(howlong);
 }
 

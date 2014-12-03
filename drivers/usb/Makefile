@@ -54,28 +54,33 @@ obj-$(CONFIG_USB_MOUSE)		+= usbmouse.o
 obj-$(CONFIG_USB_HID)		+= hid.o
 obj-$(CONFIG_USB_KBD)		+= usbkbd.o
 obj-$(CONFIG_USB_WACOM)		+= wacom.o
+obj-$(CONFIG_USB_AIPTEK)	+= aiptek.o
 
 obj-$(CONFIG_USB_SCANNER)	+= scanner.o
 obj-$(CONFIG_USB_ACM)		+= acm.o
 obj-$(CONFIG_USB_PRINTER)	+= printer.o
 obj-$(CONFIG_USB_AUDIO)		+= audio.o
-obj-$(CONFIG_USB_IBMCAM)	+= ibmcam.o usbvideo.o ultracam.o
 obj-$(CONFIG_USB_PWC)		+= pwc.o
+obj-$(CONFIG_USB_IBMCAM)	+= ibmcam.o usbvideo.o ultracam.o
 obj-$(CONFIG_USB_DC2XX)		+= dc2xx.o
 obj-$(CONFIG_USB_MDC800)	+= mdc800.o
 obj-$(CONFIG_USB_USS720)	+= uss720.o
 obj-$(CONFIG_USB_DABUSB)	+= dabusb.o
 obj-$(CONFIG_USB_OV511)		+= ov511.o
 obj-$(CONFIG_USB_SE401)		+= se401.o
-obj-$(CONFIG_USB_PEGASUS)	+= pegasus.o
-obj-$(CONFIG_USB_CATC)		+= catc.o
-obj-$(CONFIG_USB_KAWETH)        += kaweth.o
-obj-$(CONFIG_USB_CDCETHER)	+= CDCEther.o
 obj-$(CONFIG_USB_RIO500)	+= rio500.o
 obj-$(CONFIG_USB_DSBR)		+= dsbr100.o
 obj-$(CONFIG_USB_MICROTEK)	+= microtek.o
 obj-$(CONFIG_USB_HPUSBSCSI)	+= hpusbscsi.o
 obj-$(CONFIG_USB_BLUETOOTH)	+= bluetooth.o
+obj-$(CONFIG_USB_ID75)		+= id75.o
+
+# network drivers
+
+obj-$(CONFIG_USB_CATC)		+= catc.o
+obj-$(CONFIG_USB_CDCETHER)	+= CDCEther.o
+obj-$(CONFIG_USB_KAWETH)	+= kaweth.o
+obj-$(CONFIG_USB_PEGASUS)	+= pegasus.o
 obj-$(CONFIG_USB_USBNET)	+= usbnet.o
 
 # Object files in subdirectories

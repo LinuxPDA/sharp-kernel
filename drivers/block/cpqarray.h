@@ -87,9 +87,11 @@ struct ctlr_info {
 	__u32	mp_failed_drv_map;
 
 	char	firm_rev[4];
+	struct pci_dev *pdev;
 	int	ctlr_sig;
 
 	int	log_drives;
+	int	highest_lun;
 	int	phys_drives;
 
 	struct pci_dev *pci_dev;    /* NULL if EISA */
@@ -98,7 +100,8 @@ struct ctlr_info {
 
 	void *vaddr;
 	unsigned long paddr;
-	unsigned long ioaddr;
+	unsigned long io_mem_addr;
+	unsigned long io_mem_length;	
 	int	intr;
 	int	usage_count;
 	drv_info_t	drv[NWD];
@@ -120,6 +123,13 @@ struct ctlr_info {
 	unsigned int nr_frees;
 	struct timer_list timer;
 	unsigned int misc_tflags;
+	// Disk structures we need to pass back
+	struct gendisk gendisk;
+	// Index by Minor Numbers
+	struct hd_struct	hd[256];
+	int			sizes[256];
+	int			blocksizes[256];
+	int			hardsizes[256];
 };
 #endif
 

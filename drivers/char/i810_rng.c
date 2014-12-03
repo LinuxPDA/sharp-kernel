@@ -243,7 +243,7 @@ static ssize_t rng_dev_read (struct file *filp, char *buf, size_t size,
 		if (filp->f_flags & O_NONBLOCK)
 			return ret ? : -EAGAIN;
 
-		current->state = TASK_INTERRUPTIBLE;
+		set_current_state(TASK_INTERRUPTIBLE);
 		schedule_timeout(1);
 
 		if (signal_pending (current))

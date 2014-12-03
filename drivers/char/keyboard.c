@@ -32,6 +32,7 @@
 #include <linux/string.h>
 #include <linux/random.h>
 #include <linux/init.h>
+#include <linux/delay.h>
 
 #include <asm/keyboard.h>
 #include <asm/bitops.h>
@@ -42,6 +43,7 @@
 #include <linux/kbd_ll.h>
 #include <linux/sysrq.h>
 #include <linux/pm.h>
+#include <linux/speakup.h>
 
 #define SIZE(x) (sizeof(x)/sizeof((x)[0]))
 
@@ -319,7 +321,7 @@ void handle_scancode(unsigned char scancode, int down)
 			compute_shiftstate();
 			kbd->slockstate = 0; /* play it safe */
 #else
-			keysym =  U(plain_map[keycode]);
+			keysym = U(key_maps[0][keycode]);
 			type = KTYP(keysym);
 			if (type == KT_SHIFT)
 			  (*key_handler[type])(keysym & 0xff, up_flag);
@@ -532,6 +534,7 @@ static void do_spec(unsigned char value, char up_flag)
 	    !(SPECIALS_ALLOWED_IN_RAW_MODE & (1 << value)))
 		return;
 	spec_fn_table[value]();
+	speakup_control(fg_console, kbd, value);	
 }
 
 static void do_lowercase(unsigned char value, char up_flag)
@@ -545,7 +548,8 @@ static void do_self(unsigned char value, char up_flag)
 		return;		/* no action, if this is a key release */
 
 	if (diacr)
-		value = handle_diacr(value);
+		if ((value = handle_diacr(value)) == 0xff) /* speakup goto pos trigger*/
+			return;
 
 	if (dead_key_next) {
 		dead_key_next = 0;
@@ -553,6 +557,7 @@ static void do_self(unsigned char value, char up_flag)
 		return;
 	}
 
+	speakup_savekey(value);
 	put_queue(value);
 }
 
@@ -562,8 +567,10 @@ static void do_self(unsigned char value, char up_flag)
 #define A_TILDE  '~'
 #define A_DIAER  '"'
 #define A_CEDIL  ','
+#define SPEAKUP_DIACR '$'
+
 static unsigned char ret_diacr[NR_DEAD] =
-	{A_GRAVE, A_ACUTE, A_CFLEX, A_TILDE, A_DIAER, A_CEDIL };
+	{A_GRAVE, A_ACUTE, A_CFLEX, A_TILDE, A_DIAER, A_CEDIL, SPEAKUP_DIACR};
 
 /* Obsolete - for backwards compatibility only */
 static void do_dead(unsigned char value, char up_flag)
@@ -582,6 +589,12 @@ static void do_dead2(unsigned char value, char up_flag)
 	if (up_flag)
 		return;
 
+	if (value == SPEAKUP_DIACR) { /*beep to alert that speakup's waiting */
+		kd_mksound(1250,10);
+		mdelay(100);
+		kd_mksound(1500,15);
+	}
+
 	diacr = (diacr ? handle_diacr(value) : value);
 }
 
@@ -597,6 +610,12 @@ unsigned char handle_diacr(unsigned char ch)
 {
 	int d = diacr;
 	int i;
+
+	if (d == '$') {
+		if (speakup_diacr(ch,fg_console))
+			diacr = 0;
+		return 0xff;
+	}
 
 	diacr = 0;
 
@@ -711,6 +730,10 @@ static void do_shift(unsigned char value, char up_flag)
 			clr_vc_kbd_led(kbd, VC_CAPSLOCK);
 	}
 
+	/* shift = 0, altgr = 1, ctrl=2, alt=3 */
+	if (!up_flag)
+		speakup_control(fg_console, kbd, value);
+
 	if (up_flag) {
 		/* handle the case that two shift or control
 		   keys are depressed simultaneously */
@@ -750,7 +773,7 @@ void compute_shiftstate(void)
 	    k = i*BITS_PER_LONG;
 	    for(j=0; j<BITS_PER_LONG; j++,k++)
 	      if(test_bit(k, key_down)) {
-		sym = U(plain_map[k]);
+		sym = U(key_maps[0][k]);
 		if(KTYP(sym) == KT_SHIFT || KTYP(sym) == KT_SLOCK) {
 		  val = KVAL(sym);
 		  if (val == KVAL(K_CAPSSHIFT))

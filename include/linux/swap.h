@@ -79,15 +79,23 @@ struct swap_info_struct {
 };
 
 extern int nr_swap_pages;
+extern unsigned long num_physpages;
 extern unsigned int nr_free_pages(void);
+extern unsigned int nr_free_pages_zone(int);
+extern unsigned int nr_inactive_clean_pages(void);
+extern unsigned int nr_inactive_clean_pages_zone(int);
 extern unsigned int nr_free_buffer_pages(void);
 extern int nr_active_pages;
-extern int nr_inactive_pages;
-extern atomic_t nr_async_pages;
+extern int nr_inactive_dirty_pages;
 extern atomic_t page_cache_size;
 extern atomic_t buffermem_pages;
 extern spinlock_t pagecache_lock;
 extern void __remove_inode_page(struct page *);
+
+/* Sysctl tunables. */
+extern int vm_page_aging_tactic;
+extern int vm_static_inactive_target;
+extern int vm_drop_behind;
 
 /* Incomplete types for prototype declarations: */
 struct task_struct;
@@ -97,18 +105,29 @@ struct sysinfo;
 struct zone_t;
 
 /* linux/mm/swap.c */
-extern void FASTCALL(lru_cache_add(struct page *));
-extern void FASTCALL(__lru_cache_del(struct page *));
-extern void FASTCALL(lru_cache_del(struct page *));
-
-extern void FASTCALL(deactivate_page(struct page *));
-extern void FASTCALL(activate_page(struct page *));
-
+extern void deactivate_page(struct page *);
+extern void deactivate_page_nolock(struct page *);
+extern void activate_page(struct page *);
+extern void activate_page_nolock(struct page *);
+extern void lru_cache_add(struct page *);
+extern void __lru_cache_del(struct page *);
+extern void lru_cache_del(struct page *);
 extern void swap_setup(void);
 
 /* linux/mm/vmscan.c */
+extern struct page * reclaim_page(zone_t *);
 extern wait_queue_head_t kswapd_wait;
-extern int FASTCALL(try_to_free_pages(zone_t *, unsigned int, unsigned int));
+extern wait_queue_head_t kreclaimd_wait;
+extern int page_launder(int, int);
+extern int free_shortage(void);
+extern int total_free_shortage(void);
+extern int inactive_shortage(void);
+extern int total_inactive_shortage(void);
+extern void wakeup_kswapd(void);
+extern int try_to_free_pages(unsigned int gfp_mask);
+
+extern unsigned int zone_free_shortage(zone_t *zone);
+extern unsigned int zone_inactive_shortage(zone_t *zone);
 
 /* linux/mm/page_io.c */
 extern void rw_swap_page(int, struct page *);
@@ -133,7 +152,7 @@ extern int out_of_memory(void);
 extern void oom_kill(void);
 
 /* linux/mm/swapfile.c */
-extern int total_swap_pages;
+extern int vm_swap_full(void);
 extern unsigned int nr_swapfiles;
 extern struct swap_info_struct swap_info[];
 extern int is_swap_partition(kdev_t);
@@ -155,53 +174,89 @@ asmlinkage long sys_swapon(const char *, int);
 
 extern spinlock_t pagemap_lru_lock;
 
-extern void FASTCALL(mark_page_accessed(struct page *));
+/*
+ * Page aging defines. These seem to work great in FreeBSD,
+ * no need to reinvent the wheel.
+ */
+#define PAGE_AGE_START 5
+#define PAGE_AGE_ADV 3
+#define PAGE_AGE_DECL 1
+#define PAGE_AGE_MAX 64
 
 /*
  * List add/del helper macros. These must be called
  * with the pagemap_lru_lock held!
  */
-#define DEBUG_LRU_PAGE(page)			\
-do {						\
-	if (PageActive(page))			\
-		BUG();				\
-	if (PageInactive(page))			\
-		BUG();				\
-	if (page_count(page) == 0)		\
-		BUG();				\
-} while (0)
+#define DEBUG_ADD_PAGE \
+	if (PageActive(page) || PageInactiveDirty(page) || \
+					PageInactiveClean(page)) BUG();
 
-#define add_page_to_active_list(page)		\
-do {						\
-	DEBUG_LRU_PAGE(page);			\
-	SetPageActive(page);			\
-	list_add(&(page)->lru, &active_list);	\
-	nr_active_pages++;			\
-} while (0)
+#define ZERO_PAGE_BUG \
+	if (page_count(page) == 0) BUG();
 
-#define add_page_to_inactive_list(page)		\
-do {						\
-	DEBUG_LRU_PAGE(page);			\
-	SetPageInactive(page);		\
-	list_add(&(page)->lru, &inactive_list);	\
-	nr_inactive_pages++;			\
-} while (0)
+#define add_page_to_active_list(page) { \
+	DEBUG_ADD_PAGE \
+	ZERO_PAGE_BUG \
+	SetPageActive(page); \
+	list_add(&(page)->lru, &active_list); \
+	nr_active_pages++; \
+}
 
-#define del_page_from_active_list(page)		\
-do {						\
-	list_del(&(page)->lru);			\
-	ClearPageActive(page);			\
-	nr_active_pages--;			\
-	DEBUG_LRU_PAGE(page);			\
-} while (0)
+#define add_page_to_inactive_dirty_list(page) { \
+	DEBUG_ADD_PAGE \
+	ZERO_PAGE_BUG \
+	SetPageInactiveDirty(page); \
+	list_add(&(page)->lru, &inactive_dirty_list); \
+	nr_inactive_dirty_pages++; \
+	page->zone->inactive_dirty_pages++; \
+}
 
-#define del_page_from_inactive_list(page)	\
-do {						\
-	list_del(&(page)->lru);			\
-	ClearPageInactive(page);		\
-	nr_inactive_pages--;			\
-	DEBUG_LRU_PAGE(page);			\
-} while (0)
+#define add_page_to_inactive_clean_list(page) { \
+	DEBUG_ADD_PAGE \
+	ZERO_PAGE_BUG \
+	SetPageInactiveClean(page); \
+	list_add(&(page)->lru, &page->zone->inactive_clean_list); \
+	page->zone->inactive_clean_pages++; \
+}
+
+#define del_page_from_active_list(page) { \
+	list_del(&(page)->lru); \
+	ClearPageActive(page); \
+	nr_active_pages--; \
+	DEBUG_ADD_PAGE \
+	ZERO_PAGE_BUG \
+}
+
+#define del_page_from_inactive_dirty_list(page) { \
+	list_del(&(page)->lru); \
+	ClearPageInactiveDirty(page); \
+	nr_inactive_dirty_pages--; \
+	page->zone->inactive_dirty_pages--; \
+	DEBUG_ADD_PAGE \
+	ZERO_PAGE_BUG \
+}
+
+#define del_page_from_inactive_clean_list(page) { \
+	list_del(&(page)->lru); \
+	ClearPageInactiveClean(page); \
+	page->zone->inactive_clean_pages--; \
+	DEBUG_ADD_PAGE \
+	ZERO_PAGE_BUG \
+}
+
+/*
+ * The target size for the inactive list, in pages.
+ *
+ * If the user specified a target in /proc/sys/vm/static_inactive_target
+ * we use that, otherwise we use 1/4th of physical memory.
+ */
+static inline int inactive_target(void)
+{
+	if (vm_static_inactive_target)
+		return vm_static_inactive_target;
+
+	return num_physpages / 5;
+}
 
 /*
  * Ugly ugly ugly HACK to make sure the inactive lists
@@ -216,6 +271,9 @@ do {						\
 #ifndef _LINUX_MAJOR_H
 #include <linux/major.h>
 #endif
+
+#define page_ramdisk(page) \
+	(page->buffers && (MAJOR(page->buffers->b_dev) == RAMDISK_MAJOR) && buffer_protected(page->buffers))
 
 extern spinlock_t swaplock;
 

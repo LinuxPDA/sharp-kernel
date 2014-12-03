@@ -719,6 +719,12 @@ asmlinkage unsigned long sys_alarm(unsigned int seconds)
 asmlinkage long sys_getpid(void)
 {
 	/* This is SMP safe - current->pid doesn't change */
+	/* This is crap because current->tgid can clash with a real
+	   pid and a million other stupid problems 
+	   Fortunately you have to turn idiot mode on so you get what
+	   you deserve. An exec also cleans up the mess so its not a
+	   security risk, just a happy suprise for people dumb enough to
+	   use it */
 	return current->tgid;
 }
 

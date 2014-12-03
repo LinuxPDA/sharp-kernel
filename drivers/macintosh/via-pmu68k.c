@@ -95,10 +95,10 @@ static int data_index;
 static int data_len;
 static int adb_int_pending;
 static int pmu_adb_flags;
-static int adb_dev_map = 0;
+static int adb_dev_map;
 static struct adb_request bright_req_1, bright_req_2, bright_req_3;
 static int pmu_kind = PMU_UNKNOWN;
-static int pmu_fully_inited = 0;
+static int pmu_fully_inited;
 
 int asleep;
 struct notifier_block *sleep_notifier_list;
@@ -122,13 +122,13 @@ static void pmu_handle_data(unsigned char *data, int len,
 static void set_volume(int level);
 
 struct adb_driver via_pmu_driver = {
-	"68K PMU",
-	pmu_probe,
-	pmu_init,
-	pmu_send_request,
-	pmu_autopoll,
-	pmu_poll,
-	pmu_reset_bus
+	name:		"68K PMU",
+	probe:		pmu_probe,
+	init:		pmu_init,
+	send_request:	pmu_send_request,
+	autopoll:	pmu_autopoll,
+	poll:		pmu_poll,
+	reset_bus:	pmu_reset_bus
 };
 
 /*
@@ -260,7 +260,7 @@ pmu_init(void)
 	/* Enable backlight */
 	pmu_enable_backlight(1);
 
-	printk("adb: PMU 68K driver v0.5 for Unified ADB.\n");
+	printk(KERN_INFO "adb: PMU 68K driver v0.5 for Unified ADB.\n");
 
 	return 0;
 }
@@ -742,7 +742,7 @@ pmu_handle_data(unsigned char *data, int len, struct pt_regs *regs)
 }
 
 int backlight_level = -1;
-int backlight_enabled = 0;
+int backlight_enabled;
 
 #define LEVEL_TO_BRIGHT(lev)	((lev) < 1? 0x7f: 0x4a - ((lev) << 1))
 
@@ -1018,7 +1018,6 @@ static ssize_t __openfirmware pmu_write(struct file *file, const char *buf,
 static int /*__openfirmware*/ pmu_ioctl(struct inode * inode, struct file *filp,
 		     u_int cmd, u_long arg)
 {
-	int error;
 	__u32 value;
 
 	switch (cmd) {
@@ -1027,10 +1026,10 @@ static int /*__openfirmware*/ pmu_ioctl(struct inode * inode, struct file *filp,
 	    case PMU_IOC_GET_BACKLIGHT:
 		return put_user(backlight_level, (__u32 *)arg);
 	    case PMU_IOC_SET_BACKLIGHT:
-		error = get_user(value, (__u32 *)arg);
-		if (!error)
-			pmu_set_brightness(value);
-		return error;
+		if (get_user(value, (__u32 *)arg))
+			return -EFAULT;
+		pmu_set_brightness(value);
+		return 0;
 	    case PMU_IOC_GET_MODEL:
 	    	return put_user(pmu_kind, (__u32 *)arg);
 	}
@@ -1045,7 +1044,9 @@ static struct file_operations pmu_device_fops = {
 };
 
 static struct miscdevice pmu_device = {
-	PMU_MINOR, "pmu", &pmu_device_fops
+	minor:	PMU_MINOR,
+	name:	"pmu",
+	fops:	&pmu_device_fops,
 };
 
 void pmu_device_init(void)

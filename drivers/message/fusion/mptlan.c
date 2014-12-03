@@ -537,7 +537,7 @@ mpt_lan_close(struct net_device *dev)
 
 	timeout = 2 * HZ;
 	while (atomic_read(&priv->buckets_out) && --timeout) {
-		current->state = TASK_INTERRUPTIBLE;
+		set_current_state(TASK_INTERRUPTIBLE);
 		schedule_timeout(1);
 	}
 

@@ -65,6 +65,29 @@ static int openpromfs_readdir(struct file *, void *, filldir_t);
 static struct dentry *openpromfs_lookup(struct inode *, struct dentry *dentry);
 static int openpromfs_unlink (struct inode *, struct dentry *dentry);
 
+loff_t nodenum_llseek(struct file *file, loff_t offset, int origin)
+{
+	long long retval;
+
+	switch (origin) {
+		case 2:
+			offset += file->f_dentry->d_inode->i_size;
+			break;
+		case 1:
+			offset += file->f_pos;
+	}
+	retval = -EINVAL;
+	if (offset>=0 && offset<9) {
+		if (offset != file->f_pos) {
+			file->f_pos = offset;
+			file->f_reada = 0;
+			file->f_version = ++event;
+		}
+		retval = offset;
+	}
+	return retval;
+}
+
 static ssize_t nodenum_read(struct file *file, char *buf,
 			    size_t count, loff_t *ppos)
 {
@@ -556,12 +579,14 @@ int property_release (struct inode *inode, struct file *filp)
 }
 
 static struct file_operations openpromfs_prop_ops = {
+	llseek:		generic_file_llseek,
 	read:		property_read,
 	write:		property_write,
 	release:	property_release,
 };
 
 static struct file_operations openpromfs_nodenum_ops = {
+	llseek:		nodenum_llseek,
 	read:		nodenum_read,
 };
 
@@ -1053,3 +1078,5 @@ EXPORT_NO_SYMBOLS;
 
 module_init(init_openprom_fs)
 module_exit(exit_openprom_fs)
+MODULE_LICENSE("GPL");
+

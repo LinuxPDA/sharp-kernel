@@ -41,7 +41,14 @@ const char *global_mode_option = NULL;
 
 #define DEFAULT_MODEDB_INDEX	0
 
-static const struct fb_videomode modedb[] __initdata = {
+static struct fb_videomode modedb[] __initdata = {
+#if defined(CONFIG_FB_ATY_CT_VAIO_LCD) 
+    {
+	/* 1024x480 @ 65 Hz */
+	NULL, 65, 1024, 480, 25203, 24, 24, 1, 17, 144, 4,
+	0, FB_VMODE_NONINTERLACED
+    },
+#endif /* CONFIG_FB_ATY_CT_VAIO_LCD */
     {
 	/* 640x400 @ 70 Hz, 31.5 kHz hsync */
 	NULL, 70, 640, 400, 39721, 40, 24, 39, 9, 96, 2,

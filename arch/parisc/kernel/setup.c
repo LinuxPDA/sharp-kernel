@@ -568,46 +568,60 @@ void __init setup_arch(char **cmdline_p)
 
 #ifdef CONFIG_PROC_FS
 /*
- *	Get CPU information for use by procfs.
+ * get_cpuinfo - Get information on one CPU for use by the procfs.
+ *
+ *	Prints info on the next CPU into buffer.  Beware, doesn't check for
+ *	buffer overflow.  Current implementation of procfs assumes that the
+ *	resulting data is <= 1K.
+ *
+ * Args:
+ *	buffer	-- you guessed it, the data buffer
+ *	cpu_np	-- Input: next cpu to get (start at 0).  Output: Updated.
+ *
+ *	Returns number of bytes written to buffer.
  */
 
-int get_cpuinfo(char *buffer)
+int get_cpuinfo(char *buffer, unsigned *cpu_np)
 {
 	char		  *p = buffer;
-	int		  n;
+	unsigned	n;
 
-	for(n=0; n<boot_cpu_data.cpu_count; n++) {
-#ifdef CONFIG_SMP
-		if (!(cpu_online_map & (1<<n)))
-			continue;
-#endif
-		p += sprintf(p, "processor\t: %d\n"
-				"cpu family\t: PA-RISC %s\n",
-				n, boot_cpu_data.family_name);
-
-		p += sprintf(p, "cpu\t\t: %s\n",  boot_cpu_data.cpu_name );
-	
-		/* cpu MHz */
-		p += sprintf(p, "cpu MHz\t\t: %d.%06d\n",
-				 boot_cpu_data.cpu_hz / 1000000, 
-				 boot_cpu_data.cpu_hz % 1000000  );
-
-		p += sprintf(p, "model\t\t: %s\n"
-				"model name\t: %s\n",
-				boot_cpu_data.pdc.sys_model_name,
-				boot_cpu_data.model_name);
-
-		p += sprintf(p, "hversion\t: 0x%08x\n"
-			        "sversion\t: 0x%08x\n",
-				boot_cpu_data.hversion,
-				boot_cpu_data.sversion );
-
-		p += get_cache_info(p);
-		/* print cachesize info ? */
-		p += sprintf(p, "bogomips\t: %lu.%02lu\n",
-			     (loops_per_sec+2500)/500000,
-			     ((loops_per_sec+2500)/5000) % 100);
+	n = *cpu_np;
+	while (n < NR_CPUS && (cpu_online_map & (1 << n)) == 0) {
+		++n;
 	}
+	if (n >= NR_CPUS) {
+		*cpu_np = NR_CPUS;
+		return (0);
+	}
+	*cpu_np = n + 1;
+
+	p += sprintf(p, "processor\t: %d\n"
+			"cpu family\t: PA-RISC %s\n",
+			n, boot_cpu_data.family_name);
+
+	p += sprintf(p, "cpu\t\t: %s\n",  boot_cpu_data.cpu_name );
+
+	/* cpu MHz */
+	p += sprintf(p, "cpu MHz\t\t: %d.%06d\n",
+			 boot_cpu_data.cpu_hz / 1000000, 
+			 boot_cpu_data.cpu_hz % 1000000  );
+
+	p += sprintf(p, "model\t\t: %s\n"
+			"model name\t: %s\n",
+			boot_cpu_data.pdc.sys_model_name,
+			boot_cpu_data.model_name);
+
+	p += sprintf(p, "hversion\t: 0x%08x\n"
+			"sversion\t: 0x%08x\n",
+			boot_cpu_data.hversion,
+			boot_cpu_data.sversion );
+
+	p += get_cache_info(p);
+	/* print cachesize info ? */
+	p += sprintf(p, "bogomips\t: %lu.%02lu\n",
+		     (loops_per_sec+2500)/500000,
+		     ((loops_per_sec+2500)/5000) % 100);
 	return p - buffer;
 }
 #endif

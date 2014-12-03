@@ -270,8 +270,6 @@ int tty_register_ldisc(int disc, struct tty_ldisc *new_ldisc)
 	return 0;
 }
 
-EXPORT_SYMBOL(tty_register_ldisc);
-
 /* Set the discipline of a tty line. */
 static int tty_set_ldisc(struct tty_struct *tty, int ldisc)
 {
@@ -2057,8 +2055,64 @@ void tty_unregister_devfs (struct tty_driver *driver, unsigned minor)
 #endif /* CONFIG_DEVFS_FS */
 }
 
+/*
+ * Register a tty device described by <driver>, with minor number <minor>,
+ * device name <name> and in the /dev directory given by <dir>.
+ */
+void tty_register_devfs_name (struct tty_driver *driver, unsigned int flags,
+			      unsigned minor, devfs_handle_t dir,
+			      const char *name)
+{
+#ifdef CONFIG_DEVFS_FS
+	umode_t mode = S_IFCHR | S_IRUSR | S_IWUSR;
+	kdev_t device = MKDEV (driver->major, minor);
+
+	switch (device) {
+		case TTY_DEV:
+		case PTMX_DEV:
+			mode |= S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH;
+			break;
+		default:
+			if (driver->major == PTY_MASTER_MAJOR)
+				flags |= DEVFS_FL_AUTO_OWNER;
+			break;
+	}
+	if ( (minor <  driver->minor_start) || 
+	     (minor >= driver->minor_start + driver->num) ) {
+		printk(KERN_ERR "Attempt to register invalid minor number "
+		       "with devfs (%d:%d).\n", (int)driver->major,(int)minor);
+		return;
+	}
+#  ifdef CONFIG_UNIX98_PTYS
+	if ( (driver->major >= UNIX98_PTY_SLAVE_MAJOR) &&
+	     (driver->major < UNIX98_PTY_SLAVE_MAJOR + UNIX98_NR_MAJORS) )
+		flags |= DEVFS_FL_CURRENT_OWNER;
+#  endif
+	devfs_register (dir, name, flags | DEVFS_FL_DEFAULT,
+			driver->major, minor, mode, &tty_fops, NULL);
+#endif /* CONFIG_DEVFS_FS */
+}
+
+void tty_unregister_devfs_name (struct tty_driver *driver, unsigned minor,
+				devfs_handle_t dir, const char *name)
+{
+#ifdef CONFIG_DEVFS_FS
+	void * handle;
+
+	handle = devfs_find_handle (dir, name, driver->major, minor,
+				    DEVFS_SPECIAL_CHR, 0);
+	devfs_unregister (handle);
+#endif /* CONFIG_DEVFS_FS */
+}
+
+extern void tty_unregister_devfs_name (struct tty_driver *driver,
+				       unsigned minor, devfs_handle_t dir,
+				       const char *name);
 EXPORT_SYMBOL(tty_register_devfs);
 EXPORT_SYMBOL(tty_unregister_devfs);
+EXPORT_SYMBOL(tty_register_devfs_name);
+EXPORT_SYMBOL(tty_unregister_devfs_name);
+EXPORT_SYMBOL(tty_register_ldisc);
 
 /*
  * Called by a tty driver to register itself.

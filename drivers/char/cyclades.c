@@ -2507,7 +2507,7 @@ block_til_ready(struct tty_struct *tty, struct file * filp,
 	firm_id = (struct FIRM_ID *)
 			(base_addr + ID_ADDRESS);
         if (!ISZLOADED(*cinfo)){
-            current->state = TASK_RUNNING;
+            set_current_state(TASK_RUNNING);
 	    remove_wait_queue(&info->open_wait, &wait);
 	    return -EINVAL;
 	}
@@ -2558,7 +2558,7 @@ block_til_ready(struct tty_struct *tty, struct file * filp,
 	    schedule();
 	}
     }
-    current->state = TASK_RUNNING;
+    set_current_state(TASK_RUNNING);
     remove_wait_queue(&info->open_wait, &wait);
     if (!tty_hung_up_p(filp)){
 	info->count++;
@@ -2774,21 +2774,21 @@ cy_wait_until_sent(struct tty_struct *tty, int timeout)
 #ifdef CY_DEBUG_WAIT_UNTIL_SENT
 	    printk("Not clean (jiff=%lu)...", jiffies);
 #endif
-	    current->state = TASK_INTERRUPTIBLE;
+	    set_current_state(TASK_INTERRUPTIBLE);
 	    schedule_timeout(char_time);
 	    if (signal_pending(current))
 		break;
 	    if (timeout && time_after(jiffies, orig_jiffies + timeout))
 		break;
 	}
-	current->state = TASK_RUNNING;
+	set_current_state(TASK_RUNNING);
     } else {
 	// Nothing to do!
     }
     /* Run one more char cycle */
-    current->state = TASK_INTERRUPTIBLE;
+    set_current_state(TASK_INTERRUPTIBLE);
     schedule_timeout(char_time * 5);
-    current->state = TASK_RUNNING;
+    set_current_state(TASK_RUNNING);
 #ifdef CY_DEBUG_WAIT_UNTIL_SENT
     printk("Clean (jiff=%lu)...done\n", jiffies);
 #endif
@@ -2928,7 +2928,7 @@ cy_close(struct tty_struct *tty, struct file *filp)
     if (info->blocked_open) {
 	CY_UNLOCK(info, flags);
         if (info->close_delay) {
-            current->state = TASK_INTERRUPTIBLE;
+            set_current_state(TASK_INTERRUPTIBLE);
             schedule_timeout(info->close_delay);
         }
         wake_up_interruptible(&info->open_wait);

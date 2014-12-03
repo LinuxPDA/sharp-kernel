@@ -40,7 +40,7 @@
 # define ATTRIB_NORET  __attribute__((noreturn))
 # define NORET_AND     noreturn,
 
-#ifdef __i386__
+#if defined(__i386__) || defined(UM_FASTCALL)
 #define FASTCALL(x)	x __attribute__((regparm(3)))
 #else
 #define FASTCALL(x)	x

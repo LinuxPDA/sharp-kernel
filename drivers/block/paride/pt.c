@@ -468,7 +468,7 @@ static int pt_atapi( int unit, char * cmd, int dlen, char * buf, char * fun )
 
 static void pt_sleep( int cs )
 
-{       current->state = TASK_INTERRUPTIBLE;
+{       set_current_state(TASK_INTERRUPTIBLE);
         schedule_timeout(cs);
 }
 

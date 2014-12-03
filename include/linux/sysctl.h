@@ -62,7 +62,8 @@ enum
 	CTL_DEBUG=6,		/* Debugging */
 	CTL_DEV=7,		/* Devices */
 	CTL_BUS=8,		/* Busses */
-	CTL_ABI=9		/* Binary emulation */
+	CTL_ABI=9,		/* Binary emulation */
+	CTL_CPU=10		/* CPU stuff (speed scaling, etc) */
 };
 
 /* CTL_BUS names: */
@@ -138,7 +139,13 @@ enum
 	VM_PAGECACHE=7,		/* struct: Set cache memory thresholds */
 	VM_PAGERDAEMON=8,	/* struct: Control kswapd behaviour */
 	VM_PGT_CACHE=9,		/* struct: Set page table cache parameters */
-	VM_PAGE_CLUSTER=10	/* int: set number of pages to swap together */
+	VM_PAGE_CLUSTER=10,	/* int: set number of pages to swap together */
+	VM_MAX_MAP_COUNT=11,	/* int: Maximum number of active map areas */
+        VM_MIN_READAHEAD=12,    /* Min file readahead */
+        VM_MAX_READAHEAD=13,    /* Max file readahead */
+	VM_AGING_TACTIC=14,	/* Page aging strategy */
+	VM_INACTIVE_TARGET=15,	/* Static inactive target, zero for dynamic */
+	VM_DROP_BEHIND=16,	/* Turn drop-behind hack on/off */
 };
 
 

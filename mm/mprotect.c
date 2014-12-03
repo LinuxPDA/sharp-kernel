@@ -91,52 +91,22 @@ static void change_protection(unsigned long start, unsigned long end, pgprot_t n
 	return;
 }
 
-static inline int mprotect_fixup_all(struct vm_area_struct * vma, struct vm_area_struct ** pprev,
+static inline int mprotect_fixup_all(struct vm_area_struct * vma,
 	int newflags, pgprot_t prot)
 {
-	struct vm_area_struct * prev = *pprev;
-	struct mm_struct * mm = vma->vm_mm;
-
-	if (prev && prev->vm_end == vma->vm_start && can_vma_merge(prev, newflags) &&
-	    !vma->vm_file && !(vma->vm_flags & VM_SHARED)) {
-		spin_lock(&mm->page_table_lock);
-		prev->vm_end = vma->vm_end;
-		__vma_unlink(mm, vma, prev);
-		spin_unlock(&mm->page_table_lock);
-
-		kmem_cache_free(vm_area_cachep, vma);
-		mm->map_count--;
-
-		return 0;
-	}
-
-	spin_lock(&mm->page_table_lock);
+	spin_lock(&vma->vm_mm->page_table_lock);
 	vma->vm_flags = newflags;
 	vma->vm_page_prot = prot;
-	spin_unlock(&mm->page_table_lock);
-
-	*pprev = vma;
-
+	spin_unlock(&vma->vm_mm->page_table_lock);
 	return 0;
 }
 
-static inline int mprotect_fixup_start(struct vm_area_struct * vma, struct vm_area_struct ** pprev,
+static inline int mprotect_fixup_start(struct vm_area_struct * vma,
 	unsigned long end,
 	int newflags, pgprot_t prot)
 {
-	struct vm_area_struct * n, * prev = *pprev;
+	struct vm_area_struct * n;
 
-	*pprev = vma;
-
-	if (prev && prev->vm_end == vma->vm_start && can_vma_merge(prev, newflags) &&
-	    !vma->vm_file && !(vma->vm_flags & VM_SHARED)) {
-		spin_lock(&vma->vm_mm->page_table_lock);
-		prev->vm_end = end;
-		vma->vm_start = end;
-		spin_unlock(&vma->vm_mm->page_table_lock);
-
-		return 0;
-	}
 	n = kmem_cache_alloc(vm_area_cachep, SLAB_KERNEL);
 	if (!n)
 		return -ENOMEM;
@@ -149,18 +119,17 @@ static inline int mprotect_fixup_start(struct vm_area_struct * vma, struct vm_ar
 		get_file(n->vm_file);
 	if (n->vm_ops && n->vm_ops->open)
 		n->vm_ops->open(n);
-	vma->vm_pgoff += (end - vma->vm_start) >> PAGE_SHIFT;
 	lock_vma_mappings(vma);
 	spin_lock(&vma->vm_mm->page_table_lock);
+	vma->vm_pgoff += (end - vma->vm_start) >> PAGE_SHIFT;
 	vma->vm_start = end;
 	__insert_vm_struct(current->mm, n);
 	spin_unlock(&vma->vm_mm->page_table_lock);
 	unlock_vma_mappings(vma);
-
 	return 0;
 }
 
-static inline int mprotect_fixup_end(struct vm_area_struct * vma, struct vm_area_struct ** pprev,
+static inline int mprotect_fixup_end(struct vm_area_struct * vma,
 	unsigned long start,
 	int newflags, pgprot_t prot)
 {
@@ -185,13 +154,10 @@ static inline int mprotect_fixup_end(struct vm_area_struct * vma, struct vm_area
 	__insert_vm_struct(current->mm, n);
 	spin_unlock(&vma->vm_mm->page_table_lock);
 	unlock_vma_mappings(vma);
-
-	*pprev = n;
-
 	return 0;
 }
 
-static inline int mprotect_fixup_middle(struct vm_area_struct * vma, struct vm_area_struct ** pprev,
+static inline int mprotect_fixup_middle(struct vm_area_struct * vma,
 	unsigned long start, unsigned long end,
 	int newflags, pgprot_t prot)
 {
@@ -218,44 +184,39 @@ static inline int mprotect_fixup_middle(struct vm_area_struct * vma, struct vm_a
 		vma->vm_ops->open(left);
 		vma->vm_ops->open(right);
 	}
-	vma->vm_pgoff += (start - vma->vm_start) >> PAGE_SHIFT;
-	vma->vm_raend = 0;
-	vma->vm_page_prot = prot;
 	lock_vma_mappings(vma);
 	spin_lock(&vma->vm_mm->page_table_lock);
+	vma->vm_pgoff += (start - vma->vm_start) >> PAGE_SHIFT;
 	vma->vm_start = start;
 	vma->vm_end = end;
 	vma->vm_flags = newflags;
+	vma->vm_raend = 0;
+	vma->vm_page_prot = prot;
 	__insert_vm_struct(current->mm, left);
 	__insert_vm_struct(current->mm, right);
 	spin_unlock(&vma->vm_mm->page_table_lock);
 	unlock_vma_mappings(vma);
-
-	*pprev = right;
-
 	return 0;
 }
 
-static int mprotect_fixup(struct vm_area_struct * vma, struct vm_area_struct ** pprev,
+static int mprotect_fixup(struct vm_area_struct * vma, 
 	unsigned long start, unsigned long end, unsigned int newflags)
 {
 	pgprot_t newprot;
 	int error;
 
-	if (newflags == vma->vm_flags) {
-		*pprev = vma;
+	if (newflags == vma->vm_flags)
 		return 0;
-	}
 	newprot = protection_map[newflags & 0xf];
 	if (start == vma->vm_start) {
 		if (end == vma->vm_end)
-			error = mprotect_fixup_all(vma, pprev, newflags, newprot);
+			error = mprotect_fixup_all(vma, newflags, newprot);
 		else
-			error = mprotect_fixup_start(vma, pprev, end, newflags, newprot);
+			error = mprotect_fixup_start(vma, end, newflags, newprot);
 	} else if (end == vma->vm_end)
-		error = mprotect_fixup_end(vma, pprev, start, newflags, newprot);
+		error = mprotect_fixup_end(vma, start, newflags, newprot);
 	else
-		error = mprotect_fixup_middle(vma, pprev, start, end, newflags, newprot);
+		error = mprotect_fixup_middle(vma, start, end, newflags, newprot);
 
 	if (error)
 		return error;
@@ -267,7 +228,7 @@ static int mprotect_fixup(struct vm_area_struct * vma, struct vm_area_struct ** 
 asmlinkage long sys_mprotect(unsigned long start, size_t len, unsigned long prot)
 {
 	unsigned long nstart, end, tmp;
-	struct vm_area_struct * vma, * next, * prev;
+	struct vm_area_struct * vma, * next;
 	int error = -EINVAL;
 
 	if (start & ~PAGE_MASK)
@@ -281,56 +242,43 @@ asmlinkage long sys_mprotect(unsigned long start, size_t len, unsigned long prot
 	if (end == start)
 		return 0;
 
+	/* XXX: maybe this could be down_read ??? - Rik */
 	down_write(&current->mm->mmap_sem);
 
-	vma = find_vma_prev(current->mm, start, &prev);
+	vma = find_vma(current->mm, start);
 	error = -EFAULT;
 	if (!vma || vma->vm_start > start)
 		goto out;
 
 	for (nstart = start ; ; ) {
 		unsigned int newflags;
-		int last = 0;
 
 		/* Here we know that  vma->vm_start <= nstart < vma->vm_end. */
 
 		newflags = prot | (vma->vm_flags & ~(PROT_READ | PROT_WRITE | PROT_EXEC));
 		if ((newflags & ~(newflags >> 4)) & 0xf) {
 			error = -EACCES;
-			goto out;
+			break;
 		}
 
-		if (vma->vm_end > end) {
-			error = mprotect_fixup(vma, &prev, nstart, end, newflags);
-			goto out;
+		if (vma->vm_end >= end) {
+			error = mprotect_fixup(vma, nstart, end, newflags);
+			break;
 		}
-		if (vma->vm_end == end)
-			last = 1;
 
 		tmp = vma->vm_end;
 		next = vma->vm_next;
-		error = mprotect_fixup(vma, &prev, nstart, tmp, newflags);
+		error = mprotect_fixup(vma, nstart, tmp, newflags);
 		if (error)
-			goto out;
-		if (last)
 			break;
 		nstart = tmp;
 		vma = next;
 		if (!vma || vma->vm_start != nstart) {
 			error = -EFAULT;
-			goto out;
+			break;
 		}
 	}
-	if (next && prev->vm_end == next->vm_start && can_vma_merge(next, prev->vm_flags) &&
-	    !prev->vm_file && !(prev->vm_flags & VM_SHARED)) {
-		spin_lock(&prev->vm_mm->page_table_lock);
-		prev->vm_end = next->vm_end;
-		__vma_unlink(prev->vm_mm, next, prev);
-		spin_unlock(&prev->vm_mm->page_table_lock);
-
-		kmem_cache_free(vm_area_cachep, next);
-		prev->vm_mm->map_count--;
-	}
+	merge_anon_vmas(current->mm, start, end);
 out:
 	up_write(&current->mm->mmap_sem);
 	return error;

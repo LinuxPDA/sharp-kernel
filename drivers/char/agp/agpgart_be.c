@@ -387,7 +387,7 @@ int agp_unbind_memory(agp_memory * curr)
 /* 
  * Driver routines - start
  * Currently this module supports the following chipsets:
- * i810, i815, 440lx, 440bx, 440gx, i840, i850, via vp3, via mvp3,
+ * i810, i815, 440lx, 440bx, 440gx, i830, i840, i850, i860, via vp3, via mvp3,
  * via kx133, via kt133, amd irongate, amd 761, amd 762, ALi M1541,
  * and generic support for the SiS chipsets.
  */
@@ -645,6 +645,7 @@ static int agp_generic_suspend(void)
 
 static void agp_generic_resume(void)
 {
+	return;
 }
 
 static int agp_generic_free_gatt_table(void)
@@ -1398,6 +1399,10 @@ static int __init intel_i830_setup(struct pci_dev *i830_dev)
 }
 
 #endif /* CONFIG_AGP_I810 */
+ 
+ #ifdef CONFIG_AGP_INTEL
+
+#endif /* CONFIG_AGP_I810 */
 
 #ifdef CONFIG_AGP_INTEL
 
@@ -1536,6 +1541,38 @@ static int intel_850_configure(void)
 	return 0;
 }
 
+static int intel_860_configure(void)
+{
+	u32 temp;
+	u16 temp2;
+	aper_size_info_16 *current_size;
+
+	current_size = A_SIZE_16(agp_bridge.current_size);
+
+	/* aperture size */
+	pci_write_config_byte(agp_bridge.dev, INTEL_APSIZE,
+			      (char)current_size->size_value);
+
+	/* address to map to */
+	pci_read_config_dword(agp_bridge.dev, INTEL_APBASE, &temp);
+	agp_bridge.gart_bus_addr = (temp & PCI_BASE_ADDRESS_MEM_MASK);
+
+	/* attbase - aperture base */
+	pci_write_config_dword(agp_bridge.dev, INTEL_ATTBASE,
+			       agp_bridge.gatt_bus_addr);
+
+	/* agpctrl */
+	pci_write_config_dword(agp_bridge.dev, INTEL_AGPCTRL, 0x0000);
+
+	/* mcgcfg */
+	pci_read_config_word(agp_bridge.dev, INTEL_I860_MCHCFG, &temp2);
+	pci_write_config_word(agp_bridge.dev, INTEL_I860_MCHCFG,
+			      temp2 | (1 << 9));
+	/* clear any possible AGP-related error conditions */
+	pci_write_config_word(agp_bridge.dev, INTEL_I860_ERRSTS, 0xf700);
+	return 0;
+}
+
 static unsigned long intel_mask_memory(unsigned long addr, int type)
 {
 	/* Memory type is ignored */
@@ -1661,6 +1698,39 @@ static int __init intel_850_setup (struct pci_dev *pdev)
 
 	return 0;
 	
+	(void) pdev; /* unused */
+}
+
+static int __init intel_860_setup (struct pci_dev *pdev)
+{
+	agp_bridge.masks = intel_generic_masks;
+	agp_bridge.num_of_masks = 1;
+	agp_bridge.aperture_sizes = (void *) intel_generic_sizes;
+	agp_bridge.size_type = U16_APER_SIZE;
+	agp_bridge.num_aperture_sizes = 7;
+	agp_bridge.dev_private_data = NULL;
+	agp_bridge.needs_scratch_page = FALSE;
+	agp_bridge.configure = intel_860_configure;
+	agp_bridge.fetch_size = intel_fetch_size;
+	agp_bridge.cleanup = intel_cleanup;
+	agp_bridge.tlb_flush = intel_tlbflush;
+	agp_bridge.mask_memory = intel_mask_memory;
+	agp_bridge.agp_enable = agp_generic_agp_enable;
+	agp_bridge.cache_flush = global_cache_flush;
+	agp_bridge.create_gatt_table = agp_generic_create_gatt_table;
+	agp_bridge.free_gatt_table = agp_generic_free_gatt_table;
+	agp_bridge.insert_memory = agp_generic_insert_memory;
+	agp_bridge.remove_memory = agp_generic_remove_memory;
+	agp_bridge.alloc_by_type = agp_generic_alloc_by_type;
+	agp_bridge.free_by_type = agp_generic_free_by_type;
+	agp_bridge.agp_alloc_page = agp_generic_alloc_page;
+	agp_bridge.agp_destroy_page = agp_generic_destroy_page;
+	agp_bridge.suspend = agp_generic_suspend;
+	agp_bridge.resume = agp_generic_resume;
+	agp_bridge.cant_use_aperture = 0;
+
+	return 0;
+
 	(void) pdev; /* unused */
 }
 
@@ -3103,6 +3173,8 @@ static int __init serverworks_setup (struct pci_dev *pdev)
 	agp_bridge.free_by_type = agp_generic_free_by_type;
 	agp_bridge.agp_alloc_page = agp_generic_alloc_page;
 	agp_bridge.agp_destroy_page = agp_generic_destroy_page;
+	agp_bridge.suspend = agp_generic_suspend;
+	agp_bridge.resume = agp_generic_resume;
 	agp_bridge.cant_use_aperture = 0;
 
 	pci_read_config_dword(agp_bridge.dev,
@@ -3215,6 +3287,12 @@ static struct {
 		"AMD",
 		"Irongate",
 		amd_irongate_setup },
+	{ PCI_DEVICE_ID_AMD_762_0,
+		PCI_VENDOR_ID_AMD,
+		AMD_IRONGATE,
+		"AMD",
+		"AMD 760MP",
+		amd_irongate_setup },
 	{ PCI_DEVICE_ID_AMD_761_0,
 		PCI_VENDOR_ID_AMD,
 		AMD_761,
@@ -3278,6 +3356,12 @@ static struct {
 	        "Intel",
 	        "i850",
 	        intel_850_setup },
+	{ PCI_DEVICE_ID_INTEL_860_0,
+		PCI_VENDOR_ID_INTEL,
+		INTEL_I860,
+		"Intel",
+		"i860",
+		intel_860_setup },
 	{ 0,
 		PCI_VENDOR_ID_INTEL,
 		INTEL_GENERIC,
@@ -3288,6 +3372,36 @@ static struct {
 #endif /* CONFIG_AGP_INTEL */
 
 #ifdef CONFIG_AGP_SIS
+	{ PCI_DEVICE_ID_SI_740,
+		PCI_VENDOR_ID_SI,
+		SIS_GENERIC,
+		"SiS",
+		"740",
+		sis_generic_setup },
+	{ PCI_DEVICE_ID_SI_650,
+		PCI_VENDOR_ID_SI,
+		SIS_GENERIC,
+		"SiS",
+		"650",
+		sis_generic_setup },
+	{ PCI_DEVICE_ID_SI_645,
+		PCI_VENDOR_ID_SI,
+		SIS_GENERIC,
+		"SiS",
+		"645",
+		sis_generic_setup },
+	{ PCI_DEVICE_ID_SI_735,
+		PCI_VENDOR_ID_SI,
+		SIS_GENERIC,
+		"SiS",
+		"735",
+		sis_generic_setup },
+	{ PCI_DEVICE_ID_SI_730,
+		PCI_VENDOR_ID_SI,
+		SIS_GENERIC,
+		"SiS",
+		"730",
+		sis_generic_setup },
 	{ PCI_DEVICE_ID_SI_630,
 		PCI_VENDOR_ID_SI,
 		SIS_GENERIC,
@@ -3312,11 +3426,11 @@ static struct {
 		"SiS",
 		"530",
 		sis_generic_setup },
-	{ PCI_DEVICE_ID_SI_735,
+        { PCI_DEVICE_ID_SI_550,
 		PCI_VENDOR_ID_SI,
 		SIS_GENERIC,
 		"SiS",
-		"735",
+                "550",
 		sis_generic_setup },
 	{ 0,
 		PCI_VENDOR_ID_SI,
@@ -3530,13 +3644,13 @@ static int __init agp_find_supported_device(void)
 						   PCI_DEVICE_ID_INTEL_815_1,
 						   NULL);
 			if (i810_dev == NULL) {
-				printk(KERN_ERR PFX "Detected an "
+				printk(KERN_ERR PFX "agpgart: Detected an "
 				       "Intel i815, but could not find the"
 				       " secondary device. Assuming a "
 				       "non-integrated video card.\n");
 				break;
 			}
-			printk(KERN_INFO PFX "Detected an Intel i815 "
+			printk(KERN_INFO PFX "agpgart: Detected an Intel i815 "
 			       "Chipset.\n");
 			agp_bridge.type = INTEL_I810;
 			return intel_i810_setup(i810_dev);

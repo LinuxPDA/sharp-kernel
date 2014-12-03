@@ -949,7 +949,7 @@ static void send_break (struct dz_serial *info, int duration)
 	tmp = dz_in (info, DZ_TCR);
 	tmp |= mask;
 
-	current->state = TASK_INTERRUPTIBLE;
+	set_current_state(TASK_INTERRUPTIBLE);
 
 	save_and_cli(flags);
 	dz_out(info, DZ_TCR, tmp);
@@ -1135,7 +1135,7 @@ static void dz_close(struct tty_struct *tty, struct file *filp)
 	}
 	if (info->blocked_open) {
 		if (info->close_delay) {
-			current->state = TASK_INTERRUPTIBLE;
+			set_current_state(TASK_INTERRUPTIBLE);
 			schedule_timeout(info->close_delay);
 		}
 		wake_up_interruptible(&info->open_wait);
@@ -1254,7 +1254,7 @@ static int block_til_ready(struct tty_struct *tty, struct file *filp,
 		schedule();
 	}
 		
-	current->state = TASK_RUNNING;
+	set_current_state(TASK_RUNNING);
 	remove_wait_queue (&info->open_wait, &wait);
 	if (!tty_hung_up_p(filp))
 		info->count++;

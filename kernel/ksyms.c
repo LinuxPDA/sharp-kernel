@@ -7,6 +7,7 @@
  * - External symbol table support added (December 1994)
  * - Versions on symbols added (December 1994)
  *   by Bjorn Ekwall <bj0rn@blox.se>
+ *
  */
 
 #include <linux/config.h>
@@ -44,6 +45,7 @@
 #include <linux/brlock.h>
 #include <linux/fs.h>
 #include <linux/tty.h>
+#include <linux/sysrq.h>
 #include <linux/in6.h>
 #include <linux/completion.h>
 #include <asm/checksum.h>
@@ -56,7 +58,6 @@
 #endif
 
 extern void set_device_ro(kdev_t dev,int flag);
-
 extern void *sys_call_table;
 
 extern struct timezone sys_tz;
@@ -172,11 +173,11 @@ EXPORT_SYMBOL(put_filp);
 EXPORT_SYMBOL(files_lock);
 EXPORT_SYMBOL(check_disk_change);
 EXPORT_SYMBOL(__invalidate_buffers);
-EXPORT_SYMBOL(invalidate_bdev);
 EXPORT_SYMBOL(invalidate_inodes);
 EXPORT_SYMBOL(invalidate_device);
 EXPORT_SYMBOL(invalidate_inode_pages);
 EXPORT_SYMBOL(truncate_inode_pages);
+EXPORT_SYMBOL(zap_inode_mapping);
 EXPORT_SYMBOL(fsync_dev);
 EXPORT_SYMBOL(fsync_no_super);
 EXPORT_SYMBOL(permission);
@@ -244,15 +245,14 @@ EXPORT_SYMBOL(vfs_rmdir);
 EXPORT_SYMBOL(vfs_unlink);
 EXPORT_SYMBOL(vfs_rename);
 EXPORT_SYMBOL(vfs_statfs);
-EXPORT_SYMBOL(generic_read_dir);
 EXPORT_SYMBOL(generic_file_llseek);
-EXPORT_SYMBOL(no_llseek);
+EXPORT_SYMBOL(generic_read_dir);
 EXPORT_SYMBOL(__pollwait);
 EXPORT_SYMBOL(poll_freewait);
 EXPORT_SYMBOL(ROOT_DEV);
-EXPORT_SYMBOL(__find_get_page);
 EXPORT_SYMBOL(__find_lock_page);
 EXPORT_SYMBOL(grab_cache_page);
+EXPORT_SYMBOL(grab_cache_page_nowait);
 EXPORT_SYMBOL(read_cache_page);
 EXPORT_SYMBOL(vfs_readlink);
 EXPORT_SYMBOL(vfs_follow_link);
@@ -266,9 +266,12 @@ EXPORT_SYMBOL(lease_get_mtime);
 EXPORT_SYMBOL(lock_may_read);
 EXPORT_SYMBOL(lock_may_write);
 EXPORT_SYMBOL(dcache_readdir);
+EXPORT_SYMBOL(buffer_insert_inode_queue);
+EXPORT_SYMBOL(fsync_inode_buffers);
 
 /* for stackable file systems (lofs, wrapfs, cryptfs, etc.) */
 EXPORT_SYMBOL(default_llseek);
+EXPORT_SYMBOL(no_llseek);
 EXPORT_SYMBOL(dentry_open);
 EXPORT_SYMBOL(filemap_nopage);
 EXPORT_SYMBOL(filemap_sync);
@@ -286,6 +289,8 @@ EXPORT_SYMBOL(tty_unregister_driver);
 EXPORT_SYMBOL(tty_std_termios);
 
 /* block device driver support */
+EXPORT_SYMBOL(block_read);
+EXPORT_SYMBOL(block_write);
 EXPORT_SYMBOL(blksize_size);
 EXPORT_SYMBOL(hardsect_size);
 EXPORT_SYMBOL(blk_size);
@@ -350,9 +355,7 @@ EXPORT_SYMBOL(add_timer);
 EXPORT_SYMBOL(del_timer);
 EXPORT_SYMBOL(request_irq);
 EXPORT_SYMBOL(free_irq);
-#if !defined(CONFIG_ARCH_S390)
-EXPORT_SYMBOL(irq_stat);	/* No separate irq_stat for s390, it is part of PSA */
-#endif
+EXPORT_SYMBOL(irq_stat);
 
 /* waitqueue handling */
 EXPORT_SYMBOL(add_wait_queue);
@@ -391,8 +394,8 @@ EXPORT_SYMBOL(__br_write_unlock);
 #endif
 
 /* Kiobufs */
-EXPORT_SYMBOL(alloc_kiovec);
-EXPORT_SYMBOL(free_kiovec);
+EXPORT_SYMBOL(alloc_kiovec_sz);
+EXPORT_SYMBOL(free_kiovec_sz);
 EXPORT_SYMBOL(expand_kiobuf);
 
 EXPORT_SYMBOL(map_user_kiobuf);
@@ -403,9 +406,11 @@ EXPORT_SYMBOL(brw_kiovec);
 EXPORT_SYMBOL(kiobuf_wait_for_io);
 
 /* dma handling */
+#ifdef CONFIG_GENERIC_ISA_DMA
 EXPORT_SYMBOL(request_dma);
 EXPORT_SYMBOL(free_dma);
 EXPORT_SYMBOL(dma_spin_lock);
+#endif
 #ifdef HAVE_DISABLE_HLT
 EXPORT_SYMBOL(disable_hlt);
 EXPORT_SYMBOL(enable_hlt);
@@ -437,11 +442,9 @@ EXPORT_SYMBOL(jiffies);
 EXPORT_SYMBOL(xtime);
 EXPORT_SYMBOL(do_gettimeofday);
 EXPORT_SYMBOL(do_settimeofday);
-
-#if !defined(__ia64__)
+#ifndef __ia64__
 EXPORT_SYMBOL(loops_per_jiffy);
 #endif
-
 EXPORT_SYMBOL(kstat);
 EXPORT_SYMBOL(nr_running);
 
@@ -457,6 +460,7 @@ EXPORT_SYMBOL(kdevname);
 EXPORT_SYMBOL(bdevname);
 EXPORT_SYMBOL(cdevname);
 EXPORT_SYMBOL(simple_strtoul);
+EXPORT_SYMBOL(simple_strtoull);
 EXPORT_SYMBOL(system_utsname);	/* UTS data */
 EXPORT_SYMBOL(uts_sem);		/* UTS semaphore */
 #ifndef __mips__
@@ -488,10 +492,7 @@ EXPORT_SYMBOL(si_meminfo);
 /* Added to make file system as module */
 EXPORT_SYMBOL(sys_tz);
 EXPORT_SYMBOL(file_fsync);
-EXPORT_SYMBOL(fsync_inode_buffers);
-EXPORT_SYMBOL(fsync_inode_data_buffers);
 EXPORT_SYMBOL(clear_inode);
-EXPORT_SYMBOL(nr_async_pages);
 EXPORT_SYMBOL(___strtok);
 EXPORT_SYMBOL(init_special_inode);
 EXPORT_SYMBOL(read_ahead);
@@ -499,7 +500,6 @@ EXPORT_SYMBOL(get_hash_table);
 EXPORT_SYMBOL(get_empty_inode);
 EXPORT_SYMBOL(insert_inode_hash);
 EXPORT_SYMBOL(remove_inode_hash);
-EXPORT_SYMBOL(buffer_insert_inode_queue);
 EXPORT_SYMBOL(make_bad_inode);
 EXPORT_SYMBOL(is_bad_inode);
 EXPORT_SYMBOL(event);
@@ -550,3 +550,4 @@ EXPORT_SYMBOL(init_task_union);
 
 EXPORT_SYMBOL(tasklist_lock);
 EXPORT_SYMBOL(pidhash);
+

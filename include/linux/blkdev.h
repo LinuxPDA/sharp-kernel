@@ -14,11 +14,14 @@ typedef struct elevator_s elevator_t;
 
 /*
  * Ok, this is an expanded form so that we can use the same
- * request for paging requests.
+ * request for paging requests when that is implemented. In
+ * paging, 'bh' is NULL, and the completion is used to wait
+ * for the IO to be ready.
  */
 struct request {
 	struct list_head queue;
 	int elevator_sequence;
+	struct list_head table;
 
 	volatile int rq_status;	/* should split this into a few status bits */
 #define RQ_INACTIVE		(-1)
@@ -143,7 +146,6 @@ struct sec_size {
  */
 #define BLK_DEFAULT_QUEUE(_MAJOR)  &blk_dev[_MAJOR].request_queue
 
-extern struct sec_size * blk_sec[MAX_BLKDEV];
 extern struct blk_dev_struct blk_dev[MAX_BLKDEV];
 extern void grok_partitions(struct gendisk *dev, int drive, unsigned minors, long size);
 extern void register_disk(struct gendisk *dev, kdev_t first, unsigned minors, struct block_device_operations *ops, long size);
@@ -170,16 +172,12 @@ extern int * max_readahead[MAX_BLKDEV];
 
 extern int * max_sectors[MAX_BLKDEV];
 
-extern int * max_segments[MAX_BLKDEV];
+extern atomic_t queued_sectors;
 
 #define MAX_SEGMENTS 128
 #define MAX_SECTORS 255
 
 #define PageAlignSize(size) (((size) + PAGE_SIZE -1) & PAGE_MASK)
-
-/* read-ahead in pages.. */
-#define MAX_READAHEAD	31
-#define MIN_READAHEAD	3
 
 #define blkdev_entry_to_request(entry) list_entry((entry), struct request, queue)
 #define blkdev_entry_next_request(entry) blkdev_entry_to_request((entry)->next)
@@ -199,8 +197,15 @@ static inline int get_hardsect_size(kdev_t dev)
 		return 512;
 }
 
-#define blk_finished_io(nsects)	do { } while (0)
-#define blk_started_io(nsects)	do { } while (0)
+#define blk_finished_io(nsects)				\
+	atomic_sub(nsects, &queued_sectors);		\
+	if (atomic_read(&queued_sectors) < 0) {		\
+		printk("block: queued_sectors < 0\n");	\
+		atomic_set(&queued_sectors, 0);		\
+	}
+
+#define blk_started_io(nsects)				\
+	atomic_add(nsects, &queued_sectors);
 
 static inline unsigned int blksize_bits(unsigned int size)
 {

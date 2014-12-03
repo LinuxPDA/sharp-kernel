@@ -969,6 +969,14 @@ S: R. Tocantins, 89 - Cristo Rei
 S: 80050-430 - Curitiba - Paraná
 S: Brazil
 
+N: Tom Gall
+E: tom_gall@vnet.ibm.com
+E: tgall@rochcivictheatre.org
+D: ppc64, ppc
+S: 710 Walnut St
+S: Mantorville, MN 55955
+S: USA
+
 N: Nigel Gamble
 E: nigel@nrg.org
 E: nigel@sgi.com
@@ -1611,8 +1619,10 @@ E: greg@kroah.com
 W: http://www.kroah.com/linux-usb/
 D: USB Serial Converter driver framework, USB Handspring Visor driver
 D: ConnectTech WHITEHeat USB driver, Generic USB Serial driver
-D: USB Bluetooth driver
+D: USB I/O Edgeport driver, USB Serial IrDA driver
+D: USB Bluetooth driver, USB Skeleton driver
 D: bits and pieces of USB core code.
+D: PCI Hotplug core, PCI Hotplug Compaq driver modifications
 
 N: Russell Kroll
 E: rkroll@exploits.org

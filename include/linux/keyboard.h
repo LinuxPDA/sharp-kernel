@@ -362,7 +362,7 @@ extern unsigned char keyboard_type;
 #define K_DDIERE	K(KT_DEAD,4)
 #define K_DCEDIL	K(KT_DEAD,5)
 
-#define NR_DEAD		6
+#define NR_DEAD		7
 
 #define K_DOWN		K(KT_CUR,0)
 #define K_LEFT		K(KT_CUR,1)

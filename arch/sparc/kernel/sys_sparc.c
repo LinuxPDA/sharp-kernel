@@ -54,17 +54,35 @@ unsigned long arch_get_unmapped_area(struct file *filp, unsigned long addr, unsi
 		return -ENOMEM;
 	if (ARCH_SUN4C_SUN4 && len > 0x20000000)
 		return -ENOMEM;
-	if (!addr)
-		addr = TASK_UNMAPPED_BASE;
 
-	if (flags & MAP_SHARED)
-		addr = COLOUR_ALIGN(addr);
-	else
-		addr = PAGE_ALIGN(addr);
+	if (addr) {
+		if (flags & MAP_SHARED)
+			addr = COLOUR_ALIGN(addr);
+		else
+			addr = PAGE_ALIGN(addr);
+		vmm = find_vma(current->mm, addr);
+		if (ARCH_SUN4C_SUN4 && addr < 0xe0000000 &&
+		    0x20000000 - len < addr) {
+			addr = PAGE_OFFSET;
+			vmm = find_vma(current->mm, PAGE_OFFSET);
+		}
+		if (TASK_SIZE - PAGE_SIZE - len >= addr &&
+		    (!vmm || addr + len <= vmm->vm_start))
+			return addr;
+		if (addr > TASK_UNMAPPED_BASE)
+			addr = 0;
+	}
+	if (!addr) {
+		if (flags & MAP_SHARED)
+			addr = COLOUR_ALIGN(TASK_UNMAPPED_BASE);
+		else
+			addr = PAGE_ALIGN(TASK_UNMAPPED_BASE);
+	}
 
 	for (vmm = find_vma(current->mm, addr); ; vmm = vmm->vm_next) {
 		/* At this point:  (!vmm || addr < vmm->vm_end). */
-		if (ARCH_SUN4C_SUN4 && addr < 0xe0000000 && 0x20000000 - len < addr) {
+		if (ARCH_SUN4C_SUN4 && addr < 0xe0000000 &&
+		    0x20000000 - len < addr) {
 			addr = PAGE_OFFSET;
 			vmm = find_vma(current->mm, PAGE_OFFSET);
 		}

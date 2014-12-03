@@ -49,7 +49,7 @@
  * have a way to deal with that gracefully. Right now I used straightforward
  * wrappers, but this needs further analysis wrt potential overflows.
  */
-extern int get_cpuinfo(char *);
+extern int get_cpuinfo(char *, unsigned *);
 extern int get_hardware_list(char *);
 extern int get_stram_list(char *);
 #ifdef CONFIG_DEBUG_MALLOC
@@ -140,12 +140,12 @@ static int meminfo_read_proc(char *page, char **start, off_t off,
 {
 	struct sysinfo i;
 	int len;
-	int pg_size ;
+	int pg_size;
 
 /*
  * display in kilobytes.
  */
-#define K(x) ((x) << (PAGE_SHIFT - 10))
+#define K(x) ((unsigned long)(x) << (PAGE_SHIFT - 10))
 #define B(x) ((unsigned long long)(x) << PAGE_SHIFT)
 	si_meminfo(&i);
 	si_swapinfo(&i);
@@ -170,8 +170,10 @@ static int meminfo_read_proc(char *page, char **start, off_t off,
 		"Buffers:      %8lu kB\n"
 		"Cached:       %8lu kB\n"
 		"SwapCached:   %8lu kB\n"
-		"Active:       %8u kB\n"
-		"Inactive:     %8u kB\n"
+		"Active:       %8lu kB\n"
+		"Inact_dirty:  %8lu kB\n"
+		"Inact_clean:  %8lu kB\n"
+		"Inact_target: %8lu kB\n"
 		"HighTotal:    %8lu kB\n"
 		"HighFree:     %8lu kB\n"
 		"LowTotal:     %8lu kB\n"
@@ -185,7 +187,9 @@ static int meminfo_read_proc(char *page, char **start, off_t off,
 		K(pg_size - swapper_space.nrpages),
 		K(swapper_space.nrpages),
 		K(nr_active_pages),
-		K(nr_inactive_pages),
+		K(nr_inactive_dirty_pages),
+		K(nr_inactive_clean_pages()),
+		K(inactive_target()),
 		K(i.totalhigh),
 		K(i.freehigh),
 		K(i.totalram-i.totalhigh),
@@ -209,11 +213,52 @@ static int version_read_proc(char *page, char **start, off_t off,
 	return proc_calc_metrics(page, start, off, count, eof, len);
 }
 
+/*
+ * cpuinfo_read_proc -- do /proc/cpuinfo
+ *
+ * Notes:
+ * 1) All procfs read functions are called with a count <= PAGE_SIZE - 1024.
+ *    We assume that get_cpuinfo() will add no more than 1K to the buffer per
+ *    call, else it will overflow the page and all is lost.
+ *
+ * 2) Yes, this routine is very inefficient if called with a small buffer or a
+ *    large number of CPUs, since subsequent calls will fast-forward through
+ *    all previous cpuinfos to get to the current one.  Since we're using
+ *    sprintf in the arch-specific get_cpuinfo functions, I can't see how
+ *    performance is a major criterion.
+ */
 static int cpuinfo_read_proc(char *page, char **start, off_t off,
 				 int count, int *eof, void *data)
 {
-	int len = get_cpuinfo(page);
-	return proc_calc_metrics(page, start, off, count, eof, len);
+	unsigned cpu_num = 0;
+	off_t	my_off = 0;	/* Page window's "offset". */
+	int	len, cnt;
+	char	*p;
+	char	fast_forward;	/* If true, skip previously returned data. */
+
+	fast_forward = (char)(off > 0);
+	*start = p = page;
+	cnt = count;
+
+	while ((len = get_cpuinfo(p, &cpu_num)) > 0) {
+		my_off += len;
+		if (my_off <= off)
+			continue;			/* Skip this one. */
+		if (fast_forward) {
+			fast_forward = 0;
+			*start = page + (off - (my_off - len));
+		}
+		p += len;
+		cnt -= len;
+		if (cnt <= 0)
+			break;				/* Done. */
+	}
+	if (len == 0)
+		*eof = 1;
+	len = (p - *start);
+	if (len > count)
+		len = count;
+	return len;
 }
 
 #ifdef CONFIG_PROC_HARDWARE
@@ -265,16 +310,16 @@ static int kstat_read_proc(char *page, char **start, off_t off,
 {
 	int i, len;
 	extern unsigned long total_forks;
-	unsigned long jif = jiffies;
+	unsigned long jif = hz_to_std(jiffies);
 	unsigned int sum = 0, user = 0, nice = 0, system = 0;
 	int major, disk;
 
 	for (i = 0 ; i < smp_num_cpus; i++) {
 		int cpu = cpu_logical_map(i), j;
 
-		user += kstat.per_cpu_user[cpu];
-		nice += kstat.per_cpu_nice[cpu];
-		system += kstat.per_cpu_system[cpu];
+		user += hz_to_std(kstat.per_cpu_user[cpu]);
+		nice += hz_to_std(kstat.per_cpu_nice[cpu]);
+		system += hz_to_std(kstat.per_cpu_system[cpu]);
 #if !defined(CONFIG_ARCH_S390)
 		for (j = 0 ; j < NR_IRQS ; j++)
 			sum += kstat.irqs[cpu][j];
@@ -286,10 +331,10 @@ static int kstat_read_proc(char *page, char **start, off_t off,
 	for (i = 0 ; i < smp_num_cpus; i++)
 		len += sprintf(page + len, "cpu%d %u %u %u %lu\n",
 			i,
-			kstat.per_cpu_user[cpu_logical_map(i)],
-			kstat.per_cpu_nice[cpu_logical_map(i)],
-			kstat.per_cpu_system[cpu_logical_map(i)],
-			jif - (  kstat.per_cpu_user[cpu_logical_map(i)] \
+			hz_to_std(kstat.per_cpu_user[cpu_logical_map(i)]),
+			hz_to_std(kstat.per_cpu_nice[cpu_logical_map(i)]),
+			hz_to_std(kstat.per_cpu_system[cpu_logical_map(i)]),
+			jif - hz_to_std(  kstat.per_cpu_user[cpu_logical_map(i)] \
 				   + kstat.per_cpu_nice[cpu_logical_map(i)] \
 				   + kstat.per_cpu_system[cpu_logical_map(i)]));
 	len += sprintf(page + len,

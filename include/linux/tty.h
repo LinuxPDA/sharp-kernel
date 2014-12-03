@@ -26,7 +26,6 @@
 
 #include <asm/system.h>
 
-
 /*
  * Note: don't mess with NR_PTYS until you understand the tty minor 
  * number allocation game...
@@ -367,6 +366,7 @@ extern int specialix_init(void);
 extern int espserial_init(void);
 extern int macserial_init(void);
 extern int a2232board_init(void);
+extern int stdio_init(void);
 
 extern int tty_paranoia_check(struct tty_struct *tty, kdev_t device,
 			      const char *routine);
@@ -381,6 +381,13 @@ extern int tty_unregister_driver(struct tty_driver *driver);
 extern void tty_register_devfs (struct tty_driver *driver, unsigned int flags,
 				unsigned minor);
 extern void tty_unregister_devfs (struct tty_driver *driver, unsigned minor);
+struct devfs_entry;
+extern void tty_register_devfs_name (struct tty_driver *driver,
+				     unsigned int flags, unsigned minor,
+				     struct devfs_entry *dir, const char *name);
+extern void tty_unregister_devfs_name (struct tty_driver *driver,
+				       unsigned minor, struct devfs_entry *dir,
+				       const char *name);
 extern int tty_read_raw_data(struct tty_struct *tty, unsigned char *bufp,
 			     int buflen);
 extern void tty_write_message(struct tty_struct *tty, char *msg);
@@ -420,6 +427,8 @@ extern void console_print(const char *);
 
 extern int vt_ioctl(struct tty_struct *tty, struct file * file,
 		    unsigned int cmd, unsigned long arg);
+
+extern void stdio_console_init(void);
 
 #endif /* __KERNEL__ */
 #endif

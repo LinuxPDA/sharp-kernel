@@ -1885,7 +1885,7 @@ static int cdrom_eject(ide_drive_t *drive, int ejectflag,
 	return cdrom_queue_packet_command (drive, &pc);
 }
 
-static int cdrom_read_capacity(ide_drive_t *drive, unsigned long *capacity,
+static int cdrom_read_capacity(ide_drive_t *drive, unsigned *capacity,
 			       struct request_sense *sense)
 {
 	struct {
@@ -2927,7 +2927,7 @@ void ide_cdrom_revalidate (ide_drive_t *drive)
 static
 unsigned long ide_cdrom_capacity (ide_drive_t *drive)
 {
-	unsigned long capacity;
+	unsigned capacity;
 
 	if (cdrom_read_capacity(drive, &capacity, NULL))
 		return 0;
@@ -2997,6 +2997,8 @@ char *ignore = NULL;
 
 MODULE_PARM(ignore, "s");
 MODULE_DESCRIPTION("ATAPI CD-ROM Driver");
+MODULE_LICENSE("GPL");
+
 
 static void __exit ide_cdrom_exit(void)
 {
@@ -3059,4 +3061,3 @@ int ide_cdrom_init(void)
 
 module_init(ide_cdrom_init);
 module_exit(ide_cdrom_exit);
-MODULE_LICENSE("GPL");

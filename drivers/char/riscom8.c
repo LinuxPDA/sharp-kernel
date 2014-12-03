@@ -1069,7 +1069,7 @@ static int block_til_ready(struct tty_struct *tty, struct file * filp,
 		}
 		schedule();
 	}
-	current->state = TASK_RUNNING;
+	set_current_state(TASK_RUNNING);
 	remove_wait_queue(&port->open_wait, &wait);
 	if (!tty_hung_up_p(filp))
 		port->count++;
@@ -1191,7 +1191,7 @@ static void rc_close(struct tty_struct * tty, struct file * filp)
 		 */
 		timeout = jiffies+HZ;
 		while(port->IER & IER_TXEMPTY)  {
-			current->state = TASK_INTERRUPTIBLE;
+			set_current_state(TASK_INTERRUPTIBLE);
  			schedule_timeout(port->timeout);
 			if (time_after(jiffies, timeout))
 				break;
@@ -1207,7 +1207,7 @@ static void rc_close(struct tty_struct * tty, struct file * filp)
 	port->tty = 0;
 	if (port->blocked_open) {
 		if (port->close_delay) {
-			current->state = TASK_INTERRUPTIBLE;
+			set_current_state(TASK_INTERRUPTIBLE);
 			schedule_timeout(port->close_delay);
 		}
 		wake_up_interruptible(&port->open_wait);

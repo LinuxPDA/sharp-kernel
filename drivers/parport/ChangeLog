@@ -1,3 +1,11 @@
+2001-10-26  Tim Waugh  <twaugh@redhat.com>
+
+	* parport_pc.c (parport_irq_probe): When ECR programmable IRQ
+	support fails, generate interrupts using the FIFO even if we don't
+	want to use the FIFO for real data transfers.
+	(parport_pc_probe_port): Display the ECR address if we have an
+	ECR, not just if we will use the FIFO.
+
 2001-10-10  Tim Waugh  <twaugh@redhat.com>
 
 	* parport_pc.c: Support for OX16PCI954 PCI card.
@@ -57,6 +65,12 @@
 	* share.c (parport_unregister_device): Remove device from wait list
 	too.
 
+2001-07-04  Tim Waugh  <twaugh@redhat.com>
+
+	* parport_pc.c (init_module): Don't try to load parport_serial.
+	This means that the user needs to load it (or a hardware detection
+	program on their behalf) if necessary.
+
 2001-06-20  Tim Waugh  <twaugh@redhat.com>
 
 	* parport_pc.c: Make 'io_hi=0' work.
@@ -64,6 +78,7 @@
 2001-05-31  Tim Waugh  <twaugh@redhat.com>
 
 	* parport_serial.c: New file.
+	* parport_pc.c (init_module): Try to load parport_serial.
 
 2001-06-05  Tim Waugh  <twaugh@redhat.com>
 

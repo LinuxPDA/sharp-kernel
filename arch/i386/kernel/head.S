@@ -429,14 +429,15 @@ ALIGN
  * change anything.
  */
 ENTRY(gdt_table)
-	.quad 0x0000000000000000	/* NULL descriptor */
-	.quad 0x0000000000000000	/* not used */
+	.quad 0x0000000000000000	/* 0x00 NULL descriptor */
+	.quad 0x0000000000000000	/* 0x08 not used */
 	.quad 0x00cf9a000000ffff	/* 0x10 kernel 4GB code at 0x00000000 */
 	.quad 0x00cf92000000ffff	/* 0x18 kernel 4GB data at 0x00000000 */
 	.quad 0x00cffa000000ffff	/* 0x23 user   4GB code at 0x00000000 */
 	.quad 0x00cff2000000ffff	/* 0x2b user   4GB data at 0x00000000 */
-	.quad 0x0000000000000000	/* not used */
-	.quad 0x0000000000000000	/* not used */
+	.quad 0x0000000000000000	/* 0x30 not used */
+	.quad 0x0000000000000000	/* 0x38 not used */
+
 	/*
 	 * The APM segments have byte granularity and their bases
 	 * and limits are set at run time.
@@ -445,7 +446,19 @@ ENTRY(gdt_table)
 	.quad 0x00409a0000000000	/* 0x48 APM CS    code */
 	.quad 0x00009a0000000000	/* 0x50 APM CS 16 code (16 bit) */
 	.quad 0x0040920000000000	/* 0x58 APM DS    data */
-	.fill NR_CPUS*4,8,0		/* space for TSS's and LDT's */
+
+	/* PNPBIOS segments */
+	.quad 0x00c09a0000000000	/* 0x60 32-bit code */
+	.quad 0x00809a0000000000	/* 0x68 16-bit code */
+	.quad 0x0080920000000000	/* 0x70 16-bit data */
+	.quad 0x0080920000000000	/* 0x78 16-bit data */
+	.quad 0x0080920000000000	/* 0x80 16-bit data */
+	.quad 0x0000000000000000	/* 0x88 not used */
+	.quad 0x0000000000000000	/* 0x90 not used */
+	.quad 0x0000000000000000	/* 0x98 not used */
+
+	/* Per CPU segments */
+	.fill NR_CPUS*4,8,0		/* 0xa0 space for TSS's and LDT's */
 		
 /*
  * This is to aid debugging, the various locking macros will be putting

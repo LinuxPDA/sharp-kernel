@@ -675,9 +675,7 @@ static int epic_open(struct net_device *dev)
 	   required by the details of which bits are reset and the transceiver
 	   wiring on the Ositech CardBus card.
 	*/
-#if 0
 	outl(dev->if_port == 1 ? 0x13 : 0x12, ioaddr + MIICfg);
-#endif
 	if (ep->chip_flags & MII_PWRDWN)
 		outl((inl(ioaddr + NVCTL) & ~0x003C) | 0x4800, ioaddr + NVCTL);
 

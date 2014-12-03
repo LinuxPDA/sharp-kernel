@@ -1665,7 +1665,7 @@ MakeIocReady(MPT_ADAPTER *ioc, int force)
 			return -ETIME;
 		}
 
-		current->state = TASK_INTERRUPTIBLE;
+		set_current_state(TASK_INTERRUPTIBLE);
 		schedule_timeout(1);
 	}
 
@@ -1969,7 +1969,7 @@ SendIocInit(MPT_ADAPTER *ioc)
 	cntdn = HZ * 60;					/* chg'd from 30 to 60 seconds */
 	state = GetIocState(ioc, 1);
 	while (state != MPI_IOC_STATE_OPERATIONAL && --cntdn) {
-		current->state = TASK_INTERRUPTIBLE;
+		set_current_state(TASK_INTERRUPTIBLE);
 		schedule_timeout(1);
 
 		if (!cntdn) {
@@ -2096,7 +2096,7 @@ KickStart(MPT_ADAPTER *ioc, int force)
 			return hard_reset_done;
 		}
 		/* udelay(10000) ? */
-		current->state = TASK_INTERRUPTIBLE;
+		set_current_state(TASK_INTERRUPTIBLE);
 		schedule_timeout(1);
 	}
 
@@ -2172,7 +2172,7 @@ mpt_fc9x9_reset(MPT_ADAPTER *ioc, int ignore)
 				ioc->name));
 
 		/* want udelay(100) */
-		current->state = TASK_INTERRUPTIBLE;
+		set_current_state(TASK_INTERRUPTIBLE);
 		schedule_timeout(1);
 
 		/* Write magic sequence to WriteSequence register */
@@ -2552,7 +2552,7 @@ WaitForDoorbellAck(MPT_ADAPTER *ioc, int howlong)
 		intstat = CHIPREG_READ32(&ioc->chip->IntStatus);
 		if (! (intstat & MPI_HIS_IOP_DOORBELL_STATUS))
 			break;
-		current->state = TASK_INTERRUPTIBLE;
+		set_current_state(TASK_INTERRUPTIBLE);
 		schedule_timeout(1);
 		count++;
 	}
@@ -2590,7 +2590,7 @@ WaitForDoorbellInt(MPT_ADAPTER *ioc, int howlong)
 		intstat = CHIPREG_READ32(&ioc->chip->IntStatus);
 		if (intstat & MPI_HIS_DOORBELL_INTERRUPT)
 			break;
-		current->state = TASK_INTERRUPTIBLE;
+		set_current_state(TASK_INTERRUPTIBLE);
 		schedule_timeout(1);
 		count++;
 	}

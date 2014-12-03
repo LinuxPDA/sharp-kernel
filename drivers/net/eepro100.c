@@ -142,16 +142,6 @@ MODULE_PARM_DESC(multicast_filter_limit, "eepro100 maximum number of filtered mu
 
 #define RUN_AT(x) (jiffies + (x))
 
-/* ACPI power states don't universally work (yet) */
-#ifndef CONFIG_PM
-#undef pci_set_power_state
-#define pci_set_power_state null_set_power_state
-static inline int null_set_power_state(struct pci_dev *dev, int state)
-{
-	return 0;
-}
-#endif /* CONFIG_PM */
-
 #define netdevice_start(dev)
 #define netdevice_stop(dev)
 #define netif_set_tx_timeout(dev, tf, tm) \
@@ -166,7 +156,6 @@ static inline int null_set_power_state(struct pci_dev *dev, int state)
 #ifndef PCI_DEVICE_ID_INTEL_ID1030
 #define PCI_DEVICE_ID_INTEL_ID1030 0x1030
 #endif
-
 
 static int speedo_debug = 1;
 
@@ -284,7 +273,7 @@ having to sign an Intel NDA when I'm helping Intel sell their own product!
 
 */
 
-static int speedo_found1(struct pci_dev *pdev, long ioaddr, int fnd_cnt, int acpi_idle_state);
+static int speedo_found1(struct pci_dev *pdev, long ioaddr, int fnd_cnt);
 
 enum pci_flags_bit {
 	PCI_USES_IO=1, PCI_USES_MEM=2, PCI_USES_MASTER=4,
@@ -565,17 +554,22 @@ static int __devinit eepro100_init_one (struct pci_dev *pdev,
 {
 	unsigned long ioaddr;
 	int irq;
-	int acpi_idle_state = 0, pm;
 	static int cards_found /* = 0 */;
 
 	static int did_version /* = 0 */;		/* Already printed version info. */
 	if (speedo_debug > 0  &&  did_version++ == 0)
 		printk(version);
 
+	if (pci_enable_device(pdev))
+		goto err_out_none;
+
+	pci_enable_wake(pdev, 0, 1);
+	pci_set_master(pdev);
+
 	if (!request_region(pci_resource_start(pdev, 1),
 			pci_resource_len(pdev, 1), "eepro100")) {
 		printk (KERN_ERR "eepro100: cannot reserve I/O ports\n");
-		goto err_out_none;
+		goto err_out_disable;
 	}
 	if (!request_mem_region(pci_resource_start(pdev, 0),
 			pci_resource_len(pdev, 0), "eepro100")) {
@@ -602,20 +596,7 @@ static int __devinit eepro100_init_one (struct pci_dev *pdev,
 			   pci_resource_start(pdev, 0), irq);
 #endif
 
-	/* save power state b4 pci_enable_device overwrites it */
-	pm = pci_find_capability(pdev, PCI_CAP_ID_PM);
-	if (pm) {
-		u16 pwr_command;
-		pci_read_config_word(pdev, pm + PCI_PM_CTRL, &pwr_command);
-		acpi_idle_state = pwr_command & PCI_PM_CTRL_STATE_MASK;
-	}
-
-	if (pci_enable_device(pdev))
-		goto err_out_free_mmio_region;
-
-	pci_set_master(pdev);
-
-	if (speedo_found1(pdev, ioaddr, cards_found, acpi_idle_state) == 0)
+	if (speedo_found1(pdev, ioaddr, cards_found) == 0)
 		cards_found++;
 	else
 		goto err_out_iounmap;
@@ -630,12 +611,14 @@ err_out_free_mmio_region:
 	release_mem_region(pci_resource_start(pdev, 0), pci_resource_len(pdev, 0));
 err_out_free_pio_region:
 	release_region(pci_resource_start(pdev, 1), pci_resource_len(pdev, 1));
+err_out_disable:
+	pci_disable_device(pdev);
 err_out_none:
 	return -ENODEV;
 }
 
 static int speedo_found1(struct pci_dev *pdev,
-		long ioaddr, int card_idx, int acpi_idle_state)
+						 long ioaddr, int card_idx)
 {
 	struct net_device *dev;
 	struct speedo_private *sp;
@@ -801,8 +784,8 @@ static int speedo_found1(struct pci_dev *pdev,
 	inl(ioaddr + SCBPort);
 	udelay(10);
 
-	/* Return the chip to its original power state. */
-	pci_set_power_state(pdev, acpi_idle_state);
+	/* Put chip into power state D2 until we open() it. */
+//	pci_set_power_state(pdev, 2);
 
 	pci_set_drvdata (pdev, dev);
 
@@ -811,11 +794,12 @@ static int speedo_found1(struct pci_dev *pdev,
 
 	sp = dev->priv;
 	sp->pdev = pdev;
-	sp->acpi_pwr = acpi_idle_state;
 	sp->tx_ring = tx_ring_space;
 	sp->tx_ring_dma = tx_ring_dma;
 	sp->lstats = (struct speedo_stats *)(sp->tx_ring + TX_RING_SIZE);
 	sp->lstats_dma = TX_RING_ELEM_DMA(sp, TX_RING_SIZE);
+	if ((pdev->device == 0x2449) || ( (pdev->device > 0x1030) && (pdev->device < 0x1039) )) 
+		sp->chip_id = 1;
 	init_timer(&sp->timer); /* used in ioctl() */
 
 	sp->full_duplex = option >= 0 && (option & 0x10) ? 1 : 0;
@@ -828,6 +812,10 @@ static int speedo_found1(struct pci_dev *pdev,
 	sp->phy[0] = eeprom[6];
 	sp->phy[1] = eeprom[7];
 	sp->rx_bug = (eeprom[3] & 0x03) == 3 ? 0 : 1;
+
+	/* The EEPROM on some IBM's with this is apparently wrong */
+	if(pdev->device == PCI_DEVICE_ID_INTEL_82562ET)
+		sp->rx_bug = 1; /* OVERRIDE */
 
 	if (sp->rx_bug)
 		printk(KERN_INFO "  Receiver lock-up workaround activated.\n");
@@ -927,7 +915,7 @@ speedo_open(struct net_device *dev)
 
 	MOD_INC_USE_COUNT;
 
-	pci_set_power_state(sp->pdev, 0);
+//	pci_set_power_state(sp->pdev, 0);
 
 	/* Set up the Tx queue early.. */
 	sp->cur_tx = 0;
@@ -1865,7 +1853,7 @@ speedo_close(struct net_device *dev)
 	if (speedo_debug > 0)
 		printk(KERN_DEBUG "%s: %d multicast blocks dropped.\n", dev->name, i);
 
-	pci_set_power_state(sp->pdev, 2);
+//	pci_set_power_state(sp->pdev, 2);
 
 	MOD_DEC_USE_COUNT;
 
@@ -1933,24 +1921,26 @@ static int speedo_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
 		   access from the timeout handler.
 		   They are currently serialized only with MDIO access from the
 		   timer routine.  2000/05/09 SAW */
-		saved_acpi = pci_set_power_state(sp->pdev, 0);
+		saved_acpi = sp->pdev->current_state;
+//		pci_set_power_state(sp->pdev, 0);
 		t = del_timer_sync(&sp->timer);
 		data->val_out = mdio_read(ioaddr, data->phy_id & 0x1f, data->reg_num & 0x1f);
 		if (t)
 			add_timer(&sp->timer); /* may be set to the past  --SAW */
-		pci_set_power_state(sp->pdev, saved_acpi);
+//		pci_set_power_state(sp->pdev, saved_acpi);
 		return 0;
 
 	case SIOCSMIIREG:		/* Write MII PHY register. */
 	case SIOCDEVPRIVATE+2:		/* for binary compat, remove in 2.5 */
 		if (!capable(CAP_NET_ADMIN))
 			return -EPERM;
-		saved_acpi = pci_set_power_state(sp->pdev, 0);
+		saved_acpi = sp->pdev->current_state;
+//		pci_set_power_state(sp->pdev, 0);
 		t = del_timer_sync(&sp->timer);
 		mdio_write(ioaddr, data->phy_id, data->reg_num, data->val_in);
 		if (t)
 			add_timer(&sp->timer); /* may be set to the past  --SAW */
-		pci_set_power_state(sp->pdev, saved_acpi);
+//		pci_set_power_state(sp->pdev, saved_acpi);
 		return 0;
 	default:
 		return -EOPNOTSUPP;
@@ -2165,7 +2155,6 @@ static int eepro100_suspend(struct pci_dev *pdev, u32 state)
 	if (!netif_running(dev))
 		return 0;
 
-	netif_device_detach(dev);
 	outl(PortPartialReset, ioaddr + SCBPort);
 	
 	/* XXX call pci_set_power_state ()? */
@@ -2190,7 +2179,6 @@ static int eepro100_resume(struct pci_dev *pdev)
 	   2000/03/08  SAW */
 	outw(SCBMaskAll, ioaddr + SCBCmd);
 	speedo_resume(dev);
-	netif_device_attach(dev);
 	sp->rx_mode = -1;
 	sp->flow_ctrl = sp->partner = 0;
 	set_rx_mode(dev);
@@ -2234,6 +2222,7 @@ static struct pci_device_id eepro100_pci_tbl[] __devinitdata = {
 		PCI_ANY_ID, PCI_ANY_ID, },
 	{ 0,}
 };
+
 MODULE_DEVICE_TABLE(pci, eepro100_pci_tbl);
 	
 static struct pci_driver eepro100_driver = {

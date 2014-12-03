@@ -1238,7 +1238,7 @@ static void rr_dump(struct net_device *dev)
 	       index, cons);
 
 	if (rrpriv->tx_skbuff[index]){
-		len = min(0x80, rrpriv->tx_skbuff[index]->len);
+		len = min_t(int, 0x80, rrpriv->tx_skbuff[index]->len);
 		printk("skbuff for index %i is valid - dumping data (0x%x bytes - DMA len 0x%x)\n", index, len, rrpriv->tx_ring[index].size);
 		for (i = 0; i < len; i++){
 			if (!(i & 7))
@@ -1249,7 +1249,7 @@ static void rr_dump(struct net_device *dev)
 	}
 
 	if (rrpriv->tx_skbuff[cons]){
-		len = min(0x80, rrpriv->tx_skbuff[cons]->len);
+		len = min_t(int, 0x80, rrpriv->tx_skbuff[cons]->len);
 		printk("skbuff for cons %i is valid - dumping data (0x%x bytes - skbuff len 0x%x)\n", cons, len, rrpriv->tx_skbuff[cons]->len);
 		printk("mode 0x%x, size 0x%x,\n phys %08x (virt %08lx), skbuff-addr %08lx, truesize 0x%x\n",
 		       rrpriv->tx_ring[cons].mode,

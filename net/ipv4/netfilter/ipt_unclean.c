@@ -331,6 +331,7 @@ check_tcp(const struct iphdr *iph,
 	tcpflags = ((u_int8_t *)tcph)[13];
 	if (tcpflags != TH_SYN
 	    && tcpflags != (TH_SYN|TH_ACK)
+	    && tcpflags != TH_RST
 	    && tcpflags != (TH_RST|TH_ACK)
 	    && tcpflags != (TH_RST|TH_ACK|TH_PUSH)
 	    && tcpflags != (TH_FIN|TH_ACK)

@@ -178,11 +178,14 @@ void aty_calc_pll_ct(const struct fb_info_aty *info, struct pll_ct *pll)
     }
     pll->pll_gen_cntl |= mpostdiv<<4;	/* mclk */
 
-    if (M64_HAS(MAGIC_POSTDIV))
-	pll->pll_ext_cntl = 0;
-    else
+#if defined(CONFIG_FB_ATY_CT_VAIO_LCD)
     	pll->pll_ext_cntl = mpostdiv;	/* xclk == mclk */
-
+#else
+	if ( M64_HAS(MAGIC_POSTDIV) )
+		pll->pll_ext_cntl = 0;
+	else
+    		pll->pll_ext_cntl = mpostdiv;	/* xclk == mclk */
+#endif 
     switch (pll->vclk_post_div_real) {
 	case 2:
 	    vpostdiv = 1;

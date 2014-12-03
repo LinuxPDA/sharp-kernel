@@ -21,12 +21,23 @@ unsigned long ll_ops, sc_ops;
 #endif
 
 /*
- * BUFFER is PAGE_SIZE bytes long.
+ * get_cpuinfo - Get information on one CPU for use by the procfs.
  *
- * Currently /proc/cpuinfo is being abused to print data about the
- * number of date/instruction cacheflushes.
+ *	Prints info on the next CPU into buffer.  Beware, doesn't check for
+ *	buffer overflow.  Current implementation of procfs assumes that the
+ *	resulting data is <= 1K.
+ *
+ *	BUFFER is PAGE_SIZE - 1K bytes long.
+ *	Currently /proc/cpuinfo is being abused to print data about the
+ *	number of date/instruction cacheflushes.
+ *
+ * Args:
+ *	buffer	-- you guessed it, the data buffer
+ *	cpu_np	-- Input: next cpu to get (start at 0).  Output: Updated.
+ *
+ *	Returns number of bytes written to buffer.
  */
-int get_cpuinfo(char *buffer)
+int get_cpuinfo(char *buffer, unsigned *cpu_np)
 {
 	char fmt [64];
 	const char *cpu_name[] = CPU_NAMES;
@@ -59,6 +70,14 @@ int get_cpuinfo(char *buffer)
 		mach_sibyte_names, mach_toshiba_names, mach_alchemy_names};
 	unsigned int version = read_32bit_cp0_register(CP0_PRID);
 	int len;
+	unsigned n;
+
+	/* Unlike some archs, don't have per-CPU info, so just toggle 0/1 */
+	n = *cpu_np;
+	*cpu_np = 1;
+	if (n != 0) {
+		return (0);
+	}
 
 	len = sprintf(buffer, "cpu\t\t\t: MIPS\n");
 	len += sprintf(buffer + len, "cpu model\t\t: %s V%d.%d\n",

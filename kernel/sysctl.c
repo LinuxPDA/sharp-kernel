@@ -22,6 +22,7 @@
 #include <linux/slab.h>
 #include <linux/sysctl.h>
 #include <linux/swapctl.h>
+#include <linux/swap.h>
 #include <linux/proc_fs.h>
 #include <linux/ctype.h>
 #include <linux/utsname.h>
@@ -29,6 +30,8 @@
 #include <linux/smp_lock.h>
 #include <linux/init.h>
 #include <linux/sysrq.h>
+#include <linux/fs.h>
+#include <linux/jbd.h>
 #include <linux/highuid.h>
 
 #include <asm/uaccess.h>
@@ -259,17 +262,31 @@ static ctl_table kern_table[] = {
 };
 
 static ctl_table vm_table[] = {
+	{VM_FREEPG, "freepages", 
+	 &freepages, sizeof(freepages_t), 0644, NULL, &proc_dointvec},
 	{VM_BDFLUSH, "bdflush", &bdf_prm, 9*sizeof(int), 0644, NULL,
 	 &proc_dointvec_minmax, &sysctl_intvec, NULL,
 	 &bdflush_min, &bdflush_max},
 	{VM_OVERCOMMIT_MEMORY, "overcommit_memory", &sysctl_overcommit_memory,
 	 sizeof(sysctl_overcommit_memory), 0644, NULL, &proc_dointvec},
+	{VM_BUFFERMEM, "buffermem",
+	 &buffer_mem, sizeof(buffer_mem_t), 0644, NULL, &proc_dointvec},
+	{VM_PAGECACHE, "pagecache",
+	 &page_cache, sizeof(buffer_mem_t), 0644, NULL, &proc_dointvec},
 	{VM_PAGERDAEMON, "kswapd",
 	 &pager_daemon, sizeof(pager_daemon_t), 0644, NULL, &proc_dointvec},
 	{VM_PGT_CACHE, "pagetable_cache", 
 	 &pgt_cache_water, 2*sizeof(int), 0644, NULL, &proc_dointvec},
 	{VM_PAGE_CLUSTER, "page-cluster", 
 	 &page_cluster, sizeof(int), 0644, NULL, &proc_dointvec},
+	{VM_MAX_MAP_COUNT, "max_map_count",
+	 &max_map_count, sizeof(int), 0644, NULL, &proc_dointvec},
+	{VM_MIN_READAHEAD, "min-readahead",
+	&vm_min_readahead,sizeof(int), 0644, NULL, &proc_dointvec},
+	{VM_MAX_READAHEAD, "max-readahead",
+	&vm_max_readahead,sizeof(int), 0644, NULL, &proc_dointvec},
+	{VM_INACTIVE_TARGET, "static_inactive_target",
+	 &vm_static_inactive_target, sizeof(int), 0644, NULL, &proc_dointvec},
 	{0}
 };
 
@@ -302,6 +319,14 @@ static ctl_table fs_table[] = {
 	 sizeof(int), 0644, NULL, &proc_dointvec},
 	{FS_LEASE_TIME, "lease-break-time", &lease_break_time, sizeof(int),
 	 0644, NULL, &proc_dointvec},
+#ifdef CONFIG_JBD_DEBUG
+	{FS_LEASE_TIME+1, "jbd-debug", &journal_enable_debug, sizeof (int),
+	 0644, NULL, &proc_dointvec},
+#endif
+#if defined(CONFIG_JBD) || defined(CONFIG_JBD_MODULE)
+	{FS_LEASE_TIME+2, "jbd-oom-retry", &journal_oom_retry, sizeof (int),
+	 0644, NULL, &proc_dointvec},
+#endif
 	{0}
 };
 

@@ -28,6 +28,8 @@
 #include <asm/desc.h>
 #include <asm/pgtable.h>
 #include <asm/pgalloc.h>
+#include <asm/page.h>
+#include <asm/system.h>
 
 extern void dump_thread(struct pt_regs *, struct user *);
 extern spinlock_t rtc_lock;
@@ -112,6 +114,11 @@ EXPORT_SYMBOL(pcibios_penalize_isa_irq);
 EXPORT_SYMBOL(pci_mem_start);
 #endif
 
+#ifdef CONFIG_PCI_BIOS
+EXPORT_SYMBOL(pcibios_set_irq_routing);
+EXPORT_SYMBOL(pcibios_get_irq_routing_table);
+#endif
+
 #ifdef CONFIG_X86_USE_3DNOW
 EXPORT_SYMBOL(_mmx_memcpy);
 EXPORT_SYMBOL(mmx_clear_page);
@@ -158,10 +165,6 @@ extern void * memcpy(void *,const void *,__kernel_size_t);
 EXPORT_SYMBOL_NOVERS(memcpy);
 EXPORT_SYMBOL_NOVERS(memset);
 
-#ifdef CONFIG_X86_PAE
-EXPORT_SYMBOL(empty_zero_page);
-#endif
-
 #ifdef CONFIG_HAVE_DEC_LOCK
 EXPORT_SYMBOL(atomic_dec_and_lock);
 #endif
@@ -170,5 +173,5 @@ EXPORT_SYMBOL(atomic_dec_and_lock);
 EXPORT_SYMBOL(do_BUG);
 #endif
 
-extern int is_sony_vaio_laptop;
 EXPORT_SYMBOL(is_sony_vaio_laptop);
+

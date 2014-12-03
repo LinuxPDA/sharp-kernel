@@ -265,6 +265,10 @@ static int ufs_parse_options (char * options, unsigned * mount_options)
 			*value++ = 0;
 		if (!strcmp (this_char, "ufstype")) {
 			ufs_clear_opt (*mount_options, UFSTYPE);
+			if (!value) {
+				printk ("UFS-fs: ufstype option needs value\n");
+				return 0;
+			}
 			if (!strcmp (value, "old"))
 				ufs_set_opt (*mount_options, UFSTYPE_OLD);
 			else if (!strcmp (value, "sun"))
@@ -288,6 +292,10 @@ static int ufs_parse_options (char * options, unsigned * mount_options)
 		}
 		else if (!strcmp (this_char, "onerror")) {
 			ufs_clear_opt (*mount_options, ONERROR);
+			if (!value) {
+				printk ("UFS-fs: onerror option needs value\n");
+				return 0;
+			}
 			if (!strcmp (value, "panic"))
 				ufs_set_opt (*mount_options, ONERROR_PANIC);
 			else if (!strcmp (value, "lock"))

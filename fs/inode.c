@@ -16,7 +16,6 @@
 #include <linux/swap.h>
 #include <linux/swapctl.h>
 #include <linux/prefetch.h>
-#include <linux/locks.h>
 
 /*
  * New inode.c implementation.
@@ -79,7 +78,7 @@ static kmem_cache_t * inode_cachep;
 	 ((struct inode *) kmem_cache_alloc(inode_cachep, SLAB_KERNEL))
 static void destroy_inode(struct inode *inode) 
 {
-	if (inode_has_buffers(inode))
+	if (!list_empty(&inode->i_dirty_buffers))
 		BUG();
 	kmem_cache_free(inode_cachep, (inode));
 }
@@ -105,8 +104,8 @@ static void init_once(void * foo, kmem_cache_t * cachep, unsigned long flags)
 		INIT_LIST_HEAD(&inode->i_data.locked_pages);
 		INIT_LIST_HEAD(&inode->i_dentry);
 		INIT_LIST_HEAD(&inode->i_dirty_buffers);
-		INIT_LIST_HEAD(&inode->i_dirty_data_buffers);
 		INIT_LIST_HEAD(&inode->i_devices);
+ 		init_rwsem(&inode->i_truncate_sem);	
 		sema_init(&inode->i_sem, 1);
 		sema_init(&inode->i_zombie, 1);
 		spin_lock_init(&inode->i_data.i_shared_lock);
@@ -137,9 +136,6 @@ static void init_once(void * foo, kmem_cache_t * cachep, unsigned long flags)
 void __mark_inode_dirty(struct inode *inode, int flags)
 {
 	struct super_block * sb = inode->i_sb;
-
-	if (!sb)
-		return;
 
 	/* Don't do this for I_DIRTY_PAGES - that doesn't actually dirty the inode itself */
 	if (flags & (I_DIRTY_SYNC | I_DIRTY_DATASYNC)) {
@@ -279,18 +275,27 @@ static inline void wait_on_locked(struct list_head *head)
 	}
 }
 
-static inline int try_to_sync_unused_list(struct list_head *head, int nr_inodes)
+static inline int try_to_sync_unused_list(struct list_head *head)
 {
 	struct list_head *tmp = head;
 	struct inode *inode;
 
-	while (nr_inodes && (tmp = tmp->prev) != head) {
+	while ((tmp = tmp->prev) != head) {
 		inode = list_entry(tmp, struct inode, i_list);
 
 		if (!atomic_read(&inode->i_count)) {
-			__sync_one(inode, 0);
-			nr_inodes--;
+			/* 
+			 * We're under PF_MEMALLOC here, and syncing the 
+			 * inode may have to allocate memory. To avoid
+			 * running into a OOM deadlock, we write one 
+			 * inode synchronously and stop syncing in case 
+			 * we're under freepages.low
+			 */
 
+			int sync = nr_free_pages() < freepages.low;
+			__sync_one(inode, sync);
+			if (sync) 
+				return 0;
 			/* 
 			 * __sync_one moved the inode to another list,
 			 * so we have to start looking from the list head.
@@ -298,8 +303,7 @@ static inline int try_to_sync_unused_list(struct list_head *head, int nr_inodes)
 			tmp = head;
 		}
 	}
-
-	return nr_inodes;
+	return 1;
 }
 
 void sync_inodes_sb(struct super_block *sb)
@@ -395,24 +399,25 @@ void sync_inodes(kdev_t dev)
 	}
 }
 
-static void try_to_sync_unused_inodes(void * arg)
+/*
+ * Called with the spinlock already held..
+ */
+static void try_to_sync_unused_inodes(void)
 {
 	struct super_block * sb;
-	int nr_inodes = inodes_stat.nr_unused;
 
-	spin_lock(&inode_lock);
 	spin_lock(&sb_lock);
 	sb = sb_entry(super_blocks.next);
-	for (; nr_inodes && sb != sb_entry(&super_blocks); sb = sb_entry(sb->s_list.next)) {
+	for (; sb != sb_entry(&super_blocks); sb = sb_entry(sb->s_list.next)) {
+		if (!sb->s_dev)
+			continue;
 		spin_unlock(&sb_lock);
-		nr_inodes = try_to_sync_unused_list(&sb->s_dirty, nr_inodes);
+		if (!try_to_sync_unused_list(&sb->s_dirty))
+			return;
 		spin_lock(&sb_lock);
 	}
 	spin_unlock(&sb_lock);
-	spin_unlock(&inode_lock);
 }
-
-static struct tq_struct unused_inodes_flush_task;
 
 /**
  *	write_inode_now	-	write an inode to disk
@@ -432,8 +437,6 @@ void write_inode_now(struct inode *inode, int sync)
 		while (inode->i_state & I_DIRTY)
 			sync_one(inode, sync);
 		spin_unlock(&inode_lock);
-		if (sync)
-			wait_on_inode(inode);
 	}
 	else
 		printk(KERN_ERR "write_inode_now: no super block\n");
@@ -448,9 +451,9 @@ void write_inode_now(struct inode *inode, int sync)
  * O_SYNC flag set, to flush dirty writes to disk.  
  */
 
-int generic_osync_inode(struct inode *inode, int what)
+int generic_osync_inode(struct inode *inode, int datasync)
 {
-	int err = 0, err2 = 0, need_write_inode_now = 0;
+	int err;
 	
 	/* 
 	 * WARNING
@@ -473,24 +476,23 @@ int generic_osync_inode(struct inode *inode, int what)
 	 * every O_SYNC write, not just the synchronous I/Os.  --sct
 	 */
 
-	if (what & OSYNC_METADATA)
-		err = fsync_inode_buffers(inode);
-	if (what & OSYNC_DATA)
-		err2 = fsync_inode_data_buffers(inode);
-	if (!err)
-		err = err2;
+#ifdef WRITERS_QUEUE_IO
+	err = osync_inode_buffers(inode);
+#else
+	err = fsync_inode_buffers(inode);
+#endif
 
 	spin_lock(&inode_lock);
-	if ((inode->i_state & I_DIRTY) &&
-	    ((what & OSYNC_INODE) || (inode->i_state & I_DIRTY_DATASYNC)))
-		need_write_inode_now = 1;
+	if (!(inode->i_state & I_DIRTY))
+		goto out;
+	if (datasync && !(inode->i_state & I_DIRTY_DATASYNC))
+		goto out;
 	spin_unlock(&inode_lock);
+	write_inode_now(inode, 1);
+	return err;
 
-	if (need_write_inode_now)
-		write_inode_now(inode, 1);
-	else
-		wait_on_inode(inode);
-
+ out:
+	spin_unlock(&inode_lock);
 	return err;
 }
 
@@ -505,7 +507,8 @@ int generic_osync_inode(struct inode *inode, int what)
  
 void clear_inode(struct inode *inode)
 {
-	invalidate_inode_buffers(inode);
+	if (!list_empty(&inode->i_dirty_buffers))
+		invalidate_inode_buffers(inode);
        
 	if (inode->i_data.nrpages)
 		BUG();
@@ -514,7 +517,8 @@ void clear_inode(struct inode *inode)
 	if (inode->i_state & I_CLEAR)
 		BUG();
 	wait_on_inode(inode);
-	DQUOT_DROP(inode);
+	if (IS_QUOTAINIT(inode))
+		DQUOT_DROP(inode);
 	if (inode->i_sb && inode->i_sb->s_op && inode->i_sb->s_op->clear_inode)
 		inode->i_sb->s_op->clear_inode(inode);
 	if (inode->i_bdev)
@@ -629,12 +633,6 @@ int invalidate_device(kdev_t dev, int do_sync)
 	res = 0;
 	sb = get_super(dev);
 	if (sb) {
-		/*
-		 * no need to lock the super, get_super holds the
-		 * read semaphore so the filesystem cannot go away
-		 * under us (->put_super runs with the write lock
-		 * hold).
-		 */
 		shrink_dcache_sb(sb);
 		res = invalidate_inodes(sb);
 		drop_super(sb);
@@ -664,11 +662,12 @@ void prune_icache(int goal)
 {
 	LIST_HEAD(list);
 	struct list_head *entry, *freeable = &list;
-	int count;
+	int count, synced = 0;
 	struct inode * inode;
 
 	spin_lock(&inode_lock);
 
+free_unused:
 	count = 0;
 	entry = inode_unused.prev;
 	while (entry != &inode_unused)
@@ -698,16 +697,21 @@ void prune_icache(int goal)
 	dispose_list(freeable);
 
 	/* 
-	 * If we didn't freed enough clean inodes schedule
-	 * a sync of the dirty inodes, we cannot do it
-	 * from here or we're either synchronously dogslow
-	 * or we deadlock with oom.
+	 * If we freed enough clean inodes, avoid writing 
+	 * dirty ones. Also giveup if we already tried to
+	 * sync dirty inodes.
 	 */
-	if (goal)
-		schedule_task(&unused_inodes_flush_task);
+	if (!goal || synced)
+		return;
+	
+	synced = 1;
+
+	spin_lock(&inode_lock);
+	try_to_sync_unused_inodes();
+	goto free_unused;
 }
 
-int shrink_icache_memory(int priority, int gfp_mask)
+void shrink_icache_memory(int priority, int gfp_mask)
 {
 	int count = 0;
 
@@ -719,13 +723,13 @@ int shrink_icache_memory(int priority, int gfp_mask)
 	 * in clear_inode() and friends..
 	 */
 	if (!(gfp_mask & __GFP_FS))
-		return 0;
+		return;
 
-	count = inodes_stat.nr_unused / priority;
+	if (priority)
+		count = inodes_stat.nr_unused / priority;
 
 	prune_icache(count);
 	kmem_cache_shrink(inode_cachep);
-	return 0;
 }
 
 /*
@@ -777,6 +781,7 @@ static void clean_inode(struct inode *inode)
 	atomic_set(&inode->i_writecount, 0);
 	inode->i_size = 0;
 	inode->i_blocks = 0;
+	inode->i_bytes = 0;
 	inode->i_generation = 0;
 	memset(&inode->i_dquot, 0, sizeof(inode->i_dquot));
 	inode->i_pipe = NULL;
@@ -1031,9 +1036,6 @@ void iput(struct inode *inode)
 	if (inode) {
 		struct super_operations *op = NULL;
 
-		if (inode->i_state == I_CLEAR)
-			BUG();
-
 		if (inode->i_sb && inode->i_sb->s_op)
 			op = inode->i_sb->s_op;
 		if (op && op->put_inode)
@@ -1051,13 +1053,12 @@ void iput(struct inode *inode)
 			inodes_stat.nr_inodes--;
 			spin_unlock(&inode_lock);
 
+			DQUOT_INIT(inode);
 			if (inode->i_data.nrpages)
 				truncate_inode_pages(&inode->i_data, 0);
 
 			if (op && op->delete_inode) {
 				void (*delete)(struct inode *) = op->delete_inode;
-				if (!is_bad_inode(inode))
-					DQUOT_INIT(inode);
 				/* s_op->delete_inode internally recalls clear_inode() */
 				delete(inode);
 			} else
@@ -1170,8 +1171,6 @@ void __init inode_init(unsigned long mempages)
 					 NULL);
 	if (!inode_cachep)
 		panic("cannot create inode slab cache");
-
-	unused_inodes_flush_task.routine = try_to_sync_unused_inodes;
 }
 
 /**
