@@ -1055,6 +1055,7 @@ static int elf_core_dump(long signr, struct pt_regs * regs, struct file * file)
 	 * coredump arrangement, whatever that is.
 	 */
 #ifdef ELF_CORE_COPY_REGS
+#error
 	ELF_CORE_COPY_REGS(prstatus.pr_reg, regs)
 #else
 	if (sizeof(elf_gregset_t) != sizeof(struct pt_regs))

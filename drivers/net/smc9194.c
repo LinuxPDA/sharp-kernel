@@ -95,6 +95,10 @@ static const char version[] =
 #include <asm/hardware.h>
 #include <asm/arch/assabet.h>
 #endif
+	
+#ifdef CONFIG_ARCH_PXA
+#include <asm/hardware.h>
+#endif
 
 #include "smc9194.h"
 /*------------------------------------------------------------------------
@@ -113,6 +117,7 @@ static const char version[] =
 #define USE_32_BIT 1
 #endif
 
+#ifdef CONFIG_ISA
 /*
  .the SMC9194 can be at any of the following port addresses.  To change,
  .for a slightly different card, you can add it to the array.  Keep in
@@ -122,6 +127,7 @@ static unsigned int smc_portlist[] __initdata = {
 	0x200, 0x220, 0x240, 0x260, 0x280, 0x2A0, 0x2C0, 0x2E0,
 	0x300, 0x320, 0x340, 0x360, 0x380, 0x3A0, 0x3C0, 0x3E0, 0
 };
+#endif
 
 /*
  . Wait time for memory to be free.  This probably shouldn't be
@@ -307,7 +313,7 @@ static void smc_shutdown(struct net_device *dev);
  . specified in the input to the device.  */
 static int smc_findirq(struct net_device *dev);
 
-#ifndef CONFIG_ASSABET_NEPONSET
+#if defined(CONFIG_ISA)
 /*
  * These functions allow us to handle IO addressing as we wish - this
  * ethernet controller can be connected to a variety of busses.  Some
@@ -419,7 +425,7 @@ static inline void smc_outs(u_int base, u_int reg, u8 *data, u_int len)
 		smc_outw((x), INT_MASK);		\
 	}
 
-#else
+#elif defined(CONFIG_ASSABET_NEPONSET)
 
 #undef SMC_IO_EXTENT
 #define SMC_IO_EXTENT	(16 << 2)
@@ -515,6 +521,115 @@ static inline void smc_outs(u_int base, u_int reg, u8 *data, u_int len)
 #define SMC_SET_INT(x)					\
 	{						\
 		smc_outb((x), ioaddr, INT_MASK);	\
+	}
+
+#elif	defined(CONFIG_SA1100_GRAPHICSCLIENT) || \
+	defined(CONFIG_SA1100_PFS168) || \
+	defined(CONFIG_SA1100_FLEXANET) || \
+	defined(CONFIG_SA1100_GRAPHICSMASTER) || \
+	defined(CONFIG_ARCH_LUBBOCK) || \
+	defined(CONFIG_ARCH_PXA_IDP)
+
+/*
+ * We can only do 16-bit reads and writes in the static memory space.
+ * Byte reads must read 16 bits and return the correct byte.
+ * Byte writes must do a read/modify/write.
+ */
+
+/* The first two address lines aren't connected... */
+#undef SMC_IO_EXTENT
+#define SMC_IO_EXTENT	(16 << 2)
+
+static inline u8 smc_inb(u_int base, u_int reg)
+{
+	u_int port = base + (reg & ~1) * 4;
+	u_int res = readw(port);
+	if (reg & 1)
+		res >>= 8;
+	return res;
+}
+
+static inline u16 smc_inw(u_int base, u_int reg)
+{
+	u_int port = base + reg * 4;
+	return readw(port);
+}
+
+static inline void smc_ins(u_int base, u_int reg, u8 *data, u_int len)
+{
+	u_int port = base + reg * 4;
+
+	insw(port, data, len>>1);
+	if (len & 1)
+		data[len-1] = readw(port);
+}
+
+static inline void smc_outb(u8 val, u_int base, u_int reg)
+{
+	u_int port = base + (reg & ~1) * 4;
+	u_int res = readw(port);
+	if (reg & 1) {
+		res &= 0xff;
+		res |= val << 8;
+	} else {
+		res &= 0xff00;
+		res |= val;
+	}
+	writew(res, port);
+}
+
+static inline void smc_outw(u16 val, u_int base, u_int reg)
+{
+	u_int port = base + reg * 4;
+	writew(val, port);
+}
+
+static inline void smc_outl(u32 val, u_int base, u_int reg)
+{
+	u_int port = base + reg * 4;
+	writew(val, port);
+	writew(val >> 16, port + 8);
+}
+
+static inline void smc_outs(u_int base, u_int reg, u8 *data, u_int len)
+{
+	u_int port = base + reg * 4;
+	outsw(port, data, len>>1);
+}
+
+/*-------------------------------------------------------------------------
+ .  I define some macros to make it easier to do somewhat common
+ . or slightly complicated, repeated tasks. 
+ --------------------------------------------------------------------------*/
+
+/* select a register bank, 0 to 3  */
+
+#define SMC_SELECT_BANK(x)				\
+	{						\
+		smc_outw(x, ioaddr, BANK_SELECT);	\
+	} 
+
+/* define a small delay for the reset */
+#define SMC_DELAY()					\
+	{						\
+		smc_inw(ioaddr, RCR);			\
+		smc_inw(ioaddr, RCR);			\
+		smc_inw(ioaddr, RCR);			\
+	}
+
+/* this enables an interrupt in the interrupt mask register */
+#define SMC_ENABLE_INT(x)				\
+	{						\
+		word mask;				\
+		mask = smc_inw(ioaddr, INTERRUPT);	\
+		mask |= (x) << 8;			\
+		smc_outw(mask, ioaddr, INT_MASK);	\
+	}
+
+/* this sets the absolutel interrupt mask */
+#define SMC_SET_INT(x)					\
+	{						\
+		smc_outw((x) << 8, ioaddr, INTERRUPT);	\
 	}
 
 #endif
@@ -1029,6 +1144,72 @@ int __init smc_init(struct net_device *dev)
 			iounmap(addr);
 	}
 
+#elif defined(CONFIG_SA1100_GRAPHICSCLIENT) || defined(CONFIG_SA1100_GRAPHICSMASTER)
+	if (machine_is_graphicsclient() || machine_is_graphicsmaster()) {
+		int base_addr = ADS_ETHERNET;
+
+		// Max recovery timing
+		MSC1 &= ~0xFFFF;
+		MSC1 |= 0x8649;
+
+		ret = smc_probe(dev, base_addr);
+	}
+
+#elif defined(CONFIG_SA1100_FLEXANET)
+	if (machine_is_flexanet()) {
+		volatile unsigned *attaddr;
+		int ioaddr;
+		unsigned flags;
+
+		/* Get the I/O and attribute base addresses
+		 * declared in flexanet.h */
+		ioaddr  = FHH_ETH_IOBASE;
+		attaddr = (unsigned *) FHH_ETH_MMBASE;
+
+		/* Ethernet IRQ setup (GPIO is input, falling edge) */
+		GPDR &= ~(GPIO_ETH_IRQ);
+		set_GPIO_IRQ_edge( GPIO_ETH_IRQ, GPIO_FALLING_EDGE );
+		dev->irq = IRQ_GPIO_ETH;
+
+		local_irq_save(flags);
+
+		/* first reset, then enable the device. Sequence is critical */
+		attaddr[ECOR] |= ECOR_RESET;
+		udelay(100);
+		attaddr[ECOR] &= ~ECOR_RESET;
+		attaddr[ECOR] |= ECOR_ENABLE;
+
+		local_irq_restore(flags);
+
+		/* force 16-bit mode */
+		attaddr[ECSR] &= ~ECSR_IOIS8;
+
+		ret = smc_probe(dev, ioaddr);
+	}
+
+#elif defined(CONFIG_ARCH_LUBBOCK) || defined(CONFIG_ARCH_PXA_IDP)
+	if (machine_is_lubbock() || machine_is_pxa_idp()) {
+		int ioaddr = machine_is_lubbock() ? 
+			LUBBOCK_ETH_BASE : IDP_ETH_BASE;
+		volatile unsigned *attaddr = (unsigned *) (ioaddr + 0x100000);
+		unsigned flags;
+
+		/* first reset, then enable the device. Sequence is critical */
+		local_irq_save(flags);
+		attaddr[ECOR] |= ECOR_RESET;
+		udelay(100);
+		attaddr[ECOR] &= ~ECOR_RESET;
+		attaddr[ECOR] |= ECOR_ENABLE;
+
+		/* force 16-bit mode */
+		attaddr[ECSR] &= ~ECSR_IOIS8;
+		mdelay(1);
+		local_irq_restore(flags);
+
+		dev->irq = LUBBOCK_ETH_IRQ;	
+		ret = smc_probe(dev, ioaddr);
+	}
+
 #elif defined(CONFIG_ISA)
 	int i;
 	int base_addr = dev->base_addr;
@@ -1141,7 +1322,7 @@ static int __init smc_probe_chip(struct net_device *dev, int ioaddr)
 	if ((temp & 0xFF00) != 0x3300)
 		return -ENODEV;
 
-#ifndef CONFIG_ASSABET_NEPONSET
+#ifdef CONFIG_ISA
 	/* well, we've already written once, so hopefully another time won't
  	   hurt.  This time, I need to switch the bank register to bank 1,
 	   so I can access the base address register */
@@ -1294,6 +1475,18 @@ static int __init smc_probe(struct net_device *dev, int ioaddr)
 		address = smc_inw(ioaddr, ADDR0 + i);
 		dev->dev_addr[i + 1] = address >> 8;
 		dev->dev_addr[i] = address & 0xFF;
+	}
+
+	if (dev->dev_addr[0] != 0) {
+		/*
+		 * Possibly a multicast MAC which is not good.
+		 * Some people apparently defined it backwards in the eprom.
+		 */
+		for (i = 0; i < 3; i++) {
+			unsigned char tmp = dev->dev_addr[i];
+			dev->dev_addr[i] = dev->dev_addr[5-i];
+			dev->dev_addr[5-i] = tmp;
+		}
 	}
 
 	if (!is_valid_ether_addr(dev->dev_addr))

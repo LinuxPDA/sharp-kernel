@@ -13,5 +13,6 @@ dep_bool 'Support SA1100 MCP interface' CONFIG_MCP_SA1100 $CONFIG_MCP $CONFIG_AR
 dep_tristate 'Support for UCB1200 / UCB1300' CONFIG_MCP_UCB1200 $CONFIG_MCP
 dep_tristate '  Audio / Telephony interface support' CONFIG_MCP_UCB1200_AUDIO $CONFIG_MCP_UCB1200 $CONFIG_SOUND
 dep_tristate '  Touchscreen interface support' CONFIG_MCP_UCB1200_TS $CONFIG_MCP_UCB1200
+dep_tristate '  UCB1400 Touchscreen support' CONFIG_MCP_UCB1400_TS $CONFIG_ARCH_PXA $CONFIG_SOUND
 
 endmenu

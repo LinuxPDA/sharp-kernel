@@ -177,6 +177,9 @@ struct vm_struct * get_vm_area(unsigned long size, unsigned long flags)
 	if (!area)
 		return NULL;
 	size += PAGE_SIZE;
+#ifdef VMALLOC_ALIGN
+	size = (size + VMALLOC_ALIGN - 1) & ~(VMALLOC_ALIGN - 1);
+#endif
 	addr = VMALLOC_START;
 	write_lock(&vmlist_lock);
 	for (p = &vmlist; (tmp = *p) ; p = &tmp->next) {

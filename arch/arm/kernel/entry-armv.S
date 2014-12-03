@@ -573,6 +573,38 @@ ENTRY(anakin_active_irqs)
 		.text
 		.endm
 
+#elif CONFIG_ARCH_PXA
+
+		.macro	disable_fiq
+		.endm
+
+		.macro	get_irqnr_and_base, irqnr, irqstat, base, tmp
+		mov	\base, #io_p2v(0x40000000)	@ IIR Ctl = 0x40d00000
+		add	\base, \base, #0x00d00000
+		ldr	\irqstat, [\base, #0]		@ ICIP
+		ldr	\irqnr, [\base, #4]		@ ICMR
+		ands	\irqstat, \irqstat, \irqnr
+		mov	\irqnr, #0
+		beq	1001f
+		tst	\irqstat, #0xff00
+		moveq	\irqstat, \irqstat, lsr #8
+		addeq	\irqnr, \irqnr, #8
+		tsteq	\irqstat, #0xff00
+		moveq	\irqstat, \irqstat, lsr #8
+		addeq	\irqnr, \irqnr, #8
+		tst	\irqstat, #0x0f00
+		moveq	\irqstat, \irqstat, lsr #4
+		addeq	\irqnr, \irqnr, #4
+		tst	\irqstat, #0x0300
+		moveq	\irqstat, \irqstat, lsr #2
+		addeq	\irqnr, \irqnr, #2
+		tst	\irqstat, #0x0100
+		addeqs	\irqnr, \irqnr, #1
+1001:
+		.endm
+
+		.macro	irq_prio_table
+		.endm
 #else
 #error Unknown architecture
 #endif
@@ -876,9 +908,17 @@ ENTRY(__switch_to)
 		stmfd	sp!, {r4 - sl, fp, lr}		@ Store most regs on stack
 		mrs	ip, cpsr
 		str	ip, [sp, #-4]!			@ Save cpsr_SVC
+#ifdef CONFIG_CPU_XSCALE
+		mra	r4, r5, acc0
+		stmfd	sp!, {r4, r5}
+#endif
 		str	sp, [r0, #TSS_SAVE]		@ Save sp_SVC
 		ldr	sp, [r1, #TSS_SAVE]		@ Get saved sp_SVC
 		ldr	r2, [r1, #TSS_DOMAIN]
+#ifdef CONFIG_CPU_XSCALE
+		ldmfd	sp!, {r4, r5}
+		mar	acc0, r4, r5
+#endif
 		ldr	ip, [sp], #4
 		mcr	p15, 0, r2, c3, c0		@ Set domain register
 		msr	spsr, ip			@ Save tasks CPSR into SPSR for this return

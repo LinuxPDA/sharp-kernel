@@ -43,6 +43,11 @@ if [ "$CONFIG_I2C" != "n" ]; then
       fi
    fi
 
+   if [ "$CONFIG_ARCH_PXA" = "y" ]; then
+      dep_tristate 'PXA I2C Algorithm' CONFIG_I2C_PXA_ALGO $CONFIG_I2C
+      dep_tristate 'PXA I2C Adapter'   CONFIG_I2C_PXA_ADAP $CONFIG_I2C_PXA_ALGO
+   fi
+
    if [ "$CONFIG_ALL_PPC" = "y" ] ; then
       dep_tristate 'Keywest I2C interface in Apple Core99 machines' CONFIG_I2C_KEYWEST $CONFIG_I2C
    fi

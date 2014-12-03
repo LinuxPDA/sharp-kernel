@@ -11,7 +11,7 @@ export-objs	:=  ad1848.o audio_syms.o midi_syms.o mpu401.o \
 		    msnd.o opl3.o sb_common.o sequencer_syms.o \
 		    sound_core.o sound_syms.o uart401.o	\
 		    nm256_audio.o ac97.o ac97_codec.o aci.o \
-		    sa1100-audio.o
+		    sa1100-audio.o pxa-audio.o pxa-ac97.o
 
 # Each configuration option enables a list of files.
 
@@ -77,6 +77,7 @@ obj-$(CONFIG_SOUND_PANGOLIN_UDA1341) += pangolin-uda1341.o
 obj-$(CONFIG_SOUND_H3600_UDA1341) += h3600-uda1341.o
 obj-$(CONFIG_SOUND_SA1111_UDA1341) += sa1111-uda1341.o
 obj-$(CONFIG_SOUND_SA1100SSP)	+= sa1100ssp.o
+obj-$(CONFIG_SOUND_PXA_AC97)+= pxa-ac97.o pxa-audio.o ac97_codec.o
 obj-$(CONFIG_SOUND_EMU10K1)	+= ac97_codec.o
 obj-$(CONFIG_SOUND_RME96XX)     += rme96xx.o
 obj-$(CONFIG_SOUND_BT878)	+= btaudio.o

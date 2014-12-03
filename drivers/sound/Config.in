@@ -211,6 +211,7 @@ if [ "$CONFIG_ARM" = "y" ]; then
       dep_tristate '    VIDC 16-bit sound' CONFIG_SOUND_VIDC $CONFIG_SOUND_OSS
    fi
    dep_tristate '    Netwinder WaveArtist' CONFIG_SOUND_WAVEARTIST $CONFIG_SOUND_OSS $CONFIG_ARCH_NETWINDER
+   dep_tristate '  Intel PXA250/210 AC97 audio' CONFIG_SOUND_PXA_AC97 $CONFIG_ARCH_PXA $CONFIG_SOUND
 fi
 
 dep_tristate '  TV card (bt848) mixer support' CONFIG_SOUND_TVMIXER $CONFIG_SOUND $CONFIG_I2C

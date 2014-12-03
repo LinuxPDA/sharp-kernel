@@ -34,6 +34,7 @@ arch-y				:=
 arch-$(CONFIG_CPU_32v3)		:=-march=armv3
 arch-$(CONFIG_CPU_32v4)		:=-march=armv4
 arch-$(CONFIG_CPU_32v5)		:=-march=armv5
+arch-$(CONFIG_CPU_XSCALE)	:=-march=armv4 -Wa,-mxscale #-march=armv5te
 
 # This selects how we optimise for the processor.
 tune-y				:=
@@ -45,6 +46,7 @@ tune-$(CONFIG_CPU_ARM922T)	:=-mtune=arm9tdmi
 tune-$(CONFIG_CPU_ARM926T)	:=-mtune=arm9tdmi
 tune-$(CONFIG_CPU_SA110)	:=-mtune=strongarm110
 tune-$(CONFIG_CPU_SA1100)	:=-mtune=strongarm1100
+tune-$(CONFIG_CPU_XSCALE)	:=-mtune=strongarm #-mtune=xscale
 
 CFLAGS_BOOT	:=$(apcs-y) $(arch-y) $(tune-y) -mshort-load-bytes -msoft-float
 CFLAGS		+=$(apcs-y) $(arch-y) $(tune-y) -mshort-load-bytes -msoft-float
@@ -117,6 +119,10 @@ ifeq ($(CONFIG_SA1111),y)
 TEXTADDR	 = 0xc0208000
 endif
 MACHINE		 = sa1100
+endif
+
+ifeq ($(CONFIG_ARCH_PXA),y)
+MACHINE		 = pxa
 endif
 
 ifeq ($(CONFIG_ARCH_L7200),y)

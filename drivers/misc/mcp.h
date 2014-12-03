@@ -10,16 +10,22 @@
 #ifndef MCP_H
 #define MCP_H
 
+#ifdef CONFIG_ARCH_SA1100
+#include <asm/dma.h>
+#endif
+
 struct mcp {
 	struct module	*owner;
 	spinlock_t	lock;
 	int		use_count;
 	unsigned int	sclk_rate;
 	unsigned int	rw_timeout;
+#ifdef CONFIG_ARCH_SA1100
 	dma_device_t	dma_audio_rd;
 	dma_device_t	dma_audio_wr;
 	dma_device_t	dma_telco_rd;
 	dma_device_t	dma_telco_wr;
+#endif
 	void		(*set_telecom_divisor)(struct mcp *, unsigned int);
 	void		(*set_audio_divisor)(struct mcp *, unsigned int);
 	void		(*reg_write)(struct mcp *, unsigned int, unsigned int);

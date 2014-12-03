@@ -108,6 +108,16 @@ MODULE_PARM_DESC(force_rsa, "Force I/O ports for RSA");
 #define port_rev	unused[2]	/* 8bit */
 #define port_lcr	unused[3]	/* 8bit */
 
+#ifdef CONFIG_ARCH_PXA
+#define pxa_port(x) ((x) == PORT_PXA)
+#define pxa_buggy_port(x) ({ \
+	int cpu_ver; asm("mrc%? p15, 0, %0, c0, c0" : "=r" (cpu_ver)); \
+	((x) == PORT_PXA && (cpu_ver & ~1) == 0x69052100); })
+#else
+#define pxa_port(x) (0)
+#define pxa_buggy_port(x) (0)
+#endif
+
 /*
  * Here we define the default xmit fifo size used for each type of UART.
  */
@@ -125,7 +135,8 @@ static const struct serial_uart_config uart_config[PORT_MAX_8250+1] = {
 	{ "16C950/954",	128,	UART_CLEAR_FIFO | UART_USE_FIFO },
 	{ "ST16654",	64,	UART_CLEAR_FIFO | UART_USE_FIFO | UART_STARTECH },
 	{ "XR16850",	128,	UART_CLEAR_FIFO | UART_USE_FIFO | UART_STARTECH },
-	{ "RSA",	2048,	UART_CLEAR_FIFO | UART_USE_FIFO }
+	{ "RSA",	2048,	UART_CLEAR_FIFO | UART_USE_FIFO },
+	{ "PXA UART",	32,	UART_CLEAR_FIFO | UART_USE_FIFO }
 };
 
 static _INLINE_ unsigned int serial_in(struct uart_port *port, int offset)
@@ -141,6 +152,9 @@ static _INLINE_ unsigned int serial_in(struct uart_port *port, int offset)
 
 	case SERIAL_IO_MEM:
 		return readb((unsigned long)port->membase + offset);
+
+	case SERIAL_IO_MEM32:
+		return readl((unsigned long)port->membase + offset);
 
 	default:
 		return inb(port->iobase + offset);
@@ -162,6 +176,10 @@ serial_out(struct uart_port *port, int offset, int value)
 
 	case SERIAL_IO_MEM:
 		writeb(value, (unsigned long)port->membase + offset);
+		break;
+
+	case SERIAL_IO_MEM32:
+		writel(value, (unsigned long)port->membase + offset);
 		break;
 
 	default:
@@ -1099,6 +1117,16 @@ static int serial8250_startup(struct uart_port *port, struct uart_info *info)
 		serial_outp(port, UART_LCR, 0);
 	}
 
+#ifdef CONFIG_ARCH_PXA
+	if (port->type == PORT_PXA) {
+		switch (port->membase) {
+		case (long)&FFUART: CKEN |= CKEN6_FFUART; break;
+		case (long)&BTUART: CKEN |= CKEN7_BTUART; break;
+		case (long)&STUART: CKEN |= CKEN5_STUART; break;
+		}
+	}
+#endif
+
 #ifdef CONFIG_SERIAL_RSA
 	/*
 	 * If this is an RSA port, see if we can kick it up to the
@@ -1200,6 +1228,8 @@ static int serial8250_startup(struct uart_port *port, struct uart_info *info)
 	 * anyway, so we don't enable them here.
 	 */
 	port->port_ier = UART_IER_RLSI | UART_IER_RDI;
+	if (pxa_port(state->type))
+		info->IER |= UART_IER_UUE | UART_IER_RTOIE;
 	serial_outp(port, UART_IER, port->port_ier);
 
 #ifdef CONFIG_SERIAL_MANY_PORTS
@@ -1486,6 +1516,7 @@ serial8250_request_std_resource(struct uart_port *port, struct resource **res)
 
 	switch (port->iotype) {
 	case SERIAL_IO_MEM:
+	case SERIAL_IO_MEM32:
 		if (port->mapbase) {
 			*res = request_mem_region(port->mapbase, size, "serial");
 			if (!*res)
@@ -1511,6 +1542,7 @@ serial8250_request_rsa_resource(struct uart_port *port, struct resource **res)
 
 	switch (port->iotype) {
 	case SERIAL_IO_MEM:
+	case SERIAL_IO_MEM32:
 		if (port->mapbase) {
 			start = port->mapbase;
 			start += UART_RSA_BASE << port->regshift;
@@ -1547,6 +1579,7 @@ static void serial8250_release_port(struct uart_port *port)
 
 	switch (port->iotype) {
 	case SERIAL_IO_MEM:
+	case SERIAL_IO_MEM32:
 		if (port->mapbase) {
 			/*
 			 * Unmap the area.
@@ -1709,6 +1742,14 @@ static void __init serial8250_isa_init_ports(void)
 		serial8250_ports[i].uartclk = old_serial_port[i].base_baud * 16;
 		serial8250_ports[i].flags   = old_serial_port[i].flags;
 		serial8250_ports[i].ops     = &serial8250_pops;
+
+		/* required for PXA250 ports */
+		serial8250_ports[i].type    = old_serial_port[i].type;
+		serial8250_ports[i].io_type = old_serial_port[i].io_type;
+		serial8250_ports[i].iomem_base
+					    = old_serial_port[i].iomem_base;
+		serial8250_ports[i].iomem_reg_shift
+					    = old_serial_port[i].iomem_reg_shift;
 	}
 }
 
@@ -1759,10 +1800,12 @@ static void serial8250_console_write(struct console *co, const char *s, u_int co
 	int i;
 
 	/*
-	 *	First save the UER then disable the interrupts
+	 *	First save the IER then disable the interrupts
 	 */
 	ier = serial_in(port, UART_IER);
 	serial_out(port, UART_IER, 0);
+	if (pxa_port(port->type))
+		serial_out(port, UART_IER, UART_IER_UUE);
 
 	/*
 	 *	Now, do each character
@@ -1806,6 +1849,8 @@ static int serial8250_console_wait_key(struct console *co)
 	 */
 	ier = serial_in(port, UART_IER);
 	serial_out(port, UART_IER, 0);
+	if (pxa_port(port->type))
+		serial_out(port, UART_IER, UART_IER_UUE);
 
 	while ((serial_in(port, UART_LSR) & UART_LSR_DR) == 0);
 	c = serial_in(port, UART_RX);

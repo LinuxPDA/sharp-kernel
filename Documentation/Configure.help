@@ -11630,6 +11630,30 @@ CONFIG_ARM_THUMB
 
   If you don't know what this all is, saying Y is a safe choice.
 
+Workaround for XScale cache errata
+CONFIG_XSCALE_CACHE_ERRATA
+  There are couple errata that say that the cache may get confused
+  whether some cache lines are dirty or not, resulting in some memory
+  corruptions. The workaround (using the cache only in write through
+  mode) is performance impairing, and the bug _might_ just not be
+  that visible or critical to you depending on many esoteric
+  hardware factors.
+  
+  Not using the workaround makes Linux unreliable. If you're used
+  to some other OSes which requires to be rebooted once in a while
+  then this won't look so bad to you. On the other hand you may
+  stress test the system for hours without seeing any effect of this
+  bug.
+  
+  So this is configurable. Let's hope a future core revision will tell
+  this was just a bad dream. But in the mean time the risk and
+  trade-off is yours to decide.
+  
+  This should apply to all PXA250 up to rev B2 (erratum #120) and
+  possibly other current XScale cores as well.
+  
+  If you don't know what to answer, say Y.
+
 Support CD-ROM drives that are not SCSI or IDE/ATAPI
 CONFIG_CD_NO_IDESCSI
   If you have a CD-ROM drive that is neither SCSI nor IDE/ATAPI, say Y

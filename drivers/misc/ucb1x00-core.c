@@ -22,12 +22,18 @@
 #include <linux/init.h>
 #include <linux/errno.h>
 #include <linux/interrupt.h>
+#include <linux/tqueue.h>
+#include <linux/config.h>
 
-#include <asm/dma.h>
-#include <asm/hardware.h>
 #include <asm/irq.h>
 #include <asm/mach-types.h>
+
+#ifdef CONFIG_ARCH_SA1100
+#include <asm/arch/assabet.h>
 #include <asm/arch/shannon.h>
+#endif
+
+#include <asm/hardware.h>
 
 #include "ucb1x00.h"
 
@@ -154,6 +160,10 @@ void ucb1x00_adc_enable(struct ucb1x00 *ucb)
  *
  *	If called for a synchronised ADC conversion, it may sleep
  *	with the ADC semaphore held.
+ *	
+ *	See ucb1x00.h for definition of the UCB_ADC_DAT macro.  It
+ *	addresses a bug in the ucb1200/1300 which, of course, Philips
+ *	decided to finally fix in the ucb1400 ;-) -jws
  */
 unsigned int ucb1x00_adc_read(struct ucb1x00 *ucb, int adc_channel, int sync)
 {
@@ -199,22 +209,75 @@ void ucb1x00_adc_disable(struct ucb1x00 *ucb)
  * Since we need to read an internal register, we must re-enable
  * SIBCLK to talk to the chip.  We leave the clock running until
  * we have finished processing all interrupts from the chip.
+ *
+ * A restriction with interrupts exists when using the ucb1400, as
+ * the codec read/write routines may sleep while waiting for codec
+ * access completion and uses semaphores for access control to the
+ * AC97 bus.  A complete codec read cycle could take  anywhere from
+ * 60 to 100uSec so we *definitely* don't want to spin inside the
+ * interrupt handler waiting for codec access.  So, we handle the
+ * interrupt by scheduling a RT kernel thread to run in process
+ * context instead of interrupt context.
  */
-static void ucb1x00_irq(int irqnr, void *devid, struct pt_regs *regs)
+
+static int ucb1x00_thread(void *_ucb)
 {
-	struct ucb1x00 *ucb = devid;
+	struct task_struct *tsk = current;
+	DECLARE_WAITQUEUE(wait, tsk);
+	struct ucb1x00 *ucb = _ucb;
 	struct ucb1x00_irq *irq;
 	unsigned int isr, i;
 
-	ucb1x00_enable(ucb);
-	isr = ucb1x00_reg_read(ucb, UCB_IE_STATUS);
-	ucb1x00_reg_write(ucb, UCB_IE_CLEAR, isr);
-	ucb1x00_reg_write(ucb, UCB_IE_CLEAR, 0);
+	ucb->rtask = tsk;
 
-	for (i = 0, irq = ucb->irq_handler; i < 16 && isr; i++, isr >>= 1, irq++)
-		if (isr & 1 && irq->fn)
-			irq->fn(i, irq->devid);
-	ucb1x00_disable(ucb);
+	daemonize();
+	reparent_to_init();
+	tsk->tty = NULL;
+	tsk->policy = SCHED_FIFO;
+	tsk->rt_priority = 1;
+	strcpy(tsk->comm, "kUCB1x00d");
+
+	/* only want to receive SIGKILL */
+	spin_lock_irq(&tsk->sigmask_lock);
+	siginitsetinv(&tsk->blocked, sigmask(SIGKILL));
+	recalc_sigpending(tsk);
+	spin_unlock_irq(&tsk->sigmask_lock);
+
+	add_wait_queue(&ucb->irq_wait, &wait);
+	set_task_state(tsk, TASK_INTERRUPTIBLE);
+	complete(&ucb->complete);
+
+	for (;;) {
+		if (signal_pending(tsk))
+			break;
+		enable_irq(ucb->irq);
+		schedule();
+
+		ucb1x00_enable(ucb);
+		isr = ucb1x00_reg_read(ucb, UCB_IE_STATUS);
+		ucb1x00_reg_write(ucb, UCB_IE_CLEAR, isr);
+		ucb1x00_reg_write(ucb, UCB_IE_CLEAR, 0);
+
+		for (i = 0, irq = ucb->irq_handler;
+		     i < 16 && isr; 
+		     i++, isr >>= 1, irq++)
+			if (isr & 1 && irq->fn)
+				irq->fn(i, irq->devid);
+		ucb1x00_disable(ucb);
+
+		set_task_state(tsk, TASK_INTERRUPTIBLE);
+	}
+
+	remove_wait_queue(&ucb->irq_wait, &wait);
+	ucb->rtask = NULL;
+	complete_and_exit(&ucb->complete, 0);
+}
+
+static void ucb1x00_irq(int irqnr, void *devid, struct pt_regs *regs)
+{
+	struct ucb1x00 *ucb = devid;
+	disable_irq(irqnr);
+	wake_up(&ucb->irq_wait);
 }
 
 /**
@@ -272,6 +335,11 @@ void ucb1x00_enable_irq(struct ucb1x00 *ucb, unsigned int idx, int edges)
 		spin_lock_irqsave(&ucb->lock, flags);
 
 		ucb1x00_enable(ucb);
+
+		/* This prevents spurious interrupts on the UCB1400 */
+		ucb1x00_reg_write(ucb, UCB_IE_CLEAR, 1 << idx);
+		ucb1x00_reg_write(ucb, UCB_IE_CLEAR, 0);
+
 		if (edges & UCB_RISING) {
 			ucb->irq_ris_enbl |= 1 << idx;
 			ucb1x00_reg_write(ucb, UCB_IE_RIS, ucb->irq_ris_enbl);
@@ -437,6 +505,7 @@ static int __init ucb1x00_configure(struct ucb1x00 *ucb)
 	unsigned int irq_gpio_pin = 0;
 	int irq, default_irq = NO_IRQ;
 
+#ifdef CONFIG_ARCH_SA1100
 	if (machine_is_adsbitsy())
 		default_irq = IRQ_GPCIN4;
 
@@ -479,12 +548,31 @@ static int __init ucb1x00_configure(struct ucb1x00 *ucb)
 		default_irq = IRQ_GPIO_UCB1200_IRQ;
 #endif
 
+#endif /* CONFIG_ARCH_SA1100 */
+
+#ifdef CONFIG_ARCH_PXA_IDP
+	if (machine_is_pxa_idp()) {
+		default_irq = TOUCH_PANEL_IRQ;
+		irq_gpio_pin = IRQ_TO_GPIO_2_80(TOUCH_PANEL_IRQ);
+		GPDR(irq_gpio_pin) &= ~GPIO_bit(irq_gpio_pin);
+	}
+#endif
+
+#ifdef CONFIG_PXA_CERF_PDA
+	if (machine_is_pxa_cerf()) {
+		irq_gpio_pin = CERF_GPIO_UCB1400_IRQ;
+	}
+#endif
+
 	/*
 	 * Eventually, this will disappear.
 	 */
 	if (irq_gpio_pin)
+#ifdef CONFIG_ARCH_PXA_IDP
+		set_GPIO_IRQ_edge(irq_gpio_pin, GPIO_FALLING_EDGE);
+#else
 		set_GPIO_IRQ_edge(irq_gpio_pin, GPIO_RISING_EDGE);
-
+#endif
 	irq = ucb1x00_detect_irq(ucb);
 	if (irq != NO_IRQ) {
 		if (default_irq != NO_IRQ && irq != default_irq)
@@ -506,21 +594,7 @@ static int __init ucb1x00_configure(struct ucb1x00 *ucb)
 
 struct ucb1x00 *my_ucb;
 
-/**
- *	ucb1x00_get - get the UCB1x00 structure describing a chip
- *	@ucb: UCB1x00 structure describing chip
- *
- *	Return the UCB1x00 structure describing a chip.
- *
- *	FIXME: Currently very noddy indeed, which currently doesn't
- *	matter since we only support one chip.
- */
-struct ucb1x00 *ucb1x00_get(void)
-{
-	return my_ucb;
-}
-
-static int __init ucb1x00_init(void)
+static int ucb1x00_init_helper(void)
 {
 	struct mcp *mcp;
 	unsigned int id;
@@ -533,23 +607,28 @@ static int __init ucb1x00_init(void)
 	mcp_enable(mcp);
 	id = mcp_reg_read(mcp, UCB_ID);
 
-	if (id != UCB_ID_1200 && id != UCB_ID_1300) {
+	if (id != UCB_ID_1200 && id != UCB_ID_1300 && id != UCB_ID_1400) {
 		printk(KERN_WARNING "UCB1x00 ID not found: %04x\n", id);
 		goto out;
 	}
+
+	/* distinguish between UCB1400 revs 1B and 2A */
+	if (id == UCB_ID_1400 && mcp_reg_read(mcp, 0x00) == 0x002a)
+		id = UCB_ID_1400_BUGGY;
 
 	my_ucb = kmalloc(sizeof(struct ucb1x00), GFP_KERNEL);
 	ret = -ENOMEM;
 	if (!my_ucb)
 		goto out;
 
+#ifdef CONFIG_ARCH_SA1100
 	if (machine_is_shannon()) {
 		/* reset the codec */
 		GPDR |= SHANNON_GPIO_CODEC_RESET;
 		GPCR = SHANNON_GPIO_CODEC_RESET;
 		GPSR = SHANNON_GPIO_CODEC_RESET;
-
 	}
+#endif
 
 	memset(my_ucb, 0, sizeof(struct ucb1x00));
 
@@ -564,24 +643,63 @@ static int __init ucb1x00_init(void)
 	if (ret)
 		goto out;
 
+	init_waitqueue_head(&my_ucb->irq_wait);
 	ret = request_irq(my_ucb->irq, ucb1x00_irq, 0, "UCB1x00", my_ucb);
 	if (ret) {
 		printk(KERN_ERR "ucb1x00: unable to grab irq%d: %d\n",
 			my_ucb->irq, ret);
-		kfree(my_ucb);
-		my_ucb = NULL;
+		goto irq_err;
 	}
 
+	init_completion(&my_ucb->complete);
+	ret = kernel_thread(ucb1x00_thread, my_ucb, CLONE_FS | CLONE_FILES);
+	if (ret >= 0) {
+		wait_for_completion(&my_ucb->complete);
+		ret = 0;
+		goto out;
+	}
+
+	free_irq(my_ucb->irq, my_ucb);
+irq_err:
+	kfree(my_ucb);
+	my_ucb = NULL;
 out:
 	mcp_disable(mcp);
 no_mcp:
 	return ret;
 }
 
+/**
+ *	ucb1x00_get - get the UCB1x00 structure describing a chip
+ *	@ucb: UCB1x00 structure describing chip
+ *
+ *	Return the UCB1x00 structure describing a chip.
+ *
+ *	FIXME: Currently very noddy indeed, which currently doesn't
+ *	matter since we only support one chip.
+ */
+struct ucb1x00 *ucb1x00_get(void)
+{
+	if( !my_ucb) ucb1x00_init_helper();
+
+	return my_ucb;
+}
+
+static int __init ucb1x00_init(void)
+{
+	/* check if driver is already initialized */
+	if( my_ucb) return 0;
+
+	return ucb1x00_init_helper();
+}
+
 static void __exit ucb1x00_exit(void)
 {
+	send_sig(SIGKILL, my_ucb->rtask, 1);
+	wait_for_completion(&my_ucb->complete);
 	free_irq(my_ucb->irq, my_ucb);
 	kfree(my_ucb);
+	my_ucb = 0;
 }
 
 module_init(ucb1x00_init);

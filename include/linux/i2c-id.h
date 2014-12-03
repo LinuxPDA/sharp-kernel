@@ -91,6 +91,10 @@
 #define I2C_DRIVERID_SP5055	44     /* Satellite tuner		*/
 #define I2C_DRIVERID_STV0030	45     /* Multipurpose switch		*/
 
+#define I2C_DRIVERID_DS1307	46	/* real time clock: DS1307	*/
+#define I2C_DRIVERID_24LC64	47	/* EEprom 24LC64		*/
+#define I2C_DRIVERID_FM24CLB4	48	/* EEprom FM24CLB4		*/
+
 #define I2C_DRIVERID_EXP0	0xF0	/* experimental use id's	*/
 #define I2C_DRIVERID_EXP1	0xF1
 #define I2C_DRIVERID_EXP2	0xF2
@@ -147,6 +151,7 @@
 #define I2C_ALGO_EC     0x100000        /* ACPI embedded controller     */
 
 #define I2C_ALGO_MPC8XX 0x110000	/* MPC8xx PowerPC I2C algorithm */
+#define I2C_ALGO_PXA	0x400000	/* Intel PXA I2C algorithm  */
 
 #define I2C_ALGO_EXP	0x800000	/* experimental			*/
 

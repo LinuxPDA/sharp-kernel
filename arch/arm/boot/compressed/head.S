@@ -329,7 +329,11 @@ __setup_mmu:
 		orr	r1, r1, #3 << 10
 		add	r2, r3, #16384
 1:		cmp	r1, r8			@ if virt > start of RAM
+#ifdef CONFIG_XSCALE_CACHE_ERRATA
+		orrhs	r1, r1, #0x08           @ set cacheable, not bufferable
+#else
 		orrhs	r1, r1, #0x0c		@ set cacheable, bufferable
+#endif
 		cmp	r1, r9			@ if virt > end of RAM
 		bichs	r1, r1, #0x0c		@ clear cacheable, bufferable
 		str	r1, [r0], #4		@ 1:1 mapping

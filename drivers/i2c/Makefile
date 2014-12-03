@@ -5,7 +5,7 @@
 O_TARGET := i2c.o
 
 export-objs	:= i2c-core.o i2c-algo-bit.o i2c-algo-pcf.o \
-		   i2c-algo-ite.o i2c-proc.o
+		   i2c-algo-ite.o i2c-algo-pxa.o i2c-proc.o 
 
 # Init order: core, chardev, bit adapters, pcf adapters
 
@@ -26,6 +26,10 @@ obj-$(CONFIG_ITE_I2C_ALGO)	+= i2c-algo-ite.o
 obj-$(CONFIG_ITE_I2C_ADAP)	+= i2c-adap-ite.o
 obj-$(CONFIG_I2C_PROC)		+= i2c-proc.o
 obj-$(CONFIG_I2C_KEYWEST)	+= i2c-keywest.o
+
+# PXA adapters
+obj-$(CONFIG_I2C_PXA_ALGO)	+= i2c-algo-pxa.o
+obj-$(CONFIG_I2C_PXA_ADAP)	+= i2c-adap-pxa.o
 
 # This is needed for automatic patch generation: sensors code starts here
 # This is needed for automatic patch generation: sensors code ends here

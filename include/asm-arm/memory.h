@@ -35,4 +35,7 @@ static inline void *phys_to_virt(unsigned long x)
 #define virt_to_bus(x)		(__virt_to_bus((unsigned long)(x)))
 #define bus_to_virt(x)		((void *)(__bus_to_virt((unsigned long)(x))))
 
+/* We want large page mapping possible */
+#define VMALLOC_ALIGN		0x10000
+
 #endif

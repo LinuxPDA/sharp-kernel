@@ -385,7 +385,7 @@ void __init memtable_init(struct meminfo *mi)
 	init_maps->prot_read  = 0;
 	init_maps->prot_write = 0;
 	init_maps->cacheable  = 1;
-	init_maps->bufferable = 0;
+	init_maps->bufferable = 1;
 
 	create_mapping(init_maps);
 

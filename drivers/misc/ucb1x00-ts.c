@@ -35,7 +35,11 @@
 /*
  * Define this if you want the UCB1x00 stuff to talk to the input layer
  */
+#ifdef CONFIG_INPUT
+#define USE_INPUT
+#else
 #undef USE_INPUT
+#endif
 
 #ifndef USE_INPUT
 
@@ -73,7 +77,7 @@ struct ucb1x00_ts {
 	struct pm_dev		*pmdev;
 #endif
 
-	wait_queue_head_t	irq_wait;
+	struct semaphore	irq_wait;
 	struct semaphore	sem;
 	struct completion	init_exit;
 	struct task_struct	*rtask;
@@ -259,6 +263,11 @@ static inline void ucb1x00_ts_evt_add(struct ucb1x00_ts *ts, u16 pressure, u16 x
 	input_report_abs(&ts->idev, ABS_PRESSURE, pressure);
 }
 
+static inline void ucb1x00_ts_event_release(struct ucb1x00_ts *ts)
+{
+	input_report_abs(&ts->idev, ABS_PRESSURE, 0);
+}
+
 static int ucb1x00_ts_open(struct input_dev *idev)
 {
 	struct ucb1x00_ts *ts = (struct ucb1x00_ts *)idev;
@@ -304,10 +313,15 @@ static inline void ucb1x00_ts_deregister(struct ucb1x00_ts *ts)
  */
 static inline void ucb1x00_ts_mode_int(struct ucb1x00_ts *ts)
 {
-	ucb1x00_reg_write(ts->ucb, UCB_TS_CR,
-			UCB_TS_CR_TSMX_POW | UCB_TS_CR_TSPX_POW |
-			UCB_TS_CR_TSMY_GND | UCB_TS_CR_TSPY_GND |
-			UCB_TS_CR_MODE_INT);
+	if (ts->ucb->id == UCB_ID_1400_BUGGY)
+		ucb1x00_reg_write(ts->ucb, UCB_TS_CR,
+				UCB_TS_CR_TSMY_GND | UCB_TS_CR_TSPY_GND |
+				UCB_TS_CR_MODE_INT);
+	else
+		ucb1x00_reg_write(ts->ucb, UCB_TS_CR,
+				UCB_TS_CR_TSMX_POW | UCB_TS_CR_TSPX_POW |
+				UCB_TS_CR_TSMY_GND | UCB_TS_CR_TSPY_GND |
+				UCB_TS_CR_MODE_INT);
 }
 
 /*
@@ -397,13 +411,13 @@ static inline unsigned int ucb1x00_ts_read_yres(struct ucb1x00_ts *ts)
 /*
  * This is a RT kernel thread that handles the ADC accesses
  * (mainly so we can use semaphores in the UCB1200 core code
- * to serialise accesses to the ADC).
+ * to serialise accesses to the ADC).  The UCB1400 access
+ * functions are expected to be able to sleep as well.
  */
 static int ucb1x00_thread(void *_ts)
 {
 	struct ucb1x00_ts *ts = _ts;
 	struct task_struct *tsk = current;
-	DECLARE_WAITQUEUE(wait, tsk);
 	int valid;
 
 	ts->rtask = tsk;
@@ -429,10 +443,8 @@ static int ucb1x00_thread(void *_ts)
 
 	valid = 0;
 
-	add_wait_queue(&ts->irq_wait, &wait);
 	for (;;) {
 		unsigned int x, y, p, val;
-		signed long timeout;
 
 		ts->restart = 0;
 
@@ -457,8 +469,6 @@ static int ucb1x00_thread(void *_ts)
 		val = ucb1x00_reg_read(ts->ucb, UCB_TS_CR);
 
 		if (val & (UCB_TS_CR_TSPX_LOW | UCB_TS_CR_TSMX_LOW)) {
-			set_task_state(tsk, TASK_INTERRUPTIBLE);
-
 			ucb1x00_enable_irq(ts->ucb, UCB_IRQ_TSPX, UCB_FALLING);
 			ucb1x00_disable(ts->ucb);
 
@@ -471,7 +481,15 @@ static int ucb1x00_thread(void *_ts)
 				valid = 0;
 			}
 
-			timeout = MAX_SCHEDULE_TIMEOUT;
+			/*
+			 * Since ucb1x00_enable_irq() might sleep due
+			 * to the way the UCB1400 regs are accessed, we
+			 * can't use set_task_state() before that call,
+			 * and not changing state before enabling the
+			 * interrupt is racy.  A semaphore solves all
+			 * those issues quite nicely.
+			 */
+			down_interruptible(&ts->irq_wait);
 		} else {
 			ucb1x00_disable(ts->ucb);
 
@@ -486,15 +504,12 @@ static int ucb1x00_thread(void *_ts)
 			}
 
 			set_task_state(tsk, TASK_INTERRUPTIBLE);
-			timeout = HZ / 100;
+			schedule_timeout(HZ / 100);
 		}
 
-		schedule_timeout(timeout);
 		if (signal_pending(tsk))
 			break;
 	}
-
-	remove_wait_queue(&ts->irq_wait, &wait);
 
 	ts->rtask = NULL;
 	ucb1x00_ts_evt_clear(ts);
@@ -509,7 +524,7 @@ static void ucb1x00_ts_irq(int idx, void *id)
 {
 	struct ucb1x00_ts *ts = id;
 	ucb1x00_disable_irq(ts->ucb, UCB_IRQ_TSPX, UCB_FALLING);
-	wake_up(&ts->irq_wait);
+	up(&ts->irq_wait);
 }
 
 static int ucb1x00_ts_startup(struct ucb1x00_ts *ts)
@@ -525,7 +540,7 @@ static int ucb1x00_ts_startup(struct ucb1x00_ts *ts)
 	if (ts->rtask)
 		panic("ucb1x00: rtask running?");
 
-	init_waitqueue_head(&ts->irq_wait);
+	sema_init(&ts->irq_wait, 0);
 	ret = ucb1x00_hook_irq(ts->ucb, UCB_IRQ_TSPX, ucb1x00_ts_irq, ts);
 	if (ret < 0)
 		goto out;
@@ -585,7 +600,7 @@ static int ucb1x00_ts_pm (struct pm_dev *dev, pm_request_t rqst, void *data)
 		 * after sleep.
 		 */
 		ts->restart = 1;
-		wake_up(&ts->irq_wait);
+		up(&ts->irq_wait);
 	}
 	return 0;
 }

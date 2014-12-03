@@ -1,5 +1,5 @@
 /*
- *	Watchdog driver for the SA11x0
+ *	Watchdog driver for the SA11x0/PXA
  *
  *      (c) Copyright 2000 Oleg Drokin <green@crimea.edu>
  *          Based on SoftDog driver by Alan Cox <alan@redhat.com>
@@ -35,12 +35,19 @@
 
 #define TIMER_MARGIN	60		/* (secs) Default is 1 minute */
 
-static int sa1100_margin = TIMER_MARGIN;	/* in seconds */
+static int timer_margin = TIMER_MARGIN;	/* in seconds */
 static int sa1100wdt_users;
 static int pre_margin;
 #ifdef MODULE
-MODULE_PARM(sa1100_margin,"i");
+MODULE_PARM(timer_margin,"i");
 #endif
+
+static void sa1100dog_ping( void)
+{
+	/* reload counter with (new) margin */
+	pre_margin=3686400 * timer_margin;
+	OSMR3 = OSCR + pre_margin;
+}
 
 /*
  *	Allow only one person to hold it open
@@ -51,9 +58,7 @@ static int sa1100dog_open(struct inode *inode, struct file *file)
 	if(test_and_set_bit(1,&sa1100wdt_users))
 		return -EBUSY;
 	MOD_INC_USE_COUNT;
-	/* Activate SA1100 Watchdog timer */
-	pre_margin=3686400 * sa1100_margin;
-	OSMR3 = OSCR + pre_margin;
+	sa1100dog_ping();
 	OSSR = OSSR_M3;
 	OWER = OWER_WME;
 	OIER |= OIER_E3;
@@ -93,8 +98,11 @@ static int sa1100dog_ioctl(struct inode *inode, struct file *file,
 	unsigned int cmd, unsigned long arg)
 {
 	static struct watchdog_info ident = {
-		identity: "SA1100 Watchdog",
+		identity: "PXA/SA1100 Watchdog",
+		options: WDIOF_SETTIMEOUT,
+		firmware_version: 0,
 	};
+	int new_margin;
 
 	switch(cmd){
 	default:
@@ -108,6 +116,16 @@ static int sa1100dog_ioctl(struct inode *inode, struct file *file,
 	case WDIOC_KEEPALIVE:
 		OSMR3 = OSCR + pre_margin;
 		return 0;
+	case WDIOC_SETTIMEOUT:
+		if (get_user(new_margin, (int *)arg))
+			return -EFAULT;
+		if (new_margin < 1)
+			return -EINVAL;
+		timer_margin = new_margin;
+		sa1100dog_ping();
+		/* Fall */
+	case WDIOC_GETTIMEOUT:
+		return put_user(timer_margin, (int *)arg);
 	}
 }
 
@@ -123,7 +141,7 @@ static struct file_operations sa1100dog_fops=
 static struct miscdevice sa1100dog_miscdev=
 {
 	WATCHDOG_MINOR,
-	"SA1100 watchdog",
+	"PXA/SA1100 watchdog",
 	&sa1100dog_fops
 };
 
@@ -136,7 +154,7 @@ static int __init sa1100dog_init(void)
 	if (ret)
 		return ret;
 
-	printk("SA1100 Watchdog Timer: timer margin %d sec\n", sa1100_margin);
+	printk("PXA/SA1100 Watchdog Timer: timer margin %d sec\n", timer_margin);
 
 	return 0;
 }
