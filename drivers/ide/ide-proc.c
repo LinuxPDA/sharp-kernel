@@ -57,6 +57,7 @@
  * Change Log
  *	12-Nov-2001 Lineo Japan, Inc.
  *	30-Jul-2002 Lineo Japan, Inc.  for 2.4.18
+ * 	26-Feb-2004 Lineo Solutions, Inc.  2 slot support
  *
  */
 
@@ -456,8 +457,8 @@ static int proc_ide_get_identify(ide_drive_t *drive, byte *buf)
 }
 
 #ifdef CONFIG_ARCH_SHARP_SL
-static ide_drive_t *drive_save = NULL;
-static u8 ide_info_buf[SECTOR_WORDS * 4 + 4];
+static ide_drive_t *drive_save[2] = { NULL, NULL };
+static u8 ide_info_buf[2][SECTOR_WORDS * 4 + 4];
 #endif
 
 static int proc_ide_read_identify
@@ -470,8 +471,8 @@ static int proc_ide_read_identify
 		unsigned short *val = ((unsigned short *)page) + 2;
 		char *out = ((char *)val) + (SECTOR_WORDS * 4);
 #ifdef CONFIG_ARCH_SHARP_SL
-		drive_save = drive;
-		memcpy(ide_info_buf, page, SECTOR_WORDS * 4);
+		drive_save[sharpsl_pcmcia_irq_to_sock(HWIF(drive)->irq)] = drive;
+		memcpy(ide_info_buf[sharpsl_pcmcia_irq_to_sock(HWIF(drive)->irq)], page, SECTOR_WORDS * 4);
 #endif
 		page = out;
 		do {
@@ -487,13 +488,15 @@ static int proc_ide_read_identify
 
 #ifdef CONFIG_ARCH_SHARP_SL
 
-int proc_ide_verify_identify()
+int proc_ide_verify_identify(int sock)
 {
     u8 buf[SECTOR_WORDS * 4 + 4];
+    int ret;
 
-    if (drive_save == NULL || proc_ide_get_identify(drive_save, buf))
+    if (drive_save[sock] == NULL || proc_ide_get_identify(drive_save[sock], buf))
 	return 0;
-    return memcmp(ide_info_buf, buf, SECTOR_WORDS * 4);
+    ret = memcmp(ide_info_buf[sock], buf, SECTOR_WORDS * 4);
+    return ret;
 }
 
 #endif
@@ -777,7 +780,8 @@ void destroy_proc_ide_drives(ide_hwif_t *hwif)
 		drive->proc = NULL;
 	}
 #ifdef CONFIG_ARCH_SHARP_SL
-	drive_save = NULL;
+	for (d = 0; d < 2; d++)
+		drive_save[d] = NULL;
 #endif
 }
 

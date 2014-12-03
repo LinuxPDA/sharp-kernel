@@ -19,6 +19,7 @@
  *     24-Nov-2002 SHARP  modify storage-avail calculation, and add erasing_dirty_size
  *     09-Nov-2002 Lineo Japan, Inc.  add code to do avail = 0 when cannot reserve space
  *     01-Nov-2002 Lineo Japan, Inc.  involve nr_bad_blocks in USED calc.
+ *     05-Aug-2003 SHARP for Tosa
  *
  */
 
@@ -402,7 +403,13 @@ int jffs2_do_fill_super(struct super_block *sb, void *data, int silent)
  out_nodes:
 	jffs2_free_ino_caches(c);
 	jffs2_free_raw_node_refs(c);
+#if defined(CONFIG_ARCH_PXA_HUSKY) || defined(CONFIG_ARCH_PXA_TOSA)
+	consistent_free( c->blocks,
+			 sizeof(struct jffs2_eraseblock) * c->nr_blocks,
+			 c->blocks_phys );
+#else
 	kfree(c->blocks);
+#endif
  out_inohash:
 	kfree(c->inocache_list);
  out_wbuf:

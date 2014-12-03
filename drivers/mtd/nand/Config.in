@@ -34,5 +34,8 @@ fi
 if [ "$CONFIG_ARCH_PXA_CORGI" = "y" ]; then
    dep_tristate '  NAND Flash device on Sharp corgi' CONFIG_MTD_NAND_SHARP_SL $CONFIG_MTD_NAND
 fi
+if [ "$CONFIG_ARCH_PXA_TOSA" = "y" ]; then
+   dep_tristate '  NAND Flash device on Sharp tosa' CONFIG_MTD_NAND_SHARP_SL_TC6393 $CONFIG_MTD_NAND
+fi
 
 endmenu

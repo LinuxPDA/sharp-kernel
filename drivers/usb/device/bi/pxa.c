@@ -21,6 +21,9 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  *
+ * ChangeLog:
+ *   26-Feb-2004 Lineo Solutions, Inc.  for Tosa (support cable gpio)
+ *
  */
 
 
@@ -882,6 +885,10 @@ static __inline__ void pxa_ep0(struct usb_endpoint_instance *endpoint, volatile 
         PXA_REGS(UDCCS0,"  <-- ep0");
 }
 
+#ifdef USBD_CABLE_GPIO
+static int udc_connect_state = 0;
+#endif
+
 /* ********************************************************************************************* */
 /* Interrupt Handler
  */
@@ -945,10 +952,24 @@ static void int_hndlr (int irq, void *dev_id, struct pt_regs *regs)
         // uncommon interrupts
         if ((udccr = UDCCR) & (UDCCR_RSTIR | UDCCR_RESIR | UDCCR_SUSIR)) {
 
+#ifdef USBD_CABLE_GPIO
+		if (!udc_connect_state && (udccr & UDCCR_RSTIR)) {
+		  //	    printk("ignore UDC Reset\n");
+                        UDCCR |= UDCCR_RSTIR;
+			udccr &= ~UDCCR_RSTIR;
+		}
+		if (!udc_connect_state && (udccr & UDCCR_RESIR)) {
+		  //	    printk("ignore UDC Resume\n");
+                        UDCCR |= UDCCR_RESIR;
+			udccr &= ~UDCCR_RESIR;
+		}
+#endif
+
                 // UDC Reset
-                if (udccr & UDCCR_RSTIR) {
+		if (udccr & UDCCR_RSTIR) {
 #if defined(CONFIG_ARCH_SHARP_SL) && defined(CONFIG_APM_CPU_IDLE)
 			static int is1stReset = 1;
+			//	    printk("UDC Reset\n");
 			if (is1stReset) {
 				is1stReset = 0;
 			} else {
@@ -965,7 +986,8 @@ static void int_hndlr (int irq, void *dev_id, struct pt_regs *regs)
                 }
 
                 // UDC Resume
-                if (udccr & UDCCR_RESIR) {
+		if (udccr & UDCCR_RESIR) {
+		  //	    printk("UDC Resume\n");
                         PXA_CCR(udccr, "------------------------> Resume");
                         if (udc_suspended) {
 #if defined(CONFIG_ARCH_SHARP_SL) && defined(CONFIG_APM_CPU_IDLE)
@@ -979,6 +1001,7 @@ static void int_hndlr (int irq, void *dev_id, struct pt_regs *regs)
 
                 // UDC Suspend
                 if (udccr & UDCCR_SUSIR) {
+		  //	    printk("UDC Suspend\n");
                         PXA_CCR(udccr, "------------------------> Suspend");
                         if (!udc_suspended) {
 #if defined(CONFIG_ARCH_SHARP_SL) && defined(CONFIG_APM_CPU_IDLE)
@@ -1250,7 +1273,17 @@ void udc_disable_ep (unsigned int ep)
  */
 int udc_connected ()
 {
-	return 1;
+	int rc = 1;
+#ifdef USBD_CABLE_GPIO
+#ifdef USBD_CABLE_ACTIVE_HIGH
+        rc = (GPLR(USBD_CABLE_GPIO) & GPIO_bit(USBD_CABLE_GPIO)) != 0;
+        //dbg_udc (1, "udc_connected: ACTIVE_HIGH: %d", rc);
+#else
+        rc = (GPLR(USBD_CABLE_GPIO) & GPIO_bit(USBD_CABLE_GPIO)) == 0;
+        //dbg_udc (1, "udc_connected: ACTIVE_LOW: %d", rc);
+#endif
+#endif
+	return rc;
 }
 
 /**
@@ -1260,6 +1293,9 @@ int udc_connected ()
  */
 void udc_connect (void)
 {
+#ifdef USBD_CABLE_GPIO
+  udc_connect_state = 1;
+#endif
 #ifdef CONFIG_SABINAL_DISCOVERY
         /* Set GPIO pin function to I/O */
         GAFR1_U &= ~(0x3 << ((USBD_CONNECT_GPIO & 0xF) << 1));
@@ -1282,6 +1318,20 @@ void udc_connect (void)
 #else
 	/* Set GPIO pin low to connect */
 	GPCR(USBD_CONNECT_GPIO) = GPIO_bit(USBD_CONNECT_GPIO);
+#endif
+
+#elif defined(CONFIG_ARCH_PXA_TOSA)
+	if (!udc_connected()) {
+		//printk("USB Cable not connected!!\n");
+		return;
+	}
+	SCP_JC_REG_GPCR |= USBD_CONNECT_GPIO;
+#if defined(USBD_CONNECT_HIGH)
+	/* Set GPIO pin high to connect */
+	set_scoop_jc_gpio(USBD_CONNECT_GPIO);
+#else
+	/* Set GPIO pin low to connect */
+	reset_scoop_jc_gpio(USBD_CONNECT_GPIO);
 #endif
 
 #else
@@ -1296,6 +1346,9 @@ void udc_connect (void)
  */
 void udc_disconnect (void)
 {
+#ifdef USBD_CABLE_GPIO
+  udc_connect_state = 0;
+#endif
 #ifdef CONFIG_SABINAL_DISCOVERY
         /* Set GPIO pin function to I/O */
         GAFR1_U &= ~(0x3 << ((USBD_CONNECT_GPIO & 0xF) << 1));
@@ -1320,18 +1373,35 @@ void udc_disconnect (void)
 	GPSR(USBD_CONNECT_GPIO) = GPIO_bit(USBD_CONNECT_GPIO);
 #endif
 
+#elif defined(CONFIG_ARCH_PXA_TOSA)
+	SCP_JC_REG_GPCR |= USBD_CONNECT_GPIO;
+#if defined(USBD_CONNECT_HIGH)
+	/* Set GPIO pin low to disconnect */
+	reset_scoop_jc_gpio(USBD_CONNECT_GPIO);
+#else
+	/* Set GPIO pin high to disconnect */
+	set_scoop_jc_gpio(USBD_CONNECT_GPIO);
+#endif
+
 #else
 #warning NO USB Device connect
 #endif
 }
 
-#if 0
+#ifdef USBD_CABLE_GPIO
 /**
  * udc_int_hndlr_cable - interrupt handler for cable
  */
 static void udc_int_hndlr_cable (int irq, void *dev_id, struct pt_regs *regs)
 {
 	// GPIOn interrupt
+	//dbg_udc("udc_cradle_interrupt: ->%08x\n",GPLR(USBD_CABLE_GPIO));
+  if (udc_connected()) {
+    usbd_device_event(udc_device, DEVICE_HUB_RESET, 0);
+    udc_cable_event ();
+  } else {
+    udc_disconnect();
+  }
 }
 #endif
 
@@ -1629,12 +1699,14 @@ int udc_request_udc_irq ()
  */
 int udc_request_cable_irq ()
 {
-#ifdef XXXX_CABLE_IRQ
+#ifdef USBD_CABLE_GPIO
+	set_GPIO_mode(USBD_CABLE_GPIO | GPIO_IN);
+	set_GPIO_IRQ_edge(USBD_CABLE_GPIO, GPIO_BOTH_EDGES);
 	// request IRQ  and IO region
-	if (request_irq
-	    (XXXX_CABLE_IRQ, int_hndlr, SA_INTERRUPT | SA_SAMPLE_RANDOM, UDC_NAME " Cable",
-	     NULL) != 0) {
-		printk (KERN_INFO "usb_ctl: Couldn't request USB irq\n");
+	if (request_irq (IRQ_GPIO(USBD_CABLE_GPIO), udc_int_hndlr_cable,
+		SA_INTERRUPT | SA_SAMPLE_RANDOM, UDC_NAME " Cable", NULL) != 0)
+	{
+		printk (KERN_INFO "usb_ctl: Couldn't request USB cable irq\n");
 		return -EINVAL;
 	}
 #endif
@@ -1887,8 +1959,8 @@ void udc_release_udc_irq ()
  */
 void udc_release_cable_irq ()
 {
-#ifdef XXXX_IRQ
-	free_irq (XXXX_CABLE_IRQ, NULL);
+#ifdef USBD_CABLE_GPIO
+	free_irq (IRQ_GPIO(USBD_CABLE_GPIO), NULL);
 #endif
 }
 

@@ -191,13 +191,22 @@ void show_regs(struct pt_regs * regs)
 #if defined(CONFIG_CPU_32)
 	{
 		int ctrl, transbase, dac;
+#if defined(CONFIG_ARM_FCSE)
+		int pid;
+		__asm__("mrc p15, 0, %0, c13, c0" : "=r"(pid));
+#endif
 		  __asm__ (
 		"	mrc p15, 0, %0, c1, c0\n"
 		"	mrc p15, 0, %1, c2, c0\n"
 		"	mrc p15, 0, %2, c3, c0\n"
 		: "=r" (ctrl), "=r" (transbase), "=r" (dac));
+#if defined(CONFIG_ARM_FCSE)
+		printk("Control: %04X  Table: %08X  DAC: %08X  PID: %2d\n",
+		  	ctrl, transbase, dac, pid >> CPU_PID_SHIFT);
+#else
 		printk("Control: %04X  Table: %08X  DAC: %08X\n",
 		  	ctrl, transbase, dac);
+#endif
 	}
 #endif
 }
@@ -422,3 +431,9 @@ unsigned long get_wchan(struct task_struct *p)
 	} while (count ++ < 16);
 	return 0;
 }
+
+#ifdef CONFIG_ARM_FCSE
+int prev_cpu_pid = CPU_PID_SPECIAL + 1;
+struct mm_struct *cpu_pid_table[CPU_PID_MAX_SIZE];
+pgd_t *pgd_shared_fcse_process = NULL;
+#endif

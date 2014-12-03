@@ -19,6 +19,7 @@
  *	30-Jul-2002 Lineo Japan, Inc.  for 2.4.18
  *	27-AUG-2002 Edward Chen, Steve Lin for Discovery
  *	12-Dec-2002 Lineo Japan, Inc.
+ *      1-Nov-2003 Sharp Corporation   for Tosa
  *
  */
 #include <linux/config.h>
@@ -72,7 +73,7 @@ extern int collie_resume_led(void);
 #define suspend_led_arch()          collie_suspend_led()
 #define resume_led_arch()           collie_resume_led()
 #define standby_led_arch()          (0)
-#elif defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
+#elif defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
 extern int sharpsl_led_supported(int which); /* return -EINVAL if unspoorted , otherwise return >= 0 value */
 extern int sharpsl_turn_led_status(int which,int status); /* set LED status to directed value. */
 extern int sharpsl_init_led(void);
@@ -209,33 +210,33 @@ static int led_pm_callback(struct pm_dev *pm_dev,
 {
   switch (req) {
   case PM_STANDBY:
-#if defined(CONFIG_SA1100_COLLIE) || defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
+#if defined(CONFIG_SA1100_COLLIE) || defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
     set_led_status(SHARP_LED_PDA,LED_PDA_SUSPENDED);
     standby_led_arch();
 #endif
     break;
     
   case PM_BLANK:
-#if defined(CONFIG_SA1100_COLLIE) || defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
+#if defined(CONFIG_SA1100_COLLIE) || defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
     set_led_status(SHARP_LED_PDA,LED_PDA_SUSPENDED);
 #endif
     break;
     
   case PM_UNBLANK:
-#if defined(CONFIG_SA1100_COLLIE) || defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
+#if defined(CONFIG_SA1100_COLLIE) || defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
     set_led_status(SHARP_LED_PDA,LED_PDA_RUNNING);
 #endif
     break;
     
   case PM_SUSPEND:
-#if defined(CONFIG_SA1100_COLLIE) || defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
+#if defined(CONFIG_SA1100_COLLIE) || defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
     set_led_status(SHARP_LED_PDA,LED_PDA_OFF);
     suspend_led_arch();
 #endif
     break;
     
   case PM_RESUME:
-#if defined(CONFIG_SA1100_COLLIE) || defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
+#if defined(CONFIG_SA1100_COLLIE) || defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
     set_led_status(SHARP_LED_PDA,LED_PDA_RUNNING);
     resume_led_arch();
 #endif

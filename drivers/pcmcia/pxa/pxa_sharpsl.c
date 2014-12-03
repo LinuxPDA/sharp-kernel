@@ -16,6 +16,7 @@
  *
  * ChangLog:
  *	12-Dec-2002 Sharp Corporation for Poodle and Corgi
+ *	26-Feb-2004 Lineo Solutions, Inc.  2 slot support for Tosa
  */
 #include <linux/config.h>
 #include <linux/kernel.h>
@@ -36,7 +37,11 @@
 #include <asm/sharp_apm.h>
 
 #include <linux/delay.h>
-
+#if defined(CONFIG_ARCH_PXA_TOSA)
+#include <asm/arch/keyboard_tosa.h>
+#include <asm/sharp_char.h>
+#include <asm/sharp_keycode.h>
+#endif
 //#define SHARPSL_PCMCIA_DEBUG
 
 #ifdef CONFIG_SABINAL_DISCOVERY
@@ -73,9 +78,15 @@ static unsigned char keep_rd[2];
 #define RESET_DONE 0x0001
 #endif
 
+#if defined(CONFIG_ARCH_PXA_TOSA)
+extern void set_jacketslot_error( int ); // tosa_battery.c
+extern int current_jacketslot_error(void);
+extern void force_cardslot_suspend(int num); // ../cs.c
+#endif
+
 void sharpsl_pcmcia_init_reset(void)
 {
-#if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
+#if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
 #define	SCP_INIT_DATA(adr,dat)	(((adr)<<16)|(dat))
 #define	SCP_INIT_DATA_END	((unsigned long)-1)
 	static const unsigned long scp_init[] =
@@ -98,6 +109,15 @@ void sharpsl_pcmcia_init_reset(void)
 	}
 	keep_vs[0] = NO_KEEP_VS;
 	keep_rd[0] = 0;
+#endif
+#if defined(CONFIG_ARCH_PXA_TOSA)
+	for(i=0; scp_init[i] != SCP_INIT_DATA_END; i++)
+	{
+		int	adr = scp_init[i] >> 16;
+		SCP_JC_REG(adr) = scp_init[i] & 0xFFFF;
+	}
+	keep_vs[1] = NO_KEEP_VS;
+	keep_rd[1] = 0;
 #endif
 }
 
@@ -167,10 +187,16 @@ static int sharpsl_pcmcia_init(struct pcmcia_init *init)
 	/* set GPIO_CF_CD & GPIO_CF_IRQ as inputs */
 	GPDR(GPIO_CF_CD) &= ~GPIO_bit(GPIO_CF_CD);
 	GPDR(GPIO_CF_IRQ) &= ~GPIO_bit(GPIO_CF_IRQ);
+#if defined(CONFIG_ARCH_PXA_TOSA)
+	GPDR(GPIO_JC_CF_IRQ) &= ~GPIO_bit(GPIO_JC_CF_IRQ);
+#endif
 
 	/* Set transition detect */
 	set_GPIO_IRQ_edge( GPIO_CF_CD, GPIO_FALLING_EDGE );
 	set_GPIO_IRQ_edge( GPIO_CF_IRQ, GPIO_FALLING_EDGE );
+#if defined(CONFIG_ARCH_PXA_TOSA)
+	set_GPIO_IRQ_edge( GPIO_JC_CF_IRQ, GPIO_FALLING_EDGE );
+#endif
 
 	/* Register interrupts */
 	irq = IRQ_GPIO_CF_CD;
@@ -181,6 +207,10 @@ static int sharpsl_pcmcia_init(struct pcmcia_init *init)
 	/* enable interrupt */
 	SCP_REG_IMR = 0x00C0;
 	SCP_REG_MCR = 0x0101;
+#if defined(CONFIG_ARCH_PXA_TOSA)
+	SCP_JC_REG_IMR = 0x00C0;
+	SCP_JC_REG_MCR = 0x0101;
+#endif
 	keep_vs[0] = keep_vs[1] = NO_KEEP_VS;
 
 	/* There's only one slot, but it's "Slot 0": */
@@ -240,6 +270,20 @@ static int sharpsl_pcmcia_socket_state(struct pcmcia_state_array* state_array)
   is16 = (ASIC3_GPIO_PSTS_D & CF_IOIS) ? 0 : 1;
 #else
 	cpr = SCP_REG_CPR;
+#if defined(CONFIG_ARCH_PXA_TOSA)
+	if( (cpr & 0x0080) && ((cpr & 0x8040) != 0x8040) ){
+	  extern int sharpsl_main_bk_flag;
+
+	  printk(KERN_ERR "%s(): CPR=%04X, Low voltage!\n",
+		 __FUNCTION__, cpr);
+	  if ( sharpsl_main_bk_flag ) {
+	    handle_scancode(SLKEY_OFF|KBDOWN , 1);
+	    mdelay(30);
+	    handle_scancode(SLKEY_OFF|KBUP   , 0);
+	    mdelay(30);
+	  }
+	}
+#endif
 	//SCP_REG_CDR = 0x0002;
 	SCP_REG_IRM = 0x00FF;
 	SCP_REG_ISR = 0x0000;
@@ -277,9 +321,67 @@ static int sharpsl_pcmcia_socket_state(struct pcmcia_state_array* state_array)
 	state_array->state[0].vs_Xv  = (csr & 0x0080)? 0:1;
 
 	if( (cpr & 0x0080) && ((cpr & 0x8040) != 0x8040) ){
+#if defined(CONFIG_ARCH_PXA_TOSA)
+#if 0
+	  if (!current_cardslot_error(0)) {
+	    force_cardslot_suspend(0);
+	  }
+#endif
+#else
 		printk(KERN_ERR "%s(): CPR=%04X, Low voltage!\n",
 			__FUNCTION__, cpr);
+#endif
 	}
+#if defined(CONFIG_ARCH_PXA_TOSA)
+	cpr = SCP_JC_REG_CPR;
+	//SCP_REG_CDR = 0x0002;
+	SCP_JC_REG_IRM = 0x00FF;
+	SCP_JC_REG_ISR = 0x0000;
+	SCP_JC_REG_IRM = 0x0000;
+	csr = SCP_JC_REG_CSR;
+	if( csr & 0x0004 ){
+		/* card eject */
+		SCP_JC_REG_CDR = 0x0000;
+		keep_vs[1] = NO_KEEP_VS;
+	}
+	else if( !(keep_vs[1] & NO_KEEP_VS) ){
+		/* keep vs1,vs2 */
+		SCP_JC_REG_CDR = 0x0000;
+		csr |= keep_vs[1];
+	}
+	else if( cpr & 0x0003 ){
+		/* power on */
+		SCP_JC_REG_CDR = 0x0000;
+		keep_vs[1] = (csr & 0x00C0);
+	}
+	else{	/* card detect */
+		SCP_JC_REG_CDR = 0x0002;
+	}
+
+#ifdef SHARPSL_PCMCIA_DEBUG
+	printk("%s(): slot1 cpr=%04X, csr=%04X\n", __FUNCTION__, cpr, csr);
+#endif
+
+	state_array->state[1].detect = (csr & 0x0004)? 0:1;
+	state_array->state[1].ready  = (csr & 0x0002)? 1:0;
+	state_array->state[1].bvd1   = (csr & 0x0010)? 1:0;
+	state_array->state[1].bvd2   = (csr & 0x0020)? 1:0;
+	state_array->state[1].wrprot = (csr & 0x0008)? 1:0;
+	state_array->state[1].vs_3v  = (csr & 0x0040)? 0:1;
+	state_array->state[1].vs_Xv  = (csr & 0x0080)? 0:1;
+
+	if( (cpr & 0x0080) && ((cpr & 0x8040) != 0x8040) ){
+#if 0
+		printk(KERN_ERR "%s(): slot1 CPR=%04X, Low voltage!\n",
+			__FUNCTION__, cpr);
+#else
+		if (!current_cardslot_error(1)) {
+		  force_cardslot_suspend(1);
+		  set_jacketslot_error(1);
+		}
+#endif
+	}
+#endif
 #endif
 
 	return 1;
@@ -295,6 +397,10 @@ static int sharpsl_pcmcia_get_irq_info(struct pcmcia_irq_info* info)
 		info->irq=IRQ_DISCOVERY_CF_IRQ;
 #else
 		info->irq=IRQ_GPIO_CF_IRQ;
+#endif
+#if defined(CONFIG_ARCH_PXA_TOSA)
+	} else if (info->sock == 1) {
+		info->irq=IRQ_GPIO_JC_CF_IRQ;
 #endif
 	}
 
@@ -313,8 +419,10 @@ static int sharpsl_pcmcia_configure_socket(const struct pcmcia_configure*
 	if (configure->sock > 1)
 		return -1;
 
+#if !defined(CONFIG_ARCH_PXA_TOSA)
 	if (configure->sock != 0)
 	  	return 0;
+#endif
 
 #ifdef SHARPSL_PCMCIA_DEBUG
 	printk("%s(): sk=%d, vc=%d, vp=%d, m=%04X, oe=%d, rs=%d, io=%d\n",
@@ -419,88 +527,205 @@ static int sharpsl_pcmcia_configure_socket(const struct pcmcia_configure*
 
 #else
 
+#if defined(CONFIG_PM)
+#if defined(CONFIG_ARCH_PXA_TOSA)
+	if (configure->sock == 1) { // for socket1(Jacket)
+	  switch( configure->vcc ){
+	  case	0:  sharpsl_batt_err = change_power_mode(LOCK_FCS_PCMCIA2, 0); break;
+	  case 	33: sharpsl_batt_err = change_power_mode(LOCK_FCS_PCMCIA2, 1); break;
+	  case	50: sharpsl_batt_err = change_power_mode(LOCK_FCS_PCMCIA2, 1); break;
+	  default:
+	    printk(KERN_ERR "%s(): unrecognized Vcc %u\n",
+		   __FUNCTION__, configure->vcc);
+	    return -1;
+	  }
+	} else {
+#endif
 	switch( configure->vcc ){
 	case	0:  sharpsl_batt_err = change_power_mode(LOCK_FCS_PCMCIA, 0); break;
 	case 	33: sharpsl_batt_err = change_power_mode(LOCK_FCS_PCMCIA, 1); break;
-	case	50: sharpsl_batt_err = change_power_mode(LOCK_FCS_PCMCIA, 1); break;
+	case	50: 
+#if defined(CONFIG_ARCH_PXA_TOSA)
+		if (configure->sock == 0) {
+			printk(KERN_ERR "%s(): unrecognized Vcc %u\n",
+				__FUNCTION__, configure->vcc);
+			return -1;
+		}
+#endif
+		sharpsl_batt_err = change_power_mode(LOCK_FCS_PCMCIA, 1); break;
 	default:
 		printk(KERN_ERR "%s(): unrecognized Vcc %u\n",
 			__FUNCTION__, configure->vcc);
 		return -1;
 	}
-
+#if defined(CONFIG_ARCH_PXA_TOSA)
+	}
+#endif
 	if ( !sharpsl_batt_err )
-	  return -1;
+  		return -1;
+#endif
 
-	if( (configure->vpp!=configure->vcc) && (configure->vpp!=0) ){
-		printk(KERN_ERR "%s(): CF slot cannot support Vpp %u\n",
-			__FUNCTION__, configure->vpp);
-		return -1;
+	if (configure->sock == 0) {
+		if( (configure->vpp!=configure->vcc) && (configure->vpp!=0) ){
+			printk(KERN_ERR "%s(): CF slot cannot support Vpp %u\n",
+				__FUNCTION__, configure->vpp);
+			return -1;
+		}
+		save_flags_cli(flags);
+
+		nmcr = (mcr = SCP_REG_MCR) & ~0x0010;
+		ncpr = (cpr = SCP_REG_CPR) & ~0x0083;
+		nccr = (ccr = SCP_REG_CCR) & ~0x0080;
+		nimr = (imr = SCP_REG_IMR) & ~0x003E;
+
+		ncpr |= (configure->vcc == 33) ? 0x0001: 
+			(configure->vcc == 50) ? 0x0002:
+			0;
+		nmcr |= (configure->flags&SS_IOCARD)? 0x0010: 0;
+		ncpr |= (configure->flags&SS_OUTPUT_ENA)? 0x0080: 0;
+		nccr |= (configure->flags&SS_RESET)? 0x0080: 0;
+		nimr |=	((configure->masks&SS_DETECT) ? 0x0004: 0)|
+			((configure->masks&SS_READY)  ? 0x0002: 0)|
+			((configure->masks&SS_BATDEAD)? 0x0010: 0)|
+			((configure->masks&SS_BATWARN)? 0x0020: 0)|
+			((configure->masks&SS_STSCHG) ? 0x0010: 0)|
+			((configure->masks&SS_WRPROT) ? 0x0008: 0);
+
+		if( !(ncpr & 0x0003) )
+			keep_rd[0] = 0;
+		else if( !(keep_rd[0] & RESET_DONE) ){
+			if( nccr & 0x0080 )
+				keep_rd[0] |= RESET_DONE;
+			else nccr |= 0x0080;
+		}
+
+		if( mcr != nmcr )
+			SCP_REG_MCR = nmcr;
+		if( cpr != ncpr )
+			SCP_REG_CPR = ncpr;
+		if( ccr != nccr )
+			SCP_REG_CCR = nccr;
+		if( imr != nimr )
+			SCP_REG_IMR = nimr;
+
+		restore_flags(flags);
+#if defined(CONFIG_ARCH_PXA_TOSA)
+	} else if (configure->sock == 1) {
+		if( (configure->vpp!=configure->vcc) && (configure->vpp!=0) ){
+			printk(KERN_ERR "%s(): CF slot1 cannot support Vpp %u\n",
+				__FUNCTION__, configure->vpp);
+			return -1;
+		}
+		save_flags_cli(flags);
+
+		nmcr = (mcr = SCP_JC_REG_MCR) & ~0x0010;
+		ncpr = (cpr = SCP_JC_REG_CPR) & ~0x0083;
+		nccr = (ccr = SCP_JC_REG_CCR) & ~0x0080;
+		nimr = (imr = SCP_JC_REG_IMR) & ~0x003E;
+
+		ncpr |= (configure->vcc == 33) ? 0x0001: 
+			(configure->vcc == 50) ? 0x0002:
+			0;
+		nmcr |= (configure->flags&SS_IOCARD)? 0x0010: 0;
+		ncpr |= (configure->flags&SS_OUTPUT_ENA)? 0x0080: 0;
+		nccr |= (configure->flags&SS_RESET)? 0x0080: 0;
+		nimr |=	((configure->masks&SS_DETECT) ? 0x0004: 0)|
+			((configure->masks&SS_READY)  ? 0x0002: 0)|
+			((configure->masks&SS_BATDEAD)? 0x0010: 0)|
+			((configure->masks&SS_BATWARN)? 0x0020: 0)|
+			((configure->masks&SS_STSCHG) ? 0x0010: 0)|
+			((configure->masks&SS_WRPROT) ? 0x0008: 0);
+
+		if( !(ncpr & 0x0003) )
+			keep_rd[1] = 0;
+		else if( !(keep_rd[1] & RESET_DONE) ){
+			if( nccr & 0x0080 )
+				keep_rd[1] |= RESET_DONE;
+			else nccr |= 0x0080;
+		}
+
+		if( mcr != nmcr )
+			SCP_JC_REG_MCR = nmcr;
+		if( cpr != ncpr )
+			SCP_JC_REG_CPR = ncpr;
+		if( ccr != nccr )
+			SCP_JC_REG_CCR = nccr;
+		if( imr != nimr )
+			SCP_JC_REG_IMR = nimr;
+
+		restore_flags(flags);
+#endif
 	}
-
-	save_flags_cli(flags);
-
-	nmcr = (mcr = SCP_REG_MCR) & ~0x0010;
-	ncpr = (cpr = SCP_REG_CPR) & ~0x0083;
-	nccr = (ccr = SCP_REG_CCR) & ~0x0080;
-	nimr = (imr = SCP_REG_IMR) & ~0x003E;
-
-	ncpr |= (configure->vcc == 33) ? 0x0001: 
-		(configure->vcc == 50) ? 0x0002:
-		0;
-	nmcr |= (configure->flags&SS_IOCARD)? 0x0010: 0;
-	ncpr |= (configure->flags&SS_OUTPUT_ENA)? 0x0080: 0;
-	nccr |= (configure->flags&SS_RESET)? 0x0080: 0;
-	nimr |=	((configure->masks&SS_DETECT) ? 0x0004: 0)|
-		((configure->masks&SS_READY)  ? 0x0002: 0)|
-		((configure->masks&SS_BATDEAD)? 0x0010: 0)|
-		((configure->masks&SS_BATWARN)? 0x0020: 0)|
-		((configure->masks&SS_STSCHG) ? 0x0010: 0)|
-		((configure->masks&SS_WRPROT) ? 0x0008: 0);
-
-	if( !(ncpr & 0x0003) )
-		keep_rd[0] = 0;
-	else if( !(keep_rd[0] & RESET_DONE) ){
-		if( nccr & 0x0080 )
-			keep_rd[0] |= RESET_DONE;
-		else nccr |= 0x0080;
-	}
-
-	if( mcr != nmcr )
-		SCP_REG_MCR = nmcr;
-	if( cpr != ncpr )
-		SCP_REG_CPR = ncpr;
-	if( ccr != nccr )
-		SCP_REG_CCR = nccr;
-	if( imr != nimr )
-		SCP_REG_IMR = nimr;
-
-	restore_flags(flags);
 
 #endif
 
 	return 0;
 }
 
+#if defined(CONFIG_ARCH_PXA_TOSA)
+static int sharpsl_pcmcia_socket_init(int sock)
+{
+        /* enable interrupt */
+	switch(sock) {
+		case 0:
+        		SCP_REG_IMR = 0x00C0;
+        		SCP_REG_MCR = 0x0101;
+			break;
+		case 1:
+        		SCP_JC_REG_IMR = 0x00C0;
+        		SCP_JC_REG_MCR = 0x0101;
+			break;
+		default:
+			return -1;
+	}
+	return 0;
+}
+#endif
+
 struct pcmcia_low_level sharpsl_pcmcia_ops = { 
 	sharpsl_pcmcia_init,
 	sharpsl_pcmcia_shutdown,
 	sharpsl_pcmcia_socket_state,
 	sharpsl_pcmcia_get_irq_info,
-	sharpsl_pcmcia_configure_socket
+	sharpsl_pcmcia_configure_socket,
+#if defined(CONFIG_ARCH_PXA_TOSA)
+	sharpsl_pcmcia_socket_init,
+#endif
 };
 
-int is_pcmcia_card_present(int slot)
+int is_pcmcia_card_present(int irq)
 {
 	int detect;
 #ifdef CONFIG_SABINAL_DISCOVERY
   	detect = ((ASIC3_GPIO_PSTS_D & CF_DETECT) ? 0 : 1);  	
+	//printk("is_card_present: irq=%d detect=%d\n", irq, detect);
+	return detect;
 #else
-	int active;
-	active = (SCP_REG_CPR & 0x0003)? 1:0;
-	detect = (SCP_REG_CSR & 0x0004)? 0:1;
+	int active = 0;
+	if (irq == IRQ_GPIO_CF_IRQ) {
+		active = (SCP_REG_CPR & 0x0003)? 1:0;
+		detect = (SCP_REG_CSR & 0x0004)? 0:1;
+#if defined(CONFIG_ARCH_PXA_TOSA)
+	} else if (irq == IRQ_GPIO_JC_CF_IRQ) {
+		active = (SCP_JC_REG_CPR & 0x0003)? 1:0;
+		detect = (SCP_JC_REG_CSR & 0x0004)? 0:1;
 #endif
-	//printk("is_card_present: detect=%d\n", detect);
-	//return detect;
+	} else {
+		/* unknown IRQ : return TRUE */
+		return 1;
+	}
+	//printk("is_card_present: irq=%d detect=%d active=%d\n", irq, detect, active);
 	return detect & active;
+#endif
 }
+
+int sharpsl_pcmcia_irq_to_sock(int irq)
+{
+#if defined(CONFIG_ARCH_PXA_TOSA)
+	if (irq == IRQ_GPIO_JC_CF_IRQ) {
+		return 1;
+	}
+#endif
+	return 0;
+}
+

@@ -11,6 +11,7 @@
  *
  * ChangLog:
  *	12-Dec-2002 Lineo Japan, Inc.
+ *      26-Feb-2004 Lineo Solutions, Inc.  for Tosa
  */
 
 #ifndef __ASM_ARCH_HARDWARE_H
@@ -160,6 +161,10 @@ extern unsigned int get_lclk_frequency_10khz(void);
 
 #ifdef CONFIG_ARCH_PXA_CORGI
 #include "corgi.h"
-#endif
+#endif	/* CONFIG_ARCH_PXA_CORGI */
+
+#ifdef CONFIG_ARCH_PXA_TOSA
+#include "tosa.h"
+#endif	/* CONFIG_ARCH_PXA_TOSA */
 
 #endif  /* _ASM_ARCH_HARDWARE_H */

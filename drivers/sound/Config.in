@@ -224,6 +224,8 @@ if [ "$CONFIG_ARM" = "y" ]; then
    dep_tristate '  Intel PXA250/210 AC97 audio' CONFIG_SOUND_PXA_AC97 $CONFIG_ARCH_PXA $CONFIG_SOUND
    dep_tristate '  Poodle audio support' CONFIG_SOUND_POODLE $CONFIG_ARCH_PXA $CONFIG_SOUND
    dep_tristate '  Corgi audio support' CONFIG_SOUND_CORGI $CONFIG_ARCH_PXA $CONFIG_SOUND
+   dep_tristate '  Tosa audio support' CONFIG_SOUND_TOSA $CONFIG_AC97_TOSA $CONFIG_SOUND
+   dep_tristate '    Tosa buzzer support' CONFIG_BUZZER_TOSA $CONFIG_SOUND_TOSA
 fi
 
 dep_tristate '  TV card (bt848) mixer support' CONFIG_SOUND_TVMIXER $CONFIG_SOUND $CONFIG_I2C

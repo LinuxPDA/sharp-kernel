@@ -11,6 +11,7 @@
  *
  * Change Log
  *   08-19-2002 Sharp	add I2S defines
+ *   26-Feb-2004 Lineo Solutions, Inc.  supply a definition for FM bit of ICR
  *
  */
 #ifndef _PXA_REGS_H_
@@ -443,6 +444,7 @@ typedef void            (*ExcpHndlr) (void) ;
 #define ICR_ALDIE	0x1000  	/* enable arbitration interrupt */
 #define ICR_SADIE	0x2000		/* slave address detected int enable */
 #define ICR_UR		0x4000		/* unit reset */
+#define ICR_FM		0x8000		/* fast mode */
 
 /* ----- Status register bits ----------------------------------------- */
 

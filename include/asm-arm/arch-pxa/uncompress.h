@@ -11,6 +11,7 @@
  * Change Log
  *	31-Jul-2002 Lineo Japan, Inc.
  *	12-Dec-2002 Sharp Corporation for Poodle and Corgi
+ *	26-Feb-2004 Lineo Solutions, Inc.  for Tosa
  */
 
 #define FFUART		((volatile unsigned long *)0x40100000)
@@ -35,7 +36,7 @@ static __inline__ void putc(char c)
  */
 static void puts(const char *s)
 {
-#if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
+#if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
   return;
 #endif
 

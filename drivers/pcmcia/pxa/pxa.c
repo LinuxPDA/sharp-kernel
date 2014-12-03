@@ -14,6 +14,7 @@
  * ChangLog:
  *	12-Dec-2002 Lineo Japan, Inc.
  *	12-Dec-2002 Sharp Corporation for Poodle and Corgi
+ * 	26-Feb-2004 Lineo Solutions, Inc.  Tosa and 2 slot support
  */
 
 /*======================================================================
@@ -170,7 +171,7 @@ static struct notifier_block pxa_pcmcia_notifier_block;
 #endif
 
 #ifdef CONFIG_ARCH_SHARP_SL
-  u8 first = 1;
+  static u8 first[2] = {1, 1};
   u8 force_8bit_access_check_done = 0;
 #endif
 
@@ -252,6 +253,8 @@ static int __init pxa_pcmcia_driver_init(void){
   } else if( machine_is_poodle()){
     pcmcia_low_level=&sharpsl_pcmcia_ops;
   } else if( machine_is_corgi()){
+    pcmcia_low_level=&sharpsl_pcmcia_ops;
+  } else if( machine_is_tosa() ) {
     pcmcia_low_level=&sharpsl_pcmcia_ops;
   }
 
@@ -415,17 +418,20 @@ static int pxa_pcmcia_init(unsigned int sock){
 
 #ifdef CONFIG_ARCH_SHARP_SL
   printk("pxa_pcmcia_init(%d)\n",sock);
-  if(!first){
+  if(!first[sock]){
     socket_state_t state;
     pxa_pcmcia_get_socket(sock, &state);
     state.flags &= ~SS_OUTPUT_ENA;
     state.Vcc = state.Vpp = 0;
     pxa_pcmcia_set_socket(sock, &state);
   } else {
-    first = 0;
+    first[sock] = 0;
   }
   set_GPIO_mode(GPIO53_nPCE_2_MD);	// reset force 8bit access.
   force_8bit_access_check_done = 0;
+
+  if (pcmcia_low_level->socket_init)
+    return pcmcia_low_level->socket_init(sock);
 #endif
   return 0;
 }

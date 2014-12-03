@@ -1511,6 +1511,17 @@ int sharpsl_off_charge_battery(void)
       {
 	DPRINTK("STEP 1\n");
 
+#if defined(CONFIG_ARCH_PXA_SHEPHERD)
+	if ( !(GPLR(GPIO_MAIN_BAT_LOW) & GPIO_bit(GPIO_MAIN_BAT_LOW)) ) {
+	  // unlock
+	  CHARGE_LED_OFF();
+	  CHARGE_OFF();
+	  sharpsl_charge_state = CHARGE_STEP1;
+	  charge_status = 0;
+	  return 0;
+	}
+#endif
+
 #if defined(CONFIG_ARCH_PXA_CORGI)
 	/* AC Check */
 	if ( sharpsl_ac_check() ) {

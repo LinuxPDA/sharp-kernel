@@ -10,6 +10,7 @@
  *
  * ChangeLog:
  *	21-Aug-2002 Lineo Japan, Inc.  for 2.4.18
+ *	26-Feb-2004 Lineo Solutions, Inc.  for Tosa
  *
  */
 
@@ -81,6 +82,11 @@
 #define		BATT_AD		4u		/* channel of BATTery */
 #define		BATT_THM	2u		/* channel of BATTery */
 #define		JK_VAD		6u		/* channel of BATTery */
+#elif defined(CONFIG_ARCH_PXA_TOSA)
+#define		BATT_VC		0x4		/* channel of BAT V CAUTION */
+#define		BATT_TH		0x5		/* channel of BAT TH */
+#define		BATT_V		0x6		/* channel of BAT V */
+#define		BU_V		0x7		/* channel of BU V */
 #endif
 
 #define		Temper_V47	0x449	/* 0.670v (47"C) */

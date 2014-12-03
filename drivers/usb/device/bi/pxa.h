@@ -21,6 +21,8 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  *
+ * ChangeLog:
+ *   26-Feb-2004 Lineo Solutions, Inc.  for Tosa
  */
 
 
@@ -52,6 +54,15 @@
 /* SHARP SL-C700 specific GPIO assignments */
 #define USBD_CONNECT_GPIO	45
 #define USBD_CONNECT_HIGH	1
+#endif
+
+#if defined(CONFIG_ARCH_PXA_TOSA)
+/* SHARP SL-6000 specific GPIO assignments */
+#define USBD_CONNECT_GPIO	SCP_JC_USB_PULLUP
+#define USBD_CONNECT_HIGH	1
+#define USBD_CABLE_GPIO		GPIO_USB_IN
+// active low
+//#define USBD_CABLE_ACTIVE_HIGH	1
 #endif
 
 

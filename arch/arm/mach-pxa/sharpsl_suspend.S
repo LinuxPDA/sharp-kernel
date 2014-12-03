@@ -33,6 +33,7 @@
  *	31-Jul-2002 Lineo Japan, Inc.  for ARCH_PXA
  *	12-Dec-2002 Lineo Japan, Inc.
  *	12-Dec-2002 Sharp Corporation for Poodle and Corgi
+ *      26-Feb-2004 Lineo Solutions, Inc.  for Tosa
  */
 
 #include <linux/linkage.h>
@@ -842,7 +843,7 @@ ENTRY(cpu_xscale_turbomode)
 MD_BASE:	.word	io_p2v(0x48000000)
 CodeOnCacheAdr:	.word	CodeOnCache
 MDCNFG_ValAdr:	.word	0x01A819A9
-MDREFR_ValAdr:	.word	0x000BC027
+@MDREFR_ValAdr:	.word	0x000BC027
 CCCR_ValAdr:	.word	0x00000145
 MSC0_ValAdr:	.word	0x7ff03DD8
 MSC1_ValAdr:	.word	0x2274225C
@@ -862,7 +863,7 @@ ENTRY(cpu_xscale_sl_change_speed_145_without_lcd)
  	str		r1, [r0, #CMR_CCCR]
 
  	ldr		r0, MD_BASE
- 	ldr		r2, MDREFR_ValAdr
+@ 	ldr		r2, MDREFR_ValAdr
 @ 	ldr		r4, MDCNFG_ValAdr
 
  	bl		CodeOnCache
@@ -901,7 +902,7 @@ CodeOnCache:
 CodeOnCacheAdr_100:	.word	CodeOnCache_100
 MDCNFG_ValAdr_100:	.word	0x01A81AA9
 @@MDREFR_ValAdr_100:	.word	0x0009C02F
-MDREFR_ValAdr_100:	.word	0x0009C027
+@MDREFR_ValAdr_100:	.word	0x0009C017
 CCCR_ValAdr_100:	.word	0x00000241
 MSC0_ValAdr_100:	.word	0x7ff01888
 MSC1_ValAdr_100:	.word	0x1244123C
@@ -915,7 +916,8 @@ ENTRY(cpu_xscale_sl_change_speed_241_without_lcd)
  	str		r1, [r0, #CMR_CCCR]
 
  	ldr		r0, MD_BASE
- 	ldr		r2, MDREFR_ValAdr_100
+	ldr		r2, [r0, #MD_MDREFR]
+@ 	ldr		r2, MDREFR_ValAdr_100
 @ 	ldr		r4, MDCNFG_ValAdr_100
 
  	bl		CodeOnCache_100
@@ -945,7 +947,7 @@ LCCR3VALUE_121:		.word	0x04000007
 CodeOnCacheAdr_121:	.word	CodeOnCache_121
 MDCNFG_ValAdr_121:	.word	0x01A81AA9
 @@MDREFR_ValAdr_121:	.word	0x0009C02F
-MDREFR_ValAdr_121:	.word	0x0009C027
+@MDREFR_ValAdr_121:	.word	0x0009C017
 CCCR_ValAdr_121:	.word	0x00000121
 MSC0_ValAdr_121:	.word	0x7ff01888
 MSC1_ValAdr_121:	.word	0x1244123C
@@ -966,7 +968,8 @@ ENTRY(cpu_xscale_sl_change_speed_121)
  	str		r1, [r0, #CMR_CCCR]
 
  	ldr		r0, MD_BASE
- 	ldr		r2, MDREFR_ValAdr_121
+	ldr		r2, [r0, #MD_MDREFR]
+@ 	ldr		r2, MDREFR_ValAdr_121
 @ 	ldr		r4, MDCNFG_ValAdr_121
 
  	bl		CodeOnCache_121
@@ -995,7 +998,7 @@ LCCR3VALUE_145:		.word	0x0400000C
 CodeOnCacheAdr_145:	.word	CodeOnCache_145
 CCCR_ValAdr_145:	.word	0x00000145
 MDCNFG_ValAdr_145:	.word	0x01A819A9
-MDREFR_ValAdr_145:	.word	0x000BC027
+@MDREFR_ValAdr_145:	.word	0x000BC027
 MSC0_ValAdr_145:	.word	0x7ff03DD8
 MSC1_ValAdr_145:	.word	0x2274225C
 MSC2_ValAdr_145:	.word	0x7FF024F4
@@ -1015,7 +1018,8 @@ ENTRY(cpu_xscale_sl_change_speed_145)
  	str		r1, [r0, #CMR_CCCR]
 
  	ldr		r0, MD_BASE
- 	ldr		r2, MDREFR_ValAdr_145
+	ldr		r2, [r0, #MD_MDREFR]
+@ 	ldr		r2, MDREFR_ValAdr_145
 @ 	ldr		r4, MDCNFG_ValAdr_145
 
  	bl		CodeOnCache_145
@@ -1049,5 +1053,31 @@ CodeOnCache_145:
  	.align 5
  	.text
 
-	
-		
+#if defined(CONFIG_ARCH_PXA_SHEPHERD) || defined(CONFIG_ARCH_PXA_TOSA)
+
+ENTRY(cpu_xscale_sl_change_speed_161)
+ 	stmfd	sp!, {r0, r1, r2, r3, r4, lr}
+
+ 	ldr		r0, CMR_BASE
+	ldr		r1, =0x161
+ 	str		r1, [r0, #CMR_CCCR]
+
+ 	ldr		r0, MD_BASE
+	ldr		r2, [r0, #MD_MDREFR]
+
+ 	bl		CodeOnCache_161
+ 
+ 	.align 5
+ 	.text
+CodeOnCache_161:
+	mov		r1, #0x2
+ 	mcr		p14, 0, r1, c6, c0, 0
+ 	str		r2, [r0, #MD_MDREFR]
+	ldr		r2, [r0, #MD_MDREFR]
+
+	ldmfd	sp!, {r0, r1, r2, r3, r4, pc}
+ 		
+ 	.align 5
+ 	.text
+
+#endif

@@ -66,6 +66,7 @@
  *      added support for rotation logo screen on SHARP SL-C700
  *   08-Nov-2002 SHARP
  *      SHARP logo screen modification
+ *   26-Feb-2004 Lineo Solutions, Inc.  for Tosa
  */
 
 #undef FBCONDEBUG
@@ -816,10 +817,17 @@ static void fbcon_setup(int con, int init, int logo)
 	(p->var.yres_virtual % fontwidth(p) < p->var.yres % fontwidth(p)))
 	p->vrows--;
 #else
+#ifdef CONFIG_FB_TOSA		/* re_check */
+    p->vrows = p->var.yres_virtual / fontwidth(p);
+    if ((p->var.yres % fontwidth(p)) &&
+	(p->var.yres_virtual % fontwidth(p) < p->var.yres % fontwidth(p)))
+	p->vrows--;
+#else
     p->vrows = p->var.xres_virtual / fontheight(p);
     if ((p->var.xres % fontheight(p)) &&
 	(p->var.xres_virtual % fontheight(p) < p->var.xres % fontheight(p)))
 	p->vrows--;
+#endif
 #endif
 #else
     p->vrows = p->var.yres_virtual/fontheight(p);

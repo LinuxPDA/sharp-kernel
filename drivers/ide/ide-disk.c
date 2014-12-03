@@ -31,6 +31,7 @@
  * Change Log
  *	12-Nov-2001 Lineo Japan, Inc.
  *	30-Jul-2002 Lineo Japan, Inc.  for 2.4.18
+ *      26-Feb-2004 Lineo Solutions, Inc.  2 slot support
  */
 
 #define IDEDISK_VERSION	"1.10"
@@ -372,7 +373,8 @@ static ide_startstop_t recal_intr (ide_drive_t *drive)
 static ide_startstop_t do_rw_disk (ide_drive_t *drive, struct request *rq, unsigned long block)
 {
 #if defined(CONFIG_ARCH_SHARP_SL) && defined(CONFIG_PCMCIA)
-	if (!is_pcmcia_card_present(0)) {
+	ide_hwif_t *hwif = HWIF(drive);
+	if (!is_pcmcia_card_present(hwif->irq)) {
 		ide_end_request(0, HWGROUP(drive));
 		return ide_stopped;
 	}

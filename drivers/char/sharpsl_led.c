@@ -18,6 +18,7 @@
  *  ChangeLog:
  *    based on collie_led.c Aug. 26 2002 LINEO
  *    12-Dec-2002 Sharp Corporation for Poodle and Corgi
+ *     1-Nov-2003 Sharp Corporation   for Tosa
  *
  */
 
@@ -47,6 +48,9 @@
 #if defined(CONFIG_ARCH_PXA_CORGI)
 #include <asm/arch/corgi.h>
 #endif
+#if defined(CONFIG_ARCH_PXA_TOSA)
+#include <asm/arch/tosa.h>
+#endif
 #include <asm/arch/hardware.h>
 
 #include <linux/timer.h>
@@ -69,7 +73,8 @@ void sharpsl_charge_err_off(void)
 {
   set_led_status(SHARP_LED_CHARGER,LED_CHARGER_ERROR);
 }
-#elif defined(CONFIG_ARCH_PXA_CORGI)
+#elif defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
+static int led_suspended=0;
 void sharpsl_charge_wait_ms(void)
 {
   unsigned long time = OSCR;
@@ -88,6 +93,18 @@ void sharpsl_charge_wait(int ms)
   }
 }
 
+#if defined (CONFIG_ARCH_PXA_TOSA)
+void sharpsl_charge_err_off(void)
+{
+  while(1) {
+    set_scoop_jc_gpio(SCP_LED_ORANGE);
+    sharpsl_charge_wait( 250 );
+    reset_scoop_jc_gpio(SCP_LED_ORANGE);
+    sharpsl_charge_wait( 250 );
+    if ((GPLR(GPIO_AC_IN) & GPIO_bit(GPIO_AC_IN))!=0) break;
+  }
+}
+#else // for Corgi
 void sharpsl_charge_err_off(void)
 {
   while(1) {
@@ -99,6 +116,7 @@ void sharpsl_charge_err_off(void)
   }
 }
 #endif
+#endif
 
 #if defined(CONFIG_ARCH_PXA_POODLE)
 #define	LED_ONOFF_MASK (LCM_LPT_TOFL|LCM_LPT_TOFH)
@@ -109,7 +127,7 @@ void sharpsl_charge_err_off(void)
 #define	LED_BLNK(REG,X,Y) ((REG)=((REG)&~LED_BLNK_MASK)|LED_BLNK_VAL(X,Y))
 #endif
 
-#if defined(CONFIG_ARCH_PXA_CORGI)
+#if defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
 struct timer_list orange_led_blink_timer;
 struct st_orange_blink {
 	int blink_switch;
@@ -120,16 +138,76 @@ struct st_orange_blink {
 #define BLINK_SLOW		2
 #define ORANGE_LED_SW		1
 #define GREEN_LED_SW		2
+#if defined (CONFIG_ARCH_PXA_TOSA)
+#define BLUE_LED_SW		3
+#define WLAN_LED_SW		4
+#define LED_NUM			4
+
+static int get_ledport( int sw )
+{
+  int port=-1;
+  switch(sw) {
+  case ORANGE_LED_SW:
+    port = SCP_LED_ORANGE;
+    break;
+  case GREEN_LED_SW:
+    port = SCP_LED_GREEN;
+    break;
+  case BLUE_LED_SW:
+    port = SCP_LED_BLUE;
+    break;
+  case WLAN_LED_SW:
+    port = SCP_LED_WLAN;
+    break;
+  }
+  return port;
+}
+
+static void set_led( int sw, int on )
+{
+  int port=get_ledport(sw);
+  if (port==-1) {
+    printk(__FUNCTION__ ": unknown LED %d\n",sw);
+    return;
+  }
+  if (on) set_scoop_jc_gpio(port);
+  else reset_scoop_jc_gpio(port);
+  //  printk("setled(%d,%d)\n",sw,on);
+}
+
+static int get_led( int sw )
+{
+  int port=get_ledport(sw);
+  if (port==-1) {
+    printk(__FUNCTION__ ": unknown LED %d\n",sw);
+    return;
+  }
+  return (SCP_JC_REG_GPWR&port)?1:0;
+}
+
+#define LED_OFF(n)	set_led(n,0)
+#define LED_ON(n)	set_led(n,1)
+#define LED_STATUS(n)	get_led(n)
+static int led_resume_buffer=0;
+#endif
 
 static void blink_orange_led(unsigned long data)
 {
 	struct st_orange_blink *orange = (struct st_orange_blink *)data;
 
 	if (orange->blink_switch == 0) {
+#if defined (CONFIG_ARCH_PXA_TOSA)
+	        LED_ON(ORANGE_LED_SW);
+#else
 		GPSR(GPIO_LED_ORANGE) = GPIO_bit(GPIO_LED_ORANGE);
+#endif
 		orange->blink_switch = 1;
 	} else {
+#if defined (CONFIG_ARCH_PXA_TOSA)
+	        LED_OFF(ORANGE_LED_SW);
+#else
 		GPCR(GPIO_LED_ORANGE) = GPIO_bit(GPIO_LED_ORANGE);
+#endif
 		orange->blink_switch = 0;
 	}
 
@@ -165,9 +243,11 @@ void orange_led_stop_blink(void)
 	del_timer(&orange_led_blink_timer);
 }
 
+#if ! defined(CONFIG_ARCH_PXA_TOSA)
 #define	LED_OFF(n)	( (n == ORANGE_LED_SW) ? (GPCR(GPIO_LED_ORANGE) = GPIO_bit(GPIO_LED_ORANGE)) : (reset_scoop_gpio(SCP_LED_GREEN)) )
 
 #define	LED_ON(n)	( (n == ORANGE_LED_SW) ? (GPSR(GPIO_LED_ORANGE) = GPIO_bit(GPIO_LED_ORANGE)) : (set_scoop_gpio(SCP_LED_GREEN)) )
+#endif
 
 #define	LED_BLNK(n)	orange_led_start_blink(n)
 #endif /* CONFIG_ARCH_PXA_CORGI */
@@ -178,7 +258,7 @@ static void led0_off(void)
 {
 #if defined(CONFIG_ARCH_PXA_POODLE)
 	LED_OFF(LCM_LPT0);
-#elif defined(CONFIG_ARCH_PXA_CORGI)
+#elif defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
 	LED_OFF(ORANGE_LED_SW);
 	orange_led_stop_blink();
 #endif
@@ -188,7 +268,7 @@ static void led0_on(void)
 {
 #if defined(CONFIG_ARCH_PXA_POODLE)
 	LED_ON(LCM_LPT0);
-#elif defined(CONFIG_ARCH_PXA_CORGI)
+#elif defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
 	LED_ON(ORANGE_LED_SW);
 #endif
 }
@@ -198,7 +278,7 @@ static void led0_fastblink(void)
 	led0_off();
 #if defined(CONFIG_ARCH_PXA_POODLE)
 	LED_BLNK(LCM_LPT0,2,2);
-#elif defined(CONFIG_ARCH_PXA_CORGI)
+#elif defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
 	LED_BLNK(BLINK_FAST);
 #endif
 }
@@ -208,7 +288,7 @@ static void led0_slowblink(void)
 	led0_off();
 #if defined(CONFIG_ARCH_PXA_POODLE)
 	LED_BLNK(LCM_LPT0,7,7);
-#elif defined(CONFIG_ARCH_PXA_CORGI)
+#elif defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
 	LED_BLNK(BLINK_SLOW);
 #endif
 }
@@ -219,7 +299,7 @@ static void led1_off(void)
 {
 #if defined(CONFIG_ARCH_PXA_POODLE)
 	LED_OFF(LCM_LPT1);
-#elif defined(CONFIG_ARCH_PXA_CORGI)
+#elif defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
 	LED_OFF(GREEN_LED_SW);
 #endif
 }
@@ -228,7 +308,7 @@ static void led1_on(void)
 {
 #if defined(CONFIG_ARCH_PXA_POODLE)
 	LED_ON(LCM_LPT1);
-#elif defined(CONFIG_ARCH_PXA_CORGI)
+#elif defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
 	LED_ON(GREEN_LED_SW);
 #endif
 }
@@ -376,7 +456,7 @@ static sharpled_pattern_item sharpsl_ledpat_flashon[] = {
 	expires: -1,
 	next: -1
   }
-#elif defined(CONFIG_ARCH_PXA_CORGI)
+#elif defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
   {
 	ledstate: SHARPSLLED_ON ,
 	expires: (HZ/10 + HZ/50),
@@ -397,7 +477,7 @@ static sharpled_pattern_item sharpsl_ledpat_flashoff[] = {
 	expires: -1,
 	next: -1
   }
-#elif defined(CONFIG_ARCH_PXA_CORGI)
+#elif defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
   {
 	ledstate: SHARPSLLED_ON ,
 	expires: ((4*HZ)/5 + (2*HZ)/25),
@@ -418,7 +498,7 @@ static sharpled_pattern_item sharpsl_ledpat_veryfastblink[] = {
 	expires: -1,
 	next: -1
   }
-#elif defined(CONFIG_ARCH_PXA_CORGI)
+#elif defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
   {
 	ledstate: SHARPSLLED_ON ,
 	expires: (HZ/10 + HZ/50),
@@ -439,7 +519,7 @@ static sharpled_pattern_item sharpsl_ledpat_fastblink[] = {
 	expires: -1,
 	next: -1
   }
-#elif defined(CONFIG_ARCH_PXA_CORGI)
+#elif defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
   {
 	ledstate: SHARPSLLED_ON ,
 	expires: HZ/4,
@@ -460,7 +540,7 @@ static sharpled_pattern_item sharpsl_ledpat_normalblink[] = {
 	expires: -1,
 	next: -1
   }
-#elif defined(CONFIG_ARCH_PXA_CORGI)
+#elif defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
   {
 	ledstate: SHARPSLLED_ON ,
 	expires: HZ/2,
@@ -481,7 +561,7 @@ static sharpled_pattern_item sharpsl_ledpat_slowblink[] = {
 	expires: -1,
 	next: -1
   }
-#elif defined(CONFIG_ARCH_PXA_CORGI)
+#elif defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
   {
 	ledstate: SHARPSLLED_ON ,
 	expires: ((4*HZ)/5 + (2*HZ)/25),
@@ -610,6 +690,98 @@ static void sharpsl_led0_process(void)
 	led0_off();
 }
 
+#if defined(CONFIG_ARCH_PXA_TOSA)
+typedef struct {
+  int status;
+  int blink_switch;
+  long blink_interval;
+  struct timer_list timer;
+} LED_BLINK;
+static LED_BLINK st_led_status[LED_NUM+1];
+static int led_status_initialized=0; 
+
+static void led_on(int led)
+{
+  del_timer(&st_led_status[led].timer);
+  st_led_status[led].status=1;
+  LED_ON(led);
+}
+static void led_off(int led)
+{
+  del_timer(&st_led_status[led].timer);
+  st_led_status[led].status=0;
+  LED_OFF(led);
+}
+
+static void led_blink_func(unsigned long data)
+{
+  int led = data;
+  if (st_led_status[led].blink_switch==0 && led_suspended==0 ) {
+    LED_ON(led);
+    st_led_status[led].blink_switch=1;
+  } else {
+    LED_OFF(led);
+    st_led_status[led].blink_switch=0;
+  }
+  init_timer(&st_led_status[led].timer);
+  st_led_status[led].timer.function = led_blink_func;
+  st_led_status[led].timer.expires = jiffies + st_led_status[led].blink_interval;
+  st_led_status[led].timer.data = led;
+  add_timer(&st_led_status[led].timer);
+}
+
+static void led_start_blink(int led, int interval)
+{
+  del_timer(&st_led_status[led].timer);
+  switch (interval) {
+  case BLINK_SLOW:
+    st_led_status[led].blink_interval = (4*HZ)/5 + (2*HZ)/25;
+    st_led_status[led].status = 2;
+    break;
+  case BLINK_FAST:
+    st_led_status[led].blink_interval = HZ / 4;
+    st_led_status[led].status = 3;
+    break;
+  default :
+    return;
+  }
+
+  st_led_status[led].blink_switch=0;
+  led_blink_func(led);
+}
+
+static void sharpsl_led_process_ex(int led_sw)
+{
+  int *leds = sharpslled_internal_logical;
+  int status=-1;
+  switch(led_sw) {
+  case BLUE_LED_SW:
+    status = leds[SHARP_LED_BLUETOOTH];
+    break;
+  case WLAN_LED_SW:
+    status = leds[SHARP_LED_WLAN];
+    break;
+  }
+  if ( status == -1 || status == st_led_status[led_sw].status ) return;
+  if (led_suspended) status=0; // force off
+  switch(status) {
+  case 0: // off
+    led_off(led_sw);
+    return;
+  case 1: // on
+    led_on(led_sw);
+    return;
+  case 2: // blink
+    led_start_blink(led_sw,BLINK_SLOW);
+    return;
+  case 3: // blink fast
+    led_start_blink(led_sw,BLINK_FAST);
+    return;
+  }
+  led_off(led_sw);
+}
+#endif
+
 static sharpled_pattern_item* decide_physical_led(void)
 {
 	int *leds = sharpslled_internal_logical;
@@ -632,7 +804,7 @@ static sharpled_pattern_item* decide_physical_led(void)
 	      sharpslled_internal_logical[15]));
 
 	/******* 1st: controlled *******/
-#if defined(CONFIG_ARCH_PXA_CORGI)
+#if defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
 	if( (leds[SHARP_LED_COLLIE_1] > LED_COLLIE_1_ON) &&
 	    (leds[SHARP_LED_PDA] == LED_PDA_OFF) )
 		return NULL;
@@ -662,10 +834,10 @@ static sharpled_pattern_item* decide_physical_led(void)
 			sharpsl_ledpat_softflash : NULL;
 	}
 
-#if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
+#if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
 	/* A3-1:R:SHARP_LED_CHARGER=LED_CHARGER_ERROR */
 
-#if defined(CONFIG_ARCH_PXA_CORGI)
+#if defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
 	/* A3-non-spec:G:turn off */
 	if( leds[SHARP_LED_PDA] == LED_PDA_OFF )
 		return NULL;
@@ -777,6 +949,14 @@ int sharpsl_turn_led_status(int which, int status)
 	if( which < 0 || which > SHARP_LED_WHICH_MAX ) return -EINVAL;
 	sharpslled_internal_logical[which] = status;
 	sharpsl_led0_process();
+#if defined(CONFIG_ARCH_PXA_TOSA)
+	{
+	  int i;
+	  for (i=3; i<=LED_NUM; i++) {
+	    sharpsl_led_process_ex(i);
+	  }
+	}
+#endif
 	if( curpat ) sharpled_pattern_end(&sharpsl_led1_player);
 	if( ( pat = decide_physical_led() ) != NULL ){
 		sharpled_pattern_start(&sharpsl_led1_player,pat);
@@ -787,13 +967,44 @@ int sharpsl_turn_led_status(int which, int status)
 
 int sharpsl_init_led(void)
 {
+#if defined(CONFIG_ARCH_PXA_TOSA)
+  if (!led_status_initialized) {
+    memset(&st_led_status,0,sizeof(st_led_status));
+    led_status_initialized=1;
+  }
+#endif
 	return 0;
 }
 int sharpsl_suspend_led(void)
 {
+#if defined(CONFIG_ARCH_PXA_TOSA)
+  led_suspended=1;
+  {
+    int i;
+    led_resume_buffer = 0;
+    for (i=1; i<=LED_NUM; i++) {
+      if (LED_STATUS(i)) {
+	led_resume_buffer |= 0x1<<i;
+	LED_OFF(i);
+      }
+    }
+  }
+#endif
 	return 0;
 }
 int sharpsl_resume_led(void)
 {
+#if defined(CONFIG_ARCH_PXA_TOSA)
+  led_suspended=0;
+  {
+    int i;
+    for (i=1; i<=LED_NUM; i++) {
+      if (led_resume_buffer & (0x1<<i)) {
+	LED_ON(i);
+      }
+    }
+    led_resume_buffer = 0;
+  }
+#endif
 	return 0;
 }

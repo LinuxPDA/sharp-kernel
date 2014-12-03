@@ -16,7 +16,11 @@
 /*
  * Task size: 3GB
  */
+#ifdef CONFIG_ARM_FCSE
+#define TASK_SIZE     ((current->mm->context.cpu_pid > CPU_PID_SPECIAL) ? (CPU_PID_SIZE) : (0xc0000000UL))
+#else
 #define TASK_SIZE	(0xc0000000UL)
+#endif
 #define TASK_SIZE_26	(0x04000000UL)
 
 /*

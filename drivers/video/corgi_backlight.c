@@ -88,6 +88,17 @@ typedef struct _duty_vr_t {
 	int vr;
 } duty_vr_t;
 
+#ifdef CONFIG_ARCH_PXA_SHEPHERD
+static duty_vr_t corgibl_duty_table[CORGI_LIGHT_SETTING] = {
+	{0x00, 0},	//   0%		Light Off
+	{0x01, 0},	//  20%		Dim 1
+	{0x05, 0},	//  40%		2
+	{0x0b, 0},	//  70%		3
+	{0x05, 1},	//  40%		4
+	{0x0b, 1},	//  70%		5
+	{0x1f, 1}	// 100%		6
+};
+#else
 static duty_vr_t corgibl_duty_table[CORGI_LIGHT_SETTING] = {
 	{0x00, 0},	//   0%		Light Off
 	{0x01, 0},	//  20%		Dim
@@ -97,6 +108,7 @@ static duty_vr_t corgibl_duty_table[CORGI_LIGHT_SETTING] = {
 	{0x0b, 1},	//  70%		4
 	{0x1f, 1}	// 100%		5
 };
+#endif
 
 #define SetBacklightDuty(a)	ssp_put_dac_val(0x40 | ((a) & 0x1f), CS_LZ9JG18);
 #define SetBacklightVR(a)	if (a) {set_scoop_gpio(SCP_BACKLIGHT_CONT);} else {reset_scoop_gpio(SCP_BACKLIGHT_CONT);}

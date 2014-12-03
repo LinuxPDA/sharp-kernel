@@ -8,6 +8,9 @@
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
  *  published by the Free Software Foundation.
+ *
+ * ChangeLog:
+ *   26-Feb-2004 Lineo Solutions, Inc.  for Tosa
  */
 
 #include <linux/init.h>
@@ -78,7 +81,11 @@ void pxa_audio_clear_buf(audio_stream_t * s)
  * This function allocates the DMA descriptor array and buffer data space
  * according to the current number of fragments and fragment size.
  */
+#ifdef CONFIG_ARCH_PXA_TOSA
+int audio_setup_buf(audio_stream_t * s)
+#else
 static int audio_setup_buf(audio_stream_t * s)
+#endif	/* CONFIG_ARCH_PXA_TOSA */
 {
 	pxa_dma_desc *dma_desc;
 	dma_addr_t dma_desc_phys;
@@ -258,7 +265,11 @@ static void audio_dma_irq(int ch, void *dev_id, struct pt_regs *regs)
 /*
  * Validate and sets up buffer fragments, etc.
  */
+#ifdef CONFIG_ARCH_PXA_TOSA
+int audio_set_fragments(audio_stream_t *s, int val)
+#else
 static int audio_set_fragments(audio_stream_t *s, int val)
+#endif	/* CONFIG_ARCH_PXA_TOSA */
 {
 	if (s->mapped || DCSR(s->dma_ch) & DCSR_RUN)
 		return -EBUSY;
@@ -428,7 +439,11 @@ static int audio_read(struct file *file, char *buffer,
 }
 
 
+#ifdef CONFIG_ARCH_PXA_TOSA
+int audio_sync(struct file *file)
+#else
 static int audio_sync(struct file *file)
+#endif	/* CONFIG_ARCH_PXA_TOSA */
 {
 	audio_state_t *state = file->private_data;
 	audio_stream_t *s = state->output_stream;
@@ -810,12 +825,16 @@ int pxa_audio_attach(struct inode *inode, struct file *file,
 	}
 
 	file->private_data	= state;
+#ifndef CONFIG_ARCH_PXA_TOSA
 	file->f_op->release	= audio_release;
+#endif	/* CONFIG_ARCH_PXA_TOSA */
 	file->f_op->write	= audio_write;
 	file->f_op->read	= audio_read;
 	file->f_op->mmap	= audio_mmap;
 	file->f_op->poll	= audio_poll;
+#ifndef CONFIG_ARCH_PXA_TOSA
 	file->f_op->ioctl	= audio_ioctl;
+#endif	/* CONFIG_ARCH_PXA_TOSA */
 	file->f_op->llseek	= no_llseek;
 
 	if ((file->f_mode & FMODE_WRITE)) {
@@ -849,3 +868,8 @@ out:
 EXPORT_SYMBOL(pxa_audio_attach);
 EXPORT_SYMBOL(pxa_audio_clear_buf);
 
+#ifdef CONFIG_ARCH_PXA_TOSA
+EXPORT_SYMBOL(audio_set_fragments);
+EXPORT_SYMBOL(audio_sync);
+EXPORT_SYMBOL(audio_setup_buf);
+#endif

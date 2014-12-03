@@ -92,6 +92,7 @@
 //#undef DMA_NO_INITIALIZED
 
 #define ALARM_NO_MALLOC		1
+#define BUZZER_FORCE_CLOSE		1
 /**** valiables **********************************************************/
 #ifdef CONFIG_PM
 static struct pm_dev* pxa_sound_pm_dev;
@@ -115,6 +116,12 @@ static short *int_data_org = NULL ;
 #if ALARM_NO_MALLOC
 static int poodle_intmode_cur = 0;
 static int poodle_intmode_step = 0;
+#endif
+
+#ifdef BUZZER_FORCE_CLOSE
+#define WAIT_BZ_RELEASE	( ( 2 * 1000 ) / 10 )
+static int buzzer_open = 0;
+static int buzzer_close = 0;
 #endif
 
 /**** Prototype *******************************************************/
@@ -1618,7 +1625,33 @@ int audio_open(struct inode *inode, struct file *file )
 	err = -EBUSY;
 
 	if ( state->wr_ref || state->rd_ref )
+#ifdef BUZZER_FORCE_CLOSE
+	  {
+	    if( !buzzer_open ){
+	      goto out;
+	    }else{
+	      int now;
+
+	      // force close buzzer
+	      PXAI2S_DBGPRINT(DBG_LEVEL1, "force a buzzer stop!\n");
+	      buzzer_close = 1;
+	      if(DCSR(os->dma_ch) & DCSR_RUN) {
+		DCSR(os->dma_ch) &=
+		  (DCSR_RUN|DCSR_ENDINTR|DCSR_STARTINTR|DCSR_BUSERR);
+	      }
+	      now = jiffies;
+	      while(1) {
+		if ( !buzzer_open ) break;
+		schedule();
+		if ( jiffies > ( now + WAIT_BZ_RELEASE ) ) break;
+	      }
+	      buzzer_close = 0;
+	      if( buzzer_open ) goto out;
+	    }
+	  }
+#else
 		goto out;
+#endif
 
 	/* request DMA channels */
 	if (file->f_mode & FMODE_WRITE) {
@@ -2258,6 +2291,12 @@ int audio_buzzer_write(const char *buffer,int count)
   while (count > 0) {
     audio_buf_t *b = &s->buffers[s->usr_frag];
 
+#ifdef BUZZER_FORCE_CLOSE
+    if( buzzer_close ) {
+      break;
+    }
+#endif
+
     chunksize = s->fragsize - b->offset;
     if (chunksize > count)
       chunksize = count;
@@ -2309,6 +2348,10 @@ void audio_buzzer_sync(void)
   DECLARE_WAITQUEUE(wait, current);
 
 
+#ifdef BUZZER_FORCE_CLOSE
+  if( buzzer_close ) goto sync_end;
+#endif
+
   //audio_sync(file);
 
 	/*
@@ -2339,6 +2382,9 @@ void audio_buzzer_sync(void)
 #endif
 	}
 
+#ifdef BUZZER_FORCE_CLOSE
+ sync_end:;
+#endif
 
   /* Wait for DMA to complete. */
   set_current_state(TASK_INTERRUPTIBLE);
@@ -2357,7 +2403,7 @@ int audio_buzzer_release(void)
 {
   audio_state_t  *state = &pxa_audio_state;
   audio_stream_t *s = state->output_stream;
-  int err;
+  int err, ret = 0;
   DECLARE_WAITQUEUE(wait, current);
 
 
@@ -2384,8 +2430,13 @@ int audio_buzzer_release(void)
 
 #if ALARM_NO_MALLOC
 	// wait playing int sound.
+#ifdef BUZZER_FORCE_CLOSE
+	while(poodle_intmode_direct && !buzzer_close)
+	  schedule();
+#else
 	while(poodle_intmode_direct)
 	  schedule();
+#endif
 
 	poodle_intmode = 0;
     int_data_org = NULL;
@@ -2400,15 +2451,20 @@ int audio_buzzer_release(void)
   err = wm8731_close();
   if ( err ) {
     PXAI2S_DBGPRINT(DBG_ALWAYS, "Can not close wm8731\n");
-    return err;
+	ret = err;
   }
 
   // Close I2S
   err = i2s_close( POODLE_I2S_ADDRESS );
   if ( err ) {
     PXAI2S_DBGPRINT(DBG_ALWAYS, "Can not close i2s\n");
-    return err;
+	ret = err;
   }
+
+  state->wr_ref = 0;
+#ifdef BUZZER_FORCE_CLOSE
+  buzzer_open = 0;
+#endif
 
   return 0;
 }
@@ -2418,17 +2474,22 @@ int audio_buzzer_open(int speed)
   audio_state_t  *state = &pxa_audio_state;
   audio_stream_t *os = state->output_stream;
   SOUND_SETTINGS settings;
-  int err = 0;
+  int err;
 
   while(1) {
     if ( isPXAI2SReady ) break;
     schedule();
   }
 
+  err = -EBUSY;
   if ( state->wr_ref || state->rd_ref )
     goto out;
 
   state->wr_ref = 1;
+
+#ifdef BUZZER_FORCE_CLOSE
+  buzzer_open = 1;
+#endif
 
   /* request DMA channels */
   err = pxa_request_dma(os->name, DMA_PRIO_LOW, audio_dma_irq, os);
@@ -2480,6 +2541,12 @@ int audio_buzzer_open(int speed)
 
   err = 0;
 out:
+#ifdef BUZZER_FORCE_CLOSE
+  if( buzzer_close ){
+    err = -EBUSY;
+    goto error;
+  }
+#endif
   return err;
 
 error:
@@ -2795,10 +2862,11 @@ static int PoodlePMCallBack(struct pm_dev *pm_dev,pm_request_t req, void *data)
 
 	    if ( pxa_audio_state.rd_ref || pxa_audio_state.wr_ref ) {
 	      wm8731_resume();
-	      err = i2s_open( POODLE_I2S_ADDRESS , POODLE_DEFAULT_FREQUENCY);
+	      err = i2s_open( POODLE_I2S_ADDRESS , sound.hw_freq );
 	      if ( err ) {
 		PXAI2S_DBGPRINT(DBG_ALWAYS, "Can not open i2s\n");
 	      }
+	      wake_up(&hp_proc);
 	    }
 	  break;
 	  }

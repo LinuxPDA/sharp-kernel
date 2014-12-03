@@ -114,6 +114,11 @@ ifeq ($(ARCH),arm)
      KEYMAP  := corgi_keymap.o
 #     SERIAL   =
   endif
+  ifeq ($(CONFIG_ARCH_PXA_TOSA),y)
+     KEYBD   := tosa_keyb.o tosa_logkey.o
+     KEYMAP  := tosa_keymap.o
+#     SERIAL   =
+  endif
 endif
 
 ifeq ($(ARCH),sh)
@@ -232,6 +237,9 @@ obj-$(CONFIG_SA1100_COLLIE) += sharp_led.o sharp_kbdctl.o sharp_buzzer.o
 obj-$(CONFIG_DISCOVERY_LED) += sharp_led.o discovery_led.o
 obj-$(CONFIG_ARCH_PXA_POODLE) += sharp_led.o sharp_kbdctl.o sharpsl_led.o sharp_buzzer.o
 obj-$(CONFIG_ARCH_PXA_CORGI) += sharp_led.o sharpsl_led.o sharp_kbdctl.o corgi_rc.o sharp_buzzer.o
+obj-$(CONFIG_ARCH_PXA_TOSA) += sharp_led.o sharpsl_led.o sharp_kbdctl.o
+obj-$(CONFIG_BUZZER_TOSA) += sharp_buzzer.o
+
 obj-$(CONFIG_BUSMOUSE) += busmouse.o
 obj-$(CONFIG_DTLK) += dtlk.o
 obj-$(CONFIG_R3964) += n_r3964.o
@@ -248,6 +256,7 @@ obj-$(CONFIG_EFI_RTC) += efirtc.o
 obj-$(CONFIG_SA1100_RTC) += sa1100-rtc.o
 obj-$(CONFIG_COTULLA_RTC) += cotulla-rtc.o
 obj-$(CONFIG_ADS7846_TS) += ads7846_ts.o
+obj-$(CONFIG_TOSA_TS) += tosa_ts.o
 ifeq ($(CONFIG_PPC),)
   obj-$(CONFIG_NVRAM) += nvram.o
 endif
@@ -340,3 +349,7 @@ poodle_keymap.c: poodle_keymap.map
 
 corgi_keymap.c: corgi_keymap.map
 	set -e ; loadkeys --mktable $< | sed -e 's/^static *//' > $@
+
+tosa_keymap.c: tosa_keymap.map
+	set -e ; loadkeys --mktable $< | sed -e 's/^static *//' > $@
+

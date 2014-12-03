@@ -58,6 +58,7 @@ if [ "$CONFIG_FB" = "y" ]; then
 	dep_bool '  Cached FB support' CONFIG_POODLE_CONSISTENT_ALLOC $CONFIG_FB_POODLE
      fi
      dep_bool '  Corgi LCD support' CONFIG_FB_CORGI $CONFIG_ARCH_PXA_CORGI
+     dep_bool '  Tosa LCD support' CONFIG_FB_TOSA $CONFIG_ARCH_PXA_TOSA
      dep_bool '  SHARP LOGO screen support' CONFIG_SHARP_LOGO_SCREEN $CONFIG_ARCH_SHARP_SL
    fi
    dep_tristate '  CyberPro 2000/2010/5000 support' CONFIG_FB_CYBER2000 $CONFIG_PCI

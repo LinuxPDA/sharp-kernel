@@ -151,6 +151,17 @@ sharp_sl_nand_command_1(struct mtd_info* mtd,
     register unsigned long NAND_IO_ADDR = this->IO_ADDR_W;
     int i;
 
+#ifdef CONFIG_ARCH_SHARP_SL
+	if (command != NAND_CMD_RESET &&
+		command != NAND_CMD_STATUS) {
+		for (i = 0; i < NAND_BUSY_TIMEOUT; i++)
+			if (!sharp_sl_nand_flash_busy())
+				break;
+		if (i == NAND_BUSY_TIMEOUT)
+			return -EIO;
+	}
+#endif
+
     /* Begin command latch cycle */
     this->hwcontrol (NAND_CTL_SETCLE);
     /*

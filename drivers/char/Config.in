@@ -17,8 +17,12 @@ if [ "$CONFIG_SERIAL" = "y" ]; then
    fi
    if [ "$CONFIG_SABINAL_DISCOVERY" = "y" -o \
 	"$CONFIG_ARCH_PXA_POODLE" = "y" -o \
-	"$CONFIG_ARCH_PXA_CORGI" = "y" ]; then
+	"$CONFIG_ARCH_PXA_CORGI" = "y" -o \
+	"$CONFIG_ARCH_PXA_TOSA" = "y" ]; then
       bool '  SL-series serial port support' CONFIG_SERIAL_SL_SERIES
+   fi
+   if [ "$CONFIG_SERIAL_SL_SERIES" = "y" ]; then
+      bool '   SL-series Bluetooth support' CONFIG_BLUETOOTH_SL
    fi
 fi
 if [ "$CONFIG_SA1100_COLLIE" = "y" ]; then
@@ -216,6 +220,7 @@ fi
 if [ "$CONFIG_ARCH_SHARP_SL" = "y" ]; then
    tristate 'Cotulla Real Time Clock' CONFIG_COTULLA_RTC
    tristate 'ADS7846 Touch Pannel' CONFIG_ADS7846_TS
+   tristate 'Tosa Touch Pannel' CONFIG_TOSA_TS
 fi
 if [ "$CONFIG_SABINAL_DISCOVERY" = "y" ]; then
    tristate 'Discovery LED ' CONFIG_DISCOVERY_LED $(CONFIG_SABINAL_DISCOVERY)

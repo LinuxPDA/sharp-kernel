@@ -22,6 +22,9 @@
  *     provide warranty for any of this software. This material is 
  *     provided "AS-IS" and at no charge.
  *
+ * ChangeLog:
+ *      1-Nov-2003 Sharp Corporation   for Tosa
+ *
  ********************************************************************/
 
 #include <linux/config.h>
@@ -178,6 +181,16 @@ void irlmp_discovery_timer_expired(void *data)
 	/* Active discovery is conditional */
 	if (sysctl_discovery)
 		irlmp_do_discovery(sysctl_discovery_slots);
+#if defined(CONFIG_ARCH_SHARP_SL)
+	else if (( irlmp != NULL )&&( irlmp->discovery_retry )){
+		/*
+		 * Retry discovery at passive mode, if it hasn't been done
+		 * because of the media busy.
+		 * modified by SHARP
+		 */
+		irlmp_do_discovery(sysctl_discovery_slots);
+	}
+#endif
 
 	/* Restart timer */
 	irlmp_start_discovery_timer(irlmp, sysctl_discovery_timeout * HZ);

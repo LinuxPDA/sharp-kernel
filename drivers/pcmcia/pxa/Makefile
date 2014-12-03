@@ -16,6 +16,7 @@ pxa_cs-objs-$(CONFIG_ARCH_PXA_CERF)		+= ../sa1100_cerf.o
 pxa_cs-objs-$(CONFIG_SABINAL_DISCOVERY)		+= pxa_sharpsl.o
 pxa_cs-objs-$(CONFIG_ARCH_PXA_POODLE)		+= pxa_sharpsl.o
 pxa_cs-objs-$(CONFIG_ARCH_PXA_CORGI)		+= pxa_sharpsl.o
+pxa_cs-objs-$(CONFIG_ARCH_PXA_TOSA)		+= pxa_sharpsl.o
 
 obj-$(CONFIG_PCMCIA_PXA)		+= $(pxa_cs-objs-y)
 

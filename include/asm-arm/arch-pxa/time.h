@@ -12,6 +12,7 @@
  * ChangLog:
  *	12-Dec-2002 Lineo Japan, Inc.
  *	12-Dec-2002 Sharp Corporation for Poodle and Corgi
+ *	26-Feb-2004 Lineo Solutions, Inc.  for Tosa
  */
 
 #ifdef CONFIG_SABINAL_DISCOVERY 
@@ -19,14 +20,18 @@
 //#define RTC_DEF_TRIM		0
 #define RTC_DEF_TRIM		0x11b3
 #endif
+
 #ifdef CONFIG_ARCH_PXA_POODLE
 #define RTC_DEF_DIVIDER		32768 - 1
 #define RTC_DEF_TRIM		0
-#endif
-#ifdef CONFIG_ARCH_PXA_CORGI
+#elif CONFIG_ARCH_PXA_CORGI
+#define RTC_DEF_DIVIDER		32768 - 1
+#define RTC_DEF_TRIM		0
+#elif CONFIG_ARCH_PXA_TOSA
 #define RTC_DEF_DIVIDER		32768 - 1
 #define RTC_DEF_TRIM		0
 #endif
+
 #ifdef CONFIG_ARCH_SHARP_SL
 #define SHARP_SL_DEF_YEAR	2003
 #endif

@@ -38,6 +38,9 @@
  * Typically during early development you will set these via the kernel
  * configuration and migrate the values into here once specific values
  * have been tested and will no longer change.
+ *
+ * Change Log
+ *      26-Feb-2004 Lineo Solutions, Inc.  for Tosa
  */
 
 
@@ -425,6 +428,22 @@
 	#define CONFIG_USBD_SELFPOWERED		1
 	#define	CONFIG_USBD_MANUFACTURER	"Sharp"
 	#define CONFIG_USBD_PRODUCT_NAME	"SL-C700"
+#ifdef CONFIG_ARCH_PXA_SHEPHERD
+	#undef CONFIG_USBD_SERIAL_PRODUCT ID
+	#define CONFIG_USBD_SERIAL_PRODUCT ID	0x9031
+	#undef CONFIG_USBD_NET_PRODUCTID
+	#define CONFIG_USBD_NET_PRODUCTID	0x9031
+	#undef CONFIG_USBD_PRODUCT_NAME
+#ifdef CONFIG_ARCH_PXA_HUSKY
+	#define CONFIG_USBD_PRODUCT_NAME	"SL-C760"
+#else
+#ifdef CONFIG_ARCH_SHARP_SL_J
+	#define CONFIG_USBD_PRODUCT_NAME	"SL-C750"
+#else
+	#define CONFIG_USBD_PRODUCT_NAME	"SL-7500"
+#endif	// CONFIG_ARCH_SHARP_SL_J
+#endif	// CONFIG_ARCH_PXA_HUSKY
+#endif	// CONFIG_ARCH_PXA_SHEPHERD
 
 	#undef CONFIG_USBD_NET_CDC
 	#undef CONFIG_USBD_NET_MDLM
@@ -433,4 +452,37 @@
 	#define CONFIG_USBD_NET_MDLM			1
 	#define	CONFIG_USBD_MAC_AS_SERIAL_NUMBER	1
 
-#endif
+#endif	// CONFIG_ARCH_PXA_CORGI
+
+#ifdef CONFIG_ARCH_PXA_TOSA
+
+	#warning CONFIGURING FOR TOSA
+
+	#undef CONFIG_USBD_VENDORID
+	#define CONFIG_USBD_VENDORID		0x04dd
+	#undef CONFIG_USBD_SERIAL_PRODUCT ID
+	#define CONFIG_USBD_SERIAL_PRODUCT ID	0x9032
+	#undef CONFIG_USBD_NET_PRODUCTID
+	#define CONFIG_USBD_NET_PRODUCTID	0x9032
+
+	#undef CONFIG_USBD_SELFPOWERED
+	#undef	CONFIG_USBD_MANUFACTURER
+	#undef CONFIG_USBD_PRODUCT_NAME
+
+	#define CONFIG_USBD_SELFPOWERED		1
+	#define	CONFIG_USBD_MANUFACTURER	"Sharp"
+#ifdef CONFIG_ARCH_SHARP_SL_J
+	#define CONFIG_USBD_PRODUCT_NAME	"SL-6000"
+#else
+	#define CONFIG_USBD_PRODUCT_NAME	"SL-6000"
+#endif	// CONFIG_ARCH_SHARP_SL_J
+
+	#undef CONFIG_USBD_NET_CDC
+	#undef CONFIG_USBD_NET_MDLM
+	#undef CONFIG_USBD_NET_SAFE
+
+	#define CONFIG_USBD_NET_MDLM			1
+	#define	CONFIG_USBD_MAC_AS_SERIAL_NUMBER	1
+
+#endif	// CONFIG_ARCH_PXA_TOSA
+

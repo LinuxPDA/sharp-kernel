@@ -13,6 +13,7 @@
  *	30-Jul-2002 Lineo Japan, Inc.  for 2.4.18
  *      31-Oct-2002 SHARP
  *         added support for rotation logo screen on SHARP SL-C700
+ *      26-Feb-2004 Lineo Solutions, Inc.  for Tosa
  */
 
 #include <linux/module.h>
@@ -734,6 +735,15 @@ void fbcon_cfb16_clear_margins(struct vc_data *conp, struct display *p,
 	rectfill(p->screen_base +
 		 (p->var.xres - (p->var.xoffset + bottom_start) - 1) * 2,
 		 right_start, bottom_width, bgx, bytes);
+#else 
+#ifdef CONFIG_FB_TOSA		/* re_check */
+    if (!bottom_only && (right_width = p->var.yres - right_start))
+	rectfill(p->screen_base + right_start * bytes + (p->var.xres - 1) * 2,
+		 right_width, p->var.xres_virtual, bgx, bytes);
+    if ((bottom_width = p->var.xres - bottom_start))
+	rectfill(p->screen_base +
+		 (p->var.xres - (p->var.xoffset + bottom_start) - 1) * 2,
+		 right_start, bottom_width, bgx, bytes);
 #else // general R
     if (!bottom_only && (right_width = p->var.yres - right_start))
 	rectfill(p->screen_base + right_start * bytes + (p->var.xres - 1) * 2,
@@ -743,8 +753,18 @@ void fbcon_cfb16_clear_margins(struct vc_data *conp, struct display *p,
 		 (p->var.xres - (p->var.xoffset + bottom_start) - 1) * 2,
 		 right_start, bottom_width, bgx, bytes);
 #endif
+#endif
 #elif defined(CONFIG_FBCON_ROTATE_L)
 #ifdef CONFIG_FB_CORGI
+    if (!bottom_only && (right_width = p->var.yres - right_start))
+	rectfill(p->screen_base + (p->var.yres - right_start - 1) * bytes,
+		 right_width, p->var.xres_virtual, bgx, bytes);
+    if ((bottom_width = p->var.xres - bottom_start))
+	rectfill(p->screen_base + (p->var.yres - 1) * bytes +
+		 (p->var.xoffset + bottom_start) * 2,
+		 right_start, bottom_width, bgx, bytes);
+#else
+#ifdef CONFIG_FB_TOSA		/* re_check */
     if (!bottom_only && (right_width = p->var.yres - right_start))
 	rectfill(p->screen_base + (p->var.yres - right_start - 1) * bytes,
 		 right_width, p->var.xres_virtual, bgx, bytes);
@@ -760,6 +780,7 @@ void fbcon_cfb16_clear_margins(struct vc_data *conp, struct display *p,
 	rectfill(p->screen_base + (p->var.yres - 1) * bytes +
 		 (p->var.xoffset + bottom_start) * 2,
 		 right_start, bottom_width, bgx, bytes);
+#endif
 #endif
 #else
     if (!bottom_only && (right_width = p->var.xres-right_start))

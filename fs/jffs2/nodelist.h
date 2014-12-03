@@ -241,7 +241,7 @@ struct jffs2_eraseblock
 #define JFFS2_RESERVED_BLOCKS_GCTRIGGER 39					/* ... wake up the GC thread */
 #define JFFS2_RESERVED_BLOCKS_GCBAD (JFFS2_RESERVED_BLOCKS_BASE + 1)		/* ... pick a block from the bad_list to GC */
 #define JFFS2_RESERVED_BLOCKS_GCMERGE (JFFS2_RESERVED_BLOCKS_BASE)		/* ... merge pages when garbage collecting */
-#define JFFS2_RESERVED_BLOCKS_BAD 24
+#define JFFS2_RESERVED_BLOCKS_BAD 80
 #define JFFS2_RESERVED_BLOCKS_ROOT 5
 #define JFFS2_RESERVED_BLOCKS_DIRTY 24
 #define JFFS2_RESERVED_BLOCKS_CLEAN 12

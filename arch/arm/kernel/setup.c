@@ -610,6 +610,9 @@ void __init setup_arch(char **cmdline_p)
 	init_mm.end_code   = (unsigned long) &_etext;
 	init_mm.end_data   = (unsigned long) &_edata;
 	init_mm.brk	   = (unsigned long) &_end;
+#ifdef CONFIG_ARM_FCSE
+	init_mm.context.cpu_pid = CPU_PID_NOT_USE;
+#endif
 
 	memcpy(saved_command_line, from, COMMAND_LINE_SIZE);
 	saved_command_line[COMMAND_LINE_SIZE-1] = '\0';

@@ -5,7 +5,10 @@
 	This code is based on SA1110's register moniter
 
 ****************************************************************************/
-
+/*
+ * ChangeLog:
+ *      1-Nov-2003 Sharp Corporation   for Tosa
+ */
 /****************************************************************************
 
   registers.c: Register monitor of SA-1110
@@ -66,6 +69,7 @@ much.
 #include <linux/ioport.h>
 #include <asm/uaccess.h>                /* to copy to/from userspace */
 #include <asm/arch/hardware.h>
+#include <asm/io.h>
 
 //typedef unsigned long Word;
 
@@ -74,6 +78,10 @@ much.
 #define	USE_LOCOMO
 #elif defined(CONFIG_ARCH_PXA_CORGI)
 #define	USE_SCOOP
+#elif defined(CONFIG_ARCH_PXA_TOSA)
+#define USE_SCOOP
+#define USE_SCOOP2
+#define USE_KUROHYO
 #endif
 
 #define MODULE_NAME "regmon"
@@ -82,6 +90,12 @@ much.
 
 #ifdef USE_SCOOP
 #define SCOOP_DIRNAME "scoop"
+#endif
+#ifdef USE_SCOOP2
+#define SCOOP2_DIRNAME "scoop2"
+#endif
+#ifdef USE_KUROHYO
+#define KUROHYO_DIRNAME "kurohyo"
 #endif
 #ifdef USE_LOCOMO
 #define LOCOMO_DIRNAME "locomo"
@@ -181,6 +195,223 @@ static ssize_t proc_scoop_write_reg(struct file * file, const char * buffer,
 
 	newRegValue = simple_strtoul(buffer,&endp,0);
 	SCP_REG(current_reg->phyaddr)=newRegValue;
+	return (count+endp-buffer);
+}
+#endif
+#ifdef USE_SCOOP2
+static ssize_t proc_scoop2_read_reg(struct file * file, char * buf,
+		size_t nbytes, loff_t *ppos);
+static ssize_t proc_scoop2_write_reg(struct file * file, const char * buffer,
+		size_t count, loff_t *ppos);
+
+
+static struct file_operations proc_scoop2_reg_operations = {
+	read:	proc_scoop2_read_reg,
+	write:	proc_scoop2_write_reg
+};
+
+typedef struct scoop2_reg_entry {
+	u32 phyaddr;
+	char* name;
+	char* description;
+	unsigned short low_ino;
+} scoop2_reg_entry_t;
+
+
+static scoop2_reg_entry_t scoop2_regs[] =
+{
+/*	{ phyaddr,    name,     description } */
+	{ 0x00, "MCR", " " },
+	{ 0x04, "CDR", " " },
+	{ 0x08, "CSR", " " },
+	{ 0x0C, "CPR", " " },
+	{ 0x10, "CCR", " " },
+	{ 0x14, "IRR", " " },
+	{ 0x18, "IMR", " " },
+	{ 0x1C, "ISR", " " },
+	{ 0x20, "GPCR", " " },
+	{ 0x24, "GPWR", " " },
+	{ 0x28, "GPRR", " " }
+};
+
+
+#define NUM_OF_SCOOP2_REG_ENTRY	(sizeof(scoop2_regs)/sizeof(scoop2_reg_entry_t))
+
+
+static int proc_scoop2_read_reg(struct file * file, char * buf,
+		size_t nbytes, loff_t *ppos)
+{
+	int i_ino = (file->f_dentry->d_inode)->i_ino;
+	char outputbuf[15];
+	int count;
+	int i;
+	scoop2_reg_entry_t* current_reg=NULL;
+	if (*ppos>0) /* Assume reading completed in previous read*/
+		return 0;
+	for (i=0;i<NUM_OF_SCOOP2_REG_ENTRY;i++) {
+		if (scoop2_regs[i].low_ino==i_ino) {
+			current_reg = &scoop2_regs[i];
+			break;
+		}
+	}
+	if (current_reg==NULL)
+		return -EINVAL;
+
+	count = sprintf(outputbuf, "0x%04X\n",SCP_JC_REG(current_reg->phyaddr));
+	*ppos+=count;
+	if (count>nbytes)  /* Assume output can be read at one time */
+		return -EINVAL;
+	if (copy_to_user(buf, outputbuf, count))
+		return -EFAULT;
+	return count;
+}
+
+static ssize_t proc_scoop2_write_reg(struct file * file, const char * buffer,
+		size_t count, loff_t *ppos)
+{
+	int i_ino = (file->f_dentry->d_inode)->i_ino;
+	scoop2_reg_entry_t* current_reg=NULL;
+	int i;
+	unsigned long newRegValue;
+	char *endp;
+
+	for (i=0;i<NUM_OF_SCOOP2_REG_ENTRY;i++) {
+		if (scoop2_regs[i].low_ino==i_ino) {
+			current_reg = &scoop2_regs[i];
+			break;
+		}
+	}
+	if (current_reg==NULL)
+		return -EINVAL;
+
+	newRegValue = simple_strtoul(buffer,&endp,0);
+	SCP_JC_REG(current_reg->phyaddr)=newRegValue;
+	return (count+endp-buffer);
+}
+
+#endif
+#ifdef USE_KUROHYO
+static ssize_t proc_kurohyo_read_reg(struct file * file, char * buf,
+		size_t nbytes, loff_t *ppos);
+static ssize_t proc_kurohyo_write_reg(struct file * file, const char * buffer,
+		size_t count, loff_t *ppos);
+
+
+static struct file_operations proc_kurohyo_reg_operations = {
+	read:	proc_kurohyo_read_reg,
+	write:	proc_kurohyo_write_reg
+};
+
+typedef struct kurohyo_reg_entry {
+	u32 phyaddr;
+	char* name;
+	char* description;
+	unsigned short low_ino;
+} kurohyo_reg_entry_t;
+
+
+static kurohyo_reg_entry_t kurohyo_regs[] =
+{
+/*	{ phyaddr,    name,     description } */
+  { 0x000, "PINTST", " " },
+  { 0x008, "VHLIN", " " },
+  { 0x00A, "CMDADR_L", " " },
+  { 0x00C, "CMDADR_H", " " },
+  { 0x00E, "CMDFIF", " " },
+  { 0x010, "CMDFINT", " " },
+  { 0x012, "BINTMSK", " " },
+  { 0x014, "BINTST", " " },
+  { 0x016, "FIPT", " " },
+  { 0x018, "DMAST", " " },
+  { 0x01C, "COMD_L", " "},
+  { 0x01E, "COMD_H", " "}, 
+  { 0x022, "FIFOR", " "},
+  { 0x024, "COMSMD", " "},
+
+  { 0x100, "PLCNT", " " },
+  { 0x102, "PLCST", " " },
+  { 0x108, "PLIST", " " },
+  { 0x10A, "PLIEN", " " },
+  { 0x10C, "PLSEN", " " },
+  { 0x122, "PLDSA_L", " " },
+  { 0x124, "PLDSA_H", " " },
+  { 0x12A, "PLPIT_L", " " },
+  { 0x12C, "PLPIT_H", " " },
+  { 0x12E, "PLGMD", " " },
+  { 0x140, "PLHT", " " },
+  { 0x142, "PLHDS", " " },
+  { 0x144, "PLHSS", " " },
+  { 0x146, "PLHSE", " " },
+  { 0x14C, "PLHPX", " " },
+  { 0x150, "PLVT", " " },
+  { 0x152, "PLVDS", " " },
+  { 0x154, "PLVSS", " " },
+  { 0x156, "PLVSE", " " },
+  { 0x160, "PLCLN", " " },
+  { 0x162, "PLILN", " " },
+  { 0x164, "PLMOD", " " },
+  { 0x166, "MISC", " " },
+  { 0x16A, "PWHSP", " " },
+  { 0x16C, "PWVDS", " " },
+  { 0x16E, "PWVDE", " " },
+  { 0x170, "PWVSP", " " },
+  { 0x180, "VWADR_L", " " },
+  { 0x182, "VWADR_H", " " },
+};
+
+
+#define NUM_OF_KUROHYO_REG_ENTRY	(sizeof(kurohyo_regs)/sizeof(kurohyo_reg_entry_t))
+
+#define KUROHYO_LCD_INNER_ADDRESS  (TC6393_SYS_BASE+TC6393_GC_INTERNAL_REG_BASE)
+
+static int proc_kurohyo_read_reg(struct file * file, char * buf,
+		size_t nbytes, loff_t *ppos)
+{
+	int i_ino = (file->f_dentry->d_inode)->i_ino;
+	char outputbuf[15];
+	int count;
+	int i;
+	kurohyo_reg_entry_t* current_reg=NULL;
+	if (*ppos>0) /* Assume reading completed in previous read*/
+		return 0;
+	for (i=0;i<NUM_OF_KUROHYO_REG_ENTRY;i++) {
+		if (kurohyo_regs[i].low_ino==i_ino) {
+			current_reg = &kurohyo_regs[i];
+			break;
+		}
+	}
+	if (current_reg==NULL)
+		return -EINVAL;
+
+	count = sprintf(outputbuf, "0x%04X\n",readw(KUROHYO_LCD_INNER_ADDRESS + current_reg->phyaddr));
+	*ppos+=count;
+	if (count>nbytes)  /* Assume output can be read at one time */
+		return -EINVAL;
+	if (copy_to_user(buf, outputbuf, count))
+		return -EFAULT;
+	return count;
+}
+
+static ssize_t proc_kurohyo_write_reg(struct file * file, const char * buffer,
+		size_t count, loff_t *ppos)
+{
+	int i_ino = (file->f_dentry->d_inode)->i_ino;
+	kurohyo_reg_entry_t* current_reg=NULL;
+	int i;
+	unsigned long newRegValue;
+	char *endp;
+
+	for (i=0;i<NUM_OF_KUROHYO_REG_ENTRY;i++) {
+		if (kurohyo_regs[i].low_ino==i_ino) {
+			current_reg = &kurohyo_regs[i];
+			break;
+		}
+	}
+	if (current_reg==NULL)
+		return -EINVAL;
+
+	newRegValue = simple_strtoul(buffer,&endp,0);
+	writew(newRegValue,KUROHYO_LCD_INNER_ADDRESS + current_reg->phyaddr);
 	return (count+endp-buffer);
 }
 
@@ -814,6 +1045,14 @@ static struct proc_dir_entry *cpudir;
 static struct proc_dir_entry *scoop_regdir;
 static struct proc_dir_entry *scoopdir;
 #endif
+#ifdef USE_SCOOP2
+static struct proc_dir_entry *scoop2_regdir;
+static struct proc_dir_entry *scoop2dir;
+#endif
+#ifdef USE_KUROHYO
+static struct proc_dir_entry *kurohyo_regdir;
+static struct proc_dir_entry *kurohyodir;
+#endif
 
 #ifdef USE_LOCOMO
 static struct proc_dir_entry *locomo_regdir;
@@ -879,6 +1118,62 @@ static int __init init_reg_monitor(void)
 		}
 	}
 #endif
+#ifdef USE_SCOOP2
+	scoop2dir = proc_mkdir(SCOOP2_DIRNAME, &proc_root);
+	if (scoop2dir == NULL) {
+		printk(KERN_ERR MODULE_NAME": can't create /proc/" SCOOP2_DIRNAME "\n");
+		return(-ENOMEM);
+	}
+
+	scoop2_regdir = proc_mkdir(REG_DIRNAME, scoop2dir);
+	if (scoop2_regdir == NULL) {
+		printk(KERN_ERR MODULE_NAME": can't create /proc/" SCOOP2_DIRNAME "/" REG_DIRNAME "\n");
+		return(-ENOMEM);
+	}
+
+	for(i=0;i<NUM_OF_SCOOP2_REG_ENTRY;i++) {
+		entry = create_proc_entry(scoop2_regs[i].name,
+				S_IWUSR |S_IRUSR | S_IRGRP | S_IROTH,
+				scoop2_regdir);
+		if(entry) {
+			scoop2_regs[i].low_ino = entry->low_ino;
+			entry->proc_fops = &proc_scoop2_reg_operations;
+		} else {
+			printk( KERN_ERR MODULE_NAME
+				": can't create /proc/" REG_DIRNAME
+				"/%s\n", scoop2_regs[i].name);
+			return(-ENOMEM);
+		}
+	}
+#endif
+#ifdef USE_KUROHYO
+	kurohyodir = proc_mkdir(KUROHYO_DIRNAME, &proc_root);
+	if (kurohyodir == NULL) {
+		printk(KERN_ERR MODULE_NAME": can't create /proc/" KUROHYO_DIRNAME "\n");
+		return(-ENOMEM);
+	}
+
+	kurohyo_regdir = proc_mkdir(REG_DIRNAME, kurohyodir);
+	if (kurohyo_regdir == NULL) {
+		printk(KERN_ERR MODULE_NAME": can't create /proc/" KUROHYO_DIRNAME "/" REG_DIRNAME "\n");
+		return(-ENOMEM);
+	}
+
+	for(i=0;i<NUM_OF_KUROHYO_REG_ENTRY;i++) {
+		entry = create_proc_entry(kurohyo_regs[i].name,
+				S_IWUSR |S_IRUSR | S_IRGRP | S_IROTH,
+				kurohyo_regdir);
+		if(entry) {
+			kurohyo_regs[i].low_ino = entry->low_ino;
+			entry->proc_fops = &proc_kurohyo_reg_operations;
+		} else {
+			printk( KERN_ERR MODULE_NAME
+				": can't create /proc/" REG_DIRNAME
+				"/%s\n", kurohyo_regs[i].name);
+			return(-ENOMEM);
+		}
+	}
+#endif
 
 #ifdef USE_LOCOMO
 	locomodir = proc_mkdir(LOCOMO_DIRNAME, &proc_root);
@@ -924,6 +1219,18 @@ static void __exit cleanup_reg_monitor(void)
 		remove_proc_entry(scoop_regs[i].name,scoop_regdir);
 	remove_proc_entry(REG_DIRNAME, scoopdir);
 	remove_proc_entry(SCOOP_DIRNAME, &proc_root);
+#endif
+#ifdef USE_SCOOP2
+	for(i=0;i<NUM_OF_SCOOP2_REG_ENTRY;i++)
+		remove_proc_entry(scoop2_regs[i].name,scoop2_regdir);
+	remove_proc_entry(REG_DIRNAME, scoop2dir);
+	remove_proc_entry(SCOOP2_DIRNAME, &proc_root);
+#endif
+#ifdef USE_KUROHYO
+	for(i=0;i<NUM_OF_KUROHYO_REG_ENTRY;i++)
+		remove_proc_entry(kurohyo_regs[i].name,kurohyo_regdir);
+	remove_proc_entry(REG_DIRNAME, kurohyodir);
+	remove_proc_entry(KUROHYO_DIRNAME, &proc_root);
 #endif
 #ifdef USE_LOCOMO
 	for(i=0;i<NUM_OF_LOCOMO_REG_ENTRY;i++)

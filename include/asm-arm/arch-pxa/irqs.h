@@ -11,6 +11,7 @@
  *
  * ChangLog:
  *	12-Dec-2002 Lineo Japan, Inc.
+ *      26-Feb-2004 Lineo Solutions, Inc.  for Tosa
  */
 
 #define PXA_IRQ_SKIP	8	/* The first 8 IRQs are reserved */
@@ -344,6 +345,20 @@
 #define GPIO_ASIC1 (0)
 
 #endif
+
+#if defined(CONFIG_ARCH_PXA_TOSA)
+#define TC6393_IRQ(x)      (IRQ_GPIO(80) + 1 + (x))
+#define TC6393_IRQ_NDINT       TC6393_IRQ(0)
+#define TC6393_IRQ_SDINT       TC6393_IRQ(1)
+#define TC6393_IRQ_USBINT      TC6393_IRQ(2)
+#define TC6393_IRQ_SIOINT      TC6393_IRQ(3)
+#define TC6393_IRQ_GCINT       TC6393_IRQ(4)
+#define TC6393_IRQ_GPINT       TC6393_IRQ(5)
+#define TC6393_IRQ_CLKINT      TC6393_IRQ(7)
+
+#undef NR_IRQS
+#define NR_IRQS                (TC6393_IRQ(7) + 1)
+#endif	/* CONFIG_ARCH_PXA_TOSA */
 
 #if defined(CONFIG_ARCH_PXA_POODLE)
 #if CONFIG_SA1111

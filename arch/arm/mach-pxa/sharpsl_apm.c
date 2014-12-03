@@ -48,6 +48,8 @@
  *	07-Aug-2002 Lineo Japan, Inc.  for Poodle
  *	12-Dec-2002 Sharp Corporation for Poodle and Corgi
  *	16-Jan-2003 SHARP sleep_on -> interruptible_sleep_on
+ *      29-Jan-2004 Sharp Corporation for Tosa
+ *      26-Feb-2004 Lineo Solutions, Inc.  for Tosa
  */
 
 #include <linux/config.h>
@@ -90,7 +92,7 @@
 #define  KBDOWN  (0)
 
 #ifdef CONFIG_APM_CPU_IDLE
-#if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
+#if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
 #define SHARPSL_NEW_IDLE
 #endif
 #endif
@@ -98,9 +100,17 @@
 #if defined(CONFIG_SABINAL_DISCOVERY)
 extern int discovery_get_main_battery(void);
 #define	get_main_battery discovery_get_main_battery
-#elif defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
+#elif defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
+
 extern int sharpsl_get_main_battery(void);
 #define	get_main_battery sharpsl_get_main_battery
+
+#if defined(CONFIG_ARCH_PXA_TOSA)
+extern int sharpsl_jacket_battery;
+extern int sharpsl_jacket_exist;
+extern int sharpsl_get_cardslot_error(void);
+#endif
+
 #ifdef SHARPSL_NEW_IDLE
 static int chg_freq_mode = 0;
 #endif
@@ -123,12 +133,16 @@ extern int		HWR_flag;
 #define BACKPACK_IN_DETECT()	( ASIC3_GPIO_PSTS_D & BACKPACK_DETECT ) /* 0: exist , 1: not in */
 #else
 #define SHARPSL_BATTERY_OK	(( GPLR(GPIO_MAIN_BAT_LOW) & GPIO_bit(GPIO_MAIN_BAT_LOW) ) ? 1 : 0)	/* 1: OK / 0: FATAL */
+#if defined(CONFIG_ARCH_PXA_TOSA)
+#define	SHARPSL_AC_LINE_STATUS	((GPLR(GPIO_AC_IN) & GPIO_bit(GPIO_AC_IN)) ? APM_AC_OFFLINE : APM_AC_ONLINE)
+#else
 #define	SHARPSL_AC_LINE_STATUS	((GPLR(GPIO_AC_IN) & GPIO_bit(GPIO_AC_IN)) ? APM_AC_ONLINE : APM_AC_OFFLINE)
+#endif
 #endif
 
 
 /// ioctl 
-#if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
+#if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
 static u32 apm_event_mask = (APM_EVT_POWER_BUTTON);
 #else
 static u32 apm_event_mask = (APM_EVT_POWER_BUTTON | APM_EVT_BATTERY_STATUS);
@@ -150,6 +164,7 @@ static int hinge_count = HINGE_STABLE_COUNT;
 
 #endif
 
+#define DEBUG
 #ifdef DEBUG
 #define DPRINTK(x, args...)  printk(__FUNCTION__ ": " x,##args)
 #else
@@ -284,7 +299,6 @@ static DECLARE_WAIT_QUEUE_HEAD(apm_waitqueue);
 static DECLARE_WAIT_QUEUE_HEAD(apm_suspend_waitqueue);
 static DECLARE_WAIT_QUEUE_HEAD(lock_fcs_waitqueue);
 
-//sample code from Yamade-san
 #define KEY_TICK         		( 100 / 10 )  // 100msec
 #define FLONT_LIGHT_TOGGLE_TIME         ( 2000 / 20 ) // 2sec
 static DECLARE_WAIT_QUEUE_HEAD(fl_key);
@@ -346,6 +360,8 @@ static int suspend(void);
 static int set_power_state(u_short what, u_short state);
 #ifndef CONFIG_SABINAL_DISCOVERY
 extern int sharpsl_main_battery;
+extern int sharpsl_backup_battery;
+extern int sharpsl_bu_battery;
 #endif
 static int apm_get_power_status(u_char *ac_line_status,
                                 u_char *battery_status,
@@ -439,7 +455,8 @@ static void powerirq_handler(int irq, void *dev_id, struct pt_regs *regs)
 
 #if defined(CONFIG_ARCH_PXA_POODLE)
 	if (irq == IRQ_GPIO_ON_KEY) {	/* suspend */
-		//DPRINTK("irq=%d count=%d sharpsl_suspend_request%d\n",irq, count, sharpsl_suspend_request);
+
+		DPRINTK("irq=%d count=%d sharpsl_suspend_request%d\n",irq, count, sharpsl_suspend_request);
 		if ( GPLR(GPIO_ON_KEY) & GPIO_bit(GPIO_ON_KEY) ) {
 			/* release */
 			count = 0;
@@ -710,7 +727,11 @@ static int apm_set_power_state(u_short state)
 }
 
 static spinlock_t locklockFCS = SPIN_LOCK_UNLOCKED;
+#if 0 // for debug
+static unsigned long lockFCS = 0x80000000;
+#else
 static unsigned long lockFCS = 0;
+#endif
 static int change_lockFCS = 0;
 static spinlock_t lock_power_mode = SPIN_LOCK_UNLOCKED;
 static unsigned long power_mode = 0;
@@ -1020,21 +1041,35 @@ static int apm_do_idle(void)
     if ( !chg_freq_mode ) {
 	    //LCM_LPT1 = 0x0080;
 //	    if (!lockFCS || ((lockFCS == LOCK_FCS_FFUART) && (!(FFMSR & MSR_DSR)))) {
+#if defined(CONFIG_ARCH_PXA_TOSA)
+    if (!lockFCS) {
+#else
 #if defined(CONFIG_ARCH_SHARP_SL_J)
 	    if (!(lockFCS & ~LOCK_FCS_FFUART)) {
 #else
 	    if (!lockFCS) {
+#endif
 #endif
 #if defined(CONFIG_ARCH_PXA_POODLE)
 		    while(1) {
 			    if ( !( LCCR0 & 0x1 ) ||  ( GPLR(74) & GPIO_bit(74))  ) break;
 		    }
 #endif
+
+#if defined(CONFIG_ARCH_PXA_TOSA)
+		    CKEN &= ~CKEN2_AC97;
+#endif
+
 		    if ( cccr_reg == 0x145 ) {
 			    cpu_xscale_sl_change_speed_121();
 		    } else {
 			    cpu_xscale_change_speed_121();
 		    }
+
+#if defined(CONFIG_ARCH_PXA_TOSA)
+		    CKEN |= CKEN2_AC97;
+#endif
+
 	    }
     }
     chg_freq_mode = 1;
@@ -1099,11 +1134,32 @@ static void apm_do_busy(void)
 		}
 #endif
 		MDREFR &= ~MDREFR_APD;
+
+#if defined(CONFIG_ARCH_PXA_TOSA)
+		CKEN &= ~CKEN2_AC97;
+#endif
+
+#if defined(CONFIG_ARCH_PXA_SHEPHERD) || defined(CONFIG_ARCH_PXA_TOSA)
+		if ( cccr_reg == 0x161 ) {
+			cpu_xscale_sl_change_speed_161();
+		}
+		else if ( cccr_reg == 0x145 ) {
+			cpu_xscale_sl_change_speed_145();
+		} else {
+			cpu_xscale_change_speed_241();
+		}
+#else
 		if ( cccr_reg == 0x145 ) {
 			cpu_xscale_sl_change_speed_145();
 		} else {
 			cpu_xscale_change_speed_241();
 		}
+#endif
+
+#if defined(CONFIG_ARCH_PXA_TOSA)
+		CKEN |= CKEN2_AC97;
+#endif
+
 	} else {
 		MDREFR &= ~MDREFR_APD;
 	}
@@ -1269,6 +1325,11 @@ static int apm_get_power_status(u_char *ac_line_status,
                                 u_short *battery_life)
 {
 
+#if defined(CONFIG_ARCH_PXA_TOSA)
+u_char dumm_status;
+u_short dumm_life;
+#endif
+
 #ifdef CONFIG_SABINAL_DISCOVERY
 		discovery_apm_get_power_status(ac_line_status, 
 		battery_status, battery_flag, battery_percentage, battery_life);
@@ -1278,7 +1339,11 @@ static int apm_get_power_status(u_char *ac_line_status,
 #if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
 		sharpsl_apm_get_power_status(ac_line_status, 
 		battery_status, battery_flag, battery_percentage, battery_life);
-		
+#elif defined(CONFIG_ARCH_PXA_TOSA)
+		sharpsl_apm_get_power_status(ac_line_status, 
+		battery_status,&dumm_status,&dumm_status,battery_flag,
+		battery_percentage,&dumm_status,&dumm_status,
+		battery_life,&dumm_life,&dumm_life);
 #endif
         return APM_SUCCESS;
 }
@@ -1290,12 +1355,15 @@ static int apm_get_bp_status(u_char *ac_line_status,
                                 u_short *battery_life)
 {
 
-#ifdef CONFIG_SABINAL_DISCOVERY
-
+#if defined(CONFIG_SABINAL_DISCOVERY) || defined(CONFIG_ARCH_PXA_TOSA)
+#if defined(CONFIG_SABINAL_DISCOVERY)
 		discovery_apm_get_bp_status(ac_line_status, 
 		battery_status, battery_flag, battery_percentage, battery_life);
-		
+#else
+		sharpsl_apm_get_bp_status(ac_line_status, 
+		battery_status, battery_flag, battery_percentage, battery_life);
 #endif	// CONFIG_SABINAL_DISCOVERY
+#endif
         return APM_SUCCESS;
 }
 
@@ -1463,6 +1531,9 @@ static int send_event(apm_event_t event)
 		is_goto_suspend = 1;
 #ifdef CONFIG_PCMCIA
 		pcmcia_set_detect_interrupt(0, 0, 1);
+#if defined(CONFIG_ARCH_PXA_TOSA)
+		pcmcia_set_detect_interrupt(1, 0, 1);
+#endif
 #endif
 		send_sig_to_all_procs(SIGSTOP);
 		/* map all suspends to ACPI D3 */
@@ -1486,6 +1557,9 @@ static int send_event(apm_event_t event)
 		resume_handling = 1;
 #ifdef CONFIG_PCMCIA
 		pcmcia_set_detect_interrupt(0, 1, 0);
+#if defined(CONFIG_ARCH_PXA_TOSA)
+		pcmcia_set_detect_interrupt(1, 1, 0);
+#endif
 #endif
 
 #ifdef CONFIG_SABINAL_DISCOVERY
@@ -1521,6 +1595,9 @@ static int send_event(apm_event_t event)
 		send_sig_to_all_procs(SIGCONT);
 #ifdef CONFIG_PCMCIA
 		pcmcia_set_detect_interrupt(0, 1, 1);
+#if defined(CONFIG_ARCH_PXA_TOSA)
+		pcmcia_set_detect_interrupt(1, 1, 1);
+#endif
 #endif
 		resume_handling = 0;
 
@@ -1669,8 +1746,9 @@ static void check_events(void)
 			if (send_event(event)) {
 				queue_event(event, NULL);
 				waiting_for_resume = 1;
-				if (suspends_pending <= 0)
+				if (suspends_pending <= 0){
 					(void) suspend();
+				}
 			}
 			break;
 
@@ -1821,7 +1899,7 @@ static void apm_mainloop(void)
 	
 	for (;;) {
 		/* Nothing to do, just sleep for the timeout */
-#if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
+#if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
 		timeout = 2*timeout;
 		if (timeout > APM_CHECK_TIMEOUT)
 #endif
@@ -1851,7 +1929,7 @@ static void apm_mainloop(void)
 	
 	for (;;) {
 		/* Nothing to do, just sleep for the timeout */
-#if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
+#if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
 		timeout = 2*timeout;
 		if (timeout > APM_CHECK_TIMEOUT)
 #endif
@@ -2000,6 +2078,7 @@ static int do_ioctl(struct inode * inode, struct file *filp,
 		else
 			queue_event(APM_USER_SUSPEND, as);
 		if (suspends_pending <= 0) {
+
 			if (suspend() != APM_SUCCESS)
 				return -EIO;
 		} else {
@@ -2028,7 +2107,7 @@ static int do_ioctl(struct inode * inode, struct file *filp,
 	case APM_IOC_GET_REGISTER: {
 	} break;
 
-#if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
+#if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
 	case APM_IOC_RESET_PM: {
 	    extern int sharpsl_main_bk_flag;
 	    sharpsl_main_bk_flag = 1;
@@ -2102,11 +2181,14 @@ static int do_ioctl(struct inode * inode, struct file *filp,
 
 	case APM_IOC_BATTERY_BACK_CHK: {
 	  //return collie_backup_battery; 
+#ifdef CONFIG_ARCH_PXA_TOSA
+		return sharpsl_bu_battery;
+#endif
 	} break;
 
 	case APM_IOC_BATTERY_MAIN_CHK: {
 #ifndef CONFIG_SABINAL_DISCOVERY
-	  return sharpsl_main_battery; 
+	  return sharpsl_main_battery;
 #endif
 	} break;
 
@@ -2120,7 +2202,7 @@ static int do_ioctl(struct inode * inode, struct file *filp,
 	  return 1;
 	} break;
 
-#if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
+#if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
 	case APM_IOC_SFREQ: {
 		int freq;
 		get_user(freq, (unsigned int *)(arg));
@@ -2167,11 +2249,15 @@ static int do_ioctl(struct inode * inode, struct file *filp,
 		unsigned long   flags;
 
 		sleeping = 1;
-#if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
+#if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
 		sharpsl_off_mode = 1;
 #endif
 		save_flags_cli(flags);
+#if defined(CONFIG_ARCH_PXA_SHEPHERD) || defined(CONFIG_ARCH_PXA_TOSA)
+		sharpsl_restart_nonstop();
+#else
 		sharpsl_restart();
+#endif
 	} break;
 #if defined(CONFIG_ARCH_PXA_CORGI)
 	case APM_IOC_GET_HINGE_STATE: {
@@ -2197,7 +2283,23 @@ static int do_ioctl(struct inode * inode, struct file *filp,
 			apm_event_mask = arg;
 			return tmp;
 		}
+
+	case APM_IOC_GET_CARDSLOT_ERROR: {
+#if defined(CONFIG_ARCH_PXA_TOSA)
+	    return sharpsl_get_cardslot_error();
+#endif	    
+	}
+
+	case APM_IOC_BATTERY_JACKET_CHK: {
+#if defined(CONFIG_ARCH_PXA_TOSA)
+	  return sharpsl_jacket_battery; 
 #endif
+	} break;
+
+	case APM_IOC_GET_JACKET_STATE:
+		return sharpsl_jacket_exist;
+#endif
+
 	default:
 		return -EINVAL;
 	}
@@ -2220,8 +2322,9 @@ static int do_release(struct inode * inode, struct file * filp)
 	}
 	if (as->suspends_pending > 0) {
 		suspends_pending -= as->suspends_pending;
-		if (suspends_pending <= 0)
+		if (suspends_pending <= 0){
 			(void) suspend();
+		}
 	}
 	if (user_list == as)
 		user_list = as->next;
@@ -2351,7 +2454,7 @@ static int apm_get_info(char *buf, char **start, off_t fpos, int length)
 }
 
 
-#ifdef CONFIG_SABINAL_DISCOVERY
+#if defined(CONFIG_SABINAL_DISCOVERY) || defined(CONFIG_ARCH_PXA_TOSA)
 static int apm_bp_get_info(char *buf, char **start, off_t fpos, int length)
 {
 	char *		p;
@@ -2430,8 +2533,7 @@ static int apm_bp_get_info(char *buf, char **start, off_t fpos, int length)
 }
 #endif
 
-
-#ifdef CONFIG_SABINAL_DISCOVERY
+#if defined(CONFIG_SABINAL_DISCOVERY)
 static int discovery_key_check(void *unused)
 {
 
@@ -2441,18 +2543,28 @@ static int discovery_key_check(void *unused)
 
     while(1) {
 
-      interruptiblee_sleep_on(&fl_key);
+      interruptible_sleep_on(&fl_key);
 
       while(1) {
           interruptible_sleep_on_timeout((wait_queue_head_t*)&queue, KEY_TICK );
-          if ( (ASIC3_GPIO_PSTS_A & PWR_ON_KEY) != 0 ) { //key up
-            break;
-          }
+#ifdef CONFIG_SABINAL_DISCOVERY
+		if ( (ASIC3_GPIO_PSTS_A & PWR_ON_KEY) != 0 ) { //key up
+			break;
+		}
+#else
+		if ( GPLR(GPIO_ON_KEY) & GPIO_bit(GPIO_ON_KEY) ) {
+			break;
+		}
+#endif
 			if ( ( jiffies - on_press_time ) < 0 ) {
 
 				if ( ( jiffies + (0xffffffff - on_press_time) ) > FLONT_LIGHT_TOGGLE_TIME ) {
 					if ( apm_event_mask & APM_EVT_POWER_BUTTON ) {
+#ifdef CONFIG_SABINAL_DISCOVERY
 						discoveryfl_blank_power_button();
+#else
+						sharpslfl_blank_power_button();
+#endif
 					} else {
 						handle_scancode(SLKEY_FRONTLIGHT|KBDOWN , 1);
 						handle_scancode(SLKEY_FRONTLIGHT|KBUP   , 0);
@@ -2464,7 +2576,11 @@ static int discovery_key_check(void *unused)
 	            if ( ( jiffies - on_press_time ) > FLONT_LIGHT_TOGGLE_TIME ) {
 	
 					if ( apm_event_mask & APM_EVT_POWER_BUTTON ) {
+#ifdef CONFIG_SABINAL_DISCOVERY
 						discoveryfl_blank_power_button();
+#else
+						tosa_l_blank_power_button();
+#endif
 					} else {
 						handle_scancode(SLKEY_FRONTLIGHT|KBDOWN , 1);
 						handle_scancode(SLKEY_FRONTLIGHT|KBUP   , 0);
@@ -2624,14 +2740,19 @@ static int __init apm_init(void)
 	}
 
 
-#if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
+#if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
+#if defined(CONFIG_ARCH_PXA_SHEPHERD) || defined(CONFIG_ARCH_PXA_TOSA)
+	sharpsl_chg_freq = (unsigned int)0x00000161;
+	cpu_xscale_sl_change_speed_161();
+#else
 #if 1	// default 400MHz
 	sharpsl_chg_freq = (unsigned int)0x00000241;
 #else
 	cpu_xscale_sl_change_speed_145_without_lcd();
 #endif
+#endif
 	cccr_reg = CCCR;
-	printk("FCS : CCCR = %x\n",cccr_reg);
+//	printk("FCS : CCCR = %x\n",cccr_reg);
 #endif
 
 	/*
@@ -2713,9 +2834,10 @@ static int __init apm_init(void)
 
 	kernel_thread(apm_thread, NULL, CLONE_FS | CLONE_FILES | CLONE_SIGHAND | SIGCHLD);
   	
-#ifdef CONFIG_SABINAL_DISCOVERY
+#if defined(CONFIG_SABINAL_DISCOVERY) || defined(CONFIG_ARCH_PXA_TOSA)
+#if defined(CONFIG_SABINAL_DISCOVERY)
 	kernel_thread( discovery_key_check,  NULL, CLONE_FS | CLONE_FILES | CLONE_SIGHAND | SIGCHLD);
-
+#endif
 	{
 		struct proc_dir_entry *apm_proc_backpack;
 

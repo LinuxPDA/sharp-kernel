@@ -17,6 +17,7 @@
  *
  * Change Log
  *	12-Dec-2002 Sharp Corporation for Poodle and Corgi
+ *      1-Nov-2003 Sharp Corporation   for Tosa
  */
 
 #ifndef __ASM_SHARP_CHAR_H_INCLUDED
@@ -65,7 +66,7 @@ typedef struct sharp_led_status {
   int status;  /* set new led status if you call SHARP_LED_SETSTATUS */
 } sharp_led_status;
 
-#define SHARP_LED_WHICH_MAX   15       /* last number of LED */
+#define SHARP_LED_WHICH_MAX   17       /* last number of LED */
 
 /* parameters for 'which' member */
 #define SHARP_LED_PDA          0       /* PDA status */
@@ -84,6 +85,8 @@ typedef struct sharp_led_status {
 #define SHARP_LED_COLLIE_1     13      /* 1st pri. mail LED control */
 #define SHARP_LED_COMM         14      /* communication status */
 #define SHARP_LED_BROWSER      15      /* WWW browser status */
+#define SHARP_LED_BLUETOOTH    16      /* Bluetooth */
+#define SHARP_LED_WLAN	       17      /* Wireless LAN */
 
 /* parameters for 'status' member */
 #define LED_PDA_RUNNING          0   /* for SHARP_LED_RUN */
@@ -157,6 +160,14 @@ typedef struct sharp_led_status {
 #define LED_BROWSER_OFFLINE      0   /* for SHARP_LED_BROWSER */
 #define LED_BROWSER_ONLINE       1   /* for SHARP_LED_BROWSER */
 #define LED_BROWSER_ERROR        2   /* for SHARP_LED_BROWSER */
+
+#define LED_BLUETOOTH_OFFLINE		0	/* for SHARP_LED_BLUETOOTH */
+#define LED_BLUETOOTH_OUTOFRANGE	1	/* for SHARP_LED_BLUETOOTH */
+#define LED_BLUETOOTH_STANBY		2	/* for SHARP_LED_BLUETOOTH */
+
+#define LED_WLAN_OFFLINE		0	/* for SHARP_LED_WLAN */
+#define LED_WLAN_OUTOFRANGE		1	/* for SHARP_LED_WLAN */
+#define LED_WLAN_BLINK			2	/* for SHARP_LED_WLAN */
 
 
 /* --- for SHARP_BUZZER device --- */
@@ -257,6 +268,9 @@ typedef struct sharp_irisext_status {  /* for SHARP_IRIS_GETSYNCSTATUS */
 #define IRIS_KBDCTL_ENABLEKEYBOARD          (SHARP_KBDCTL_IOCTL_START+16)
 #define IRIS_KBDCTL_DISABLEKEYBOARD         (SHARP_KBDCTL_IOCTL_START+17)
 #define SHARP_KBDCTL_SENDKEY                (SHARP_KBDCTL_IOCTL_START+18)
+#define SHARP_KBDCTL_SETMODIFSTAT           (SHARP_KBDCTL_IOCTL_START+20)
+#define SHARP_KBDCTL_SETSWKEY		    (SHARP_KBDCTL_IOCTL_START+21)
+#define SHARP_KBDCTL_GETSWKEY		    (SHARP_KBDCTL_IOCTL_START+22)
 
 typedef struct sharp_kbdctl_modifstat {
   int which;
@@ -273,6 +287,11 @@ typedef struct sharp_kbdctl_holdcustom {
   int normal_slcode;
   int hold_slcode;
 } sharp_kbdctl_holdcustom;
+
+typedef struct _sharp_kbdctl_swkey {
+  int key;
+  int mode;
+} sharp_kbdctl_swkey;
 
 #define SHARP_EXTMODIF_2ND      0x01
 #define SHARP_EXTMODIF_CAPS     0x02

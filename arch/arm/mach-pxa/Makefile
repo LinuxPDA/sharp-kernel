@@ -16,7 +16,8 @@ obj-  :=
 
 export-objs := generic.o irq.o dma.o sa1111.o \
                usb_ctl.o usb_recv.o usb_send.o \
-	       discovery.o cotulla_dma.o pxa_ssp.o
+	       discovery.o cotulla_dma.o pxa_ssp.o tosa.o \
+	       tosa_ac97.o
 
 # Common support (must be linked before board specific support)
 obj-y += generic.o irq.o
@@ -33,6 +34,8 @@ obj-$(CONFIG_COTULLA_DMA) += cotulla_dma.o
 obj-$(CONFIG_SABINAL_DISCOVERY) += discovery.o discovery_arch.o pxa_ssp.o
 obj-$(CONFIG_ARCH_PXA_POODLE) += poodle.o m62332.o pxa_ssp.o poodle_buzzer.o
 obj-$(CONFIG_ARCH_PXA_CORGI) += corgi.o pxa_ssp.o poodle_buzzer.o
+obj-$(CONFIG_ARCH_PXA_TOSA) += tosa.o pxa_nssp.o tosa_ac97.o
+obj-$(CONFIG_BUZZER_TOSA) += tosa_buzzer.o
 
 # Support for blinky lights
 leds-y := leds.o
@@ -66,6 +69,10 @@ ifeq ($(CONFIG_ARCH_SHARP_SL),y)
     obj-$(CONFIG_BATT) += sharpsl_battery.o sharpsl_param.o
     export-objs += sharpsl_battery.o
   endif
+  ifeq ($(CONFIG_ARCH_PXA_TOSA),y)
+    obj-$(CONFIG_BATT) += tosa_battery.o sharpsl_param.o
+    export-objs += tosa_battery.o
+  endif
 else
   obj-$(CONFIG_PM) += pm.o sleep.o
 endif
@@ -80,6 +87,9 @@ ifeq ($(CONFIG_DEVICEINFO),y)
     devinfo-objs-m += sharpsl_deviceinfo.o
   endif
   ifeq ($(CONFIG_ARCH_PXA_CORGI),y)
+    devinfo-objs-m += sharpsl_deviceinfo.o
+  endif
+  ifeq ($(CONFIG_ARCH_PXA_TOSA),y)
     devinfo-objs-m += sharpsl_deviceinfo.o
   endif
 endif

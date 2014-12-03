@@ -102,7 +102,7 @@
  *
  *  09-04-2002  tglx: fixed write_verify (John Hall (john.hall@optionexist.co.uk))
  *
- * $Id: nand.c,v 1.31 2002/09/04 11:19:33 gleixner Exp $
+ * $Id: nand.c,v 1.1.1.1 2003/06/27 03:04:33 yasui Exp $
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -121,6 +121,7 @@
  *				      add erase-by-force mode
  *     18-Sep-2002 Lineo Japan, Inc.  add dev_ready() call after read
  *     17-Sep-2002 Lineo Japan, Inc.  add code for post-badblock
+ *     09-Sep-2003 SHARP              support TC6393XB controller for Tosa
  */
 
 #include <linux/delay.h>
@@ -370,6 +371,10 @@ static int nand_write_page (struct mtd_info *mtd, struct nand_chip *this,
 	int	eccmode = oobsel ? this->eccmode : NAND_ECC_NONE;
 	int  	*oob_config = oobconfigs[oobsel];
 	int	ecc_ret = 0;
+#ifdef CONFIG_MTD_NAND_SHARP_SL_TC6393
+	unsigned short data_w;
+	u_char data_b;
+#endif
 
 	START_MEASUREMENT(nand_write_page);
 	COUNTER_INC(nand_write_nr_pages);
@@ -427,10 +432,17 @@ static int nand_write_page (struct mtd_info *mtd, struct nand_chip *this,
 	/* No ecc and software ecc 3/256, write all */
 	case NAND_ECC_NONE:
 	case NAND_ECC_SOFT:
+#ifdef CONFIG_MTD_NAND_SHARP_SL_TC6393
+		for (i = 0; i < mtd->oobblock; i+=2) {
+			writew ( (this->data_poi[i+1] << 8) | this->data_poi[i] , this->IO_ADDR_W);
+		}
+		break;
+#else
 		for (i = 0; i < mtd->oobblock; i++) 
 			writeb ( this->data_poi[i] , this->IO_ADDR_W);
 		break;
-		
+#endif
+
 	/* Hardware ecc 3 byte / 256 data, write first half, get ecc, then second, if 512 byte pagesize */	
 	case NAND_ECC_HW3_256:		
 		this->enable_hwecc (NAND_ECC_WRITE);	/* enable hardware ecc logic for write */
@@ -464,8 +476,14 @@ static int nand_write_page (struct mtd_info *mtd, struct nand_chip *this,
 	/* Hardware ecc 6 byte / 512 byte data, write full page */	
 	case NAND_ECC_HW6_512:	
 		this->enable_hwecc (NAND_ECC_WRITE);	/* enable hardware ecc logic */
+#ifdef CONFIG_MTD_NAND_SHARP_SL_TC6393
+		for (i = 0; i < mtd->oobblock; i+=2) {
+			writew ( (this->data_poi[i+1] << 8) | this->data_poi[i] , this->IO_ADDR_W);
+		}
+#else
 		for (i = 0; i < mtd->oobblock; i++) 
 			writeb ( this->data_poi[i] , this->IO_ADDR_W);
+#endif
 		ecc_ret = this->calculate_ecc (NULL, &(ecc_code[0]));
 		for (i = 0; i < 6; i++)
 			oob_data[oob_config[i]] = ecc_code[i];
@@ -483,8 +501,15 @@ static int nand_write_page (struct mtd_info *mtd, struct nand_chip *this,
 	}
 	
 	/* Write out OOB data */
+#ifdef CONFIG_MTD_NAND_SHARP_SL_TC6393
+
+	for (i = 0; i <  mtd->oobsize; i+=2) {
+		writew ( (oob_data[i+1] << 8) | oob_data[i] , this->IO_ADDR_W);
+	}
+#else
 	for (i = 0; i <  mtd->oobsize; i++)
 		writeb ( oob_data[i] , this->IO_ADDR_W);
+#endif
 
 	/* Send command to actually program the data */
 	this->cmdfunc (mtd, NAND_CMD_PAGEPROG, -1, -1);
@@ -525,23 +550,55 @@ static int nand_write_page (struct mtd_info *mtd, struct nand_chip *this,
 	}
 	/* Loop through and verify the data */
 	for (i = col; i < last; i++) {
+#ifdef CONFIG_MTD_NAND_SHARP_SL_TC6393
+		if((i-col) & 1){
+			data_b = data_w >> 8;
+		}else{
+			data_w = readw (this->IO_ADDR_W);
+			data_b = data_w & 0xff;
+				
+		}
+		if (this->data_poi[i] != data_b) {
+			printk (KERN_WARNING "%s: Failed write verify, %d at page 0x%08x, col=%d last=%d\n", __func__, i, page, col, last);
+			ACCUMULATE_ELAPSED_TIME(nand_write_verify);
+			ACCUMULATE_ELAPSED_TIME(nand_write_page);
+			return -EIO;
+		}
+#else
 		if (this->data_poi[i] != readb (this->IO_ADDR_R)) {
 			printk (KERN_WARNING "%s: Failed write verify, %d at page 0x%08x, col=%d last=%d\n", __func__, i, page, col, last);
 			ACCUMULATE_ELAPSED_TIME(nand_write_verify);
 			ACCUMULATE_ELAPSED_TIME(nand_write_page);
 			return -EIO;
 		}
+#endif
 	}
 
 	/* check, if we have a fs-supplied oob-buffer */
 	if (oob_buf) {
 		for (i = 0; i < mtd->oobsize; i++) {
+#ifdef CONFIG_MTD_NAND_SHARP_SL_TC6393
+			if(i & 1){
+				data_b = data_w >> 8;
+			}else{
+				data_w = readw (this->IO_ADDR_W);
+				data_b = data_w & 0xff;
+				
+			}
+			if (oob_data[i] != data_b) {
+				printk (KERN_WARNING "%s: Failed write verify, oob %d of page 0x%08x\n", __func__, i, page);
+				ACCUMULATE_ELAPSED_TIME(nand_write_verify);
+				ACCUMULATE_ELAPSED_TIME(nand_write_page);
+				return -EIO;
+			}
+#else
 			if (oob_data[i] != readb (this->IO_ADDR_R)) {
 				printk (KERN_WARNING "%s: Failed write verify, oob %d of page 0x%08x\n", __func__, i, page);
 				ACCUMULATE_ELAPSED_TIME(nand_write_verify);
 				ACCUMULATE_ELAPSED_TIME(nand_write_page);
 				return -EIO;
 			}
+#endif
 		}
 	} else {
 		if (eccmode != NAND_ECC_NONE && !col && last == mtd->oobblock) {
@@ -554,8 +611,19 @@ static int nand_write_page (struct mtd_info *mtd, struct nand_chip *this,
 			case NAND_ECC_HW6_512: ecc_bytes = 6; break;
 			}
 
+#ifdef CONFIG_MTD_NAND_SHARP_SL_TC6393
+			for (i = 0; i < mtd->oobsize; i++) {
+				if(i & 1){
+					oob_data[i] = data_w >> 8;
+				}else{
+					data_w = readw (this->IO_ADDR_R);
+					oob_data[i] = data_w;
+				}
+			}
+#else
 			for (i = 0; i < mtd->oobsize; i++)
 				oob_data[i] = readb (this->IO_ADDR_R);
+#endif
 
 			for (i = 0; i < ecc_bytes; i++) {
 				if (oob_data[oob_config[i]] != ecc_code[i]) {
@@ -786,6 +854,9 @@ static int nand_read_oob (struct mtd_info *mtd, loff_t from, size_t len, size_t 
 	int col, page;
 	int erase_state = 0;
 	struct nand_chip *this = mtd->priv;
+#ifdef CONFIG_ARCH_SHARP_SL
+	int retval = 0;
+#endif
 
 	DEBUG (MTD_DEBUG_LEVEL3, "nand_read_oob: from = 0x%08x, len = %i\n", (unsigned int) from, (int) len);
 
@@ -822,10 +893,36 @@ static int nand_read_oob (struct mtd_info *mtd, loff_t from, size_t len, size_t 
 		 * oob data, let the device transfer the data !
 		 */
 		for (i = 0; i < tmp_len; i++) {
+#ifdef CONFIG_MTD_NAND_SHARP_SL_TC6393
+			unsigned short data;
+			if(i & 1){
+				buf[i] = data >> 8;
+			}else{
+				data = readw (this->IO_ADDR_R);
+				buf[i] = data;
+			}
+#else
 			buf[i] = readb (this->IO_ADDR_R);
+#endif
 			if ((col++ & (mtd->oobsize - 1)) == (mtd->oobsize - 1))
 				udelay (this->chip_delay);
 		}
+
+#ifdef CONFIG_ARCH_SHARP_SL
+		if (!this->dev_ready) 
+			udelay (this->chip_delay);
+		else {
+			int i;
+			for (i = 0; i < NAND_BUSY_TIMEOUT; i++)
+				if (this->dev_ready())
+					break;
+			if (i == NAND_BUSY_TIMEOUT) {
+				retval = -EIO;
+				break;
+			}
+			
+		}
+#endif
 
 		col = 0;
 		page++;
@@ -844,7 +941,11 @@ static int nand_read_oob (struct mtd_info *mtd, loff_t from, size_t len, size_t 
 	spin_unlock_bh (&this->chip_lock);
 
 	/* Return happy */
+#ifdef CONFIG_ARCH_SHARP_SL
+	return retval;
+#else
 	return 0;
+#endif
 }
 
 /*
@@ -948,6 +1049,10 @@ static int nand_write_oob (struct mtd_info *mtd, loff_t to, size_t len, size_t *
 {
 	int i, column, page, status, ret = 0;
 	struct nand_chip *this = mtd->priv;
+#ifdef CONFIG_MTD_NAND_SHARP_SL_TC6393
+	unsigned short tmp_buf[32]; // mtd->oobsize
+	u_char *p_tmp_buf;
+#endif
 
 	DEBUG (MTD_DEBUG_LEVEL3, "nand_write_oob: to = 0x%08x, len = %i\n", (unsigned int) to, (int) len);
 
@@ -986,6 +1091,17 @@ static int nand_write_oob (struct mtd_info *mtd, loff_t to, size_t len, size_t *
 
 	/* Write out desired data */
 	this->cmdfunc (mtd, NAND_CMD_SEQIN, mtd->oobblock, page);
+
+#ifdef CONFIG_MTD_NAND_SHARP_SL_TC6393
+	memset(tmp_buf,0xff,mtd->oobsize);
+	p_tmp_buf = (u_char *)tmp_buf;
+
+	for (i = 0; i < len; i++)
+		p_tmp_buf[i+column] = buf[i];
+
+	for (i = 0; i < mtd->oobsize; i++)
+		writew (tmp_buf[i], this->IO_ADDR_W);
+#else
 	/* prepad 0xff for partial programming */
 	for (i = 0; i < column; i++)
 		writeb (0xff, this->IO_ADDR_W);
@@ -995,7 +1111,7 @@ static int nand_write_oob (struct mtd_info *mtd, loff_t to, size_t len, size_t *
 	/* postpad 0xff for partial programming */
 	for (i = len + column; i < mtd->oobsize; i++)
 		writeb (0xff, this->IO_ADDR_W);
-
+#endif
 	/* Send command to program the OOB data */
 	this->cmdfunc (mtd, NAND_CMD_PAGEPROG, -1, -1);
 
@@ -1016,11 +1132,29 @@ static int nand_write_oob (struct mtd_info *mtd, loff_t to, size_t len, size_t *
 
 	/* Loop through and verify the data */
 	for (i = 0; i < len; i++) {
+#ifdef CONFIG_MTD_NAND_SHARP_SL_TC6393
+		unsigned short data;
+		if(i & 1){
+			if (buf[i] != (data >> 8)){
+				DEBUG (MTD_DEBUG_LEVEL0, "nand_write_oob: " "Failed write verify, page 0x%08x\n", page);
+				ret = -EIO;
+				goto out;
+			}
+		}else{
+			data = readw (this->IO_ADDR_R);
+			if (buf[i] != (data & 0xff)){
+				DEBUG (MTD_DEBUG_LEVEL0, "nand_write_oob: " "Failed write verify, page 0x%08x\n", page);
+				ret = -EIO;
+				goto out;
+			}
+		}
+#else
 		if (buf[i] != readb (this->IO_ADDR_R)) {
 			DEBUG (MTD_DEBUG_LEVEL0, "nand_write_oob: " "Failed write verify, page 0x%08x\n", page);
 			ret = -EIO;
 			goto out;
 		}
+#endif
 	}
 #endif
 
@@ -1232,6 +1366,7 @@ static int nand_erase (struct mtd_info *mtd, struct erase_info *instr)
 	/* Check the WP bit */
 	this->cmdfunc (mtd, NAND_CMD_STATUS, -1, -1);
 	if (!(readb (this->IO_ADDR_R) & 0x80)) {
+
 		DEBUG (MTD_DEBUG_LEVEL0, "nand_erase: Device is write protected!!!\n");
 		instr->state = MTD_ERASE_FAILED;
 		goto erase_exit;
@@ -1413,8 +1548,14 @@ int nand_scan (struct mtd_info *mtd)
 	this->cmdfunc (mtd, NAND_CMD_READID, 0x00, -1);
 
 	/* Read manufacturer and device IDs */
+#ifdef CONFIG_MTD_NAND_SHARP_SL_TC6393
+	nand_maf_id = readw (this->IO_ADDR_R);
+	nand_dev_id = nand_maf_id >> 8;
+	nand_maf_id = nand_maf_id & 0xff;
+#else
 	nand_maf_id = readb (this->IO_ADDR_R);
 	nand_dev_id = readb (this->IO_ADDR_R);
+#endif
 
 	/* Print and store flash device information */
 	for (i = 0; nand_flash_ids[i].name != NULL; i++) {
@@ -1449,7 +1590,9 @@ int nand_scan (struct mtd_info *mtd)
 	this->eccsize = 256;	/* set default eccsize */	
 
 	switch (this->eccmode) {
-
+#ifdef CONFIG_ARCH_SHARP_SL
+	case NAND_ECC_HW6_512:
+#endif
 	case NAND_ECC_HW3_512: 
 		if (mtd->oobblock == 256) {
 			printk (KERN_WARNING "512 byte HW ECC not possible on 256 Byte pagesize, fallback to SW ECC \n");

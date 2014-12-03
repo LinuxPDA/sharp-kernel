@@ -5,7 +5,14 @@
  * (C) Copyright 2000-2001 David Brownell <dbrownell@users.sourceforge.net>
  * 
  * usb-ohci.h
+ *
+ * ChangeLog:
+ *   26-Feb-2004 Lineo Solutions, Inc.  for Tosa (SHARP)
  */
+
+#if defined(CONFIG_USB_USE_INTERNAL_MEMORY)
+#include "mem-onchip.h"
+#endif
 
  
 static int cc_to_error[16] = { 

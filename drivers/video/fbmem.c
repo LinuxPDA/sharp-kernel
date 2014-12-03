@@ -16,6 +16,8 @@
  *             - Added support for ATI w100 on SHARP SL-C700
  *      11-Sep-2002 SHARP
  *             - Allocated frame buffer to cache memory on SHARP SL-B500/5600
+ *      24-Jul-2003 Lineo Solutions, Inc.
+ *             - Added support for TOSHIBA TC6393XB on SHARP SL-6
  */
 
 #include <linux/config.h>
@@ -145,6 +147,8 @@ extern int colliefb_init(void);
 extern int cotulla_fb_init(void);
 extern int w100fb_init(void);
 extern int w100fb_setup(char*); 
+extern int tc6393fb_init(void);
+extern int tc6393fb_setup(char*); 
   
 static struct {
 	const char *name;
@@ -321,6 +325,9 @@ static struct {
 #endif
 #ifdef CONFIG_FB_CORGI
 	{ "w100fb", w100fb_init, w100fb_setup },
+#endif
+#ifdef CONFIG_FB_TOSA
+	{ "tc6393fb", tc6393fb_init, NULL },
 #endif
 
 	/*

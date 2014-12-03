@@ -3,6 +3,7 @@
  *      
  * Change Log
  *	12-Dec-2002 Sharp Corporation for Poodle and Corgi
+ *	26-Feb-2004 Lineo Solutions, Inc.  for Tosa
  */
 
 #ifndef __ASM_ARCH_SERIAL_H
@@ -30,7 +31,10 @@
 #define CONFIG_UART2_DFLT_CONSOLE
 #elif defined(CONFIG_ARCH_PXA_CORGI)
 #define CONFIG_UART2_DFLT_CONSOLE
+#elif defined(CONFIG_ARCH_PXA_TOSA)
+#define CONFIG_UART2_DFLT_CONSOLE
 #endif
+
 #if defined(CONFIG_UART0_DFLT_CONSOLE)
 
 #define STD_SERIAL_PORT_DEFNS			\

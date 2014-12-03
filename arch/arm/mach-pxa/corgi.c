@@ -258,7 +258,11 @@ static void __init
 fixup_corgi(struct machine_desc *desc, struct param_struct *params,
 		char **cmdline, struct meminfo *mi)
 {
+#if defined(CONFIG_ARCH_PXA_SHEPHERD)
+	SET_BANK (0, 0xa0000000, 64*1024*1024);
+#else
 	SET_BANK (0, 0xa0000000, 32*1024*1024);
+#endif
 	mi->nr_banks      = 1;
 #if defined(CONFIG_BLK_DEV_INITRD)
 	setup_ramdisk (1, 0, 0, 8192);
@@ -324,7 +328,11 @@ static void __init corgi_map_io(void)
 	PCFR |= PCFR_OPDE;
 }
 
+#if defined(CONFIG_ARCH_PXA_SHEPHERD)
+MACHINE_START(CORGI, "SHARP Shepherd")
+#else
 MACHINE_START(CORGI, "SHARP Corgi")
+#endif
 	MAINTAINER("Lineo Inc.")
 	BOOT_MEM(0xa0000000, 0x40000000, io_p2v(0x40000000))
 #ifdef CONFIG_SHARPSL_BOOTLDR_PARAMS

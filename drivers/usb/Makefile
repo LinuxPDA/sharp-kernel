@@ -16,10 +16,11 @@ export-objs		:= usb.o ov511.o pwc-uncompress.o
 
 # Multipart objects.
 
-list-multi		:= usbcore.o hid.o pwc.o
+list-multi		:= usbcore.o hid.o pwc.o usb_ohci_tc6393.o
 usbcore-objs		:= usb.o usb-debug.o hub.o
 hid-objs		:= hid-core.o hid-input.o
 pwc-objs		:= pwc-if.o pwc-misc.o pwc-ctrl.o pwc-uncompress.o
+ohci-tc6393-objs	:= usb-ohci.o usb-ohci-tc6393.o pcipool.o mem-onchip.o
 
 
 # Optional parts of multipart objects.
@@ -48,6 +49,7 @@ obj-$(CONFIG_USB_UHCI)		+= usb-uhci.o
 obj-$(CONFIG_USB_UHCI_ALT)	+= uhci.o
 obj-$(CONFIG_USB_OHCI)		+= usb-ohci.o usb-ohci-pci.o
 obj-$(CONFIG_USB_OHCI_SA1111)	+= usb-ohci.o usb-ohci-sa1111.o
+obj-$(CONFIG_USB_OHCI_TC6393)	+= usbcore.o usb_ohci_tc6393.o
 
 obj-$(CONFIG_USB_MOUSE)		+= usbmouse.o
 obj-$(CONFIG_USB_HID)		+= hid.o
@@ -105,3 +107,6 @@ hid.o: $(hid-objs)
 
 pwc.o: $(pwc-objs)
 	$(LD) -r -o $@ $(pwc-objs)
+
+usb_ohci_tc6393.o: $(ohci-tc6393-objs)
+	$(LD) -r -o $@ $(ohci-tc6393-objs)

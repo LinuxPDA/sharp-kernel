@@ -6,16 +6,7 @@
  *     15-Nov-2002 Lineo Japan, Inc.  add nodemerge facility
  *     05-Nov-2002 Lineo Japan, Inc.  modify nr_bad_blocks type
  *     29-Oct-2002 Lineo Japan, Inc.  add member nr_bad_blocks and cont_gc_count
- *
- */
-
-/*
- * ChangeLog:
- *     27-Nov-2002 Lineo Japan, Inc.  add effective-gc mode
- *     24-Nov-2002 SHARP  add erasing_dirty_size
- *     15-Nov-2002 Lineo Japan, Inc.  add nodemerge facility
- *     05-Nov-2002 Lineo Japan, Inc.  modify nr_bad_blocks type
- *     29-Oct-2002 Lineo Japan, Inc.  add member nr_bad_blocks and cont_gc_count
+ *     05-Aug-2003 SHARP for Tosa
  *
  */
 
@@ -81,6 +72,9 @@ struct jffs2_sb_info {
 	uint32_t nr_blocks;
 	struct jffs2_eraseblock *blocks;	/* The whole array of blocks. Used for getting blocks 
 						 * from the offset (blocks[ofs / sector_size]) */
+#if defined(CONFIG_ARCH_PXA_HUSKY) || defined(CONFIG_ARCH_PXA_TOSA)
+	dma_addr_t	blocks_phys;
+#endif
 	struct jffs2_eraseblock *nextblock;	/* The block we're currently filling */
 
 	struct jffs2_eraseblock *gcblock;	/* The block we're currently garbage-collecting */

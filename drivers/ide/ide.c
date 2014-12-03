@@ -122,6 +122,7 @@
  * Change Log
  *	12-Nov-2001 Lineo Japan, Inc.
  *	30-Jul-2002 Lineo Japan, Inc.  for 2.4.18
+ *	26-Feb-2004 Lineo Solutions, Inc.  2 slot support
  *
  */
 
@@ -201,7 +202,7 @@ ide_module_t *ide_probe;
 ide_hwif_t	ide_hwifs[MAX_HWIFS];	/* master data repository */
 
 #if defined(CONFIG_ARCH_SHARP_SL) && defined(CONFIG_PCMCIA)
-extern int ide_resume_handling;
+extern int ide_resume_handling[];
 #endif
 
 #if (DISK_RECOVERY_TIME > 0)
@@ -548,7 +549,7 @@ static inline int drive_is_ready (ide_drive_t *drive)
 {
 	byte stat = 0;
 #if defined(CONFIG_ARCH_SHARP_SL) && defined(CONFIG_PCMCIA)
-	if (ide_resume_handling == 2)
+	if (ide_resume_handling[sharpsl_pcmcia_irq_to_sock(HWIF(drive)->irq)] == 2)
 		return 0;
 #endif
 	if (drive->waiting_for_dma)
@@ -712,11 +713,11 @@ static ide_startstop_t reset_pollfunc (ide_drive_t *drive)
 	byte tmp;
 
 #if defined(CONFIG_ARCH_SHARP_SL) && defined(CONFIG_PCMCIA)
-	if (!is_pcmcia_card_present(0)) {
+	if (!is_pcmcia_card_present(hwif->irq)) {
 		hwgroup->poll_timeout = 0;	/* done polling */
 		return ide_stopped;
 	}
-	if (ide_resume_handling == 2) {
+	if (ide_resume_handling[sharpsl_pcmcia_irq_to_sock(hwif->irq)] == 2) {
 		hwgroup->poll_timeout = 0;	/* done polling */
 		return ide_stopped;
 	}
@@ -1244,9 +1245,9 @@ static ide_startstop_t start_request (ide_drive_t *drive)
 	ide_hwif_t *hwif = HWIF(drive);
 
 #if defined(CONFIG_ARCH_SHARP_SL) && defined(CONFIG_PCMCIA)
-	if (!is_pcmcia_card_present(0))
+	if (!is_pcmcia_card_present(hwif->irq))
 		goto kill_rq;
-	if (ide_resume_handling == 2)
+	if (ide_resume_handling[sharpsl_pcmcia_irq_to_sock(hwif->irq)] == 2)
 		goto kill_rq;
 #endif
 
@@ -1625,7 +1626,7 @@ void ide_timer_expiry (unsigned long data)
 			if (hwgroup->poll_timeout != 0) {
 				startstop = handler(drive);
 #if defined(CONFIG_ARCH_SHARP_SL) && defined(CONFIG_PCMCIA)
-			} else if (!ide_resume_handling &&
+			} else if (!ide_resume_handling[sharpsl_pcmcia_irq_to_sock(hwif->irq)] &&
 				   drive_is_ready(drive)) {
 #else
 			} else if (drive_is_ready(drive)) {

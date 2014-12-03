@@ -59,6 +59,8 @@
  *
  * Change Log
  *      12-Dec-2002 Sharp Corporation  for Poodle and Corgi
+ *      1-Nov-2003 Sharp Corporation   for Tosa
+ *      26-Feb-2004 Lineo Solutions, Inc.  for Tosa
  */
 
 static char *serial_version = "5.05c";
@@ -228,8 +230,9 @@ static char *serial_revdate = "2001-07-08";
 #endif
 #ifdef CONFIG_PM
 #include <linux/pm.h>
-#include <linux/apm_bios.h>
 #endif
+#include <linux/apm_bios.h>
+#include <asm/sharp_char.h>
 
 /*
  * All of the compatibilty code so we can compile serial.c against
@@ -414,7 +417,7 @@ void set_discovery_serial(void){
 
 #define CONFIG_DISCOVERY_DVT
 
-#if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
+#if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
 #define CONFIG_SHARPSL_PXA
 #endif
 
@@ -439,17 +442,24 @@ void set_discovery_serial(void){
 #define XPA210_DISCOVERY_IRDA_LINE		1
 #define xpa210_discovery_is_irda_line(line)	((line) == XPA210_DISCOVERY_IRDA_LINE)
 
-void clr_discovery_irda(u8 x){
+static void clr_discovery_irda(u8 x){
 #if defined(CONFIG_SABINAL_DISCOVERY)
 	ASIC3_GPIO_PIOD_B &= ~(0x1000);
+#elif defined(CONFIG_ARCH_PXA_TOSA)
+	reset_scoop_gpio(SCP_IR_POWERDWN);
+	set_GPIO_mode(GPIO47_STTXD|GPIO_OUT);
+	GPCR(GPIO47_STTXD) = GPIO_bit(GPIO47_STTXD);
 #elif defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
 	GPSR(GPIO_IR_ON) = GPIO_bit(GPIO_IR_ON);
 #endif
 	//printk("discovery_irda power on\n");
-	}
-void set_discovery_irda(u8 x){
+}
+static void set_discovery_irda(u8 x){
 #if defined(CONFIG_SABINAL_DISCOVERY)
 	ASIC3_GPIO_PIOD_B |= 0x1000;
+#elif defined(CONFIG_ARCH_PXA_TOSA)
+	set_GPIO_mode(GPIO47_STTXD_MD);
+	set_scoop_gpio(SCP_IR_POWERDWN);
 #elif defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
 	GPCR(GPIO_IR_ON) = GPIO_bit(GPIO_IR_ON);
 #endif
@@ -470,13 +480,52 @@ static unsigned long v1, v2;
 
 #endif
 
+#if defined(CONFIG_BLUETOOTH_SL)
+#define PXA_BLUETOOTH_LINE		2
+#define pxa_is_bluetooth_line(line)	((line) == PXA_BLUETOOTH_LINE)
+
+static int has_bluetooth = -1;
+static int bluetooth_open = 0;
+struct async_struct *bluetooth_info = 0;
+#if defined(CONFIG_ARCH_PXA_TOSA)
+#define AVOID_ROLLBACK
+#ifdef AVOID_ROLLBACK
+extern int rollback_cancel;
+#endif
+#endif
+static int pxa_check_bluetooth_unit()
+{
+#if defined(CONFIG_ARCH_PXA_TOSA)
+  set_GPIO_mode(GPIO42_BTRXD|GPIO_IN);
+  set_GPIO_mode(GPIO43_BTTXD|GPIO_IN);
+  set_GPIO_mode(GPIO44_BTCTS|GPIO_IN);
+  set_GPIO_mode(GPIO45_BTRTS|GPIO_IN);
+  set_scoop_gpio(SCP_BT_PWR_EN);
+  mdelay(5);
+  if ( (GPLR(GPIO42_BTRXD) & GPIO_bit(GPIO42_BTRXD))==0 &&
+       (GPLR(GPIO44_BTCTS) & GPIO_bit(GPIO44_BTCTS))==0) {
+    reset_scoop_gpio(SCP_BT_PWR_EN);
+    has_bluetooth=0;
+    return 0; // no bluetooth
+  }
+  reset_scoop_gpio(SCP_BT_PWR_EN);
+  has_bluetooth=1;
+  return 1;
+#else
+  return 0;
+#endif
+}
+#endif // end CONFIG_BLUETOOTH_SL
+
 #ifdef CONFIG_PM
 static struct pm_dev *serial_pm_dev;
 #endif
 
 
-#if (defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI))
+#if (defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA))
+#ifdef CONFIG_PM
 extern int change_power_mode(unsigned long,int);
+#endif
 #endif
 
 /*
@@ -544,6 +593,7 @@ static _INLINE_ unsigned int serial_in(struct async_struct *info, int offset)
 		read &= ~UART_MSR_CTS;
 	      else
 		read |= UART_MSR_CTS;
+
 	      if ( read & UART_MSR_DSR )
 		read &= ~UART_MSR_DSR;
 	      else
@@ -633,9 +683,10 @@ static _INLINE_ void serial_out(struct async_struct *info, int offset,
 #define STUART_MCR	*(volatile unsigned char*)(&STUART + UART_MCR*4)
 #define STUART_ISR	*(volatile unsigned char*)(&STUART + 8*4)
 
+#ifdef CONFIG_PM
 void xpa210_discovery_irda_resume (void) {
 	
-#if (defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI))
+#if (defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA))
 		if ( !change_power_mode(LOCK_FCS_STUART, 1) ) return;
 #endif
 
@@ -652,14 +703,17 @@ void xpa210_discovery_irda_resume (void) {
 		//printk("xpa210_discovery_irda_resume\n");
 	
 }
+#endif
 
 int xpa210_discovery_irda_enable(struct async_struct * info, u8 x){
 
 	if (x == 0) {
 		CKEN &= ~(0x20); //stuart
 
-#if (defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI))
+#if (defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA))
+#ifdef CONFIG_PM
 		change_power_mode(LOCK_FCS_STUART, 0);
+#endif	/* CONFIG_PM */
 #endif
 
 		info->IER &= ~(UART_IER_UUE);
@@ -675,8 +729,10 @@ int xpa210_discovery_irda_enable(struct async_struct * info, u8 x){
 		
 		//printk("xpa210_discovery_irda_disable\n");
 	} else {
-#if (defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI))
+#if (defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA))
+#ifdef CONFIG_PM
 		if ( !change_power_mode(LOCK_FCS_STUART, 1) ) return 1;
+#endif	/* CONFIG_PM */
 #endif
 
 		CKEN |= 0x20; //stuart
@@ -696,9 +752,91 @@ int xpa210_discovery_irda_enable(struct async_struct * info, u8 x){
 	}
 	return 0;	
 }
-
 #endif
 
+#if defined(CONFIG_BLUETOOTH_SL)
+static int pxa_bluetooth_enable(struct async_struct * info, u8 x)
+{
+  if (has_bluetooth==0) return -ENODEV;
+  if (x==0) { // off
+    set_scoop_gpio(SCP_BT_RESET);
+    CKEN &= ~(0x1<<7); //btuart
+    set_GPIO_mode(GPIO42_BTRXD|GPIO_IN);
+    set_GPIO_mode(GPIO43_BTTXD|GPIO_IN);
+    set_GPIO_mode(GPIO44_BTCTS|GPIO_IN);
+    set_GPIO_mode(GPIO45_BTRTS|GPIO_IN);
+    mdelay(10); // wait 10ms
+    reset_scoop_gpio(SCP_BT_RESET);
+    reset_scoop_gpio(SCP_BT_PWR_EN);
+    set_led_status(SHARP_LED_BLUETOOTH,0); // turn off BT LED
+
+    ICMR &= ~(1 << 21); //btuart
+
+    info->IER &= ~(UART_IER_UUE);
+    serial_out(info, UART_IER, info->IER);
+		
+    info->MCR = 0x0;
+    serial_out(info, UART_MCR, info->MCR);
+		
+    info->IER |= UART_IER_UUE;	/* enable UUE */
+    serial_out(info, UART_IER, info->IER);
+
+#ifdef CONFIG_PM
+    change_power_mode(LOCK_FCS_BTUART, 0);
+#endif	/* CONFIG_PM */
+#if defined(CONFIG_ARCH_PXA_TOSA)
+#ifdef AVOID_ROLLBACK
+    rollback_cancel = 0;
+#endif
+#endif
+    //    printk("bluetooth close success.\n");
+  } else { // on
+#ifdef CONFIG_PM
+    if ( !change_power_mode(LOCK_FCS_BTUART, 1) ) return 1;
+#endif	/* CONFIG_PM */
+    ICMR &= ~(1 << 21); //btuart
+    reset_scoop_gpio(SCP_BT_RESET);
+    set_scoop_gpio(SCP_BT_PWR_EN);
+
+    set_GPIO_mode(GPIO42_BTRXD_MD);
+    set_GPIO_mode(GPIO43_BTTXD_MD);
+    set_GPIO_mode(GPIO44_BTCTS_MD);
+    set_GPIO_mode(GPIO45_BTRTS_MD);
+
+    CKEN |= (0x1<<7); //btuart
+
+    info->IER &= ~(UART_IER_UUE);
+    serial_out(info, UART_IER, info->IER);
+		
+    info->MCR = UART_MCR_OUT2;
+    serial_out(info, UART_MCR, info->MCR);
+
+    info->tty->termios->c_cflag &= ~CBAUD;
+    info->tty->termios->c_cflag |= (17 & CBAUD); // set 115.2k
+    change_speed(info, 0);
+
+    info->IER = UART_IER_UUE|UART_IER_RDI|UART_IER_MSI|UART_IER_RTOIE;	/* enable UUE */
+    serial_out(info, UART_IER, info->IER);
+    serial_inp(info, UART_RX);		 // reset DR
+
+    ICMR |= (1 << 21); //btuart
+
+    set_scoop_gpio(SCP_BT_RESET);
+    mdelay(20); // wait 20ms
+    reset_scoop_gpio(SCP_BT_RESET);
+    set_led_status(SHARP_LED_BLUETOOTH,1); // BT LED on
+    
+#if defined(CONFIG_ARCH_PXA_TOSA)
+#ifdef AVOID_ROLLBACK
+    rollback_cancel = 1;
+#endif
+#endif
+
+    //    printk("bluetooth open success.\n");
+  }
+  return 0;
+}
+#endif
 
 /*
  * For the 16C950
@@ -824,11 +962,25 @@ static _INLINE_ void receive_chars(struct async_struct *info,
 	
 	icount = &info->state->icount;
 
+#if defined(CONFIG_BLUETOOTH_SL)
+	if (xpa2X0_is_st_uart(info->iomem_base) || xpa2X0_is_bt_uart(info->iomem_base)) {
+#else
 	if (xpa2X0_is_st_uart(info->iomem_base)) {
+#endif
 		*status = serial_inp(info, UART_LSR);
 		while (!(*status & UART_LSR_DR)) {
 			printk("WoWWWW!\n");
 		}
+#if 1 //
+		if (xpa2X0_is_bt_uart(info->iomem_base)) {
+		  if (*status & UART_LSR_OE) {
+		    printk("ERROR: Bluetooth Overrun!!\n");
+		  }
+		  if (*status & (UART_LSR_PE|UART_LSR_FE|0x80) ) {
+		    printk("ERROR: Bluetooth Error!!\n");
+		  }
+		}
+#endif
 	}		
 
 	do {
@@ -838,7 +990,11 @@ static _INLINE_ void receive_chars(struct async_struct *info,
 				return;		// if TTY_DONT_FLIP is set
 		}
 
+#if defined(CONFIG_BLUETOOTH_SL)
+		if (xpa2X0_is_st_uart(info->iomem_base) || xpa2X0_is_bt_uart(info->iomem_base)) {
+#else
 		if (xpa2X0_is_st_uart(info->iomem_base)) {
+#endif
 			while (!(*status & UART_LSR_DR))
 				;
 		}
@@ -851,7 +1007,11 @@ static _INLINE_ void receive_chars(struct async_struct *info,
 #ifdef SERIAL_DEBUG_INTR
 		printk("DR%02x:%02x...", ch, *status);
 #endif
+#if defined(CONFIG_BLUETOOTH_SL)
+		if (xpa2X0_is_st_uart(info->iomem_base) || xpa2X0_is_bt_uart(info->iomem_base)) { 
+#else
 		if (xpa2X0_is_st_uart(info->iomem_base)) { 
+#endif
 			goto IRDA_SKIP;
 		}		
 		*tty->flip.flag_buf_ptr = 0;
@@ -894,7 +1054,11 @@ static _INLINE_ void receive_chars(struct async_struct *info,
 			*status &= info->read_status_mask;
 
 #ifdef CONFIG_SERIAL_CONSOLE
+#if defined(CONFIG_BLUETOOTH_SL)
+	if (!xpa2X0_is_st_uart(info->iomem_base) && !xpa2X0_is_bt_uart(info->iomem_base)) { 
+#else
 	if (!xpa2X0_is_st_uart(info->iomem_base)) { 
+#endif
 			if (info->line == sercons.index) {
 				/* Recover the break flag from console xmit */
 				*status |= lsr_break_flag;
@@ -996,7 +1160,19 @@ static _INLINE_ void transmit_chars(struct async_struct *info, int *intr_done)
 //			udelay(800);
 
 			serial_outp(info, XPA2X0_UART_ISR, XPA210_DISCOVERY_IR_RECV);
-			
+#if defined(CONFIG_BLUETOOTH_SL)
+		} else if (xpa2X0_is_bt_uart(info->iomem_base)) {
+
+			while (!(serial_inp(info, UART_LSR) & UART_LSR_TEMT))
+				;
+
+			info->IER &= ~UART_IER_THRI;
+			serial_out(info, UART_IER, info->IER);
+			status0 = serial_inp(info, UART_IIR);
+
+			if (intr_done)
+				*intr_done = 0;
+#endif			
 		} else {
 			info->IER &= ~UART_IER_THRI;
 			serial_out(info, UART_IER, info->IER);
@@ -1008,7 +1184,11 @@ static _INLINE_ void transmit_chars(struct async_struct *info, int *intr_done)
 	if( info->io_type == SERIAL_IO_MEM ){
 	count = info->xmit_fifo_size / 2;
 	
+#if defined(CONFIG_BLUETOOTH_SL)
+	if (xpa2X0_is_st_uart(info->iomem_base) || xpa2X0_is_bt_uart(info->iomem_base)) {
+#else
 	if (xpa2X0_is_st_uart(info->iomem_base)) {
+#endif
 			count = info->xmit_fifo_size ;
 	}
 	} else count = info->xmit_fifo_size;
@@ -1039,7 +1219,6 @@ static _INLINE_ void transmit_chars(struct async_struct *info, int *intr_done)
 	} else {
 		do {	
 			serial_out(info, UART_TX, info->xmit.buf[info->xmit.tail]);
-		
 			info->xmit.tail = (info->xmit.tail + 1) & (SERIAL_XMIT_SIZE-1);
 			info->state->icount.tx++;
 			if (info->xmit.head == info->xmit.tail)
@@ -1064,6 +1243,10 @@ static _INLINE_ void transmit_chars(struct async_struct *info, int *intr_done)
 //			while (!(serial_inp(info, UART_LSR) & UART_LSR_TEMT))
 //				;
 			
+#if defined(CONFIG_BLUETOOTH_SL)
+		} else if (xpa2X0_is_bt_uart(info->iomem_base)) {
+
+#endif
 		} else {
 			info->IER &= ~UART_IER_THRI;
 			serial_out(info, UART_IER, info->IER);
@@ -1091,7 +1274,11 @@ static _INLINE_ void check_modem_status(struct async_struct *info)
 	
 	status = serial_in(info, UART_MSR);
 
+#if defined(CONFIG_BLUETOOTH_SL)
+	if (xpa2X0_is_st_uart(info->iomem_base) || xpa2X0_is_bt_uart(info->iomem_base)) {
+#else
 	if (xpa2X0_is_st_uart(info->iomem_base)) {
+#endif
 //		printk("check_modem_status: do nothing\n");
 		return;
 	}
@@ -1325,11 +1512,20 @@ static void rs_interrupt_single(int irq, void *dev_id, struct pt_regs * regs)
 		goto IRDA_INTR_DONE;
 	}
 
-
 	do {
 		status = serial_inp(info, UART_LSR);
 #ifdef SERIAL_DEBUG_INTR
 		printk("status = %x...", status);
+#endif
+#if 1 //
+		if (xpa2X0_is_bt_uart(info->iomem_base)) {
+		  if (status & UART_LSR_OE) {
+		    printk("ERROR: Bluetooth Overrun!\n");
+		  }
+		  if (status & (UART_LSR_PE|UART_LSR_FE|0x80) ) {
+		    printk("ERROR: Bluetooth Error!\n");
+		  }
+		}
 #endif
 		if (status & UART_LSR_DR)
 			receive_chars(info, &status, regs);
@@ -2230,6 +2426,35 @@ static void change_speed(struct async_struct *info,
 		
 		return;
 	}
+#if defined(CONFIG_BLUETOOTH_SL)
+	if (xpa2X0_is_bt_uart(info->iomem_base)) {
+		cval = UART_LCR_WLEN8;
+#if 1 // for BCSP unit
+		if (cflag & PARENB) {
+		  cval |= UART_LCR_PARITY;
+		  printk("set even parity enable\n");
+		}
+		if (!(cflag & PARODD)) {
+		  cval |= UART_LCR_EPAR;
+		}
+#endif
+		fcr = UART_FCR_ENABLE_FIFO | UART_FCR_CLEAR_RCVR |UART_FCR_CLEAR_XMIT | UART_FCR_TRIGGER_8;
+
+		save_flags(flags); cli();
+		quot = 0x0008; // 115.2kbps
+
+		serial_outp(info, UART_LCR, cval | UART_LCR_DLAB);	/* set DLAB */
+		serial_outp(info, UART_DLL, quot & 0xff);	/* LS of divisor */
+		serial_outp(info, UART_DLM, quot >> 8);		/* MS of divisor */
+		serial_outp(info, UART_LCR, cval);		/* reset DLAB */
+		info->LCR = cval;				/* Save LCR */
+		serial_outp(info, UART_FCR, fcr); 	/* set fcr */
+
+		restore_flags(flags);
+		
+		return;
+	}
+#endif
 
 	/* Set up FIFO's */
 	if (uart_config[info->state->type].flags & UART_USE_FIFO) {
@@ -2448,7 +2673,11 @@ static int rs_write(struct tty_struct * tty, int from_user,
 
 #if defined(CONFIG_ARCH_SHARP_SL)
 	if(info->io_type == SERIAL_IO_MEM){
+#if defined(CONFIG_BLUETOOTH_SL)
+	if (xpa2X0_is_st_uart(info->iomem_base) || xpa2X0_is_bt_uart(info->iomem_base)) {
+#else
 	if (xpa2X0_is_st_uart(info->iomem_base)) {
+#endif
 
 		info->IER |= UART_IER_THRI;
 		serial_out(info, UART_IER, info->IER);
@@ -3508,9 +3737,10 @@ static void rs_close(struct tty_struct *tty, struct file * filp)
 
 	
 //close IR	
+#ifdef CONFIG_PM
 #if defined(CONFIG_ARCH_SHARP_SL)&& (CONFIG_IRDA)
 	if (xpa2X0_is_st_uart(info->iomem_base)) {
-		ICMR &= ~(1 << 20); //btuart
+		ICMR &= ~(1 << 20); //stuart
 		xpa210_discovery_irda_power_off();
 		xpa210_discovery_irda_enable(info, 0);
 		irda_open = 0; irda_info = 0;
@@ -3519,6 +3749,13 @@ static void rs_close(struct tty_struct *tty, struct file * filp)
 #endif
 	}	
 #endif
+#if defined(CONFIG_BLUETOOTH_SL)
+	if (xpa2X0_is_bt_uart(info->iomem_base)) {
+		pxa_bluetooth_enable(info, 0);
+		bluetooth_open = 0; bluetooth_info = 0;
+	}	
+#endif // end CONFIG_BLUETOOTH_SL
+#endif	/* CONFIG_PM */
 	
 	shutdown(info);
 	if (tty->driver.flush_buffer)
@@ -3540,12 +3777,14 @@ static void rs_close(struct tty_struct *tty, struct file * filp)
 	wake_up_interruptible(&info->close_wait);
 	MOD_DEC_USE_COUNT;
 
-#if (defined(CONFIG_SABINAL_DISCOVERY) && (CONFIG_DISCOVERY_EVT2)) || defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
+#if (defined(CONFIG_SABINAL_DISCOVERY) && (CONFIG_DISCOVERY_EVT2)) || defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
+#ifdef CONFIG_PM
 	xpa210_discovery_serial_power_off();
 	if (xpa2X0_is_ff_uart(info->iomem_base)) {
 		CKEN &= ~CKEN6_FFUART;
 		change_power_mode(LOCK_FCS_FFUART, 0);
 	}
+#endif	/* CONFIG_PM */
 #endif	
 
 }
@@ -3906,12 +4145,14 @@ static int rs_open(struct tty_struct *tty, struct file * filp)
 #endif
 	}
 
-#if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
+#if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
+#ifdef CONFIG_PM
 	xpa210_discovery_serial_power_on();
 	if (xpa2X0_is_ff_uart(info->iomem_base)) {
-		CKEN |= CKEN6_FFUART;
 		if ( !change_power_mode(LOCK_FCS_FFUART, 1) ) return -EAGAIN;
+		CKEN |= CKEN6_FFUART;
 	}
+#endif	/* CONFIG_PM */
 #endif
 
 	/*
@@ -3964,7 +4205,7 @@ static int rs_open(struct tty_struct *tty, struct file * filp)
 		info->IER = 0x01;
 		if ( xpa210_discovery_irda_enable(info, 1) ) return -EAGAIN;
 		xpa210_discovery_irda_power_on();
-		ICMR |= (1 << 20); //btuart
+		ICMR |= (1 << 20); //stuart
 		irda_open = 1;
 		irda_info = info;
 #if defined(CONFIG_SABINAL_DISCOVERY)
@@ -3972,6 +4213,15 @@ static int rs_open(struct tty_struct *tty, struct file * filp)
 #endif
 	}
 #endif
+
+#if defined(CONFIG_BLUETOOTH_SL)
+	if (pxa_is_bluetooth_line(line)) {
+	        int ret;
+		if ( (ret = pxa_bluetooth_enable(info, 1))!=0 ) return ret;
+		bluetooth_open = 1;
+		bluetooth_info = info;
+	}
+#endif // end CONFIG_BLUETOOTH_SL
 
 #ifdef SERIAL_DEBUG_OPEN
 	printk("\nrs_open ttys%d successful...", info->line);
@@ -6161,24 +6411,29 @@ static void __devinit probe_serial_pnp(void)
 
 void cotulla_serial_suspend(void) {
 
-#if (defined(CONFIG_SABINAL_DISCOVERY) && (CONFIG_DISCOVERY_EVT2)) || defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
+#if (defined(CONFIG_SABINAL_DISCOVERY) && (CONFIG_DISCOVERY_EVT2)) || defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
 	xpa210_discovery_serial_power_off();
 #endif	
 
 #ifdef CONFIG_IRDA
 	if ( irda_open == 1 ) {
-		ICMR &= ~(1 << 20); //btuart
+		ICMR &= ~(1 << 20); //stuart
 		xpa210_discovery_irda_power_off();
 		xpa210_discovery_irda_enable(irda_info, 0);
 		
 	}
 #endif
 
+#if defined(CONFIG_BLUETOOTH_SL)
+	if ( bluetooth_open ) {
+	  pxa_bluetooth_enable(bluetooth_info, 0);
+	}
+#endif // end CONFIG_BLUETOOTH_SL
 }
 
 void cotulla_serial_resume(void) {
 
-#if (defined(CONFIG_SABINAL_DISCOVERY) && (CONFIG_DISCOVERY_EVT2)) || defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
+#if (defined(CONFIG_SABINAL_DISCOVERY) && (CONFIG_DISCOVERY_EVT2)) || defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
 		xpa210_discovery_serial_power_on();
 #endif	
 
@@ -6192,7 +6447,7 @@ void cotulla_serial_resume(void) {
 #else
 #if defined(CONFIG_SABINAL_DISCOVERY)
 		BTUART_MCR |= UART_MCR_OUT2;
-#elif defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
+#elif defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
 		FFUART_MCR |= UART_MCR_OUT2;
 #endif
 		STUART_MCR |= UART_MCR_OUT2;
@@ -6202,10 +6457,16 @@ void cotulla_serial_resume(void) {
 		change_speed(irda_info, 0);
 		if ( xpa210_discovery_irda_enable(irda_info, 1) ) return;
 		xpa210_discovery_irda_power_on();
-		ICMR |= (1 << 20); //btuart
+		ICMR |= (1 << 20); //stuart
 	}
 #endif
 
+#if defined(CONFIG_BLUETOOTH_SL)
+	if ( bluetooth_open == 1 ) {
+		change_speed(bluetooth_info, 0);
+		if ( pxa_bluetooth_enable(bluetooth_info, 1) ) return;
+	}
+#endif // end CONFIG_BLUETOOTH_SL
 #endif
 
 }
@@ -6226,7 +6487,7 @@ static int cotulla_serial_pm_callback(struct pm_dev* pm_dev,
 
 	return 0;
 }
-#endif
+#endif	/* CONFIG_PM */
 
 /*
  * The serial driver boot-time initialization code!
@@ -6289,7 +6550,7 @@ static int __init pxa200_rs_init(void)
 	serial_driver.subtype = SERIAL_TYPE_NORMAL;
 	serial_driver.init_termios = tty_std_termios;
 	serial_driver.init_termios.c_cflag =
-		B9600 | CS8 | CREAD | HUPCL | CLOCAL;
+	  		B9600 | CS8 | CREAD | HUPCL | CLOCAL;
 	serial_driver.flags = TTY_DRIVER_REAL_RAW | TTY_DRIVER_NO_DEVFS;
 	serial_driver.refcount = &serial_refcount;
 	serial_driver.table = serial_table;
@@ -6368,6 +6629,9 @@ static int __init pxa200_rs_init(void)
 		if (state->flags & ASYNC_BOOT_AUTOCONF)
 			autoconfig(state);
 	}
+#if defined(CONFIG_BLUETOOTH_SL)
+	pxa_check_bluetooth_unit();
+#endif
 	for (i = 0, state = rs_table; i < NR_PORTS; i++,state++) {
 		if (state->type == PORT_UNKNOWN)
 			continue;
@@ -6384,6 +6648,16 @@ static int __init pxa200_rs_init(void)
 				       state->iomem_base, state->irq,
 			    	   uart_config[state->type].name);
 			    printk(", using IRDA\n");
+#if defined(CONFIG_BLUETOOTH_SL)
+			} else if (xpa2X0_is_bt_uart(state->iomem_base)) {
+				printk(KERN_INFO"ttyS%02d%s at 0x%px (irq = %d) is a %s",
+		 		       state->line + SERIAL_DEV_OFFSET,
+				       (state->flags & ASYNC_FOURPORT) ? " FourPort" : "",
+				       state->iomem_base, state->irq,
+			    	   uart_config[state->type].name);
+				if (has_bluetooth==1) printk(", using Bluetooth\n");
+				else printk("\n");
+#endif // end CONFIG_BLUETOOTH_SL
 			} else {
 				printk(KERN_INFO"ttyS%02d%s at 0x%px (irq = %d) is a %s\n",
 		 		       state->line + SERIAL_DEV_OFFSET,
@@ -6418,7 +6692,7 @@ static int __init pxa200_rs_init(void)
        probe_serial_pnp();
 #endif
 
-#if (defined(CONFIG_SABINAL_DISCOVERY) && (CONFIG_DISCOVERY_EVT2)) || defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
+#if (defined(CONFIG_SABINAL_DISCOVERY) && (CONFIG_DISCOVERY_EVT2)) || defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
 		xpa210_discovery_serial_power_off();
 #endif	
 
@@ -6435,9 +6709,23 @@ static int __init pxa200_rs_init(void)
  	v2 |= 0x00008000;
  	GPDR1 = v2;
 
-#if !defined(CONFIG_SABINAL_DISCOVERY)
+#if !defined(CONFIG_SABINAL_DISCOVERY) && !defined(CONFIG_ARCH_PXA_TOSA)
 	GPDR(GPIO_IR_ON) |= GPIO_bit(GPIO_IR_ON);
 #endif
+#if defined(CONFIG_ARCH_PXA_TOSA)
+	SCP_REG_GPCR |= SCP_IR_POWERDWN;
+	set_GPIO_mode(GPIO47_STTXD|GPIO_OUT);
+	GPCR(GPIO47_STTXD) = GPIO_bit(GPIO47_STTXD);
+	set_GPIO_mode(GPIO46_STRXD_MD);
+		
+#endif
+
+#if defined(CONFIG_BLUETOOTH_SL)
+#if defined(CONFIG_ARCH_PXA_TOSA)
+	SCP_REG_GPCR |= SCP_BT_RESET;
+	SCP_REG_GPCR |= SCP_BT_PWR_EN;
+#endif
+#endif // end CONFIG_BLUETOOTH_SL
 #endif
 
 #ifdef CONFIG_PM

@@ -61,6 +61,7 @@
  *	30-Jul-2002 Lineo Japan, Inc.  for 2.4.18
  *	31-Jul-2002 Lineo Japan, Inc.  for ARCH_PXA
  *      12-Dec-2002 Sharp Corporation  for Poodle and Corgi
+ *      26-Feb-2004 Lineo Solutions, Inc.  for Tosa
  */
 
 static char *serial_version = "5.05c";
@@ -98,11 +99,14 @@ static char *serial_revdate = "2001-07-08";
 
 #include <linux/config.h>
 #include <linux/version.h>
+
 #if defined(CONFIG_SABINAL_DISCOVERY) || \
     defined(CONFIG_ARCH_PXA_POODLE) || \
-    defined(CONFIG_ARCH_PXA_CORGI)
+    defined(CONFIG_ARCH_PXA_CORGI) || \
+    defined(CONFIG_ARCH_PXA_TOSA)
 #undef CONFIG_SERIAL_CONSOLE
 #endif
+	
 #if defined(CONFIG_SABINAL_DISCOVERY)
 #define CONFIG_REDEFINE_IO8BIT
 #endif
@@ -259,7 +263,8 @@ static char *serial_revdate = "2001-07-08";
 #elif defined(CONFIG_SA1100_COLLIE) || \
       defined(CONFIG_SABINAL_DISCOVERY) || \
       defined(CONFIG_ARCH_PXA_POODLE) || \
-      defined(CONFIG_ARCH_PXA_CORGI)
+      defined(CONFIG_ARCH_PXA_CORGI) || \
+      defined(CONFIG_ARCH_PXA_TOSA)
 #define SERIAL_DEV_OFFSET	3
 #else
 #define SERIAL_DEV_OFFSET	0
@@ -1332,7 +1337,7 @@ static int startup(struct async_struct * info)
 #ifdef CONFIG_ARCH_PXA
 	if (state->type == PORT_PXA) {
 		switch ((long)state->iomem_base) {
-#if defined(CONFIG_ARCH_SHARP_SL) && !defined(CONFIG_SABINAL_DISCOVERY)
+#if defined(CONFIG_PM) && defined(CONFIG_ARCH_SHARP_SL) && !defined(CONFIG_SABINAL_DISCOVERY)
 			case (long)&FFUART: lock_FCS(LOCK_FCS_FFUART, 1); CKEN |= CKEN6_FFUART; break;
 			case (long)&BTUART: lock_FCS(LOCK_FCS_BTUART, 1); CKEN |= CKEN7_BTUART; break;
 			case (long)&STUART: lock_FCS(LOCK_FCS_STUART, 1); CKEN |= CKEN5_STUART; break;
@@ -1615,7 +1620,7 @@ static void shutdown(struct async_struct * info)
 #ifdef CONFIG_ARCH_PXA
 	if (state->type == PORT_PXA) {
 		switch ((long)state->iomem_base) {
-#if defined(CONFIG_ARCH_SHARP_SL) && !defined(CONFIG_SABINAL_DISCOVERY)
+#if defined(CONFIG_PM) && defined(CONFIG_ARCH_SHARP_SL) && !defined(CONFIG_SABINAL_DISCOVERY)
 			case (long)&FFUART: CKEN &= ~CKEN6_FFUART; lock_FCS(LOCK_FCS_FFUART, 0); break;
 			case (long)&BTUART: CKEN &= ~CKEN7_BTUART; lock_FCS(LOCK_FCS_BTUART, 0); break;
 			case (long)&STUART: CKEN &= ~CKEN5_STUART; lock_FCS(LOCK_FCS_STUART, 0); break;
@@ -6103,7 +6108,7 @@ void __init serial_console_init(void)
 {
 	register_console(&sercons);
 }
-#endif
+#endif	/* CONFIG_SERIAL_CONSOLE */
 
 /*
   Local variables:

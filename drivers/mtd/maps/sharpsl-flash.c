@@ -23,6 +23,7 @@
  * GNU General Public License for more details.
  *
  *  ChangeLog:
+ *      26-Feb-2004 Lineo Solutions, Inc.  for Tosa
  *
  */
 
@@ -33,7 +34,6 @@
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/map.h>
 #include <linux/mtd/partitions.h>
-
 
 #define WINDOW_ADDR 0x00000000
 #define WINDOW_SIZE 0x01000000
@@ -122,6 +122,14 @@ static struct mtd_partition corgi_partitions[1] = {
 	}
 };
 
+static struct mtd_partition tosa_partitions[1] = {
+	{
+		name:		"Filesystem",
+		size:		0x006A0000,
+		offset:		0x00160000
+	}
+};
+
 #define NB_OF(x)  (sizeof(x)/sizeof(x[0]))
 
 
@@ -133,7 +141,6 @@ int __init init_sharpsl(void)
 
 	printk(KERN_NOTICE "Sharp SL series flash device: %x at %x\n", WINDOW_SIZE, WINDOW_ADDR);
 	sharpsl_map.map_priv_1 = (unsigned long)ioremap(WINDOW_ADDR, WINDOW_SIZE);
-
 	if (!sharpsl_map.map_priv_1) {
 		printk("Failed to ioremap\n");
 		return -EIO;
@@ -155,7 +162,10 @@ int __init init_sharpsl(void)
 #elif CONFIG_ARCH_PXA_CORGI
 	parts = corgi_partitions;
 	nb_parts = NB_OF(corgi_partitions);
-#endif
+#elif CONFIG_ARCH_PXA_TOSA
+	parts = tosa_partitions;
+	nb_parts = NB_OF(tosa_partitions);
+#endif	/* CONFIG_ARCH_PXA_TOSA */
 
 	printk(KERN_NOTICE "Using %s partision definition\n", part_type);
 	add_mtd_partitions(mymtd, parts, nb_parts);

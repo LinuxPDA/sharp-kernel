@@ -21,6 +21,9 @@
  *     Neither Dag Brattli nor University of Tromsø admit liability nor
  *     provide warranty for any of this software. This material is 
  *     provided "AS-IS" and at no charge.
+ * 
+ * ChangeLog:
+ *      1-Nov-2003 Sharp Corporation   for Tosa
  *
  ********************************************************************/
 
@@ -181,6 +184,9 @@ struct irlmp_cb {
 	int running;
 
 	__u16_host_order hints; /* Hint bits */
+#if defined(CONFIG_ARCH_SHARP_SL)
+	int	discovery_retry;	/* Discovery retry flag at media busy */
+#endif
 };
 
 /* Prototype declarations */

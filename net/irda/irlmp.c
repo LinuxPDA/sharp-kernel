@@ -24,6 +24,8 @@
  *
  * ChangeLog:
  *	11-20-2002 SHARP	apply patch (fix small bugs in /proc)
+ *      1-Nov-2003 Sharp Corporation   for Tosa
+ *
  ********************************************************************/
 
 #include <linux/config.h>
@@ -768,6 +770,14 @@ void irlmp_do_discovery(int nslots)
 		       "(), invalid value for number of slots!\n");
 		nslots = sysctl_discovery_slots = 8;
 	}
+
+#if defined(CONFIG_ARCH_SHARP_SL)
+	/*
+	 * Clear the passive discovery retry flag.
+	 * modified by SHARP
+	 */
+	irlmp->discovery_retry = FALSE;
+#endif
 
 	/* Construct new discovery info to be used by IrLAP, */
 	irlmp->discovery_cmd.hints.word = irlmp->hints.word;

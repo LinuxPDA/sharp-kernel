@@ -36,6 +36,12 @@ else
 fi
 dep_tristate '  OHCI (Compaq, iMacs, OPTi, SiS, ALi, ...) support' CONFIG_USB_OHCI $CONFIG_USB
 dep_tristate '  SA1111 OHCI-compatible host interface support' CONFIG_USB_OHCI_SA1111 $CONFIG_USB
+dep_tristate '  TC6393 OHCI-compatible host interface support' CONFIG_USB_OHCI_TC6393 $CONFIG_USB
+if [ "$CONFIG_USB_OHCI_TC6393" != "n" ]; then
+    define_bool CONFIG_USB_USE_INTERNAL_MEMORY y
+else
+    define_bool CONFIG_USB_USE_INTERNAL_MEMORY n
+fi
 
 comment 'USB Device Class drivers'
 dep_tristate '  USB Audio support' CONFIG_USB_AUDIO $CONFIG_USB $CONFIG_SOUND

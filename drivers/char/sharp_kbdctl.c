@@ -18,6 +18,7 @@
  * Change Log
  *	30-Jul-2002 Lineo Japan, Inc.  for 2.4.18
  *      12-Dec-2002 Sharp Corporation  for Poodle and Corgi
+ *      1-Nov-2003 Sharp Corporation   for Tosa
  */
 
 #include <linux/config.h>
@@ -67,9 +68,10 @@ extern int customize_holdkey_char_info_by_slkey(unsigned char slcode,int sl_char
 extern int restore_all_holdkey_info(void);
 extern int customize_del_holdkey_info(int hardcode);
 extern int customize_restore_holdkey_info(int hardcode);
-
-
-
+#if defined(CONFIG_ARCH_PXA_TOSA)
+extern int set_port_key_setting( int num, int val );
+extern int get_port_key_setting( int num );
+#endif
 
 /*
  * operations....
@@ -157,7 +159,11 @@ static int sharpkbdctl_ioctl_sednkey(unsigned long arg)
 		break;
 	case SHARP_EXTMODIF_NUMLOCK:
 		sharppda_kbd_extmodif_togglestatus(c);
+#if defined(CONFIG_ARCH_PXA_TOSA)
+		c = 32; f = 3; // numlock keycode 
+#else
 		c = SLKEY_NUMLOCK; f = 3;
+#endif
 		break;
 	default:
 		return -EINVAL;
@@ -194,6 +200,18 @@ static int sharpkbdctl_ioctl(struct inode *inode,
       int error;
       error = sharppda_kbd_extmodif_togglestatus(arg);
       if( error ) return error;
+    }
+  case SHARP_KBDCTL_SETMODIFSTAT:
+    {
+      int error;
+      int val;
+      sharp_kbdctl_modifstat* puser = (sharp_kbdctl_modifstat*)arg;
+      if( ! puser ) return -EINVAL;
+      val = sharppda_kbd_extmodif_showstatus(puser->which);
+      if (puser->stat!=val) {
+	error = sharppda_kbd_extmodif_togglestatus(puser->which);
+	if( error ) return error;
+      }
     }
     break;
   case SHARP_KBDCTL_SETHOLDTH:
@@ -311,6 +329,20 @@ static int sharpkbdctl_ioctl(struct inode *inode,
       if( error ) return error;
     }
     break;
+#if defined(CONFIG_ARCH_PXA_TOSA)
+  case SHARP_KBDCTL_SETSWKEY:
+    {
+      sharp_kbdctl_swkey* puser = (sharp_kbdctl_swkey*)arg;
+      if( ! puser ) return -EINVAL;
+      return set_port_key_setting(puser->key,puser->mode);
+    }
+    break;
+  case SHARP_KBDCTL_GETSWKEY:
+    {
+      return get_port_key_setting(arg);
+    }
+    break;
+#endif
   default:
     return -EINVAL;
   }

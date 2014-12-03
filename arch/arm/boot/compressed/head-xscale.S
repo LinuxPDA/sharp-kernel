@@ -5,6 +5,7 @@
  *
  * ChangLog:
  *	12-Dec-2002 Lineo Japan, Inc.
+ *	26-Feb-2004 Lineo Solutions, Inc.  for Tosa
  */
 
 #include <linux/config.h>
@@ -50,4 +51,8 @@ __XScale_start:
 
 #ifdef CONFIG_ARCH_PXA_CORGI
 		mov	r7, #MACH_TYPE_CORGI
+#endif
+
+#ifdef CONFIG_ARCH_PXA_TOSA
+		mov	r7, #MACH_TYPE_TOSA
 #endif

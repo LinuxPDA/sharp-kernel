@@ -14,6 +14,7 @@
  *
  * ChangLog:
  *	12-Dec-2002 Lineo Japan, Inc.
+ *	26-Feb-2004 Lineo Solutions, Inc.  for Tosa
  */
 
 #ifndef _ASM_ARCH_PCMCIA
@@ -71,6 +72,10 @@ struct pcmcia_low_level {
   int (*socket_state)(struct pcmcia_state_array *);
   int (*get_irq_info)(struct pcmcia_irq_info *);
   int (*configure_socket)(const struct pcmcia_configure *);
+#ifdef CONFIG_ARCH_SHARP_SL
+  int (*socket_init)(int sock);
+  int (*socket_suspend)(int sock);
+#endif
 };
 
 extern struct pcmcia_low_level *pcmcia_low_level;

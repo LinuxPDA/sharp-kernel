@@ -91,7 +91,7 @@ obj-$(CONFIG_FB_COLLIE)           += colliefb.o collie_frontlight.o
 obj-$(CONFIG_FB_COTULLA)          += cotulla_fb.o discovery_frontlight.o
 obj-$(CONFIG_FB_POODLE)           += cotulla_fb.o poodle_frontlight.o
 obj-$(CONFIG_FB_CORGI)            += w100fb.o fbgen.o corgi_backlight.o
-
+obj-$(CONFIG_FB_TOSA)            += tc6393fb.o fbgen.o tosa_backlight.o
 
 subdir-$(CONFIG_FB_MATROX)	  += matrox
 ifeq ($(CONFIG_FB_MATROX),y)

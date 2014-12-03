@@ -14,6 +14,10 @@
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *
+ * ChangeLog:
+ *      1-Nov-2003 Sharp Corporation   for Tosa
+ *
  */
 
 #include	<linux/config.h>
@@ -63,7 +67,10 @@ static deviceinfo_entry_t deviceinfo[] =
   {"serial",	"device individual id"},
   {"checksum",	"ROM checksum"},
   {"bootstr",	"boot string"},
-  {"hardno",	"hardware number"}
+  {"hardno",	"hardware number"},
+#if defined(CONFIG_ARCH_PXA_TOSA)
+  {"equipment",	"built-in equipment"},
+#endif
 };
 
 #define NUM_OF_DEVICEINFO_ENTRY	(sizeof(deviceinfo)/sizeof(deviceinfo_entry_t))

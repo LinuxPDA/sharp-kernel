@@ -12,6 +12,7 @@
  * 
  * History:
  * 
+ * 2004/02/26 Lineo Solutions, Inc.  for Tosa (SHARP)
  * 2001/09/19 USB_ZERO_PACKET support (Jean Tourrilhes)
  * 2001/07/17 power management and pmac cleanup (Benjamin Herrenschmidt)
  * 2001/03/24 td/ed hashing to remove bus_to_virt (Steve Longerbeam);
@@ -89,7 +90,7 @@
 #define OHCI_UNLINK_TIMEOUT	(HZ / 10)
 
 static LIST_HEAD (ohci_hcd_list);
-static spinlock_t usb_ed_lock = SPIN_LOCK_UNLOCKED;
+spinlock_t usb_ed_lock = SPIN_LOCK_UNLOCKED;
 
 
 /*-------------------------------------------------------------------------*/
@@ -1295,7 +1296,7 @@ td_fill (ohci_t * ohci, unsigned int info,
 		err("internal OHCI error: TD index > length");
 		return;
 	}
-if (data & (1 << 20)) panic("td_fill: A20 = 1: %08x\n", data);
+//if (data & (1 << 20)) panic("td_fill: A20 = 1: %08x\n", data);
 
 	/* use this td as the next dummy */
 	td_pt = urb_priv->td [index];
@@ -1509,7 +1510,7 @@ static void dl_del_urb (urb_t * urb)
 /* replies to the request have to be on a FIFO basis so
  * we reverse the reversed done-list */
  
-static td_t * dl_reverse_done_list (ohci_t * ohci)
+td_t * dl_reverse_done_list (ohci_t * ohci)
 {
 	__u32 td_list_hc;
 	td_t * td_rev = NULL;
@@ -1657,7 +1658,7 @@ static void dl_del_list (ohci_t  * ohci, unsigned int frame)
 
 /* td done list */
 
-static void dl_done_list (ohci_t * ohci, td_t * td_list)
+void dl_done_list (ohci_t * ohci, td_t * td_list)
 {
   	td_t * td_list_next = NULL;
 	ed_t * ed;
@@ -2126,7 +2127,7 @@ static int rh_unlink_urb (urb_t * urb)
 
 /* reset the HC and BUS */
 
-static int hc_reset (ohci_t * ohci)
+int hc_reset (ohci_t * ohci)
 {
 	int timeout = 30;
 	int smm_timeout = 50; /* 0,5 sec */
@@ -2171,7 +2172,7 @@ static int hc_reset (ohci_t * ohci)
  * enable interrupts 
  * connect the virtual root hub */
 
-static int hc_start (ohci_t * ohci)
+int hc_start (ohci_t * ohci)
 {
   	__u32 mask;
   	unsigned int fminterval;
@@ -2418,7 +2419,8 @@ static void hc_release_ohci (ohci_t * ohci)
 	ohci_mem_cleanup (ohci);
     
 	/* unmap the IO address space */
-	iounmap (ohci->regs);
+	if ((int)ohci->ohci_dev  != 1)
+		iounmap (ohci->regs);
 
 	pci_free_consistent (ohci->ohci_dev, sizeof *ohci->hcca,
 		ohci->hcca, ohci->hcca_dma);
@@ -2432,7 +2434,7 @@ static void hc_release_ohci (ohci_t * ohci)
  */
 int __devinit
 hc_add_ohci(struct pci_dev *dev, int irq, void *mem_base, unsigned long flags,
-	    ohci_t **ohci, const char *name, const char *slot_name)
+	    ohci_t **ohcip, const char *name, const char *slot_name)
 {
 	char buf[8], *bufp = buf;
 	ohci_t * ohci;
@@ -2447,6 +2449,7 @@ hc_add_ohci(struct pci_dev *dev, int irq, void *mem_base, unsigned long flags,
 		(unsigned long)	mem_base, bufp);
 
 	ohci = hc_alloc_ohci (dev, mem_base);
+	*ohcip = ohci;
 	if (!ohci) {
 		return -ENOMEM;
 	}

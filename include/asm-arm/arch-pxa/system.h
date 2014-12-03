@@ -11,6 +11,7 @@
  *
  * Change Log
  *     17-Sep-2002 Lineo Japan, Inc.
+ *     26-Feb-2004 Lineo Solutions, Inc.  for Tosa
  */
 
 #include <linux/config.h>
@@ -30,6 +31,15 @@ static inline void arch_idle(void)
 
 static inline void arch_reset(char mode)
 {
+#ifdef CONFIG_ARCH_SHARP_SL
+#ifdef CONFIG_PM
+#if defined(CONFIG_ARCH_PXA_SHEPHERD) || defined(CONFIG_ARCH_PXA_TOSA)
+	sharpsl_restart_nonstop();
+#else
+	sharpsl_restart();
+#endif
+#endif
+#else
 	if (mode == 's') {
 		/* Jump into ROM at address 0 */
 		cpu_reset(0);
@@ -42,5 +52,6 @@ static inline void arch_reset(char mode)
 		OSSR = OSSR_M3;
 		OSMR3 = OSCR + 36864;	/* ... in 10 ms */
 	}
+#endif
 }
 

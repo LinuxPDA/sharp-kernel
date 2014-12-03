@@ -9,6 +9,9 @@
  *
  * $Id: super.c,v 1.73 2002/07/23 17:00:45 dwmw2 Exp $
  *
+ * ChangeLog:
+ *     05-Aug-2003 SHARP for Tosa
+ *
  */
 
 #include <linux/config.h>
@@ -263,7 +266,13 @@ void jffs2_put_super (struct super_block *sb)
 	up(&c->alloc_sem);
 	jffs2_free_ino_caches(c);
 	jffs2_free_raw_node_refs(c);
+#if defined(CONFIG_ARCH_PXA_HUSKY) || defined(CONFIG_ARCH_PXA_TOSA)
+	consistent_free( c->blocks,
+			 sizeof(struct jffs2_eraseblock) * c->nr_blocks,
+			 c->blocks_phys );
+#else
 	kfree(c->blocks);
+#endif
 	if (c->wbuf)
 		kfree(c->wbuf);
 	kfree(c->inocache_list);

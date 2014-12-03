@@ -196,13 +196,19 @@ dep_bool '  SHARP Poodle' CONFIG_ARCH_PXA_POODLE $CONFIG_ARCH_PXA
 dep_bool '    Using Trial 0'  CONFIG_POODLE_TR0 $CONFIG_ARCH_PXA_POODLE
 dep_bool '  SHARP Corgi' CONFIG_ARCH_PXA_CORGI $CONFIG_ARCH_PXA
 dep_bool '    Using Trial 0'  CONFIG_CORGI_TR0 $CONFIG_ARCH_PXA_CORGI
+dep_bool '    SHARP Shepherd'  CONFIG_ARCH_PXA_SHEPHERD $CONFIG_ARCH_PXA_CORGI
+dep_bool '      SHARP Husky'  CONFIG_ARCH_PXA_HUSKY $CONFIG_ARCH_PXA_SHEPHERD
+dep_bool '  SHARP Tosa'  CONFIG_ARCH_PXA_TOSA
+dep_bool '    SHARP Tosa skipping' CONFIG_ARCH_PXA_TOSA_SKIP $CONFIG_ARCH_PXA_TOSA
 
 if [ "$CONFIG_SA1100_COLLIE" = "y" -o "$CONFIG_SABINAL_DISCOVERY" = "y" -o \
-     "$CONFIG_ARCH_PXA_POODLE" = "y" -o "$CONFIG_ARCH_PXA_CORGI" = "y" ]; then
+     "$CONFIG_ARCH_PXA_POODLE" = "y" -o "$CONFIG_ARCH_PXA_CORGI" = "y" -o \
+     "$CONFIG_ARCH_PXA_TOSA" = "y" ]; then
    define_bool CONFIG_ARCH_SHARP_SL y
 fi
 
-if [ "$CONFIG_ARCH_PXA_POODLE" = "y" -o "$CONFIG_ARCH_PXA_CORGI" = "y" ]; then
+if [ "$CONFIG_ARCH_PXA_POODLE" = "y" -o "$CONFIG_ARCH_PXA_CORGI" = "y" -o \
+     "$CONFIG_ARCH_PXA_TOSA" = "y" ]; then
    comment 'Language type'
    choice 'Language type' \
 	"English	CONFIG_ARCH_SHARP_SL_E    \
@@ -460,6 +466,8 @@ if [ "$CONFIG_CPU_32" = "y" ]; then
    dep_bool 'Support Thumb instructions (experimental)' CONFIG_ARM_THUMB $CONFIG_EXPERIMENTAL
 fi
 
+dep_bool 'Enable Fast Context Switch Extention' CONFIG_ARM_FCSE $CONFIG_CPU_32
+
 # Select various configuration options depending on the machine type
 if [ "$CONFIG_ARCH_EDB7211" = "y" -o \
      "$CONFIG_ARCH_SA1100" = "y" ]; then
@@ -622,6 +630,9 @@ if [ "$CONFIG_DEVICEINFO" = "m" -a "$CONFIG_ARCH_PXA_POODLE" = "y" ]; then
 fi
 if [ "$CONFIG_DEVICEINFO" = "m" -a "$CONFIG_ARCH_PXA_CORGI" = "y" ]; then
    define_tristate CONFIG_CORGI_DEVICEINFO m
+fi
+if [ "$CONFIG_DEVICEINFO" = "m" -a "$CONFIG_ARCH_PXA_TOSA" = "y" ]; then
+   define_tristate CONFIG_TOSA_DEVICEINFO m
 fi
 endmenu
 

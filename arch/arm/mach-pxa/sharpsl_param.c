@@ -16,11 +16,12 @@
  * GNU General Public License for more details.
  *
  * ChangeLog:
+ *   26-Feb-2004 Lineo Solutions, Inc.  for Tosa
  * 
  */
 #include <linux/types.h>
 
-#if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
+#if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
 #include <asm/arch/sharpsl_param.h>
 #endif
 
@@ -28,7 +29,7 @@
 sharpsl_flash_param_info sharpsl_flash_param;
 
 
-#if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
+#if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
 int sharpsl_get_comadj()
 {
   if ( sharpsl_flash_param.comadj_keyword == FLASH_COMADJ_MAJIC ) {
@@ -39,7 +40,7 @@ int sharpsl_get_comadj()
 }
 #endif
 
-#if defined(CONFIG_ARCH_PXA_CORGI)
+#if defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
 int sharpsl_get_phadadj()
 {
   if ( sharpsl_flash_param.phad_keyword == FLASH_PHAD_MAJIC ) {
@@ -51,7 +52,7 @@ int sharpsl_get_phadadj()
 #endif
 
 
-#if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
+#if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
 void sharpsl_get_param(void)
 {
    // get comadj

@@ -23,6 +23,7 @@
  *	31-Jul-2002 Lineo Japan, Inc.  for ARCH_PXA
  *	16-Jan-2003 SHARP enable non-cached bufferable page
  *	20-Mar-2003 SHARP supported PXA255
+ *	16-Jul-2003 Sharp Corporation
  */
 
 #include <linux/config.h>
@@ -348,7 +349,10 @@ cpu_xscale_cache_clean_invalidate_all_r2:
  * start: Area start address
  * end:   Area end address
  * flags: nonzero for I cache as well
+ *
+ * 2003.7.16 Sharp Corporation : fix icache flush.	
  */
+#if 0	
 	.align	5
 ENTRY(cpu_xscale_cache_clean_invalidate_range)
 	bic	r0, r0, #CACHELINESIZE - 1	@ round down to cache line
@@ -370,7 +374,31 @@ ENTRY(cpu_xscale_cache_clean_invalidate_range)
 	blo	1b
 	mcr	p15, 0, ip, c7, c5, 6		@ Invalidate BTB
 	mov	pc, lr
-
+#else
+ 	.align	5
+ENTRY(cpu_xscale_cache_clean_invalidate_range)
+	bic	r0, r0, #CACHELINESIZE - 1	@ round down to cache line
+	sub	r3, r1, r0
+	cmp	r3, #MAX_AREA_SIZE
+	bhi	cpu_xscale_cache_clean_invalidate_all_r2
+	mov	r3, r0
+1:	clean_d_line r0				@ Clean D cache line
+	mcr	p15, 0, r0, c7, c6, 1		@ Invalidate D cache line
+	add	r0, r0, #CACHELINESIZE
+	cmp	r0, r1
+	blo	1b
+	teq	r2, #0
+	mcr	p15, 0, ip, c7, c10, 4		@ Drain Write (& Fill) Buffer
+	moveq	pc, lr
+	mov	r0, r3
+1:	mcr	p15, 0, r0, c7, c5, 1		@ Invalidate I cache line
+	add	r0, r0, #CACHELINESIZE
+	cmp	r0, r1
+	blo	1b
+	mcr	p15, 0, ip, c7, c5, 6		@ Invalidate BTB
+	mov	pc, lr
+#endif
+	
 /*
  * cpu_xscale_flush_ram_page(page)
  *
@@ -749,6 +777,19 @@ ENTRY(cpu_xscale_set_pgd)
 	mcr	p15, 0, r0, c2, c0, 0		@ load page table pointer
 	mcr	p15, 0, ip, c8, c7, 0		@ invalidate I & D TLBs
 	cpwait_ret lr, ip
+
+#ifdef CONFIG_ARM_FCSE
+	.align  5
+ENTRY(cpu_xscale_set_pgd_without_invalidation)
+	mcr	p15, 0, r0, c2, c0, 0		@ load page table pointer
+	cpwait_ret lr, ip
+
+	.align	5
+ENTRY(cpu_write_pid_register)
+	mov	r0, r0, lsl #25
+	mcr	p15, 0, r0, c13, c0, 0
+	cpwait_ret lr, ip
+#endif
 
 /*
  * cpu_xscale_set_pmd(pmdp, pmd)

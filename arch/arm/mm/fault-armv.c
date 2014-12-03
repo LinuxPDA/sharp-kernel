@@ -9,6 +9,7 @@
  * published by the Free Software Foundation.
  *
  *  12-Dec-2002 Sharp Corporation for Poodle and Corgi
+ *  26-Feb-2004 Lineo Solutions, Inc.  for Tosa
  *
  */
 #include <linux/config.h>
@@ -115,11 +116,22 @@ do_DataAbort(unsigned long addr, int error_code, struct pt_regs *regs, int fsr)
 {
 	const struct fsr_info *inf = fsr_info + (fsr & 15);
 
-#if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
+#ifdef CONFIG_ARM_FCSE
+	if (current->mm->context.cpu_pid != 0) {
+		if (CPU_PID_MASK(addr) < CPU_PID_MAX_ADDR) {
+			/* translate MVA to VA */
+			addr = CPU_PID_OFFSET(addr);
+		}
+	}
+#endif
+
+#if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
+#ifdef CONFIG_PM
 	{
 	  extern sharpsl_fataloff(void);
 	  sharpsl_fataloff();
 	}
+#endif
 #endif
 
 	if (!inf->fn(addr, error_code, regs))
@@ -135,6 +147,14 @@ do_DataAbort(unsigned long addr, int error_code, struct pt_regs *regs, int fsr)
 asmlinkage void
 do_PrefetchAbort(unsigned long addr, struct pt_regs *regs)
 {
+#ifdef CONFIG_ARM_FCSE
+	if (current->mm->context.cpu_pid != 0) {
+		if (CPU_PID_MASK(addr) < CPU_PID_MAX_ADDR) {
+			/* translate MVA to VA */
+			addr = CPU_PID_OFFSET(addr);
+		}
+	}
+#endif
 	do_translation_fault(addr, 0, regs);
 }
 

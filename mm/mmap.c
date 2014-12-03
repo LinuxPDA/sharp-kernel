@@ -18,6 +18,9 @@
 #include <asm/uaccess.h>
 #include <asm/pgalloc.h>
 #include <asm/tlb.h>
+#ifdef CONFIG_ARM_FCSE
+#include <asm/mmu_context.h>
+#endif
 
 extern void unmap_page_range(mmu_gather_t *tlb, struct mm_struct *mm, unsigned long start, unsigned long end);
 
@@ -1142,7 +1145,20 @@ void exit_mmap(struct mm_struct * mm)
 
 	spin_unlock(&mm->page_table_lock);
 
+#ifdef CONFIG_ARM_FCSE
+	if (mm->context.cpu_pid) {
+		clear_page_tables(mm,
+						  (mm->context.cpu_pid << (CPU_PID_SHIFT-PGDIR_SHIFT))
+						  + FIRST_USER_PGD_NR,
+						  ((CPU_PID_SIZE/PGDIR_SIZE) - FIRST_USER_PGD_NR));
+	}
+	else {
+		clear_page_tables(mm, FIRST_USER_PGD_NR,
+						  (((0xc0000000UL)/PGDIR_SIZE) - FIRST_USER_PGD_NR));
+	}
+#else
 	clear_page_tables(mm, FIRST_USER_PGD_NR, USER_PTRS_PER_PGD);
+#endif
 
 	/*
 	 * Walk the list again, actually closing and freeing it

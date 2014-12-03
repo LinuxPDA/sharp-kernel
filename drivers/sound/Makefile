@@ -11,7 +11,7 @@ export-objs	:=  ad1848.o audio_syms.o midi_syms.o mpu401.o \
 		    msnd.o opl3.o sb_common.o sequencer_syms.o \
 		    sound_core.o sound_syms.o uart401.o	\
 		    nm256_audio.o ac97.o ac97_codec.o aci.o \
-		    sa1100-audio.o pxa-audio.o pxa-ac97.o
+		    sa1100-audio.o pxa-audio.o pxa-ac97.o pxa-ac97_tosa.o
 
 # Each configuration option enables a list of files.
 
@@ -88,6 +88,7 @@ obj-$(CONFIG_SOUND_IT8172)     += ite8172.o ac97_codec.o
 obj-$(CONFIG_SOUND_DISCOVERY)	+= discovery_audio.o i2sc.o
 obj-$(CONFIG_SOUND_POODLE) += pxa-i2s.o poodle_i2sc.o poodle_wm8731.o
 obj-$(CONFIG_SOUND_CORGI) += pxa-i2s_corgi.o poodle_i2sc.o poodle_wm8731.o
+obj-$(CONFIG_SOUND_TOSA)	+= pxa-ac97_tosa.o tosa_wm9712.o
 
 ifeq ($(CONFIG_MIDI_EMU10K1),y)
   obj-$(CONFIG_SOUND_EMU10K1)	+= sound.o

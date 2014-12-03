@@ -14,6 +14,7 @@
  *
  * Change Log
  *  12-Dec-2002 Sharp Corporation for Poodle and Corgi
+ *  26-Feb-2004 Lineo Solutions, Inc.  for Tosa
  *
  */
 #include <linux/config.h>
@@ -35,7 +36,7 @@
 #include <asm/unistd.h>
 
 
-#if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
+#if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
 #include <asm/mach-types.h>
 #include <asm/hardware.h>
 #include <asm/memory.h>
@@ -292,9 +293,11 @@ asmlinkage void bad_mode(struct pt_regs *regs, int reason, int proc_mode)
 	mm_segment_t fs;
 
 
-#if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
+#if defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
+#if CONFIG_PM
 	extern sharpsl_fataloff(void);
 	sharpsl_fataloff();
+#endif
 #endif
 
 	console_verbose();

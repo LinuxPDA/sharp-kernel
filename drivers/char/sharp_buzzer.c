@@ -18,6 +18,7 @@
  *  ChangeLog:
  *   04-16-2001 Lineo Japan, Inc. ...
  *   12-Dec-2002 Sharp Corporation for Poodle and Corgi
+ *   26-Feb-2004 Lineo Solutions, Inc.  for Tosa
  */
 
 #include <linux/config.h>
@@ -52,7 +53,7 @@
 # define SHARP_BUZZER_MAJOR 227 /* number of bare sharp_buzzer driver */
 #endif
 
-#if !defined(CONFIG_SA1100_COLLIE) && !defined(CONFIG_ARCH_PXA_POODLE) && !defined(CONFIG_ARCH_PXA_CORGI) 
+#if !defined(CONFIG_SA1100_COLLIE) && !defined(CONFIG_ARCH_PXA_POODLE) && !defined(CONFIG_ARCH_PXA_CORGI) && !defined(CONFIG_ARCH_PXA_TOSA)
 #define USE_IMELODY_FORMAT
 #endif
 
@@ -122,6 +123,22 @@ extern int poodle_resume_buzzer(void);
 #define resume_buzzer_arch()           poodle_resume_buzzer()
 #endif
 
+#if defined (CONFIG_ARCH_PXA_TOSA)
+extern int tosa_play_sound_by_id(int soundid,int volume);
+extern int tosa_play_sound_by_hz(unsigned int hz,unsigned int msecs,int volume);
+extern int tosa_buzzer_dev_init(void);
+extern int tosa_buzzer_supported(int which); /* return -EINVAL if unspoorted , otherwise return >= 0 value */
+extern int tosa_suspend_buzzer(void);
+extern int tosa_resume_buzzer(void);
+#define play_sound_by_id(id,vol)       tosa_play_sound_by_id((id),(vol))
+#define stop_sound()                   tosa_stop_sound()
+#define stop_sound_by_id(id)           tosa_stop_sound()
+#define play_sound_by_hz(hz,msecs,vol) tosa_play_sound_by_hz((hz),(msecs),(vol))
+#define buzzer_dev_init()              tosa_buzzer_dev_init()
+#define buzzer_supported_arch(w)       tosa_buzzer_supported((w))
+#define suspend_buzzer_arch()          tosa_suspend_buzzer()
+#define resume_buzzer_arch()           tosa_resume_buzzer()
+#endif	/* CONFIG_ARCH_PXA_TOSA */
 
 /*
  * logical level drivers
@@ -498,7 +515,7 @@ static int sharpbuz_open(struct inode *inode, struct file *filp)
   if( minor != SHARP_BUZZER_MINOR ) return -ENODEV;
   if( ! device_initialized ){
     int i;
-#if !defined(CONFIG_SA1100_COLLIE) && !defined(CONFIG_ARCH_PXA_POODLE) && !defined(CONFIG_ARCH_PXA_CORGI)
+#if !defined(CONFIG_SA1100_COLLIE) && !defined(CONFIG_ARCH_PXA_POODLE) && !defined(CONFIG_ARCH_PXA_CORGI) && !defined(CONFIG_ARCH_PXA_TOSA)
     buzzer_dev_init();
 #endif
     for(i=0;i<=SHARP_BUZ_WHICH_MAX;i++){
@@ -750,7 +767,7 @@ static int __init sharpbuz_init(void)
 #endif
 
 
-#if defined(CONFIG_SA1100_COLLIE) || defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
+#if defined(CONFIG_SA1100_COLLIE) || defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
     buzzer_dev_init();
 #endif
 

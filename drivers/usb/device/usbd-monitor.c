@@ -23,6 +23,8 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  *
+ * ChangeLog:
+ *   26-Feb-2004 Lineo Solutions, Inc.  for Tosa
  */
 
 
@@ -62,7 +64,7 @@ EXPORT_NO_SYMBOLS;
  * Architecture specific includes
  */
 
-#if defined(CONFIG_ARCH_SA1100) || defined(CONFIG_SABINAL_DISCOVERY) || defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI)
+#if defined(CONFIG_ARCH_SA1100) || defined(CONFIG_SABINAL_DISCOVERY) || defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_TOSA)
 
 #include <asm/irq.h>
 #include <asm/hardware.h>

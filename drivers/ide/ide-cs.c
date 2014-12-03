@@ -32,6 +32,7 @@
      Change Log
 	12-Nov-2001 Lineo Japan, Inc.
 	30-Jul-2002 Lineo Japan, Inc.  for 2.4.18
+	26-Feb-2004 Lineo Solutions, Inc.  2 slot support
     
 ======================================================================*/
 
@@ -72,7 +73,7 @@ static char *version =
 #endif
 
 #ifdef CONFIG_ARCH_SHARP_SL
-extern int ide_resume_handling;
+extern int ide_resume_handling[];
 #endif
 
 /*====================================================================*/
@@ -468,11 +469,11 @@ static int ide_event(event_t event, int priority,
 	    mod_timer(&link->release, jiffies + HZ/20);
 	break;
     case CS_EVENT_CARD_INSERTION:
-#ifdef CONFIG_ARCH_SHARP_SL
-	ide_resume_handling = 0;
-#endif
 	link->state |= DEV_PRESENT | DEV_CONFIG_PENDING;
 	ide_config(link);
+#ifdef CONFIG_ARCH_SHARP_SL
+	ide_resume_handling[sharpsl_pcmcia_irq_to_sock(link->irq.AssignedIRQ)] = 0;
+#endif
 	break;
     case CS_EVENT_PM_SUSPEND:
 	link->state |= DEV_SUSPEND;

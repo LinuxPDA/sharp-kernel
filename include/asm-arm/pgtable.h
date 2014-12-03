@@ -137,7 +137,41 @@ static inline pte_t mk_pte_phys(unsigned long physpage, pgprot_t pgprot)
 #define pgd_index(addr)		((addr) >> PGDIR_SHIFT)
 #define __pgd_offset(addr)	pgd_index(addr)
 
+#ifdef CONFIG_ARM_FCSE
+#define DEFAULT_ADDRESS_SPACE_MODE	(0)
+#define ADDRESS_SPACE_ENV_STR		"ASMODE="
+#define ADDRESS_SPACE_ENV_STR_LEN	(7)
+
+#define CPU_PID_SHIFT		(25)
+#define CPU_PID_NOT_USE		(0)
+#define CPU_PID_SPECIAL		(1)
+#define CPU_PID_MAX_SIZE	(64)
+#define CPU_PID_MVA(a)		((a) << CPU_PID_SHIFT)
+#define CPU_PID_SIZE		(CPU_PID_MVA(1))
+#define CPU_PID_MAX_ADDR	(CPU_PID_MVA(CPU_PID_MAX_SIZE))
+#define CPU_PID_MASK(a)		((a) & (0xffffffff << CPU_PID_SHIFT))
+#define CPU_PID_OFFSET(a)	((a) & (0xffffffff >> (32 - CPU_PID_SHIFT)))
+#define	CPU_PID_VA_TO_MVA_MM(mm, address)	((CPU_PID_MASK(address) == 0) ? ((CPU_PID_MVA((mm)->context.cpu_pid)) | (address)) : (address))
+
+static inline unsigned long cpu_pid_va_to_mva(int address)
+{
+	if (CPU_PID_MASK((unsigned long)address) == 0) {
+		unsigned long pid;
+		__asm__("mrc p15, 0, %0, c13, c0, 0" : "=r"(pid));
+		return ((pid) | (address));
+	}
+	else {
+		return address;
+	}
+}
+
+extern int prev_cpu_pid;
+extern struct mm_struct *cpu_pid_table[CPU_PID_MAX_SIZE];
+
+#define pgd_offset(mm, addr) (CPU_PID_MASK(addr) ? ((mm)->pgd + pgd_index(addr)) : ((mm)->pgd + pgd_index(CPU_PID_MVA((mm)->context.cpu_pid) + addr)))
+#else
 #define pgd_offset(mm, addr)	((mm)->pgd+pgd_index(addr))
+#endif
 
 /* to find an entry in a kernel page-table-directory */
 #define pgd_offset_k(addr)	pgd_offset(&init_mm, addr)

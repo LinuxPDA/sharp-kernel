@@ -5,6 +5,7 @@
  *
  * ChangLog:
  *	12-Dec-2002 Lineo Japan, Inc.
+ *	26-Feb-2004 Lineo Solutions, Inc.  for Tosa
  */
 
 #ifndef _PXA_KEYBOARD_H
@@ -22,6 +23,8 @@ extern struct kbd_ops_struct *kbd_ops;
 #include <asm/arch/keyboard_poodle.h>
 #elif defined(CONFIG_ARCH_PXA_CORGI)
 #include <asm/arch/keyboard_corgi.h>
+#elif defined(CONFIG_ARCH_PXA_TOSA)
+#include <asm/arch/keyboard_tosa.h>
 #else
 
 #define kbd_disable_irq()	do { } while(0);

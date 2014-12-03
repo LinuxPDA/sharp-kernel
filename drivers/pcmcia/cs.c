@@ -35,6 +35,8 @@
 	30-Jul-2002 Lineo Japan, Inc.  for 2.4.18
 	12-Dec-2002 Sharp Corporation for Poodle and Corgi
 	07-Feb-2003 Sharp Corporation
+	08-Jan-2004 Sharp Corporation for Tosa
+	26-Feb-2004 Lineo Solutions, Inc.  2 slot support
     
 ======================================================================*/
 
@@ -73,6 +75,8 @@
 #include <asm/arch/keyboard_poodle.h>
 #elif defined(CONFIG_ARCH_PXA_CORGI)
 #include <asm/arch/keyboard_corgi.h>
+#elif defined(CONFIG_ARCH_PXA_TOSA)
+#include <asm/arch/keyboard_tosa.h>
 #endif
 #include <asm/sharp_char.h>
 #include <asm/sharp_keycode.h>
@@ -124,7 +128,11 @@ INT_MODULE_PARM(resume_delay,	20);		/* centiseconds */
 INT_MODULE_PARM(shutdown_delay,	3);		/* centiseconds */
 #ifdef CONFIG_ARCH_SHARP_SL
 //INT_MODULE_PARM(vcc_settle,	2);	/* SL-5600@2 */
+#if defined (CONFIG_ARCH_PXA_TOSA)
+INT_MODULE_PARM(vcc_settle,	30);	/* SL-6000 */
+#else
 INT_MODULE_PARM(vcc_settle,	10);	/* SL-C700+GW-CF11H@10 */
+#endif
 INT_MODULE_PARM(reset_time,	1000);
 INT_MODULE_PARM(unreset_delay,	3);
 INT_MODULE_PARM(unreset_check,	1);
@@ -490,6 +498,15 @@ static void cs_sleep(unsigned int n_cs)
 	schedule_timeout( (n_cs * HZ + 99) / 100);
 }
 
+#if defined (CONFIG_ARCH_PXA_TOSA)
+static void cs_sleep2(unsigned int n_cs)
+{
+	current->state = TASK_UNINTERRUPTIBLE;
+	schedule_timeout( (n_cs * HZ + 99) / 100);
+}
+
+#endif
+
 static void shutdown_socket(socket_info_t *s)
 {
     client_t **c;
@@ -582,16 +599,45 @@ static int setup_socket(socket_info_t *s)
 #endif /* CONFIG_SABINAL_DISCOVERY */
 
 
-#if defined (CONFIG_ARCH_PXA_POODLE) || defined (CONFIG_ARCH_PXA_CORGI)
+#if defined (CONFIG_ARCH_PXA_POODLE) || defined (CONFIG_ARCH_PXA_CORGI) || defined (CONFIG_ARCH_PXA_TOSA)
 	{
 	  extern int sharpsl_main_battery;
 	  extern int sharpsl_main_bk_flag;
+#if defined (CONFIG_ARCH_PXA_TOSA)
+	  extern int sharpsl_jacket_exist;
+	  extern int sharpsl_jacket_batt_exist;
+	  extern int sharpsl_jacket_battery;
+#endif
 
 	  sharpsl_kick_battery_check(0,1,1);	// check battery and wait 10msec
 
 	  if ( ( sharpsl_main_battery == 0x7F ) || ( sharpsl_main_battery == 0x02 ) ) {
 		printk(KERN_ERR "cs: Main battery is critical low."
 		       " (%d)\n", sharpsl_main_battery);
+#if defined (CONFIG_ARCH_PXA_TOSA)
+		{
+		  int do_off = 0;
+
+		  if(sharpsl_jacket_exist && sharpsl_jacket_batt_exist){
+		    if( sharpsl_jacket_battery == 0x7F || sharpsl_jacket_battery == 0x02 ){
+		      printk(KERN_ERR "cs: Jacket battery is critical low."
+			     " (%d)\n", sharpsl_jacket_battery);
+		      do_off = 1;
+		    }
+		  }else{
+		    do_off = 1;
+		  }
+		  if(do_off){
+		    if ( sharpsl_main_bk_flag ) {
+		      handle_scancode(SLKEY_OFF|KBDOWN , 1);
+		      mdelay(30);
+		      handle_scancode(SLKEY_OFF|KBUP   , 0);
+		    }
+		    ret = 0;
+		    goto out;
+		  }
+		}
+#else
 		if ( sharpsl_main_bk_flag ) {
 		  handle_scancode(SLKEY_OFF|KBDOWN , 1);
 		  mdelay(30);
@@ -599,6 +645,7 @@ static int setup_socket(socket_info_t *s)
 		}
 		ret = 0;
 		goto out;
+#endif
 	  }
 	}
 #endif
@@ -644,17 +691,52 @@ static int setup_socket(socket_info_t *s)
 		    printk(KERN_NOTICE "cs: unsupported card type detected!\n");
 #endif
 		}
+
 		set_socket(s, &s->socket);
+#if defined (CONFIG_ARCH_PXA_TOSA)
+		//printk(":start %d %d\n",jiffies,vcc_settle);
+		cs_sleep2(vcc_settle);
+		//cs_sleep(vcc_settle);
+		//printk(":end %d\n",jiffies);
+#else
 		cs_sleep(vcc_settle);
+#endif
 		reset_socket(s);
 
-#if defined (CONFIG_ARCH_PXA_POODLE) || defined (CONFIG_ARCH_PXA_CORGI)
+#if defined (CONFIG_ARCH_PXA_POODLE) || defined (CONFIG_ARCH_PXA_CORGI) || defined (CONFIG_ARCH_PXA_TOSA)
 		{
 		  extern int sharpsl_main_battery;
 		  extern int sharpsl_main_bk_flag;
+#if defined (CONFIG_ARCH_PXA_TOSA)
+		  extern int sharpsl_jacket_exist;
+		  extern int sharpsl_jacket_batt_exist;
+		  extern int sharpsl_jacket_battery;
+#endif
 
 		  sharpsl_kick_battery_check(0,0,1);	// check battery and wait 10msec
 
+#if defined (CONFIG_ARCH_PXA_TOSA)
+		  if ( sharpsl_main_bk_flag && ( ( sharpsl_main_battery == 0x7F ) || ( sharpsl_main_battery == 0x02 ) ) ) {
+		    int do_remove = 0;
+		    if ( sharpsl_jacket_exist && sharpsl_jacket_batt_exist ) {
+		      if( sharpsl_jacket_battery == 0x7F || sharpsl_jacket_battery == 0x02 ){
+			do_remove = 1;
+		      }
+		    }else{
+		      do_remove = 1;
+		    }
+		    if(do_remove){
+		      s->socket.Vcc = s->socket.Vpp = 0;
+		      s->state &= ~SOCKET_PRESENT;
+		      set_socket(s, &s->socket);
+		      cs_sleep(vcc_settle);
+		      reset_socket(s);
+		      send_event(s, CS_EVENT_CARD_REMOVAL, CS_EVENT_PRI_HIGH);
+		      ret = 0;
+		      goto out;
+		    }
+		  }
+#else
 		  if ( sharpsl_main_bk_flag && ( ( sharpsl_main_battery == 0x7F ) || ( sharpsl_main_battery == 0x02 ) ) ) {
 		    s->socket.Vcc = s->socket.Vpp = 0;
 		    s->state &= ~SOCKET_PRESENT;
@@ -665,6 +747,7 @@ static int setup_socket(socket_info_t *s)
 		    ret = 0;
 		    goto out;
 		  }
+#endif
 		}
 #endif
 		ret = 1;
@@ -701,8 +784,8 @@ static void reset_socket(socket_info_t *s)
 (SOCKET_SETUP_PENDING|SOCKET_SUSPEND|SOCKET_RESET_PENDING)
 
 #ifdef CONFIG_ARCH_SHARP_SL
-int ide_resume_handling = 0;
-int pcmcia_resume_handling = 0;
+int ide_resume_handling[2] = { 0, 0 };
+static int pcmcia_resume_handling = 0;
 #endif
 
 static void unreset_socket(socket_info_t *s)
@@ -731,21 +814,21 @@ static void unreset_socket(socket_info_t *s)
 	    s->state &= ~EVENT_MASK;
 #ifdef CONFIG_ARCH_SHARP_SL
 	    if (verify_cis_cache(s) != 0) {
-		if (is_pcmcia_card_present(0))
-		    ide_resume_handling = 2;
+		if (is_pcmcia_card_present(s->cap.pci_irq))
+		    ide_resume_handling[s->sock] = 2;
 		parse_events(s, SS_DETECT);
 	    } else {
 		cisparse_t parse;
 		send_event(s, CS_EVENT_PM_RESUME, CS_EVENT_PRI_LOW);
 		read_tuple(s->clients, CISTPL_FUNCID, &parse);
 #ifdef CONFIG_IDE
-		ide_resume_handling = 1;
+		ide_resume_handling[s->sock] = 1;
 		if (parse.funcid.func == CISTPL_FUNCID_FIXED &&
-		    proc_ide_verify_identify() != 0) {
-		    ide_resume_handling = 2;
+		    proc_ide_verify_identify(s->sock) != 0) {
+		    ide_resume_handling[s->sock] = 2;
 		    parse_events(s, SS_DETECT);
 		} else {
-		    ide_resume_handling = 0;
+		    ide_resume_handling[s->sock] = 0;
 		}
 #endif
 		/* power off serial card */
@@ -854,7 +937,7 @@ static void parse_events(void *info, u_int events)
 	    s->socket.flags |= SS_DEBOUNCED;
 	    if (setup_socket(s) == 0){
 		s->state &= ~SOCKET_SETUP_PENDING;
-#if defined(CONFIG_SABINAL_DISCOVERY) || defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_POODLE)
+#if defined(CONFIG_SABINAL_DISCOVERY) || defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_TOSA)
 /* If power-on failed in resume, then card eject. */
 		if( s->state & SOCKET_SUSPEND )
 			do_shutdown(s);
@@ -959,6 +1042,19 @@ static int handle_pm_event(struct pm_dev *dev, pm_request_t rqst, void *data)
     }
     return 0;
 } /* handle_pm_event */
+
+#if defined(CONFIG_ARCH_PXA_TOSA)
+void force_cardslot_suspend( int num )
+{
+  int i;
+  socket_info_t *s;
+  s = socket_table [num];
+  if (s && !s->use_bus_pm) {
+    //pcmcia_suspend_socket (socket_table [num]);
+    suspend_socket (socket_table [num]);
+  }
+}
+#endif
 
 /*======================================================================
 
@@ -2001,6 +2097,12 @@ int pcmcia_request_io(client_handle_t handle, io_req_t *req)
     if (!req)
 	return CS_UNSUPPORTED_MODE;
     c = CONFIG(handle);
+#ifdef CONFIG_ARCH_SHARP_SL
+    if(c == NULL) {
+      printk("%s: c is NULL\n",__func__);
+      return CS_BAD_SOCKET;
+    }
+#endif
     if (c->state & CONFIG_LOCKED)
 	return CS_CONFIGURATION_LOCKED;
     if (c->state & CONFIG_IO_REQ)
@@ -2272,7 +2374,7 @@ int pcmcia_resume_card(client_handle_t handle, client_req_t *req)
 	return CS_IN_USE;
 
     DEBUG(1, "cs: waking up socket %d\n", i);
-#if defined(CONFIG_SABINAL_DISCOVERY) || defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_POODLE)
+#if defined(CONFIG_SABINAL_DISCOVERY) || defined(CONFIG_ARCH_PXA_CORGI) || defined(CONFIG_ARCH_PXA_POODLE) || defined(CONFIG_ARCH_PXA_TOSA)
 /* If power-on failed, then card eject. */
     if( setup_socket(s) == 0 )
 	do_shutdown(s);
