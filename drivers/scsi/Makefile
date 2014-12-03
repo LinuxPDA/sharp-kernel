@@ -1,7 +1,7 @@
 #
 # Makefile for linux/drivers/scsi
 #
-# 30 May 2000, Christoph Hellwig <chhellwig@gmx.net>
+# 30 May 2000, Christoph Hellwig <hch@infradead.org>
 # Rewritten to use lists instead of if-statements.
 #
 # 20 Sep 2000, Torben Mathiasen <tmm@image.dk>
@@ -25,6 +25,7 @@ export-objs	:= scsi_syms.o 53c700.o
 mod-subdirs	:= pcmcia ../acorn/scsi
 
 
+subdir-$(CONFIG_SCSI_AACRAID)	+= aacraid
 subdir-$(CONFIG_SCSI_AIC7XXX)	+= aic7xxx
 subdir-$(CONFIG_PCMCIA)		+= pcmcia
 
@@ -64,6 +65,9 @@ obj-$(CONFIG_SCSI_ULTRASTOR)	+= ultrastor.o
 obj-$(CONFIG_SCSI_AHA152X)	+= aha152x.o
 obj-$(CONFIG_SCSI_AHA1542)	+= aha1542.o
 obj-$(CONFIG_SCSI_AHA1740)	+= aha1740.o
+ifeq ($(CONFIG_SCSI_AACRAID),y)
+  obj-$(CONFIG_SCSI_AACRAID)	+= aacraid/aacraid.o
+endif
 ifeq ($(CONFIG_SCSI_AIC7XXX),y)
 obj-$(CONFIG_SCSI_AIC7XXX)	+= aic7xxx/aic7xxx_drv.o
 endif
@@ -87,6 +91,10 @@ obj-$(CONFIG_SCSI_T128)		+= t128.o
 obj-$(CONFIG_SCSI_DMX3191D)	+= dmx3191d.o
 obj-$(CONFIG_SCSI_DTC3280)	+= dtc.o
 obj-$(CONFIG_SCSI_NCR53C7xx)	+= 53c7,8xx.o 
+subdir-$(CONFIG_SCSI_SYM53C8XX_2)	+= sym53c8xx_2
+ifeq ($(CONFIG_SCSI_SYM53C8XX_2),y)
+  obj-$(CONFIG_SCSI_SYM53C8XX_2)	+= sym53c8xx_2/sym53c8xx.o
+endif
 obj-$(CONFIG_SCSI_SYM53C8XX)	+= sym53c8xx.o 
 obj-$(CONFIG_SCSI_NCR53C8XX)	+= ncr53c8xx.o 
 obj-$(CONFIG_SCSI_EATA_DMA)	+= eata_dma.o
@@ -170,6 +178,8 @@ cpqfc.o: $(cpqfc-objs)
 	rm fake8.c
 
 53c8xx_u.h: 53c8xx_d.h
+
+53c7,8xx.o: 53c8xx_u.h
 
 53c7xx_d.h: 53c7xx.scr script_asm.pl
 	ln -sf 53c7xx.scr fake7.c

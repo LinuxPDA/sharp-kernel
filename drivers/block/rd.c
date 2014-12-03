@@ -110,7 +110,7 @@ static struct block_device *rd_bdev[NUM_RAMDISKS];/* Protected device data */
  */
 int rd_size = CONFIG_BLK_DEV_RAM_SIZE;		/* Size of the RAM disks */
 /*
- * It would be very desiderable to have a soft-blocksize (that in the case
+ * It would be very desirable to have a soft-blocksize (that in the case
  * of the ramdisk driver is also the hardblocksize ;) of PAGE_SIZE because
  * doing that we'll achieve a far better MM footprint. Using a rd_blocksize of
  * BLOCK_SIZE in the worst case we'll make PAGE_SIZE/BLOCK_SIZE buffer-pages
@@ -191,37 +191,44 @@ __setup("ramdisk_blocksize=", ramdisk_blocksize);
  *               2000 Transmeta Corp.
  * aops copied from ramfs.
  */
-static int ramdisk_readpage(struct file *file, struct page * page)
+static void ramdisk_updatepage(struct page * page, int need_kmap)
 {
 	if (!Page_Uptodate(page)) {
-		memset(kmap(page), 0, PAGE_CACHE_SIZE);
-		kunmap(page);
+		struct buffer_head *bh = page->buffers;
+		void * address;
+
+		if (need_kmap)
+			kmap(page);
+		address = page_address(page);
+		if (bh) {
+			struct buffer_head *tmp = bh;
+			do {
+				if (!buffer_uptodate(tmp)) {
+					memset(address, 0, tmp->b_size);
+					mark_buffer_uptodate(tmp, 1);
+				}
+				address += tmp->b_size;
+				tmp = tmp->b_this_page;
+			} while (tmp != bh);
+		} else
+			memset(address, 0, PAGE_CACHE_SIZE);
+		if (need_kmap)
+			kunmap(page);
 		flush_dcache_page(page);
 		SetPageUptodate(page);
 	}
-	UnlockPage(page);
-	return 0;
 }
 
-/*
- * Writing: just make sure the page gets marked dirty, so that
- * the page stealer won't grab it.
- */
-static int ramdisk_writepage(struct page *page)
+static int ramdisk_readpage(struct file *file, struct page * page)
 {
-	SetPageDirty(page);
+	ramdisk_updatepage(page, 1);
 	UnlockPage(page);
 	return 0;
 }
 
 static int ramdisk_prepare_write(struct file *file, struct page *page, unsigned offset, unsigned to)
 {
-	if (!Page_Uptodate(page)) {
-		void *addr = page_address(page);
-		memset(addr, 0, PAGE_CACHE_SIZE);
-		flush_dcache_page(page);
-		SetPageUptodate(page);
-	}
+	ramdisk_updatepage(page, 0);
 	SetPageDirty(page);
 	return 0;
 }
@@ -233,7 +240,7 @@ static int ramdisk_commit_write(struct file *file, struct page *page, unsigned o
 
 static struct address_space_operations ramdisk_aops = {
 	readpage: ramdisk_readpage,
-	writepage: ramdisk_writepage,
+	writepage: fail_writepage,
 	prepare_write: ramdisk_prepare_write,
 	commit_write: ramdisk_commit_write,
 };
@@ -244,9 +251,17 @@ static int rd_blkdev_pagecache_IO(int rw, struct buffer_head * sbh, int minor)
 	unsigned long index;
 	int offset, size, err;
 
-	err = -EIO;
 	err = 0;
 	mapping = rd_bdev[minor]->bd_inode->i_mapping;
+
+	/* writing a buffer cache not uptodate must not clear it */
+	if (sbh->b_page->mapping == mapping) {
+		if (rw == WRITE) {
+			mark_buffer_uptodate(sbh, 1);
+			SetPageDirty(sbh->b_page);
+		}
+		goto out;
+	}
 
 	index = sbh->b_rsector >> (PAGE_CACHE_SHIFT - 9);
 	offset = (sbh->b_rsector << 9) & ~PAGE_CACHE_MASK;
@@ -254,33 +269,21 @@ static int rd_blkdev_pagecache_IO(int rw, struct buffer_head * sbh, int minor)
 
 	do {
 		int count;
-		struct page ** hash;
 		struct page * page;
 		char * src, * dst;
-		int unlock = 0;
 
 		count = PAGE_CACHE_SIZE - offset;
 		if (count > size)
 			count = size;
 		size -= count;
 
-		hash = page_hash(mapping, index);
-		page = __find_get_page(mapping, index, hash);
+		page = grab_cache_page(mapping, index);
 		if (!page) {
-			page = grab_cache_page(mapping, index);
 			err = -ENOMEM;
-			if (!page)
-				goto out;
-			err = 0;
-
-			if (!Page_Uptodate(page)) {
-				memset(kmap(page), 0, PAGE_CACHE_SIZE);
-				kunmap(page);
-				SetPageUptodate(page);
-			}
-
-			unlock = 1;
+			goto out;
 		}
+
+		ramdisk_updatepage(page, 1);
 
 		index++;
 
@@ -305,8 +308,7 @@ static int rd_blkdev_pagecache_IO(int rw, struct buffer_head * sbh, int minor)
 		} else {
 			SetPageDirty(page);
 		}
-		if (unlock)
-			UnlockPage(page);
+		UnlockPage(page);
 		__free_page(page);
 	} while (size);
 
@@ -463,20 +465,12 @@ static int rd_open(struct inode * inode, struct file * filp)
 		rd_bdev[unit]->bd_inode->i_mapping->a_ops = &ramdisk_aops;
 	}
 
-	MOD_INC_USE_COUNT;
-
-	return 0;
-}
-
-static int rd_release(struct inode * inode, struct file * filp)
-{
-	MOD_DEC_USE_COUNT;
 	return 0;
 }
 
 static struct block_device_operations rd_bd_op = {
+	owner:		THIS_MODULE,
 	open:		rd_open,
-	release:	rd_release,
 	ioctl:		rd_ioctl,
 };
 
@@ -828,9 +822,6 @@ int swim3_fd_eject(int devnum);
 
 static void __init rd_load_disk(int n)
 {
-#ifdef CONFIG_BLK_DEV_INITRD
-	extern kdev_t real_root_dev;
-#endif
 
 	if (rd_doload == 0)
 		return;

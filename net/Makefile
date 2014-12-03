@@ -1,7 +1,7 @@
 #
 # Makefile for the linux networking.
 #
-# 2 Sep 2000, Christoph Hellwig <hch@caldera.de>
+# 2 Sep 2000, Christoph Hellwig <hch@infradead.org>
 # Rewritten to use lists instead of if-statements.
 #
 
@@ -14,7 +14,7 @@ subdir-y :=	core ethernet
 subdir-m :=	ipv4 # hum?
 
 
-subdir-$(CONFIG_NET)		+= 802 sched
+subdir-$(CONFIG_NET)		+= 802 sched netlink
 subdir-$(CONFIG_INET)		+= ipv4
 subdir-$(CONFIG_NETFILTER)	+= ipv4/netfilter
 subdir-$(CONFIG_UNIX)		+= unix
@@ -27,7 +27,6 @@ endif
 endif
 
 subdir-$(CONFIG_KHTTPD)		+= khttpd
-subdir-$(CONFIG_NETLINK)	+= netlink
 subdir-$(CONFIG_PACKET)		+= packet
 subdir-$(CONFIG_NET_SCHED)	+= sched
 subdir-$(CONFIG_BRIDGE)		+= bridge
@@ -45,6 +44,7 @@ subdir-$(CONFIG_SUNRPC)		+= sunrpc
 subdir-$(CONFIG_ATM)		+= atm
 subdir-$(CONFIG_DECNET)		+= decnet
 subdir-$(CONFIG_ECONET)		+= econet
+subdir-$(CONFIG_VLAN_8021Q)           += 8021q
 
 
 obj-y	:= socket.o $(join $(subdir-y), $(patsubst %,/%.o,$(notdir $(subdir-y))))

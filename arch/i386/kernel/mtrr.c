@@ -473,25 +473,16 @@ static int have_wrcomb (void)
     unsigned long config, dummy;
     struct pci_dev *dev = NULL;
     
-   /* ServerWorks LE chipsets have problems with  write-combining 
-      Don't allow it and  leave room for other chipsets to be tagged */
+   /* ServerWorks LE chipsets have problems with write-combining 
+      Don't allow it and leave room for other chipsets to be tagged */
 
-    if ((dev = pci_find_class(PCI_CLASS_BRIDGE_HOST << 8, NULL)) != NULL) {
-	switch(dev->vendor) {
-        case PCI_VENDOR_ID_SERVERWORKS:
- 	    switch (dev->device) {
-	    case PCI_DEVICE_ID_SERVERWORKS_LE:
+	if ((dev = pci_find_class(PCI_CLASS_BRIDGE_HOST << 8, NULL)) != NULL) {
+		if ((dev->vendor == PCI_VENDOR_ID_SERVERWORKS) &&
+			(dev->device == PCI_DEVICE_ID_SERVERWORKS_LE)) {
+		printk (KERN_INFO "mtrr: Serverworks LE detected. Write-combining disabled.\n");
 		return 0;
-		break;
-	    default:
-		break;
-	    }
-	    break;
-	default:
-	    break;
+		}
 	}
-    }
-
 
     switch ( mtrr_if )
     {
@@ -2258,9 +2249,11 @@ int __init mtrr_init(void)
 	proc_root_mtrr->proc_fops = &mtrr_fops;
     }
 #endif
+#ifdef USERSPACE_INTERFACE
     devfs_handle = devfs_register (NULL, "cpu/mtrr", DEVFS_FL_DEFAULT, 0, 0,
 				   S_IFREG | S_IRUGO | S_IWUSR,
 				   &mtrr_fops, NULL);
+#endif
     init_table ();
     return 0;
 }   /*  End Function mtrr_init  */

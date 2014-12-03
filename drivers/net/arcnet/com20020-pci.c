@@ -3,7 +3,7 @@
  * 
  * Written 1994-1999 by Avery Pennarun,
  *    based on an ISA version by David Woodhouse.
- * Written 1999-2000 by Martin Mares <mj@suse.cz>.
+ * Written 1999-2000 by Martin Mares <mj@ucw.cz>.
  * Derived from skeleton.c by Donald Becker.
  *
  * Special thanks to Contemporary Controls, Inc. (www.ccontrols.com)
@@ -83,7 +83,7 @@ static int __devinit com20020pci_probe(struct pci_dev *pdev, const struct pci_de
 		goto out_dev;
 	}
 	memset(lp, 0, sizeof(struct arcnet_local));
-	pdev->driver_data = dev;
+	pci_set_drvdata(pdev, dev);
 
 	ioaddr = pci_resource_start(pdev, 2);
 	dev->base_addr = ioaddr;
@@ -128,7 +128,7 @@ out_dev:
 
 static void __devexit com20020pci_remove(struct pci_dev *pdev)
 {
-	com20020_remove(pdev->driver_data);
+	com20020_remove(pci_get_drvdata(pdev));
 }
 
 static struct pci_device_id com20020pci_id_table[] __devinitdata = {
@@ -160,7 +160,7 @@ static struct pci_driver com20020pci_driver = {
 	name:		"com20020",
 	id_table:	com20020pci_id_table,
 	probe:		com20020pci_probe,
-	remove:		com20020pci_remove
+	remove:		__devexit_p(com20020pci_remove),
 };
 
 static int __init com20020pci_init(void)

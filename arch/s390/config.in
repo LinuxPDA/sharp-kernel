@@ -9,6 +9,7 @@ define_bool CONFIG_MCA n
 define_bool CONFIG_UID16 y
 define_bool CONFIG_RWSEM_GENERIC_SPINLOCK y
 define_bool CONFIG_RWSEM_XCHGADD_ALGORITHM n
+define_bool CONFIG_GENERIC_BUST_SPINLOCK n
 
 mainmenu_name "Linux Kernel Configuration"
 define_bool CONFIG_ARCH_S390 y
@@ -66,9 +67,9 @@ mainmenu_option next_comment
 comment 'Kernel hacking'
 
 #bool 'Debug kmalloc/kfree' CONFIG_DEBUG_MALLOC
-if [ "$CONFIG_CTC" = "y" ]; then
-  bool 'Remote GDB kernel debugging' CONFIG_REMOTE_DEBUG
-fi
+#if [ "$CONFIG_CTC" = "y" ]; then
+#  bool 'Remote GDB kernel debugging' CONFIG_REMOTE_DEBUG
+#fi
 bool 'Magic SysRq key' CONFIG_MAGIC_SYSRQ
 endmenu
 

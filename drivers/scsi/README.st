@@ -1,8 +1,8 @@
 This file contains brief information about the SCSI tape driver.
-The driver is currently maintained by Kai M{kisara (email
+The driver is currently maintained by Kai Mäkisara (email
 Kai.Makisara@metla.fi)
 
-Last modified: Sat Aug  5 10:29:07 2000 by makisara@kai.makisara.local
+Last modified: Tue Feb  5 21:33:23 2002 by makisara
 
 
 BASICS
@@ -312,6 +312,8 @@ MTSETDRVBUFFER
 		this flag unless there are tapes using the device
 		dependent (from the old times) (global)
 	     MT_ST_SYSV sets the SYSV sematics (mode)
+	     MT_ST_NOWAIT enables immediate mode (i.e., don't wait for
+	        the command to finish) for some commands (e.g., rewind)
 	     MT_ST_DEBUGGING debugging (global; debugging must be
 		compiled into the driver)
 	MT_ST_SETBOOLEANS
@@ -325,12 +327,19 @@ MTSETDRVBUFFER
 	   0xffffff means that the default is not used any more.
 	MT_ST_DEF_DENSITY
 	MT_ST_DEF_DRVBUFFER
+	   Used to set or clear the density (8 bits), and drive buffer
+	   state (3 bits). If the value is MT_ST_CLEAR_DEFAULT
+	   (0xfffff) the default will not be used any more. Otherwise
+	   the lowermost bits of the value contain the new value of
+	   the parameter.
 	MT_ST_DEF_COMPRESSION
-	   Used to set or clear the density (8 bits), drive buffer
-	   state (3 bits), and compression (single bit). If the value is
-	   MT_ST_CLEAR_DEFAULT (0xfffff), the default will not be used
-	   any more. Otherwise the lower-most bits of the value contain
-	   the new value of the parameter.
+	   The compression default will not be used if the value of
+	   the lowermost byte is 0xff. Otherwise the lowermost bit
+	   contains the new default. If the bits 8-15 are set to a
+	   non-zero number, and this number is not 0xff, the number is
+	   used as the compression algorithm. The value
+	   MT_ST_CLEAR_DEFAULT can be used to clear the compression
+	   default.
 	MT_ST_SET_TIMEOUT
 	   Set the normal timeout in seconds for this device. The
 	   default is 900 seconds (15 minutes). The timeout should be
@@ -341,6 +350,25 @@ MTSETDRVBUFFER
 	   known to take a long time. The default is 14000 seconds
 	   (3.9 hours). For erase this value is further multiplied by
 	   eight.
+	MT_ST_SET_CLN
+	   Set the cleaning request interpretation parameters using
+	   the lowest 24 bits of the argument. The driver can set the
+	   generic status bit GMT_CLN if a cleaning request bit pattern
+	   is found from the extended sense data. Many drives set one or
+	   more bits in the extended sense data when the drive needs
+	   cleaning. The bits are device-dependent. The driver is
+	   given the number of the sense data byte (the lowest eight
+	   bits of the argument; must be >= 18 (values 1 - 17
+	   reserved) and <= the maximum requested sense data sixe), 
+	   a mask to select the relevant bits (the bits 9-16), and the
+	   bit pattern (bits 17-23). If the bit pattern is zero, one
+	   or more bits under the mask indicate cleaning request. If
+	   the pattern is non-zero, the pattern must match the masked
+	   sense data byte.
+
+	   (The cleaning bit is set if the additional sense code and
+	   qualifier 00h 17h are seen regardless of the setting of
+	   MT_ST_SET_CLN.)
 
 The following ioctl uses the structure mtpos:
 MTIOCPOS Reads the current position from the drive. Uses

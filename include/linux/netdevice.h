@@ -183,7 +183,10 @@ struct hh_cache
 {
 	struct hh_cache *hh_next;	/* Next entry			     */
 	atomic_t	hh_refcnt;	/* number of users                   */
-	unsigned short  hh_type;	/* protocol identifier, f.e ETH_P_IP */
+	unsigned short  hh_type;	/* protocol identifier, f.e ETH_P_IP
+                                         *  NOTE:  For VLANs, this will be the
+                                         *  encapuslated type. --BLG
+                                         */
 	int		hh_len;		/* length of header */
 	int		(*hh_output)(struct sk_buff *skb);
 	rwlock_t	hh_lock;
@@ -287,6 +290,11 @@ struct net_device
 
 	unsigned short		flags;	/* interface flags (a la BSD)	*/
 	unsigned short		gflags;
+        unsigned short          priv_flags; /* Like 'flags' but invisible to userspace. */
+        unsigned short          unused_alignment_fixer; /* Because we need priv_flags,
+                                                         * and we want to be 32-bit aligned.
+                                                         */
+
 	unsigned		mtu;	/* interface MTU value		*/
 	unsigned short		type;	/* interface hardware type	*/
 	unsigned short		hard_header_len;	/* hardware hdr length	*/
@@ -655,6 +663,8 @@ enum {
 	NETIF_MSG_TX_DONE	= 0x0400,
 	NETIF_MSG_RX_STATUS	= 0x0800,
 	NETIF_MSG_PKTDATA	= 0x1000,
+	NETIF_MSG_HW		= 0x2000,
+	NETIF_MSG_WOL		= 0x4000,
 };
 
 #define netif_msg_drv(p)	((p)->msg_enable & NETIF_MSG_DRV)
@@ -670,6 +680,8 @@ enum {
 #define netif_msg_tx_done(p)	((p)->msg_enable & NETIF_MSG_TX_DONE)
 #define netif_msg_rx_status(p)	((p)->msg_enable & NETIF_MSG_RX_STATUS)
 #define netif_msg_pktdata(p)	((p)->msg_enable & NETIF_MSG_PKTDATA)
+#define netif_msg_hw(p)		((p)->msg_enable & NETIF_MSG_HW)
+#define netif_msg_wol(p)	((p)->msg_enable & NETIF_MSG_WOL)
 
 /* These functions live elsewhere (drivers/net/net_init.c, but related) */
 

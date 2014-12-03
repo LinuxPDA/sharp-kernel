@@ -52,6 +52,7 @@ struct emu {
 	
 static struct pci_device_id emu_tbl[] __devinitdata = {
 	{ 0x1102, 0x7002, PCI_ANY_ID, PCI_ANY_ID }, /* SB Live! gameport */
+        { 0x1102, 0x7003, PCI_ANY_ID, PCI_ANY_ID }, /* Audigy! gameport */
 	{ 0, }
 };
 
@@ -86,7 +87,7 @@ static int __devinit emu_probe(struct pci_dev *pdev, const struct pci_device_id 
 	port->gameport.io = ioport;
 	port->size = iolen;
 	port->dev = pdev;
-	pdev->driver_data = port;
+	pci_set_drvdata(pdev, port);
 
 	gameport_register_port(&port->gameport);
 
@@ -98,7 +99,7 @@ static int __devinit emu_probe(struct pci_dev *pdev, const struct pci_device_id 
 
 static void __devexit emu_remove(struct pci_dev *pdev)
 {
-	struct emu *port = (struct emu *)pdev->driver_data;
+	struct emu *port = pci_get_drvdata(pdev);
 	gameport_unregister_port(&port->gameport);
 	release_region(port->gameport.io, port->size);
 	kfree(port);
@@ -108,7 +109,7 @@ static struct pci_driver emu_driver = {
         name:           "Emu10k1 Gameport",
         id_table:       emu_tbl,
         probe:          emu_probe,
-        remove:         emu_remove,
+        remove:         __devexit_p(emu_remove),
 };
 
 int __init emu_init(void)

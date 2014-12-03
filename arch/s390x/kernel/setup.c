@@ -34,6 +34,7 @@
 #endif
 #include <linux/bootmem.h>
 #include <linux/console.h>
+#include <linux/seq_file.h>
 #include <asm/uaccess.h>
 #include <asm/system.h>
 #include <asm/smp.h>
@@ -424,9 +425,10 @@ void __init setup_arch(char **cmdline_p)
 	lowcore->io_new_psw.mask = _IO_PSW_MASK;
 	lowcore->io_new_psw.addr = (addr_t) &io_int_handler;
 	lowcore->ipl_device = S390_lowcore.ipl_device;
-	lowcore->kernel_stack = ((__u32) &init_task_union) + 16384;
+	lowcore->kernel_stack = ((__u64) &init_task_union) + 16384;
 	lowcore->async_stack = (__u64)
 		__alloc_bootmem(4*PAGE_SIZE, 4*PAGE_SIZE, 0) + 16384;
+	lowcore->jiffy_timer = -1LL;
 	set_prefix((__u32)(__u64) lowcore);
         cpu_init();
         boot_cpu_addr = S390_lowcore.cpu_data.cpu_addr;
@@ -467,49 +469,49 @@ void print_cpu_info(struct cpuinfo_S390 *cpuinfo)
 }
 
 /*
- * get_cpuinfo - Get information on one CPU for use by procfs.
- *
- *	Prints info on the next CPU into buffer.  Beware, doesn't check for
- *	buffer overflow.  Current implementation of procfs assumes that the
- *	resulting data is <= 1K.
- *
- * Args:
- *	buffer	-- you guessed it, the data buffer
- *	cpu_np	-- Input: next cpu to get (start at 0).  Output: Updated.
- *
- *	Returns number of bytes written to buffer.
+ * show_cpuinfo - Get information on one CPU for use by procfs.
  */
 
-int get_cpuinfo(char *buffer, unsigned *cpu_np)
+static int show_cpuinfo(struct seq_file *m, void *v)
 {
         struct cpuinfo_S390 *cpuinfo;
-        char *p = buffer;
-	unsigned n;
+	unsigned long n = (unsigned long) v - 1;
 
-	n = *cpu_np;
-	while (n < NR_CPUS && (cpu_online_map & (1 << n)) == 0)
-		n++;
-	if (n >= NR_CPUS) {
-		*cpu_np = NR_CPUS;
-		return (0);
-	}
-	*cpu_np = n + 1;
-
-	if (n == 0) {
-		p += sprintf(p, "vendor_id       : IBM/S390\n"
+	if (!n) {
+		seq_printf(m, "vendor_id       : IBM/S390\n"
 				"# processors    : %i\n"
 				"bogomips per cpu: %lu.%02lu\n",
 				smp_num_cpus, loops_per_jiffy/(500000/HZ),
 				(loops_per_jiffy/(5000/HZ))%100);
 	}
-	cpuinfo = &safe_get_cpu_lowcore(n).cpu_data;
-	p += sprintf(p, "processor %i: "
-			"version = %02X,  "
-			"identification = %06X,  "
-			"machine = %04X\n",
-			n, cpuinfo->cpu_id.version,
-			cpuinfo->cpu_id.ident,
-			cpuinfo->cpu_id.machine);
-        return p - buffer;
+	if (cpu_online_map & (1 << n)) {
+		cpuinfo = &safe_get_cpu_lowcore(n).cpu_data;
+		seq_printf(m, "processor %i: "
+				"version = %02X,  "
+				"identification = %06X,  "
+				"machine = %04X\n",
+				n, cpuinfo->cpu_id.version,
+				cpuinfo->cpu_id.ident,
+				cpuinfo->cpu_id.machine);
+	}
+        return 0;
 }
 
+static void *c_start(struct seq_file *m, loff_t *pos)
+{
+	return *pos <= NR_CPUS ? (void *)((unsigned long) *pos + 1) : NULL;
+}
+static void *c_next(struct seq_file *m, void *v, loff_t *pos)
+{
+	++*pos;
+	return c_start(m, pos);
+}
+static void c_stop(struct seq_file *m, void *v)
+{
+}
+struct seq_operations cpuinfo_op = {
+	start:	c_start,
+	next:	c_next,
+	stop:	c_stop,
+	show:	show_cpuinfo,
+};

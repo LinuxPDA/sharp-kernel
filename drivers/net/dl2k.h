@@ -33,7 +33,7 @@
 #include <linux/spinlock.h>
 #include <linux/time.h>
 #define TX_RING_SIZE	128
-#define TX_QUEUE_LEN	96	/* Limit ring entries actually used.  */
+#define TX_QUEUE_LEN	120	/* Limit ring entries actually used.  */
 #define RX_RING_SIZE 	128
 #define TX_TOTAL_SIZE	TX_RING_SIZE*sizeof(struct netdev_desc)
 #define RX_TOTAL_SIZE	RX_RING_SIZE*sizeof(struct netdev_desc)
@@ -182,12 +182,12 @@ enum IntStatus_bits {
 
 /* Bits in the ReceiveMode register. */
 enum ReceiveMode_bits {
-	ReceiveIPMulticast = 0x0020,
-	ReceiveMulticastHash = 0x0010,
-	ReceiveAllFrames = 0x0008,
-	ReceiveBroadcast = 0x0004,
-	ReceiveMulticast = 0x0002,
 	ReceiveUnicast = 0x0001,
+	ReceiveMulticast = 0x0002,
+	ReceiveBroadcast = 0x0004,
+	ReceiveAllFrames = 0x0008,
+	ReceiveMulticastHash = 0x0010,
+	ReceiveIPMulticast = 0x0020,
 	ReceiveVLANMatch = 0x0100,
 	ReceiveVLANHash = 0x0200,
 };
@@ -209,6 +209,11 @@ enum MACCtrl_bits {
 	RxDisable = 0x10000000,
 	RxEnabled = 0x20000000,
 };
+
+enum ASICCtrl_LoWord_bits {
+	PhyMedia = 0x0080,
+};
+	
 enum ASICCtrl_HiWord_bits {
 	GlobalReset = 0x0001,
 	RxReset = 0x0002,
@@ -276,6 +281,17 @@ enum _mii_reg {
 	MII_MSSR = 10,
 	MII_ESR = 15,
 	MII_PHY_SCR = 16,
+};
+/* PCS register */
+enum _pcs_reg {
+	PCS_BMCR = 0,
+	PCS_BMSR = 1,
+	PCS_ANAR = 4,
+	PCS_ANLPAR = 5,
+	PCS_ANER = 6,
+	PCS_ANNPT = 7,
+	PCS_ANLPRNP = 8,
+	PCS_ESR = 15,
 };
 
 /* Basic Mode Control Register */
@@ -533,6 +549,58 @@ typedef enum t_MII_ADMIN_STATUS {
 	adm_isolate
 } MII_ADMIN_t, *PMII_ADMIN_t;
 
+/* Physical Coding Sublayer Management (PCS) */
+/* PCS control and status registers bitmap as the same as MII */
+/* PCS Extended Status register bitmap as the same as MII */
+/* PCS ANAR */
+typedef union t_PCS_ANAR {
+	u16 image;
+	struct {
+		u16 _bit_4_0:5;		// bit 4:0
+		u16 full_duplex:1;	// bit 5
+		u16 half_duplex:1;	// bit 6
+		u16 asymmetric:1;	// bit 7
+		u16 pause:1;		// bit 8
+		u16 _bit_11_9:3;	// bit 11:9
+		u16 remote_fault:2;	// bit 13:12
+		u16 _bit_14:1;		// bit 14
+		u16 next_page:1;	// bit 15
+	} bits;
+} ANAR_PCS_t, *PANAR_PCS_t;
+
+enum _pcs_anar {
+	PCS_ANAR_NEXT_PAGE = 0x8000,
+	PCS_ANAR_REMOTE_FAULT = 0x3000,
+	PCS_ANAR_ASYMMETRIC = 0x0100,
+	PCS_ANAR_PAUSE = 0x0080,
+	PCS_ANAR_HALF_DUPLEX = 0x0040,
+	PCS_ANAR_FULL_DUPLEX = 0x0020,
+};
+/* PCS ANLPAR */
+typedef union t_PCS_ANLPAR {
+	u16 image;
+	struct {
+		u16 _bit_4_0:5;		// bit 4:0
+		u16 full_duplex:1;	// bit 5
+		u16 half_duplex:1;	// bit 6
+		u16 asymmetric:1;	// bit 7
+		u16 pause:1;		// bit 8
+		u16 _bit_11_9:3;	// bit 11:9
+		u16 remote_fault:2;	// bit 13:12
+		u16 _bit_14:1;		// bit 14
+		u16 next_page:1;	// bit 15
+	} bits;
+} ANLPAR_PCS_t, *PANLPAR_PCS_t;
+
+enum _pcs_anlpar {
+	PCS_ANLPAR_NEXT_PAGE = PCS_ANAR_NEXT_PAGE, 
+	PCS_ANLPAR_REMOTE_FAULT = PCS_ANAR_REMOTE_FAULT,
+	PCS_ANLPAR_ASYMMETRIC = PCS_ANAR_ASYMMETRIC,
+	PCS_ANLPAR_PAUSE = PCS_ANAR_PAUSE,
+	PCS_ANLPAR_HALF_DUPLEX = PCS_ANAR_HALF_DUPLEX,
+	PCS_ANLPAR_FULL_DUPLEX = PCS_ANAR_FULL_DUPLEX,
+};
+
 typedef struct t_SROM {
 	u16 config_param;	/* 0x00 */
 	u16 asic_ctrl;		/* 0x02 */
@@ -581,17 +649,20 @@ struct netdev_private {
 	struct pci_dev *pdev;
 	spinlock_t lock;
 	struct net_device_stats stats;
-	unsigned int rx_buf_sz;	/* Based on MTU+slack. */
-	unsigned int tx_full:1;	/* The Tx queue is full. */
+	unsigned int rx_buf_sz;		/* Based on MTU+slack. */
+	unsigned int speed;		/* Operating speed */
+	unsigned int vlan;		/* VLAN Id */
+	unsigned int chip_id;		/* PCI table chip id */
+	unsigned int rx_coalesce; 	/* Maximum frames each RxDMAComplete intr */
+	unsigned int rx_timeout; 	/* Wait time between RxDMAComplete intr */
+	unsigned int tx_full:1;		/* The Tx queue is full. */
 	unsigned int full_duplex:1;	/* Full-duplex operation requested. */
-	unsigned int speed;	/* Operating speed */
-	unsigned int vlan;	/* VLAN Id */
-	unsigned int an_enable;	/* Auto-Negotiated Enable */
-	unsigned int chip_id;	/* PCI table chip id */
-	unsigned int jumbo;
-	unsigned int int_count;
-	unsigned int int_timeout;
-	unsigned int coalesce:1;
+	unsigned int an_enable:2;	/* Auto-Negotiated Enable */
+	unsigned int jumbo:1;		/* Jumbo frame enable */
+	unsigned int coalesce:1;	/* Rx coalescing enable */
+	unsigned int tx_flow:1;		/* Tx flow control enable */
+	unsigned int rx_flow:1;		/* Rx flow control enable */
+	unsigned int phy_media:1;	/* 1: fiber, 0: copper */
 	struct netdev_desc *last_tx;	/* Last Tx descriptor used. */
 	unsigned long cur_rx, old_rx;	/* Producer/consumer ring indices */
 	unsigned long cur_tx, old_tx;
@@ -626,7 +697,12 @@ static struct pci_device_id rio_pci_tbl[] __devinitdata = {
 MODULE_DEVICE_TABLE (pci, rio_pci_tbl);
 #define TX_TIMEOUT  (4*HZ)
 #define PACKET_SIZE		1536
+#define MAX_JUMBO		8000
 #define RIO_IO_SIZE             340
+#define DEFAULT_RXC		5
+#define DEFAULT_RXT		750
+#define DEFAULT_TXC		1
+#define MAX_TXC			8
 #ifdef RIO_DEBUG
 #define DEBUG_TFD_DUMP(x) debug_tfd_dump(x)
 #define DEBUG_RFD_DUMP(x,flag) debug_rfd_dump(x,flag)

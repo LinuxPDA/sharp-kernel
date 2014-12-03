@@ -245,6 +245,13 @@ MODULE_PARM(pass_through, "i");
 MODULE_PARM(lml33dpath, "i");
 MODULE_PARM(video_nr, "i");
 
+static struct pci_device_id zr36067_pci_tbl[] = {
+	{ PCI_VENDOR_ID_ZORAN, PCI_DEVICE_ID_ZORAN_36057, 
+	  PCI_ANY_ID, PCI_ANY_ID,  0, 0, 0 },
+	{ 0 }
+};
+MODULE_DEVICE_TABLE(pci, zr36067_pci_tbl);
+
 /* Anybody who uses more than four? */
 #define BUZ_MAX 4
 
@@ -2602,7 +2609,7 @@ static void zoran_reap_stat_com(struct zoran *zr)
 		}
 		frame = zr->jpg_pend[zr->jpg_dma_tail & BUZ_MASK_FRAME];
 		gbuf = &zr->jpg_gbuf[frame];
-		get_fast_time(&gbuf->bs.timestamp);
+		do_gettimeofday(&gbuf->bs.timestamp);
 
 		if (zr->codec_mode == BUZ_MODE_MOTION_COMPRESS) {
 			gbuf->bs.length = (stat_com & 0x7fffff) >> 1;

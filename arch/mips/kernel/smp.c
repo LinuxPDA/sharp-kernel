@@ -31,6 +31,7 @@
 #include <linux/timex.h>
 #include <linux/sched.h>
 #include <linux/interrupt.h>
+#include <linux/cache.h>
 
 #include <asm/atomic.h>
 #include <asm/processor.h>
@@ -52,7 +53,7 @@
 
 
 /* Ze Big Kernel Lock! */
-spinlock_t kernel_flag = SPIN_LOCK_UNLOCKED;
+spinlock_t kernel_flag __cacheline_aligned_in_smp = SPIN_LOCK_UNLOCKED;
 int smp_threads_ready;  /* Not used */
 int smp_num_cpus;    
 int global_irq_holder = NO_PROC_ID;
@@ -126,7 +127,7 @@ void __init smp_boot_cpus(void)
 
 		/* Schedule the first task manually */
 		p->processor = i;
-		p->has_cpu = 1;
+		p->cpus_runnable = 1 << i; /* we schedule the first task manually */
 
 		/* Attach to the address space of init_task. */
 		atomic_inc(&init_mm.mm_count);
@@ -155,7 +156,7 @@ void __init smp_boot_cpus(void)
 		sprintf(p->comm, "%s%d", "Idle", i);
 		init_tasks[i] = p;
 		p->processor = i;
-		p->has_cpu = 1; /* we schedule the first task manually */
+		p->cpus_runnable = 1 << i; /* we schedule the first task manually *
 		del_from_runqueue(p);
 		unhash_process(p);
 		/* Attach to the address space of init_task. */

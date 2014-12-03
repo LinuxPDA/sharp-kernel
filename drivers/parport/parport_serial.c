@@ -217,6 +217,7 @@ static int __devinit serial_register (struct pci_dev *dev,
 		if (get_pci_port (dev, board, &serial_req, k))
 			break;
 		serial_req.flags = ASYNC_SKIP_TEST | ASYNC_AUTOPROBE;
+		serial_req.baud_base = base_baud;
 		line = register_serial (&serial_req);
 		if (line < 0) {
 			printk (KERN_DEBUG
@@ -330,7 +331,7 @@ static struct pci_driver parport_serial_pci_driver = {
 	name:		"parport_serial",
 	id_table:	parport_serial_pci_tbl,
 	probe:		parport_serial_pci_probe,
-	remove:		parport_serial_pci_remove,
+	remove:		__devexit_p(parport_serial_pci_remove),
 };
 
 

@@ -673,6 +673,9 @@ static int yenta_init(pci_socket_t *socket)
 {
 	yenta_config_init(socket);
 	yenta_clear_maps(socket);
+
+	/* Re-enable interrupts */
+	cb_writel(socket, CB_SOCKET_MASK, CB_CDMASK);
 	return 0;
 }
 
@@ -680,9 +683,12 @@ static int yenta_suspend(pci_socket_t *socket)
 {
 	yenta_set_socket(socket, &dead_socket);
 
+	/* Disable interrupts */
+	cb_writel(socket, CB_SOCKET_MASK, 0x0);
+
 	/*
 	 * This does not work currently. The controller
-	 * loses too much informationduring D3 to come up
+	 * loses too much information during D3 to come up
 	 * cleanly. We should probably fix yenta_init()
 	 * to update all the critical registers, notably
 	 * the IO and MEM bridging region data.. That is
@@ -764,6 +770,7 @@ static void yenta_close(pci_socket_t *sock)
 {
 	/* Disable all events so we don't die in an IRQ storm */
 	cb_writel(sock, CB_SOCKET_MASK, 0x0);
+	exca_writeb(sock, I365_CSCINT, 0);
 
 	if (sock->cb_irq)
 		free_irq(sock->cb_irq, sock);

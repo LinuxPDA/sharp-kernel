@@ -106,6 +106,10 @@ Log: nmclan_cs.c,v
 
 ---------------------------------------------------------------------------- */
 
+#define DRV_NAME	"nmclan_cs"
+#define DRV_VERSION	"0.16"
+
+
 /* ----------------------------------------------------------------------------
 Conditional Compilation Options
 ---------------------------------------------------------------------------- */
@@ -130,6 +134,9 @@ Include Files
 #include <linux/interrupt.h>
 #include <linux/in.h>
 #include <linux/delay.h>
+#include <linux/ethtool.h>
+
+#include <asm/uaccess.h>
 #include <asm/io.h>
 #include <asm/system.h>
 #include <asm/bitops.h>
@@ -375,7 +382,7 @@ Private Global Variables
 static char rcsid[] =
 "nmclan_cs.c,v 0.16 1995/07/01 06:42:17 rpao Exp rpao";
 static char *version =
-"nmclan_cs 0.16 (Roger C. Pao)";
+DRV_NAME " " DRV_VERSION " (Roger C. Pao)";
 #endif
 
 static dev_info_t dev_info="nmclan_cs";
@@ -385,32 +392,31 @@ static char *if_names[]={
     "Auto", "10baseT", "BNC",
 };
 
-#ifdef PCMCIA_DEBUG
-static int pc_debug = PCMCIA_DEBUG;
-MODULE_PARM(pc_debug, "i");
-#define DEBUG(n, args...) if (pc_debug>(n)) printk(KERN_DEBUG args)
-#else
-#define DEBUG(n, args...)
-#endif
-
 /* ----------------------------------------------------------------------------
 Parameters
 	These are the parameters that can be set during loading with
 	'insmod'.
 ---------------------------------------------------------------------------- */
 
-/* 0=auto, 1=10baseT, 2 = 10base2, default=auto */
-static int if_port;
-
-/* Bit map of interrupts to choose from */
-static u_int irq_mask = 0xdeb8;
-static int irq_list[4] = { -1 };
-
-MODULE_PARM(if_port, "i");
-MODULE_PARM(irq_mask, "i");
-MODULE_PARM(irq_list, "1-4i");
+MODULE_DESCRIPTION("New Media PCMCIA ethernet driver");
 MODULE_LICENSE("GPL");
 
+#define INT_MODULE_PARM(n, v) static int n = v; MODULE_PARM(n, "i")
+
+static int irq_list[4] = { -1 };
+MODULE_PARM(irq_list, "1-4i");
+
+/* 0=auto, 1=10baseT, 2 = 10base2, default=auto */
+INT_MODULE_PARM(if_port, 0);
+/* Bit map of interrupts to choose from */
+INT_MODULE_PARM(irq_mask, 0xdeb8);
+
+#ifdef PCMCIA_DEBUG
+INT_MODULE_PARM(pc_debug, PCMCIA_DEBUG);
+#define DEBUG(n, args...) if (pc_debug>(n)) printk(KERN_DEBUG args)
+#else
+#define DEBUG(n, args...)
+#endif
 
 /* ----------------------------------------------------------------------------
 Function Prototypes
@@ -1003,6 +1009,66 @@ static int mace_close(struct net_device *dev)
   return 0;
 } /* mace_close */
 
+static int netdev_ethtool_ioctl (struct net_device *dev, void *useraddr)
+{
+	u32 ethcmd;
+
+	/* dev_ioctl() in ../../net/core/dev.c has already checked
+	   capable(CAP_NET_ADMIN), so don't bother with that here.  */
+
+	if (get_user(ethcmd, (u32 *)useraddr))
+		return -EFAULT;
+
+	switch (ethcmd) {
+
+	case ETHTOOL_GDRVINFO: {
+		struct ethtool_drvinfo info = { ETHTOOL_GDRVINFO };
+		strcpy (info.driver, DRV_NAME);
+		strcpy (info.version, DRV_VERSION);
+		sprintf(info.bus_info, "PCMCIA 0x%lx", dev->base_addr);
+		if (copy_to_user (useraddr, &info, sizeof (info)))
+			return -EFAULT;
+		return 0;
+	}
+
+#ifdef PCMCIA_DEBUG
+	/* get message-level */
+	case ETHTOOL_GMSGLVL: {
+		struct ethtool_value edata = {ETHTOOL_GMSGLVL};
+		edata.data = pc_debug;
+		if (copy_to_user(useraddr, &edata, sizeof(edata)))
+			return -EFAULT;
+		return 0;
+	}
+	/* set message-level */
+	case ETHTOOL_SMSGLVL: {
+		struct ethtool_value edata;
+		if (copy_from_user(&edata, useraddr, sizeof(edata)))
+			return -EFAULT;
+		pc_debug = edata.data;
+		return 0;
+	}
+#endif
+
+	default:
+		break;
+	}
+
+	return -EOPNOTSUPP;
+}
+
+static int smc91c92_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
+{
+	switch (cmd) {
+	case SIOCETHTOOL:
+		return netdev_ethtool_ioctl(dev, (void *) rq->ifr_data);
+
+	default:
+		return -EOPNOTSUPP;
+	}
+	return 0;
+}
+
 /* ----------------------------------------------------------------------------
 mace_start_xmit
 	This routine begins the packet transmit function.  When completed,
@@ -1290,9 +1356,10 @@ static int mace_rx(struct net_device *dev, unsigned char RxCnt)
 	skb->protocol = eth_type_trans(skb, dev);
 	
 	netif_rx(skb); /* Send the packet to the upper (protocol) layers. */
+
 	dev->last_rx = jiffies;
 	lp->linux_stats.rx_packets++;
-	lp->linux_stats.rx_bytes += pkt_len;
+	lp->linux_stats.rx_bytes += skb->len;
 	outb(0xFF, ioaddr + AM2150_RCV_NEXT); /* skip to next frame */
 	continue;
       } else {

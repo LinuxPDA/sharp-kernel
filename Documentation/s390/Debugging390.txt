@@ -237,9 +237,10 @@ they go to 64 Bit.
 
 
 On 390 our limitations & strengths make us slightly different.
-For backward compatibility we are only allowed use 31 bits (2GB)
-of our 32 bit addresses,however, we use entirely separate address 
-spaces for the user & kernel.
+For backward compatibility ( because of the psw address hi bit which
+indicates whether we are in 31 or 64 bit mode ) we are only allowed 
+use 31 bits (2GB) of our 32 bit addresses. However, 
+we use entirely separate address  spaces for the user & kernel.
 
 This means we can support 2GB of non Extended RAM on s/390, & more
 with the Extended memory managment swap device & 
@@ -1287,10 +1288,14 @@ this can make debugging a particular process under VM painful under normal
 circumstances as the process may change when doing a 
 TR I R <address range>.
 Thankfully after reading VM's online help I figured out how to debug
-I particular process.
+particular processes in 31 bit mode, however, according to the current 
+VM online help documentation the method described below uses 
+TR STO or STD which don't currently work on  z/Series while in 
+64-bit mode.
 
 Your first problem is to find the STD ( segment table designation )
 of the program you wish to debug.
+
 There are several ways you can do this here are a few
 1) objdump --syms <program to be debugged> | grep main
 To get the address of main in the program.
@@ -2119,6 +2124,12 @@ rl_read_key + 180 in section .text
 now do
 p/x (*(**$sp+56))&0x7fffffff
 & so on.
+
+Another good trick to look at addresses on the stack if you've somehow lost 
+the backchain is.
+x/500xa $sp
+This displays anything the name of any known functions above the stack pointer
+for 500 bytes.
 
 Disassembling instructions without debug info
 ---------------------------------------------

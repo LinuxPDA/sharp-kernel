@@ -1,7 +1,7 @@
 /*****************************************************************************
  *
  * Module Name: ac_osl.c
- *   $Revision: 9 $
+ *   $Revision: 10 $
  *
  *****************************************************************************/
 
@@ -122,7 +122,7 @@ ac_osl_add_device(
 		return(AE_BAD_PARAMETER);
 	}
 
-	printk(KERN_INFO "AC Adapter: found\n");
+	printk(KERN_INFO "ACPI: AC Adapter found\n");
 
 	proc_entry = proc_mkdir(ac_adapter->uid, ac_proc_root);
 	if (!proc_entry) {

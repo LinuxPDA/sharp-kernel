@@ -1,5 +1,5 @@
 /*
- * BK Id: SCCS/s.oak_setup.c 1.8 08/15/01 21:48:38 paulus
+ * BK Id: SCCS/s.oak_setup.c 1.12 11/13/01 21:26:07 paulus
  */
 /*
  *
@@ -23,6 +23,7 @@
 #include <linux/param.h>
 #include <linux/string.h>
 #include <linux/blk.h>
+#include <linux/seq_file.h>
 
 #include <asm/processor.h>
 #include <asm/board.h>
@@ -106,8 +107,7 @@ platform_init(unsigned long r3, unsigned long r4, unsigned long r5,
 	/* Initialize machine-dependency vectors */
 
 	ppc_md.setup_arch	 	= oak_setup_arch;
-	ppc_md.setup_residual	 	= oak_setup_residual;
-	ppc_md.get_cpuinfo	 	= NULL;
+	ppc_md.show_percpuinfo	 	= oak_show_percpuinfo;
 	ppc_md.irq_cannonicalize 	= NULL;
 	ppc_md.init_IRQ		 	= oak_init_IRQ;
 	ppc_md.get_irq		 	= oak_get_irq;
@@ -128,12 +128,7 @@ platform_init(unsigned long r3, unsigned long r4, unsigned long r5,
 	ppc_md.kbd_unexpected_up 	= NULL;
 	ppc_md.kbd_leds          	= NULL;
 	ppc_md.kbd_init_hw       	= NULL;
-
-#if defined(CONFIG_MAGIC_SYSRQ)
 	ppc_md.ppc_kbd_sysrq_xlate	= NULL;
-#endif
-
-	return;
 }
 
 /*
@@ -146,7 +141,7 @@ oak_setup_arch(void)
 }
 
 /*
- * int oak_setup_residual()
+ * int oak_show_percpuinfo()
  *
  * Description:
  *   This routine pretty-prints the platform's internal CPU and bus clock
@@ -164,18 +159,16 @@ oak_setup_arch(void)
  *   on error.
  */
 int
-oak_setup_residual(char *buffer)
+oak_show_percpuinfo(struct seq_file *m, int i)
 {
-	int len = 0;
 	bd_t *bp = (bd_t *)__res;
 
-	len += sprintf(len + buffer,
-		       "clock\t\t: %dMHz\n"
-		       "bus clock\t\t: %dMHz\n",
-		       bp->bi_intfreq / 1000000,
-		       bp->bi_busfreq / 1000000);
+	seq_printf(m, "clock\t\t: %dMHz\n"
+		   "bus clock\t\t: %dMHz\n",
+		   bp->bi_intfreq / 1000000,
+		   bp->bi_busfreq / 1000000);
 
-	return (len);
+	return 0;
 }
 
 /*

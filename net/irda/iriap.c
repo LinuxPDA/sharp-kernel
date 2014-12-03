@@ -11,6 +11,7 @@
  * 
  *     Copyright (c) 1998-1999 Dag Brattli <dagb@cs.uit.no>, 
  *     All Rights Reserved.
+ *     Copyright (c) 2000-2001 Jean Tourrilhes <jt@hpl.hp.com>
  *     
  *     This program is free software; you can redistribute it and/or 
  *     modify it under the terms of the GNU General Public License as 
@@ -40,6 +41,7 @@
 #include <net/irda/iriap_event.h>
 #include <net/irda/iriap.h>
 
+#ifdef CONFIG_IRDA_DEBUG
 /* FIXME: This one should go in irlmp.c */
 static const char *ias_charset_types[] = {
 	"CS_ASCII",
@@ -54,6 +56,7 @@ static const char *ias_charset_types[] = {
 	"CS_ISO_8859_9",
 	"CS_UNICODE"
 };
+#endif	/* CONFIG_IRDA_DEBUG */
 
 static hashbin_t *iriap = NULL;
 static __u32 service_handle; 
@@ -773,7 +776,7 @@ static void iriap_connect_indication(void *instance, void *sap,
 {
 	struct iriap_cb *self, *new;
 
-	IRDA_DEBUG(0, __FUNCTION__ "()\n");
+	IRDA_DEBUG(1, __FUNCTION__ "()\n");
 
 	self = (struct iriap_cb *) instance;
 
@@ -799,9 +802,7 @@ static void iriap_connect_indication(void *instance, void *sap,
 	new->max_header_size = max_header_size;
 
 	/* Clean up the original one to keep it in listen state */
-	self->lsap->dlsap_sel = LSAP_ANY;
-	self->lsap->lsap_state = LSAP_DISCONNECTED;
-	/* FIXME: refcount in irlmp might get wrong */
+	irlmp_listen(self->lsap);
 	
 	iriap_do_server_event(new, IAP_LM_CONNECT_INDICATION, userdata);
 }

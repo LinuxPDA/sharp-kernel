@@ -1000,6 +1000,11 @@ int md_update_sb(mddev_t * mddev)
 	struct md_list_head *tmp;
 	mdk_rdev_t *rdev;
 
+	if (!mddev->sb_dirty) {
+		printk("hm, md_update_sb() called without ->sb_dirty == 1, from %p.\n", __builtin_return_address(0));
+		return 0;
+	}
+	mddev->sb_dirty = 0;
 repeat:
 	mddev->sb->utime = CURRENT_TIME;
 	if ((++mddev->sb->events_lo)==0)
@@ -1724,6 +1729,7 @@ static int do_md_run(mddev_t * mddev)
 	}
 
 	mddev->sb->state &= ~(1 << MD_SB_CLEAN);
+	mddev->sb_dirty = 1;
 	md_update_sb(mddev);
 
 	/*
@@ -1841,6 +1847,7 @@ static int do_md_stop(mddev_t * mddev, int ro)
 				printk(KERN_INFO "md: marking sb clean...\n");
 				mddev->sb->state |= 1 << MD_SB_CLEAN;
 			}
+			mddev->sb_dirty = 1;
 			md_update_sb(mddev);
 		}
 		if (ro)
@@ -2464,7 +2471,6 @@ static int hot_add_disk(mddev_t * mddev, kdev_t dev)
 	mddev->sb->working_disks++;
 
 	mddev->sb_dirty = 1;
-
 	md_update_sb(mddev);
 
 	/*
@@ -2895,6 +2901,7 @@ static int md_release(struct inode *inode, struct file * file)
 
 static struct block_device_operations md_fops=
 {
+	owner:		THIS_MODULE,
 	open:		md_open,
 	release:	md_release,
 	ioctl:		md_ioctl,
@@ -3397,7 +3404,7 @@ recheck:
 	/*
 	 * Tune reconstruction:
 	 */
-	window = MAX_READAHEAD*(PAGE_SIZE/512);
+	window = vm_max_readahead*(PAGE_SIZE/512);
 	printk(KERN_INFO "md: using %dk window, over a total of %d blocks.\n",
 	       window/2,max_sectors/2);
 
@@ -3514,6 +3521,8 @@ restart:
 			continue;
 		if (sb->active_disks == sb->raid_disks)
 			continue;
+		if (mddev->sb_dirty)
+			md_update_sb(mddev);
 		if (!sb->spare_disks) {
 			printk(KERN_ERR "md%d: no spare disk to reconstruct array! "
 			       "-- continuing in degraded mode\n", mdidx(mddev));
@@ -4038,4 +4047,4 @@ MD_EXPORT_SYMBOL(md_interrupt_thread);
 MD_EXPORT_SYMBOL(mddev_map);
 MD_EXPORT_SYMBOL(md_check_ordering);
 MD_EXPORT_SYMBOL(get_spare);
-
+MODULE_LICENSE("GPL");

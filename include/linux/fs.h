@@ -108,8 +108,10 @@ extern int leases_enable, dir_notify_enable, lease_break_time;
 #define MS_NOATIME	1024	/* Do not update access times. */
 #define MS_NODIRATIME	2048	/* Do not update directory access times */
 #define MS_BIND		4096
+#define MS_MOVE		8192
 #define MS_REC		16384
 #define MS_VERBOSE	32768
+#define MS_ACTIVE	(1<<30)
 #define MS_NOUSER	(1<<31)
 
 /*
@@ -216,6 +218,7 @@ enum bh_state_bits {
 	BH_Async,	/* 1 if the buffer is under end_buffer_io_async I/O */
 	BH_Wait_IO,	/* 1 if we should write out this buffer */
 	BH_launder,	/* 1 if we should throttle on this buffer */
+	BH_JBD,		/* 1 if it has an attached journal_head */
 
 	BH_PrivateStart,/* not a state bit, but the first bit available
 			 * for private allocation by other entities
@@ -287,6 +290,7 @@ extern void set_bh_page(struct buffer_head *bh, struct page *page, unsigned long
 #include <linux/pipe_fs_i.h>
 #include <linux/minix_fs_i.h>
 #include <linux/ext2_fs_i.h>
+#include <linux/ext3_fs_i.h>
 #include <linux/hpfs_fs_i.h>
 #include <linux/ntfs_fs_i.h>
 #include <linux/msdos_fs_i.h>
@@ -376,10 +380,16 @@ struct address_space_operations {
 	int (*writepage)(struct page *);
 	int (*readpage)(struct file *, struct page *);
 	int (*sync_page)(struct page *);
+	/*
+	 * ext3 requires that a successful prepare_write() call be followed
+	 * by a commit_write() call - they must be balanced
+	 */
 	int (*prepare_write)(struct file *, struct page *, unsigned, unsigned);
 	int (*commit_write)(struct file *, struct page *, unsigned, unsigned);
 	/* Unfortunately this kludge is needed for FIBMAP. Don't use it */
 	int (*bmap)(struct address_space *, long);
+	int (*flushpage) (struct page *, unsigned long);
+	int (*releasepage) (struct page *, int);
 #define KERNEL_HAS_O_DIRECT /* this is for modules out of the kernel */
 	int (*direct_IO)(int, struct inode *, struct kiobuf *, unsigned long, int);
 };
@@ -470,6 +480,7 @@ struct inode {
 	union {
 		struct minix_inode_info		minix_i;
 		struct ext2_inode_info		ext2_i;
+		struct ext3_inode_info		ext3_i;
 		struct hpfs_inode_info		hpfs_i;
 		struct ntfs_inode_info		ntfs_i;
 		struct msdos_inode_info		msdos_i;
@@ -658,6 +669,7 @@ struct quota_mount_options
 
 #include <linux/minix_fs_sb.h>
 #include <linux/ext2_fs_sb.h>
+#include <linux/ext3_fs_sb.h>
 #include <linux/hpfs_fs_sb.h>
 #include <linux/ntfs_fs_sb.h>
 #include <linux/msdos_fs_sb.h>
@@ -714,6 +726,7 @@ struct super_block {
 	union {
 		struct minix_sb_info	minix_sb;
 		struct ext2_sb_info	ext2_sb;
+		struct ext3_sb_info	ext3_sb;
 		struct hpfs_sb_info	hpfs_sb;
 		struct ntfs_sb_info	ntfs_sb;
 		struct msdos_sb_info	msdos_sb;
@@ -793,6 +806,7 @@ struct block_device_operations {
 	int (*ioctl) (struct inode *, struct file *, unsigned, unsigned long);
 	int (*check_media_change) (kdev_t);
 	int (*revalidate) (kdev_t);
+	struct module *owner;
 };
 
 /*
@@ -840,6 +854,8 @@ struct inode_operations {
 	int (*setattr) (struct dentry *, struct iattr *);
 	int (*getattr) (struct dentry *, struct iattr *);
 };
+
+struct seq_file;
 
 /*
  * NOTE: write_inode, delete_inode, clear_inode, put_inode can be called
@@ -892,6 +908,7 @@ struct super_operations {
 	 */
 	struct dentry * (*fh_to_dentry)(struct super_block *sb, __u32 *fh, int len, int fhtype, int parent);
 	int (*dentry_to_fh)(struct dentry *, __u32 *fh, int *lenp, int need_parent);
+	int (*show_options)(struct seq_file *, struct vfsmount *);
 };
 
 /* Inode state bits.. */
@@ -1087,6 +1104,7 @@ extern int fs_may_remount_ro(struct super_block *);
 
 extern int try_to_free_buffers(struct page *, unsigned int);
 extern void refile_buffer(struct buffer_head * buf);
+extern void create_empty_buffers(struct page *, kdev_t, unsigned long);
 extern void end_buffer_io_sync(struct buffer_head *bh, int uptodate);
 
 /* reiserfs_writepage needs this */
@@ -1169,6 +1187,7 @@ static inline void mark_buffer_dirty_inode(struct buffer_head *bh, struct inode 
 	buffer_insert_inode_queue(bh, inode);
 }
 
+extern void set_buffer_flushtime(struct buffer_head *);
 extern void balance_dirty(void);
 extern int check_disk_change(kdev_t);
 extern int invalidate_inodes(struct super_block *);
@@ -1194,8 +1213,8 @@ extern int osync_inode_data_buffers(struct inode *);
 extern int fsync_inode_buffers(struct inode *);
 extern int fsync_inode_data_buffers(struct inode *);
 extern int inode_has_buffers(struct inode *);
-extern void filemap_fdatasync(struct address_space *);
-extern void filemap_fdatawait(struct address_space *);
+extern int filemap_fdatasync(struct address_space *);
+extern int filemap_fdatawait(struct address_space *);
 extern void sync_supers(kdev_t);
 extern int bmap(struct inode *, int);
 extern int notify_change(struct dentry *, struct iattr *);
@@ -1347,13 +1366,28 @@ static inline void bforget(struct buffer_head *buf)
 }
 extern int set_blocksize(kdev_t, int);
 extern struct buffer_head * bread(kdev_t, int, int);
+static inline struct buffer_head * sb_bread(struct super_block *sb, int block)
+{
+	return bread(sb->s_dev, block, sb->s_blocksize);
+}
+static inline struct buffer_head * sb_getblk(struct super_block *sb, int block)
+{
+	return getblk(sb->s_dev, block, sb->s_blocksize);
+}
+static inline struct buffer_head * sb_get_hash_table(struct super_block *sb, int block)
+{
+	return get_hash_table(sb->s_dev, block, sb->s_blocksize);
+}
 extern void wakeup_bdflush(void);
+extern void put_unused_buffer_head(struct buffer_head * bh);
+extern struct buffer_head * get_unused_buffer_head(int async);
 
 extern int brw_page(int, struct page *, kdev_t, int [], int);
 
 typedef int (get_block_t)(struct inode*,long,struct buffer_head*,int);
 
 /* Generic buffer handling for block filesystems.. */
+extern int try_to_release_page(struct page * page, int gfp_mask);
 extern int discard_bh_page(struct page *, unsigned long, int);
 #define block_flushpage(page, offset) discard_bh_page(page, offset, 1)
 #define block_invalidate_page(page) discard_bh_page(page, 0, 0)
@@ -1363,15 +1397,17 @@ extern int block_read_full_page(struct page*, get_block_t*);
 extern int block_prepare_write(struct page*, unsigned, unsigned, get_block_t*);
 extern int cont_prepare_write(struct page*, unsigned, unsigned, get_block_t*,
 				unsigned long *);
+extern int generic_cont_expand(struct inode *inode, loff_t size) ;
 extern int block_commit_write(struct page *page, unsigned from, unsigned to);
 extern int block_sync_page(struct page *);
 
 int generic_block_bmap(struct address_space *, long, get_block_t *);
 int generic_commit_write(struct file *, struct page *, unsigned, unsigned);
 int block_truncate_page(struct address_space *, loff_t, get_block_t *);
-extern void create_empty_buffers(struct page *, kdev_t, unsigned long);
+extern int generic_direct_IO(int, struct inode *, struct kiobuf *, unsigned long, int, get_block_t *);
+extern int waitfor_one_page(struct page *);
+extern int writeout_one_page(struct page *);
 
-extern int waitfor_one_page(struct page*);
 extern int generic_file_mmap(struct file *, struct vm_area_struct *);
 extern int file_read_actor(read_descriptor_t * desc, struct page *page, unsigned long offset, unsigned long size);
 extern ssize_t generic_file_read(struct file *, char *, size_t, loff_t *);
@@ -1415,7 +1451,7 @@ extern void show_buffers(void);
 extern void mount_root(void);
 
 #ifdef CONFIG_BLK_DEV_INITRD
-extern kdev_t real_root_dev;
+extern unsigned int real_root_dev;
 extern int change_root(kdev_t, const char *);
 #endif
 

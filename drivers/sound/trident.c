@@ -187,6 +187,7 @@
 #define TRIDENT_STATE_MAGIC	0x63657373 /* "cess" */
 
 #define TRIDENT_DMA_MASK	0x3fffffff /* DMA buffer mask for pci_alloc_consist */
+#define ALI_DMA_MASK		0xffffffff /* ALI Tridents lack the 30-bit limitation */
 
 #define NR_HW_CH		32
 
@@ -640,13 +641,21 @@ static struct trident_channel * trident_alloc_pcm_channel(struct trident_card *c
 static void trident_free_pcm_channel(struct trident_card *card, unsigned int channel)
 {
 	int bank;
+        unsigned char b;
 
 	if (channel < 31 || channel > 63)
 		return;
 
+	if (card->pci_id == PCI_DEVICE_ID_TRIDENT_4DWAVE_DX ||
+            card->pci_id == PCI_DEVICE_ID_TRIDENT_4DWAVE_NX) {
+          b = inb (TRID_REG(card, T4D_REC_CH));
+          if ((b & ~0x80) == channel)
+            outb(0x0, TRID_REG(card, T4D_REC_CH));
+        }
+            
 	bank = channel >> 5;
 	channel = channel & 0x1f;
-
+        
 	card->banks[bank].bitmap &= ~(1 << (channel));
 }
 
@@ -3934,20 +3943,26 @@ static int __init trident_probe(struct pci_dev *pci_dev, const struct pci_device
 {
 	unsigned long iobase;
 	struct trident_card *card;
-	dma_addr_t mask;
 	u8 bits;
 	u8 revision;
 	int i = 0;
 	u16 temp;
 	struct pci_dev *pci_dev_m1533 = NULL;
 	int rc = -ENODEV;
+	u64 dma_mask;
 
 	if (pci_enable_device(pci_dev))
 		goto out;
 
-	if (pci_set_dma_mask(pci_dev, TRIDENT_DMA_MASK)) {
+	if (pci_dev->device == PCI_DEVICE_ID_ALI_5451)
+		dma_mask = ALI_DMA_MASK;
+	else
+		dma_mask = TRIDENT_DMA_MASK;
+	if (pci_set_dma_mask(pci_dev, dma_mask)) {
 		printk(KERN_ERR "trident: architecture does not support"
-		       " 30bit PCI busmaster DMA\n");
+		       " %s PCI busmaster DMA\n",
+		       pci_dev->device == PCI_DEVICE_ID_ALI_5451 ?
+		       "32-bit" : "30-bit");
 		goto out;
 	}
 	pci_read_config_byte(pci_dev, PCI_CLASS_REVISION, &revision);
@@ -4104,7 +4119,7 @@ static int __init trident_probe(struct pci_dev *pci_dev, const struct pci_device
 			if ((hwrpb->sys_type) == 201) {
 				printk(KERN_INFO "trident: Running on Alpha system type Nautilus\n");
 				ac97_data = ali_ac97_get(card, 0, AC97_POWER_CONTROL);
-				ali_ac97_set(card, 0, AC97_POWER_CONTROL, ac97_data |
+				ali_ac97_set(card, 0, AC97_POWER_CONTROL, ac97_data | ALI_EAPD_POWER_DOWN);
 			}
 		}
 #endif
@@ -4134,7 +4149,7 @@ out_release_region:
 	goto out;
 }
 
-static void __exit trident_remove(struct pci_dev *pci_dev)
+static void __devexit trident_remove(struct pci_dev *pci_dev)
 {
 	int i;
 	struct trident_card *card = pci_get_drvdata(pci_dev);
@@ -4187,7 +4202,7 @@ static struct pci_driver trident_pci_driver = {
 	name:		TRIDENT_MODULE_NAME,
 	id_table:	trident_pci_tbl,
 	probe:		trident_probe,
-	remove:		trident_remove,
+	remove:		__devexit_p(trident_remove),
 	suspend:	trident_suspend,
 	resume:		trident_resume
 };

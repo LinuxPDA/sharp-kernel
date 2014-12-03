@@ -1,5 +1,5 @@
 /*
- * BK Id: SCCS/s.smp.c 1.31 09/08/01 15:47:42 paulus
+ * BK Id: SCCS/s.smp.c 1.37 11/23/01 16:38:30 paulus
  */
 /*
  * Smp support for ppc.
@@ -23,6 +23,7 @@
 #include <linux/unistd.h>
 #include <linux/init.h>
 #include <linux/spinlock.h>
+#include <linux/cache.h>
 
 #include <asm/ptrace.h>
 #include <asm/atomic.h>
@@ -35,10 +36,7 @@
 #include <asm/prom.h>
 #include <asm/smp.h>
 #include <asm/residual.h>
-#include <asm/feature.h>
 #include <asm/time.h>
-
-#include "open_pic.h"
 
 int smp_threads_ready;
 volatile int smp_commenced;
@@ -48,7 +46,7 @@ struct cpuinfo_PPC cpu_data[NR_CPUS];
 struct klock_info_struct klock_info = { KLOCK_CLEAR, 0 };
 atomic_t ipi_recv;
 atomic_t ipi_sent;
-spinlock_t kernel_flag __cacheline_aligned = SPIN_LOCK_UNLOCKED;
+spinlock_t kernel_flag __cacheline_aligned_in_smp = SPIN_LOCK_UNLOCKED;
 unsigned int prof_multiplier[NR_CPUS];
 unsigned int prof_counter[NR_CPUS];
 cycles_t cacheflush_time;
@@ -283,6 +281,7 @@ void __init smp_boot_cpus(void)
 	printk("Entering SMP Mode...\n");
 	smp_num_cpus = 1;
         smp_store_cpu_info(0);
+	cpu_online_map = 1UL;
 
 	/*
 	 * assume for now that the first cpu booted is
@@ -324,21 +323,8 @@ void __init smp_boot_cpus(void)
 		struct pt_regs regs;
 		
 		/* create a process for the processor */
-		/* we don't care about the values in regs since we'll
-		   never reschedule the forked task. */
-		/* We DO care about one bit in the pt_regs we
-		   pass to do_fork.  That is the MSR_FP bit in 
-		   regs.msr.  If that bit is on, then do_fork
-		   (via copy_thread) will call giveup_fpu.
-		   giveup_fpu will get a pointer to our (current's)
-		   last register savearea via current->thread.regs 
-		   and using that pointer will turn off the MSR_FP,
-		   MSR_FE0 and MSR_FE1 bits.  At this point, this 
-		   pointer is pointing to some arbitrary point within
-		   our stack. */
-
+		/* only regs.msr is actually used, and 0 is OK for it */
 		memset(&regs, 0, sizeof(struct pt_regs));
-		
 		if (do_fork(CLONE_VM|CLONE_PID, 0, &regs, 0) < 0)
 			panic("failed fork for CPU %d", i);
 		p = init_task.prev_task;
@@ -349,7 +335,7 @@ void __init smp_boot_cpus(void)
 		init_tasks[i] = p;
 
 		p->processor = i;
-		p->has_cpu = 1;
+		p->cpus_runnable = 1 << i; /* we schedule the first task manually */
 		current_set[i] = p;
 
 		/*
@@ -505,8 +491,6 @@ void __init smp_callin(void)
 	cpu_callin_map[cpu] = 1;
 
 	smp_ops->setup_cpu(cpu);
-
-	init_idle();
 
 	/*
 	 * This cpu is now "online".  Only set them online

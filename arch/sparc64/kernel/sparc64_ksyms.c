@@ -1,4 +1,4 @@
-/* $Id: sparc64_ksyms.c,v 1.113 2001/10/17 18:26:58 davem Exp $
+/* $Id: sparc64_ksyms.c,v 1.119 2001/11/30 01:04:10 davem Exp $
  * arch/sparc64/kernel/sparc64_ksyms.c: Sparc64 specific ksyms support.
  *
  * Copyright (C) 1996 David S. Miller (davem@caip.rutgers.edu)
@@ -98,7 +98,7 @@ extern int dump_fpu (struct pt_regs * regs, elf_fpregset_t * fpregs);
 #ifdef CONFIG_SMP
 extern spinlock_t kernel_flag;
 extern int smp_num_cpus;
-#ifdef SPIN_LOCK_DEBUG
+#ifdef CONFIG_DEBUG_SPINLOCK
 extern void _do_spin_lock (spinlock_t *lock, char *str);
 extern void _do_spin_unlock (spinlock_t *lock);
 extern int _spin_trylock (spinlock_t *lock);
@@ -113,7 +113,7 @@ extern unsigned long phys_base;
 
 /* used by various drivers */
 #ifdef CONFIG_SMP
-#ifndef SPIN_LOCK_DEBUG
+#ifndef CONFIG_DEBUG_SPINLOCK
 /* Out of line rw-locking implementation. */
 EXPORT_SYMBOL(__read_lock);
 EXPORT_SYMBOL(__read_unlock);
@@ -126,7 +126,9 @@ EXPORT_SYMBOL(kernel_flag);
 
 /* Hard IRQ locking */
 EXPORT_SYMBOL(global_irq_holder);
+#ifdef CONFIG_SMP
 EXPORT_SYMBOL(synchronize_irq);
+#endif
 EXPORT_SYMBOL(__global_cli);
 EXPORT_SYMBOL(__global_sti);
 EXPORT_SYMBOL(__global_save_flags);
@@ -136,12 +138,14 @@ EXPORT_SYMBOL(__global_restore_flags);
 EXPORT_SYMBOL(cpu_data);
 
 /* Misc SMP information */
+#ifdef CONFIG_SMP
 EXPORT_SYMBOL(smp_num_cpus);
+#endif
 EXPORT_SYMBOL(__cpu_number_map);
 EXPORT_SYMBOL(__cpu_logical_map);
 
 /* Spinlock debugging library, optional. */
-#ifdef SPIN_LOCK_DEBUG
+#ifdef CONFIG_DEBUG_SPINLOCK
 EXPORT_SYMBOL(_do_spin_lock);
 EXPORT_SYMBOL(_do_spin_unlock);
 EXPORT_SYMBOL(_spin_trylock);
@@ -151,7 +155,9 @@ EXPORT_SYMBOL(_do_write_lock);
 EXPORT_SYMBOL(_do_write_unlock);
 #endif
 
+#ifdef CONFIG_SMP
 EXPORT_SYMBOL(smp_call_function);
+#endif
 
 #endif
 
@@ -307,15 +313,12 @@ EXPORT_SYMBOL(prom_cpu_nodes);
 EXPORT_SYMBOL(sys_ioctl);
 EXPORT_SYMBOL(sys32_ioctl);
 EXPORT_SYMBOL(sparc32_open);
-EXPORT_SYMBOL(move_addr_to_kernel);
-EXPORT_SYMBOL(move_addr_to_user);
 #endif
 
 /* Special internal versions of library functions. */
 EXPORT_SYMBOL(__memcpy);
 EXPORT_SYMBOL(__memset);
 EXPORT_SYMBOL(_clear_page);
-EXPORT_SYMBOL(_copy_page);
 EXPORT_SYMBOL(clear_user_page);
 EXPORT_SYMBOL(copy_user_page);
 EXPORT_SYMBOL(__bzero);
@@ -350,4 +353,8 @@ EXPORT_SYMBOL_NOVERS(memmove);
 
 void VISenter(void);
 /* RAID code needs this */
-EXPORT_SYMBOL(VISenter);
+EXPORT_SYMBOL_NOVERS(VISenter);
+
+#ifdef CONFIG_DEBUG_BUGVERBOSE
+EXPORT_SYMBOL(do_BUG);
+#endif

@@ -174,7 +174,6 @@ static void l1m_debug(struct FsmInst *fi, char *fmt, ...)
 	
 	va_start(args, fmt);
 	vsprintf(buf, fmt, args);
-	printk("buf %s\n", buf);
 	DBG(8, "%s", buf);
 	va_end(args);
 }
@@ -674,7 +673,7 @@ static int __devinit st5481_setup_d_out(struct st5481_adapter *adapter)
 				      usb_d_out_complete, adapter);
 }
 
-static void __devexit st5481_release_d_out(struct st5481_adapter *adapter)
+static void st5481_release_d_out(struct st5481_adapter *adapter)
 {
 	struct st5481_d_out *d_out = &adapter->d_out;
 
@@ -724,7 +723,7 @@ int __devinit st5481_setup_d(struct st5481_adapter *adapter)
 	return retval;
 }
 
-void __devexit st5481_release_d(struct st5481_adapter *adapter)
+void st5481_release_d(struct st5481_adapter *adapter)
 {
 	DBG(2,"");
 

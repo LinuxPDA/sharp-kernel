@@ -1,4 +1,4 @@
-/* $Id: srmmu.c,v 1.231 2001/09/20 00:35:31 davem Exp $
+/* $Id: srmmu.c,v 1.233 2001/11/13 00:49:27 davem Exp $
  * srmmu.c:  SRMMU specific routines for memory management.
  *
  * Copyright (C) 1995 David S. Miller  (davem@caip.rutgers.edu)
@@ -18,6 +18,8 @@
 #include <linux/blk.h>
 #include <linux/spinlock.h>
 #include <linux/bootmem.h>
+#include <linux/fs.h>
+#include <linux/seq_file.h>
 
 #include <asm/page.h>
 #include <asm/pgalloc.h>
@@ -393,6 +395,7 @@ static pte_t *srmmu_pte_alloc_one_fast(struct mm_struct *mm, unsigned long addre
 static pte_t *srmmu_pte_alloc_one(struct mm_struct *mm, unsigned long address)
 {
 	BUG();
+	return NULL;
 }
 
 static void srmmu_free_pte_fast(pte_t *pte)
@@ -812,11 +815,11 @@ static void cypress_flush_tlb_all(void)
 static void cypress_flush_tlb_mm(struct mm_struct *mm)
 {
 	FLUSH_BEGIN(mm)
-	__asm__ __volatile__("
-	lda	[%0] %3, %%g5
-	sta	%2, [%0] %3
-	sta	%%g0, [%1] %4
-	sta	%%g5, [%0] %3"
+	__asm__ __volatile__(
+	"lda	[%0] %3, %%g5\n\t"
+	"sta	%2, [%0] %3\n\t"
+	"sta	%%g0, [%1] %4\n\t"
+	"sta	%%g5, [%0] %3\n"
 	: /* no outputs */
 	: "r" (SRMMU_CTX_REG), "r" (0x300), "r" (mm->context),
 	  "i" (ASI_M_MMUREGS), "i" (ASI_M_FLUSH_PROBE)
@@ -831,13 +834,14 @@ static void cypress_flush_tlb_range(struct mm_struct *mm, unsigned long start, u
 	FLUSH_BEGIN(mm)
 	start &= SRMMU_PGDIR_MASK;
 	size = SRMMU_PGDIR_ALIGN(end) - start;
-	__asm__ __volatile__("
-		lda	[%0] %5, %%g5
-		sta	%1, [%0] %5
-	1:	subcc	%3, %4, %3
-		bne	1b
-		 sta	%%g0, [%2 + %3] %6
-		sta	%%g5, [%0] %5"
+	__asm__ __volatile__(
+		"lda	[%0] %5, %%g5\n\t"
+		"sta	%1, [%0] %5\n"
+		"1:\n\t"
+		"subcc	%3, %4, %3\n\t"
+		"bne	1b\n\t"
+		" sta	%%g0, [%2 + %3] %6\n\t"
+		"sta	%%g5, [%0] %5\n"
 	: /* no outputs */
 	: "r" (SRMMU_CTX_REG), "r" (mm->context), "r" (start | 0x200),
 	  "r" (size), "r" (SRMMU_PGDIR_SIZE), "i" (ASI_M_MMUREGS),
@@ -851,11 +855,11 @@ static void cypress_flush_tlb_page(struct vm_area_struct *vma, unsigned long pag
 	struct mm_struct *mm = vma->vm_mm;
 
 	FLUSH_BEGIN(mm)
-	__asm__ __volatile__("
-	lda	[%0] %3, %%g5
-	sta	%1, [%0] %3
-	sta	%%g0, [%2] %4
-	sta	%%g5, [%0] %3"
+	__asm__ __volatile__(
+	"lda	[%0] %3, %%g5\n\t"
+	"sta	%1, [%0] %3\n\t"
+	"sta	%%g0, [%2] %4\n\t"
+	"sta	%%g5, [%0] %3\n"
 	: /* no outputs */
 	: "r" (SRMMU_CTX_REG), "r" (mm->context), "r" (page & PAGE_MASK),
 	  "i" (ASI_M_MMUREGS), "i" (ASI_M_FLUSH_PROBE)
@@ -1207,18 +1211,17 @@ void __init srmmu_paging_init(void)
 	}
 }
 
-static int srmmu_mmu_info(char *buf)
+static void srmmu_mmu_info(struct seq_file *m)
 {
-	return sprintf(buf, 
-		"MMU type\t: %s\n"
-		"contexts\t: %d\n"
-		"nocache total\t: %ld\n"
-		"nocache used\t: %d\n"
-		, srmmu_name,
-		num_contexts,
-		SRMMU_NOCACHE_SIZE,
-		(srmmu_nocache_used << SRMMU_NOCACHE_BITMAP_SHIFT)
-	);
+	seq_printf(m, 
+		   "MMU type\t: %s\n"
+		   "contexts\t: %d\n"
+		   "nocache total\t: %ld\n"
+		   "nocache used\t: %d\n",
+		   srmmu_name,
+		   num_contexts,
+		   SRMMU_NOCACHE_SIZE,
+		   (srmmu_nocache_used << SRMMU_NOCACHE_BITMAP_SHIFT));
 }
 
 static void srmmu_update_mmu_cache(struct vm_area_struct * vma, unsigned long address, pte_t pte)

@@ -76,7 +76,7 @@ int vm_enough_memory(long pages)
 	 * This double-counts: the nrpages are both in the page-cache
 	 * and in the swapper space. At the same time, this compensates
 	 * for the swap-space over-allocation (ie "nr_swap_pages" being
-	 * too small. 
+	 * too small.
 	 */
 	free += swapper_space.nrpages;
 
@@ -620,7 +620,7 @@ unsigned long get_unmapped_area(struct file *file, unsigned long addr, unsigned 
 {
 	if (flags & MAP_FIXED) {
 		if (addr > TASK_SIZE - len)
-			return -EINVAL;
+			return -ENOMEM;
 		if (addr & ~PAGE_MASK)
 			return -EINVAL;
 		return addr;

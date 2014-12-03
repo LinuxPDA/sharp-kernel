@@ -66,14 +66,17 @@ typedef void (unplug_device_fn) (void *q);
  */
 #define QUEUE_NR_REQUESTS	8192
 
+struct request_list {
+	unsigned int count;
+	struct list_head free;
+};
+
 struct request_queue
 {
 	/*
 	 * the queue request freelist, one for reads and one for writes
 	 */
-	struct list_head	request_freelist[2];
-	struct list_head	pending_freelist[2];
-	int			pending_free[2];
+	struct request_list	rq[2];
 
 	/*
 	 * Together with queue_head for cacheline sharing
@@ -177,10 +180,6 @@ extern int * max_segments[MAX_BLKDEV];
 
 #define PageAlignSize(size) (((size) + PAGE_SIZE -1) & PAGE_MASK)
 
-/* read-ahead in pages.. */
-#define MAX_READAHEAD	31
-#define MIN_READAHEAD	3
-
 #define blkdev_entry_to_request(entry) list_entry((entry), struct request, queue)
 #define blkdev_entry_next_request(entry) blkdev_entry_to_request((entry)->next)
 #define blkdev_entry_prev_request(entry) blkdev_entry_to_request((entry)->prev)
@@ -192,11 +191,15 @@ extern void drive_stat_acct (kdev_t dev, int rw,
 
 static inline int get_hardsect_size(kdev_t dev)
 {
-	extern int *hardsect_size[];
-	if (hardsect_size[MAJOR(dev)] != NULL)
-		return hardsect_size[MAJOR(dev)][MINOR(dev)];
-	else
-		return 512;
+	int retval = 512;
+	int major = MAJOR(dev);
+
+	if (hardsect_size[major]) {
+		int minor = MINOR(dev);
+		if (hardsect_size[major][minor])
+			retval = hardsect_size[major][minor];
+	}
+	return retval;
 }
 
 #define blk_finished_io(nsects)	do { } while (0)

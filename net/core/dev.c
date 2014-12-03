@@ -107,6 +107,7 @@
 extern int plip_init(void);
 #endif
 
+
 /* This define, if set, will randomly drop a packet when congestion
  * is more than moderate.  It helps fairness in the multi-interface
  * case when one of them is a hog, but it kills performance for the
@@ -137,9 +138,17 @@ const char *if_port_text[] = {
  *	and the routines to invoke.
  *
  *	Why 16. Because with 16 the only overlap we get on a hash of the
- *	low nibble of the protocol value is RARP/SNAP/X.25. 
+ *	low nibble of the protocol value is RARP/SNAP/X.25.
+ *
+ *      NOTE:  That is no longer true with the addition of VLAN tags.  Not
+ *             sure which should go first, but I bet it won't make much
+ *             difference if we are running VLANs.  The good news is that
+ *             this protocol won't be in the list unless compiled in, so
+ *             the average user (w/out VLANs) will not be adversly affected.
+ *             --BLG
  *
  *		0800	IP
+ *		8100    802.1Q VLAN
  *		0001	802.3
  *		0002	AX.25
  *		0004	802.2
@@ -229,7 +238,7 @@ void dev_add_pack(struct packet_type *pt)
 
 #ifdef CONFIG_NET_FASTROUTE
 	/* Hack to detect packet socket */
-	if (pt->data) {
+	if ((pt->data) && ((int)(pt->data)!=1)) {
 		netdev_fastroute_obstacles++;
 		dev_clear_fastroute(pt->dev);
 	}
@@ -556,11 +565,11 @@ int dev_alloc_name(struct net_device *dev, const char *name)
 
 	/*
 	 * Verify the string as this thing may have come from
-	 * the user.  There must be one "%d" and no other "%"
-	 * characters.
+	 * the user.  There must be either one "%d" and no other "%"
+	 * characters, or no "%" characters at all.
 	 */
 	p = strchr(name, '%');
-	if (!p || p[1] != 'd' || strchr(p+2, '%'))
+	if (p && (p[1] != 'd' || strchr(p+2, '%')))
 		return -EINVAL;
 
 	/*
@@ -866,7 +875,7 @@ int unregister_netdevice_notifier(struct notifier_block *nb)
 void dev_queue_xmit_nit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct packet_type *ptype;
-	get_fast_time(&skb->stamp);
+	do_gettimeofday(&skb->stamp);
 
 	br_read_lock(BR_NETPROTO_LOCK);
 	for (ptype = ptype_all; ptype!=NULL; ptype = ptype->next) 
@@ -1209,7 +1218,7 @@ int netif_rx(struct sk_buff *skb)
 	unsigned long flags;
 
 	if (skb->stamp.tv_sec == 0)
-		get_fast_time(&skb->stamp);
+		do_gettimeofday(&skb->stamp);
 
 	/* The code is rearranged so that the path is the most
 	   short when CPU is congested, but is still operating.
@@ -2212,6 +2221,12 @@ static int dev_ifsioc(struct ifreq *ifr, unsigned int cmd)
 		default:
 			if ((cmd >= SIOCDEVPRIVATE &&
 			    cmd <= SIOCDEVPRIVATE + 15) ||
+			    cmd == SIOCBONDENSLAVE ||
+			    cmd == SIOCBONDRELEASE ||
+			    cmd == SIOCBONDSETHWADDR ||
+			    cmd == SIOCBONDSLAVEINFOQUERY ||
+			    cmd == SIOCBONDINFOQUERY ||
+			    cmd == SIOCBONDCHANGEACTIVE ||
 			    cmd == SIOCETHTOOL ||
 			    cmd == SIOCGMIIPHY ||
 			    cmd == SIOCGMIIREG ||
@@ -2363,6 +2378,12 @@ int dev_ioctl(unsigned int cmd, void *arg)
 		case SIOCSIFTXQLEN:
 		case SIOCSIFNAME:
 		case SIOCSMIIREG:
+		case SIOCBONDENSLAVE:
+		case SIOCBONDRELEASE:
+		case SIOCBONDSETHWADDR:
+		case SIOCBONDSLAVEINFOQUERY:
+		case SIOCBONDINFOQUERY:
+		case SIOCBONDCHANGEACTIVE:
 			if (!capable(CAP_NET_ADMIN))
 				return -EPERM;
 			dev_load(ifr.ifr_name);

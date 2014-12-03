@@ -11,7 +11,7 @@
  * Sources:       af_netroom.c, af_ax25.c, af_rose.c, af_x25.c etc.
  * 
  *     Copyright (c) 1999 Dag Brattli <dagb@cs.uit.no>
- *     Copyright (c) 1999 Jean Tourrilhes <jt@hpl.hp.com>
+ *     Copyright (c) 1999-2001 Jean Tourrilhes <jt@hpl.hp.com>
  *     All Rights Reserved.
  *
  *     This program is free software; you can redistribute it and/or 
@@ -134,33 +134,41 @@ static void irda_disconnect_indication(void *instance, void *sap,
 
 	IRDA_DEBUG(2, __FUNCTION__ "(%p)\n", self);
 
+	/* Don't care about it, but let's not leak it */
+	if(skb)
+		dev_kfree_skb(skb);
+
 	sk = self->sk;
 	if (sk == NULL)
 		return;
 
-	sk->state     = TCP_CLOSE;
-        sk->err       = ECONNRESET;
-        sk->shutdown |= SEND_SHUTDOWN;
-	if (!sk->dead) {
-		sk->state_change(sk);
-                sk->dead = 1;
-        }
+	/* Prevent race conditions with irda_release() and irda_shutdown() */
+	if ((!sk->dead) && (sk->state != TCP_CLOSE)) {
+		sk->state     = TCP_CLOSE;
+		sk->err       = ECONNRESET;
+		sk->shutdown |= SEND_SHUTDOWN;
 
-	/* Close our TSAP.
-	 * If we leave it open, IrLMP put it back into the list of
-	 * unconnected LSAPs. The problem is that any incoming request
-	 * can then be matched to this socket (and it will be, because
-	 * it is at the head of the list). This would prevent any
-	 * listening socket waiting on the same TSAP to get those requests.
-	 * Some apps forget to close sockets, or hang to it a bit too long,
-	 * so we may stay in this dead state long enough to be noticed...
-	 * Note : all socket function do check sk->state, so we are safe...
-	 * Jean II
-	 */
-	if (self->tsap) {
-		irttp_close_tsap(self->tsap);
-		self->tsap = NULL;
-	}
+		sk->state_change(sk);
+                sk->dead = 1;	/* Uh-oh... Should use sock_orphan ? */
+
+		/* Close our TSAP.
+		 * If we leave it open, IrLMP put it back into the list of
+		 * unconnected LSAPs. The problem is that any incoming request
+		 * can then be matched to this socket (and it will be, because
+		 * it is at the head of the list). This would prevent any
+		 * listening socket waiting on the same TSAP to get those
+		 * requests. Some apps forget to close sockets, or hang to it
+		 * a bit too long, so we may stay in this dead state long
+		 * enough to be noticed...
+		 * Note : all socket function do check sk->state, so we are
+		 * safe...
+		 * Jean II
+		 */
+		if (self->tsap) {
+			irttp_close_tsap(self->tsap);
+			self->tsap = NULL;
+		}
+        }
 
 	/* Note : once we are there, there is not much you want to do
 	 * with the socket anymore, apart from closing it.
@@ -222,7 +230,8 @@ static void irda_connect_confirm(void *instance, void *sap,
 		   self->max_data_size);
 
 	memcpy(&self->qos_tx, qos, sizeof(struct qos_info));
-	kfree_skb(skb);
+	dev_kfree_skb(skb);
+	// Should be ??? skb_queue_tail(&sk->receive_queue, skb);
 
 	/* We are now connected! */
 	sk->state = TCP_ESTABLISHED;
@@ -905,8 +914,7 @@ static int irda_accept(struct socket *sock, struct socket *newsock, int flags)
 	memcpy(&new->qos_tx, &self->qos_tx, sizeof(struct qos_info));
 
 	/* Clean up the original one to keep it in listen state */
-	self->tsap->dtsap_sel = self->tsap->lsap->dlsap_sel = LSAP_ANY;
-	self->tsap->lsap->lsap_state = LSAP_DISCONNECTED;
+	irttp_listen(self->tsap);
 
 	skb->sk = NULL;
 	skb->destructor = NULL;
@@ -1205,7 +1213,7 @@ static int irda_release(struct socket *sock)
 	sk->protinfo.irda = NULL;
 
 	sock_orphan(sk);
-        sock->sk   = NULL;      
+	sock->sk   = NULL;      
 
 	/* Purge queues (see sock_init_data()) */
 	skb_queue_purge(&sk->receive_queue);
@@ -1836,15 +1844,36 @@ static int irda_setsockopt(struct socket *sock, int level, int optname,
 		  	return -EFAULT;
 		}
 
-		/* Find the object we target */
-		ias_obj = irias_find_object(ias_opt->irda_class_name);
+		/* Find the object we target.
+		 * If the user gives us an empty string, we use the object
+		 * associated with this socket. This will workaround
+		 * duplicated class name - Jean II */
+		if(ias_opt->irda_class_name[0] == '\0') {
+			if(self->ias_obj == NULL) {
+				kfree(ias_opt);
+				return -EINVAL;
+			}
+			ias_obj = self->ias_obj;
+		} else
+			ias_obj = irias_find_object(ias_opt->irda_class_name);
+
+		/* Only ROOT can mess with the global IAS database.
+		 * Users can only add attributes to the object associated
+		 * with the socket they own - Jean II */
+		if((!capable(CAP_NET_ADMIN)) &&
+		   ((ias_obj == NULL) || (ias_obj != self->ias_obj))) {
+			kfree(ias_opt);
+			return -EPERM;
+		}
+
+		/* If the object doesn't exist, create it */
 		if(ias_obj == (struct ias_object *) NULL) {
 			/* Create a new object */
 			ias_obj = irias_new_object(ias_opt->irda_class_name,
 						   jiffies);
 		}
 
-		/* Do we have it already ? */
+		/* Do we have the attribute already ? */
 		if(irias_find_attrib(ias_obj, ias_opt->irda_attrib_name)) {
 			kfree(ias_opt);
 			return -EINVAL;
@@ -1918,11 +1947,26 @@ static int irda_setsockopt(struct socket *sock, int level, int optname,
 		  	return -EFAULT;
 		}
 
-		/* Find the object we target */
-		ias_obj = irias_find_object(ias_opt->irda_class_name);
+		/* Find the object we target.
+		 * If the user gives us an empty string, we use the object
+		 * associated with this socket. This will workaround
+		 * duplicated class name - Jean II */
+		if(ias_opt->irda_class_name[0] == '\0')
+			ias_obj = self->ias_obj;
+		else
+			ias_obj = irias_find_object(ias_opt->irda_class_name);
 		if(ias_obj == (struct ias_object *) NULL) {
 			kfree(ias_opt);
 			return -EINVAL;
+		}
+
+		/* Only ROOT can mess with the global IAS database.
+		 * Users can only del attributes from the object associated
+		 * with the socket they own - Jean II */
+		if((!capable(CAP_NET_ADMIN)) &&
+		   ((ias_obj == NULL) || (ias_obj != self->ias_obj))) {
+			kfree(ias_opt);
+			return -EPERM;
 		}
 
 		/* Find the attribute (in the object) we target */
@@ -2157,8 +2201,14 @@ bed:
 		  	return -EFAULT;
 		}
 
-		/* Find the object we target */
-		ias_obj = irias_find_object(ias_opt->irda_class_name);
+		/* Find the object we target.
+		 * If the user gives us an empty string, we use the object
+		 * associated with this socket. This will workaround
+		 * duplicated class name - Jean II */
+		if(ias_opt->irda_class_name[0] == '\0')
+			ias_obj = self->ias_obj;
+		else
+			ias_obj = irias_find_object(ias_opt->irda_class_name);
 		if(ias_obj == (struct ias_object *) NULL) {
 			kfree(ias_opt);
 			return -EINVAL;

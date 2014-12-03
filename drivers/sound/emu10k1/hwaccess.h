@@ -37,6 +37,9 @@
 #include <linux/soundcard.h>
 #include <linux/ac97_codec.h>
 #include <linux/pci.h>
+#include <linux/slab.h>
+#include <linux/sched.h>
+#include <asm/io.h>
 
 #include "efxmgr.h"
 #include "passthrough.h"
@@ -123,6 +126,7 @@ struct mixer_private_ioctl {
 #define CMD_SETMCH_FX		_IOW('D', 17, struct mixer_private_ioctl)
 #define CMD_SETPASSTHROUGH	_IOW('D', 18, struct mixer_private_ioctl)
 #define CMD_PRIVATE3_VERSION	_IOW('D', 19, struct mixer_private_ioctl)
+#define CMD_AC97_BOOST		_IOW('D', 20, struct mixer_private_ioctl)
 
 //up this number when breaking compatibility
 #define PRIVATE3_VERSION 1
@@ -213,7 +217,7 @@ u32 emu10k1_readfn0(struct emu10k1_card *, u32 );
 
 void sblive_writeptr(struct emu10k1_card *, u32 , u32 , u32 );
 void sblive_writeptr_tag(struct emu10k1_card *card, u32 channel, ...);
-#define TAGLIST_END 0
+#define TAGLIST_END	0
 
 u32 sblive_readptr(struct emu10k1_card *, u32 , u32 );
 

@@ -155,11 +155,15 @@ static struct dev_info device_list[] =
 	{"EMC", "SYMMETRIX", "*", BLIST_SPARSELUN},
 	{"CMD", "CRA-7280", "*", BLIST_SPARSELUN},   // CMD RAID Controller
 	{"CNSI", "G7324", "*", BLIST_SPARSELUN},     // Chaparral G7324 RAID
+	{"CNSi", "G8324", "*", BLIST_SPARSELUN},     // Chaparral G8324 RAID
 	{"Zzyzx", "RocketStor 500S", "*", BLIST_SPARSELUN},
 	{"Zzyzx", "RocketStor 2000", "*", BLIST_SPARSELUN},
 	{"SONY", "TSL",       "*", BLIST_FORCELUN},  // DDS3 & DDS4 autoloaders
 	{"DELL", "PERCRAID", "*", BLIST_FORCELUN},
 	{"HP", "NetRAID-4M", "*", BLIST_FORCELUN},
+	{"ADAPTEC", "AACRAID", "*", BLIST_FORCELUN},
+	{"ADAPTEC", "Adaptec 5400S", "*", BLIST_FORCELUN},
+	{"COMPAQ", "MSA1000", "*", BLIST_FORCELUN},
 
 	/*
 	 * Must be at end of list...
@@ -500,6 +504,7 @@ static int scan_scsis_single(unsigned int channel, unsigned int dev,
 	Scsi_Request * SRpnt;
 	int bflags, type = -1;
 	extern devfs_handle_t scsi_devfs_handle;
+	int scsi_level;
 
 	SDpnt->host = shpnt;
 	SDpnt->id = dev;
@@ -630,6 +635,7 @@ static int scan_scsis_single(unsigned int channel, unsigned int dev,
 	switch (type = (scsi_result[0] & 0x1f)) {
 	case TYPE_TAPE:
 	case TYPE_DISK:
+	case TYPE_PRINTER:
 	case TYPE_MOD:
 	case TYPE_PROCESSOR:
 	case TYPE_SCANNER:
@@ -672,6 +678,7 @@ static int scan_scsis_single(unsigned int channel, unsigned int dev,
 	    (SDpnt->scsi_level == 1 &&
 	     (scsi_result[3] & 0x0f) == 1))
 		SDpnt->scsi_level++;
+	scsi_level = SDpnt->scsi_level;
 
 	/*
 	 * Accommodate drivers that want to sleep when they should be in a polling
@@ -749,6 +756,7 @@ static int scan_scsis_single(unsigned int channel, unsigned int dev,
 	SDpnt->queue_depth = 1;
 	SDpnt->host = shpnt;
 	SDpnt->online = TRUE;
+	SDpnt->scsi_level = scsi_level;
 
 	/*
 	 * Register the queue for the device.  All I/O requests will come

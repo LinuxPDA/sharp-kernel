@@ -406,10 +406,6 @@ static void sysctl_init_random(struct entropy_store *random_state);
  * 
  *****************************************************************/
 
-#ifndef MIN
-#define MIN(a,b) (((a) < (b)) ? (a) : (b))
-#endif
-
 /*
  * Unfortunately, while the GCC optimizer for the i386 understands how
  * to optimize a static rotate left of x bits, it doesn't know how to
@@ -569,7 +565,7 @@ static void add_entropy_words(struct entropy_store *r, const __u32 *in,
 	__u32 w;
 
 	while (nwords--) {
-		w = rotate_left(r->input_rotate, *in);
+		w = rotate_left(r->input_rotate, *in++);
 		i = r->add_ptr = (r->add_ptr - 1) & wordmask;
 		/*
 		 * Normally, we add 7 bits of rotation to the pool.
@@ -1245,15 +1241,16 @@ static inline void xfer_secondary_pool(struct entropy_store *r,
 
 	if (r->entropy_count < nbytes * 8 &&
 	    r->entropy_count < r->poolinfo.POOLBITS) {
-		int nwords = min(r->poolinfo.poolwords - r->entropy_count/32,
-				 sizeof(tmp) / 4);
+		int nwords = min_t(int,
+				   r->poolinfo.poolwords - r->entropy_count/32,
+				   sizeof(tmp) / 4);
 
 		DEBUG_ENT("xfer %d from primary to %s (have %d, need %d)\n",
 			  nwords * 32,
 			  r == sec_random_state ? "secondary" : "unknown",
 			  r->entropy_count, nbytes * 8);
 
-		extract_entropy(random_state, tmp, nwords, 0);
+		extract_entropy(random_state, tmp, nwords * 4, 0);
 		add_entropy_words(r, tmp, nwords);
 		credit_entropy_store(r, nwords * 32);
 	}
@@ -1359,7 +1356,7 @@ static ssize_t extract_entropy(struct entropy_store *r, void * buf,
 #endif
 		
 		/* Copy data to destination buffer */
-		i = MIN(nbytes, HASH_BUFFER_SIZE*sizeof(__u32)/2);
+		i = min(nbytes, HASH_BUFFER_SIZE*sizeof(__u32)/2);
 		if (flags & EXTRACT_ENTROPY_USER) {
 			i -= copy_to_user(buf, (__u8 const *)tmp, i);
 			if (!i) {
@@ -1586,7 +1583,7 @@ random_write(struct file * file, const char * buffer,
 	size_t		c = count;
 
 	while (c > 0) {
-		bytes = MIN(c, sizeof(buf));
+		bytes = min(c, sizeof(buf));
 
 		bytes -= copy_from_user(&buf, p, bytes);
 		if (!bytes) {

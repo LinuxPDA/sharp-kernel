@@ -31,7 +31,7 @@
  *
  */
 
-#define CLGEN_VERSION "1.9.9"
+#define CLGEN_VERSION "1.9.9.1"
 
 #include <linux/config.h>
 #include <linux/module.h>
@@ -56,6 +56,12 @@
 #ifdef CONFIG_AMIGA
 #include <asm/amigahw.h>
 #endif
+#ifdef CONFIG_ALL_PPC
+#include <asm/processor.h>
+#define isPReP (_machine == _MACH_prep)
+#else
+#define isPReP 0
+#endif
 
 #include <video/fbcon.h>
 #include <video/fbcon-mfb.h>
@@ -79,7 +85,6 @@
 
 /* disable runtime assertions? */
 /* #define CLGEN_NDEBUG */
-
 
 /* debug output */
 #ifdef CLGEN_DEBUG
@@ -109,6 +114,7 @@
 #define FALSE 0
 
 #define MB_ (1024*1024)
+#define KB_ (1024)
 
 #define MAX_NUM_BOARDS 7
 
@@ -407,6 +413,7 @@ static struct display disp;
 static struct clgenfb_info boards[MAX_NUM_BOARDS];	/* the boards */
 
 static unsigned clgen_def_mode = 1;
+static int noaccel = 0;
 
 static int release_io_ports = 0;
 
@@ -433,8 +440,20 @@ static const struct {
 		 {0, 8, 0},
 		 {0, 8, 0},
 		 {0, 0, 0},
-	       0, 0, -1, -1, FB_ACCEL_NONE, 40000, 32, 32, 33, 10, 96, 2,
+	       0, 0, -1, -1, FB_ACCEL_NONE, 40000, 48, 16, 32, 8, 96, 4,
      FB_SYNC_HOR_HIGH_ACT | FB_SYNC_VERT_HIGH_ACT, FB_VMODE_NONINTERLACED
+	 }
+	},
+
+	{"800x600",		/* 800x600, 48 kHz, 76 Hz, 50 MHz PixClock */
+	 {
+		 800, 600, 800, 600, 0, 0, 8, 0,
+		 {0, 8, 0},
+		 {0, 8, 0},
+		 {0, 8, 0},
+		 {0, 0, 0},
+	       0, 0, -1, -1, FB_ACCEL_NONE, 20000, 128, 16, 24, 2, 96, 6,
+     0, FB_VMODE_NONINTERLACED
 	 }
 	},
 
@@ -449,8 +468,8 @@ static const struct {
 			{0, 8, 0},
 			{0, 8, 0},
 			{0, 0, 0},
-	      0, 0, -1, -1, FB_ACCEL_NONE, 12500, 92, 112, 31, 2, 204, 4,
-     FB_SYNC_HOR_HIGH_ACT | FB_SYNC_VERT_HIGH_ACT, FB_VMODE_NONINTERLACED
+	      0, 0, -1, -1, FB_ACCEL_NONE, 12500, 144, 32, 30, 2, 192, 6,
+     0, FB_VMODE_NONINTERLACED
 		}
 	}
 };
@@ -883,15 +902,15 @@ static int clgen_decode_var (const struct fb_var_screeninfo *var, void *par,
 	case 16:
 		_par->line_length = _par->var.xres_virtual * 2;
 		_par->visual = FB_VISUAL_DIRECTCOLOR;
-#ifdef CONFIG_PREP
-		_par->var.red.offset = 2;
-		_par->var.green.offset = -3;
-		_par->var.blue.offset = 8;
-#else
-		_par->var.red.offset = 10;
-		_par->var.green.offset = 5;
-		_par->var.blue.offset = 0;
-#endif
+		if(isPReP) {
+			_par->var.red.offset = 2;
+			_par->var.green.offset = -3;
+			_par->var.blue.offset = 8;
+		} else {
+			_par->var.red.offset = 10;
+			_par->var.green.offset = 5;
+			_par->var.blue.offset = 0;
+		}
 		_par->var.red.length = 5;
 		_par->var.green.length = 5;
 		_par->var.blue.length = 5;
@@ -900,15 +919,15 @@ static int clgen_decode_var (const struct fb_var_screeninfo *var, void *par,
 	case 24:
 		_par->line_length = _par->var.xres_virtual * 3;
 		_par->visual = FB_VISUAL_DIRECTCOLOR;
-#ifdef CONFIG_PREP
-		_par->var.red.offset = 8;
-		_par->var.green.offset = 16;
-		_par->var.blue.offset = 24;
-#else
-		_par->var.red.offset = 16;
-		_par->var.green.offset = 8;
-		_par->var.blue.offset = 0;
-#endif
+		if(isPReP) {
+			_par->var.red.offset = 8;
+			_par->var.green.offset = 16;
+			_par->var.blue.offset = 24;
+		} else {
+			_par->var.red.offset = 16;
+			_par->var.green.offset = 8;
+			_par->var.blue.offset = 0;
+		}
 		_par->var.red.length = 8;
 		_par->var.green.length = 8;
 		_par->var.blue.length = 8;
@@ -917,15 +936,15 @@ static int clgen_decode_var (const struct fb_var_screeninfo *var, void *par,
 	case 32:
 		_par->line_length = _par->var.xres_virtual * 4;
 		_par->visual = FB_VISUAL_DIRECTCOLOR;
-#ifdef CONFIG_PREP
-		_par->var.red.offset = 8;
-		_par->var.green.offset = 16;
-		_par->var.blue.offset = 24;
-#else
-		_par->var.red.offset = 16;
-		_par->var.green.offset = 8;
-		_par->var.blue.offset = 0;
-#endif
+		if(isPReP) {
+			_par->var.red.offset = 8;
+			_par->var.green.offset = 16;
+			_par->var.blue.offset = 24;
+		} else {
+			_par->var.red.offset = 16;
+			_par->var.green.offset = 8;
+			_par->var.blue.offset = 0;
+		}
 		_par->var.red.length = 8;
 		_par->var.green.length = 8;
 		_par->var.blue.length = 8;
@@ -1387,7 +1406,9 @@ static void clgen_set_par (const void *par, struct fb_info_gen *info)
 			break;
 
 		case BT_PICASSO4:
+#ifdef CONFIG_ZORRO
 			vga_wseq (fb_info->regs, CL_SEQRF, 0xb8);	/* ### INCOMPLETE!! */
+#endif
 /*          vga_wseq (fb_info->regs, CL_SEQR1F, 0x1c); */
 			break;
 
@@ -1688,18 +1709,18 @@ static int clgen_setcolreg (unsigned regno, unsigned red, unsigned green,
 #ifdef FBCON_HAS_CFB16
 	case 16:
 		assert (regno < 16);
-#ifdef CONFIG_PREP
-		fb_info->fbcon_cmap.cfb16[regno] =
-		    ((red & 0xf800) >> 9) |
-		    ((green & 0xf800) >> 14) |
-		    ((green & 0xf800) << 2) |
-		    ((blue & 0xf800) >> 3);
-#else
-		fb_info->fbcon_cmap.cfb16[regno] =
-		    ((red & 0xf800) >> 1) |
-		    ((green & 0xf800) >> 6) |
-		    ((blue & 0xf800) >> 11);
-#endif
+		if(isPReP) {
+			fb_info->fbcon_cmap.cfb16[regno] =
+			    ((red & 0xf800) >> 9) |
+			    ((green & 0xf800) >> 14) |
+			    ((green & 0xf800) << 2) |
+			    ((blue & 0xf800) >> 3);
+		} else {
+			fb_info->fbcon_cmap.cfb16[regno] =
+			    ((red & 0xf800) >> 1) |
+			    ((green & 0xf800) >> 6) |
+			    ((blue & 0xf800) >> 11);
+		}
 #endif /* FBCON_HAS_CFB16 */
 
 #ifdef FBCON_HAS_CFB24
@@ -1715,17 +1736,17 @@ static int clgen_setcolreg (unsigned regno, unsigned red, unsigned green,
 #ifdef FBCON_HAS_CFB32
 	case 32:
 		assert (regno < 16);
-#ifdef CONFIG_PREP
-		fb_info->fbcon_cmap.cfb32[regno] =
-		    ((red & 0xff00)) |
-		    ((green & 0xff00) << 8) |
-		    ((blue & 0xff00) << 16);
-#else
-		fb_info->fbcon_cmap.cfb32[regno] =
-		    ((red & 0xff00) << 8) |
-		    ((green & 0xff00)) |
-		    ((blue & 0xff00) >> 8);
-#endif
+		if(isPReP) {
+			fb_info->fbcon_cmap.cfb32[regno] =
+			    ((red & 0xff00)) |
+			    ((green & 0xff00) << 8) |
+			    ((blue & 0xff00) << 16);
+		} else {
+			fb_info->fbcon_cmap.cfb32[regno] =
+			    ((red & 0xff00) << 8) |
+			    ((green & 0xff00)) |
+			    ((blue & 0xff00) >> 8);
+		}
 		break;
 #endif /* FBCON_HAS_CFB32 */
 	default:
@@ -2373,7 +2394,7 @@ static void fbcon_clgen32_clear (struct vc_data *conp, struct display *p,
 
 
 
-#ifdef CONFIG_PREP
+#ifdef CONFIG_ALL_PPC
 #define PREP_VIDEO_BASE ((volatile unsigned long) 0xC0000000)
 #define PREP_IO_BASE    ((volatile unsigned char *) 0x80000000)
 static void __init get_prep_addrs (unsigned long *display, unsigned long *registers)
@@ -2386,7 +2407,7 @@ static void __init get_prep_addrs (unsigned long *display, unsigned long *regist
 	DPRINTK ("EXIT\n");
 }
 
-#endif				/* CONFIG_PREP */
+#endif				/* CONFIG_ALL_PPC */
 
 
 
@@ -2398,22 +2419,27 @@ static void __init get_prep_addrs (unsigned long *display, unsigned long *regist
  * seem to have. */
 static unsigned int __init clgen_get_memsize (caddr_t regbase)
 {
-	unsigned long mem = 1 * MB_;
+	unsigned long mem;
 	unsigned char SRF;
 
 	DPRINTK ("ENTER\n");
 
 	SRF = vga_rseq (regbase, CL_SEQRF);
-	if ((SRF & 0x18) == 0x18) {
+	switch ((SRF & 0x18)) {
+	    case 0x08: mem = 512 * 1024; break;
+	    case 0x10: mem = 1024 * 1024; break;
 		/* 64-bit DRAM data bus width; assume 2MB. Also indicates 2MB memory
 		   * on the 5430. */
-		mem *= 2;
+	    case 0x18: mem = 2048 * 1024; break;
+	    default: printk ("CLgenfb: Unknown memory size!\n");
+		mem = 1024 * 1024;
 	}
 	if (SRF & 0x80) {
 		/* If DRAM bank switching is enabled, there must be twice as much
 		   * memory installed. (4MB on the 5434) */
 		mem *= 2;
 	}
+	/* TODO: Handling of GD5446/5480 (see XF86 sources ...) */
 	return mem;
 
 	DPRINTK ("EXIT\n");
@@ -2509,26 +2535,26 @@ static int __init clgen_pci_setup (struct clgenfb_info *info,
 
 	info->pdev = pdev;
 
-#ifdef CONFIG_PREP
-	/* Xbh does this, though 0 seems to be the init value */
-	pcibios_write_config_dword (0, pdev->devfn, PCI_BASE_ADDRESS_0, 0x00000000);
-#endif
+	if(isPReP) {
+		/* Xbh does this, though 0 seems to be the init value */
+		pcibios_write_config_dword (0, pdev->devfn, PCI_BASE_ADDRESS_0,
+			0x00000000);
 
-#ifdef CONFIG_PREP
-	get_prep_addrs (&board_addr, &info->fbregs_phys);
-#else				/* CONFIG_PREP */
-	DPRINTK ("Attempt to get PCI info for Cirrus Graphics Card\n");
-	get_pci_addrs (pdev, &board_addr, &info->fbregs_phys);
-#endif				/* CONFIG_PREP */
+#ifdef CONFIG_ALL_PPC
+		get_prep_addrs (&board_addr, &info->fbregs_phys);
+#endif
+	} else {
+		DPRINTK ("Attempt to get PCI info for Cirrus Graphics Card\n");
+		get_pci_addrs (pdev, &board_addr, &info->fbregs_phys);
+	}
 
 	DPRINTK ("Board address: 0x%lx, register address: 0x%lx\n", board_addr, info->fbregs_phys);
 
-#ifdef CONFIG_PREP
-	/* PReP dies if we ioremap the IO registers, but it works w/out... */
-	info->regs = (char *) info->fbregs_phys;
-#else
-	info->regs = 0;		/* FIXME: this forces VGA.  alternatives? */
-#endif
+	if(isPReP) {
+		/* PReP dies if we ioremap the IO registers, but it works w/out... */
+		info->regs = (char *) info->fbregs_phys;
+	} else
+		info->regs = 0;		/* FIXME: this forces VGA.  alternatives? */
 
 	if (*btype == BT_GD5480) {
 		board_size = 32 * MB_;
@@ -2556,9 +2582,9 @@ static int __init clgen_pci_setup (struct clgenfb_info *info,
 	info->fbmem_phys = board_addr;
 	info->size = board_size;
 
-	printk (" RAM (%lu MB) at 0x%lx, ", info->size / MB_, board_addr);
+	printk (" RAM (%lu kB) at 0x%lx, ", info->size / KB_, board_addr);
 
-	printk (KERN_INFO "Cirrus Logic chipset on PCI bus\n");
+	printk ("Cirrus Logic chipset on PCI bus\n");
 
 	DPRINTK ("EXIT, returning 0\n");
 	return 0;
@@ -2725,6 +2751,23 @@ int __init clgenfb_init(void)
 
 	DPRINTK ("clgen: (RAM start set to: 0x%p)\n", fb_info->fbmem);
 
+	if (noaccel)
+	{
+		printk("clgen: disabling text acceleration support\n");
+#ifdef FBCON_HAS_CFB8
+		fbcon_clgen_8.bmove = fbcon_cfb8_bmove;
+		fbcon_clgen_8.clear = fbcon_cfb8_clear;
+#endif
+#ifdef FBCON_HAS_CFB16
+		fbcon_clgen_16.bmove = fbcon_cfb16_bmove;
+		fbcon_clgen_16.clear = fbcon_cfb16_clear;
+#endif
+#ifdef FBCON_HAS_CFB32
+		fbcon_clgen_32.bmove = fbcon_cfb32_bmove;
+		fbcon_clgen_32.clear = fbcon_cfb32_clear;
+#endif
+	}
+
 	init_vgachip (fb_info);
 
 	/* set up a few more things, register framebuffer driver etc */
@@ -2828,6 +2871,8 @@ int __init clgenfb_setup(char *options) {
 			if (strcmp (this_opt, s) == 0)
 				clgen_def_mode = i;
 		}
+		if (!strcmp(this_opt, "noaccel"))
+			noaccel = 1;
 	}
 	return 0;
 }
@@ -2840,6 +2885,7 @@ int __init clgenfb_setup(char *options) {
 
 MODULE_AUTHOR("Copyright 1999,2000 Jeff Garzik <jgarzik@mandrakesoft.com>");
 MODULE_DESCRIPTION("Accelerated FBDev driver for Cirrus Logic chips");
+MODULE_LICENSE("GPL");
 
 static void __exit clgenfb_exit (void)
 {
@@ -3225,7 +3271,6 @@ static void clgen_RectFill (struct clgenfb_info *fb_info,
  * bestclock() - determine closest possible clock lower(?) than the
  * desired pixel clock
  **************************************************************************/
-#define abs(x) ((x)<0 ? -(x) : (x))
 static void bestclock (long freq, long *best, long *nom,
 		       long *den, long *div, long maxfreq)
 {

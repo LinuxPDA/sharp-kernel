@@ -4,7 +4,7 @@
     
     Copyright (C) 1999 David A. Hinds -- dahinds@users.sourceforge.net
 
-    3c589_cs.c 1.156 2001/02/07 00:19:41
+    3c589_cs.c 1.162 2001/10/13 00:08:50
 
     The network driver code is based on Donald Becker's 3c589 code:
     
@@ -17,6 +17,9 @@
 
 ======================================================================*/
 
+#define DRV_NAME	"3c589_cs"
+#define DRV_VERSION	"1.162"
+
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
@@ -28,6 +31,9 @@
 #include <linux/interrupt.h>
 #include <linux/in.h>
 #include <linux/delay.h>
+#include <linux/ethtool.h>
+
+#include <asm/uaccess.h>
 #include <asm/io.h>
 #include <asm/system.h>
 #include <asm/bitops.h>
@@ -112,30 +118,32 @@ struct el3_private {
 
 static char *if_names[] = { "auto", "10baseT", "10base2", "AUI" };
 
+/*====================================================================*/
+
+/* Module parameters */
+
+MODULE_AUTHOR("David Hinds <dahinds@users.sourceforge.net>");
+MODULE_DESCRIPTION("3Com 3c589 series PCMCIA ethernet driver");
+MODULE_LICENSE("GPL");
+
+#define INT_MODULE_PARM(n, v) static int n = v; MODULE_PARM(n, "i")
+
+/* Special hook for setting if_port when module is loaded */
+INT_MODULE_PARM(if_port, 0);
+
+/* Bit map of interrupts to choose from */
+INT_MODULE_PARM(irq_mask, 0xdeb8);
+static int irq_list[4] = { -1 };
+MODULE_PARM(irq_list, "1-4i");
+
 #ifdef PCMCIA_DEBUG
-static int pc_debug = PCMCIA_DEBUG;
-MODULE_PARM(pc_debug, "i");
+INT_MODULE_PARM(pc_debug, PCMCIA_DEBUG);
 #define DEBUG(n, args...) if (pc_debug>(n)) printk(KERN_DEBUG args)
 static char *version =
-"3c589_cs.c 1.156 2001/02/07 00:19:41 (David Hinds)";
+DRV_NAME ".c " DRV_VERSION " 2001/10/13 00:08:50 (David Hinds)";
 #else
 #define DEBUG(n, args...)
 #endif
-
-/*====================================================================*/
-
-/* Parameters that can be set with 'insmod' */
-
-/* Special hook for setting if_port when module is loaded */
-static int if_port;
-
-/* Bit map of interrupts to choose from */
-static u_int irq_mask = 0xdeb8;
-static int irq_list[4] = { -1 };
-
-MODULE_PARM(if_port, "i");
-MODULE_PARM(irq_mask, "i");
-MODULE_PARM(irq_list, "1-4i");
 
 /*====================================================================*/
 
@@ -157,6 +165,7 @@ static int el3_rx(struct net_device *dev);
 static int el3_close(struct net_device *dev);
 static void el3_tx_timeout(struct net_device *dev);
 static void set_multicast_list(struct net_device *dev);
+static int netdev_ioctl (struct net_device *dev, struct ifreq *rq, int cmd);
 
 static dev_info_t dev_info = "3c589_cs";
 
@@ -247,7 +256,8 @@ static dev_link_t *tc589_attach(void)
     dev->tx_timeout = el3_tx_timeout;
     dev->watchdog_timeo = TX_TIMEOUT;
 #endif
-    
+    dev->do_ioctl = netdev_ioctl;
+
     /* Register with Card Services */
     link->next = dev_list;
     dev_list = link;
@@ -638,6 +648,71 @@ static void tc589_reset(struct net_device *dev)
 	 | AdapterFailure, ioaddr + EL3_CMD);
 }
 
+static int netdev_ethtool_ioctl (struct net_device *dev, void *useraddr)
+{
+	u32 ethcmd;
+
+	/* dev_ioctl() in ../../net/core/dev.c has already checked
+	   capable(CAP_NET_ADMIN), so don't bother with that here.  */
+
+	if (get_user(ethcmd, (u32 *)useraddr))
+		return -EFAULT;
+
+	switch (ethcmd) {
+
+	case ETHTOOL_GDRVINFO: {
+		struct ethtool_drvinfo info = { ETHTOOL_GDRVINFO };
+		strcpy (info.driver, DRV_NAME);
+		strcpy (info.version, DRV_VERSION);
+		sprintf(info.bus_info, "PCMCIA 0x%lx", dev->base_addr);
+		if (copy_to_user (useraddr, &info, sizeof (info)))
+			return -EFAULT;
+		return 0;
+	}
+
+#ifdef PCMCIA_DEBUG
+	/* get message-level */
+	case ETHTOOL_GMSGLVL: {
+		struct ethtool_value edata = {ETHTOOL_GMSGLVL};
+		edata.data = pc_debug;
+		if (copy_to_user(useraddr, &edata, sizeof(edata)))
+			return -EFAULT;
+		return 0;
+	}
+	/* set message-level */
+	case ETHTOOL_SMSGLVL: {
+		struct ethtool_value edata;
+		if (copy_from_user(&edata, useraddr, sizeof(edata)))
+			return -EFAULT;
+		pc_debug = edata.data;
+		return 0;
+	}
+#endif
+
+	default:
+		break;
+	}
+
+	return -EOPNOTSUPP;
+}
+
+static int netdev_ioctl (struct net_device *dev, struct ifreq *rq, int cmd)
+{
+	int rc;
+
+	switch (cmd) {
+	case SIOCETHTOOL:
+		rc = netdev_ethtool_ioctl(dev, (void *) rq->ifr_data);
+		break;
+
+	default:
+		rc = -EOPNOTSUPP;
+		break;
+	}
+
+	return rc;
+}
+
 static int el3_config(struct net_device *dev, struct ifmap *map)
 {
     if ((map->port != (u_char)(-1)) && (map->port != dev->if_port)) {
@@ -986,12 +1061,10 @@ static int el3_rx(struct net_device *dev)
 		  pkt_len, rx_status);
 	    if (skb != NULL) {
 		skb->dev = dev;
-		
 		skb_reserve(skb, 2);
 		insl(ioaddr+RX_FIFO, skb_put(skb, pkt_len),
 			(pkt_len+3)>>2);
 		skb->protocol = eth_type_trans(skb, dev);
-		
 		netif_rx(skb);
 		dev->last_rx = jiffies;
 		lp->stats.rx_packets++;
@@ -1097,4 +1170,3 @@ static void __exit exit_3c589_cs(void)
 
 module_init(init_3c589_cs);
 module_exit(exit_3c589_cs);
-MODULE_LICENSE("GPL");

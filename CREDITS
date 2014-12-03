@@ -525,6 +525,16 @@ S: 14509 NE 39th Street #1096
 S: Bellevue, Washington 98007
 S: USA
 
+N: Christopher L. Cheney
+E: ccheney@debian.org
+E: ccheney@cheney.cx
+W: http://www.cheney.cx
+P: 1024D/8E384AF2 2D31 1927 87D7 1F24 9FF9  1BC5 D106 5AB3 8E38 4AF2
+D: Vista Imaging usb webcam driver
+S: 314 Prince of Wales
+S: Conroe, TX 77304
+S: USA
+
 N: Stuart Cheshire
 E: cheshire@cs.stanford.edu
 D: Author of Starmode Radio IP (STRIP) driver
@@ -1147,6 +1157,16 @@ S: 77 Clarence Mews
 S: London SE16 1GD
 S: United Kingdom
 
+N: Jan Harkes
+E: jaharkes@cs.cmu.edu
+W: http://www.coda.cs.cmu.edu/
+D: Coda file system
+S: Computer Science Department
+S: Carnegie Mellon University
+S: 5000 Forbes Avenue
+S: Pittsburgh, Pennsylvania 15213
+S: USA
+
 N: Kai Harrekilde-Petersen
 E: kai.harrekilde@get2net.dk
 D: Original author of the ftape-HOWTO, i82078 fdc detection code.
@@ -1193,10 +1213,10 @@ S: 65183 Wiesbaden
 S: Germany
 
 N: Christoph Hellwig
-E: hch@caldera.de
 E: hch@infradead.org
 D: misc driver & makefile hacking
 D: freevxfs driver
+D: sysvfs maintainer
 S: Triftstraﬂe 26
 S: 38644 Goslar
 S: Germany
@@ -1254,6 +1274,13 @@ E: jauderho@carumba.com
 W: http://www.carumba.com/
 D: bug toaster (A1 sauce makes all the difference)
 D: Random linux hacker
+
+N: Tim Hockin
+E: thockin@hockin.org
+W: http://www.hockin.org/~thockin
+D: Natsemi ethernet
+D: Cobalt Networks (x86) support
+D: This-and-That
 
 N: Dirk Hohndel
 E: hohndel@suse.de
@@ -1611,8 +1638,10 @@ E: greg@kroah.com
 W: http://www.kroah.com/linux-usb/
 D: USB Serial Converter driver framework, USB Handspring Visor driver
 D: ConnectTech WHITEHeat USB driver, Generic USB Serial driver
-D: USB Bluetooth driver
+D: USB I/O Edgeport driver, USB Serial IrDA driver
+D: USB Bluetooth driver, USB Skeleton driver
 D: bits and pieces of USB core code.
+D: PCI Hotplug core, PCI Hotplug Compaq driver modifications
 
 N: Russell Kroll
 E: rkroll@exploits.org
@@ -1631,6 +1660,13 @@ D: PIIX chipset IDE
 S: ul. Matemblewska 1B/10
 S: 80-283 Gdansk
 S: Poland
+
+N: Jakob Kemi
+E: jakob.kemi@telia.com
+D: V4L W9966 Webcam driver
+S: Forsbyv‰gen 33
+S: 74143 Knivsta
+S: Sweden
 
 N: Gero Kuhlmann
 E: gero@gkminix.han.de
@@ -1868,9 +1904,8 @@ S: 1324 Sofia
 S: Bulgaria
 
 N: Martin Mares
-E: mj@suse.cz
 E: mj@ucw.cz
-W: http://atrey.karlin.mff.cuni.cz/~mj/
+W: http://www.ucw.cz/~mj/
 D: BIOS video mode handling code
 D: MOXA C-218 serial board driver
 D: Network autoconfiguration
@@ -1933,9 +1968,10 @@ S: 64289 Darmstadt
 S: Germany 
 
 N: Mark W. McClelland
-E: mwm@i.am
+E: mmcclell@bigfoot.com
 E: mark@alpha.dyndns.org
 W: http://alpha.dyndns.org/ov511/
+P: 1024D/357375CC 317C 58AC 1B39 2AB0 AB96  EB38 0B6F 731F 3573 75CC
 D: OV511 driver
 S: (address available on request)
 S: USA
@@ -2494,7 +2530,7 @@ S: Wanniassa ACT 2903
 S: Australia
 
 N: Gerard Roudier
-E: groudier@iplus.fr
+E: groudier@free.fr
 D: Contributed to asynchronous read-ahead improvement
 S: 21 Rue Carnot
 S: 95170 Deuil La Barre
@@ -2615,6 +2651,16 @@ D: CD-List, Books-List, Ex-FAQ
 D: Linux-Support, -Mailbox, -Stammtisch
 D: several improvements to system programs
 S: Oldenburg
+S: Germany
+
+N: Robert Schwebel
+E: robert@schwebel.de
+W: http://www.schwebel.de
+D: Embedded hacker and book author,
+D: AMD Elan support for Linux
+S: Pengutronix
+S: Braunschweiger Strasse 79
+S: 31134 Hildesheim
 S: Germany
 
 N: Darren Senn

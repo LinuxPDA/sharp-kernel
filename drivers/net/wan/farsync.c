@@ -1746,7 +1746,7 @@ fst_add_one ( struct pci_dev *pdev, const struct pci_device_id *ent )
         }
 
         /* Record driver data for later use */
-        pdev->driver_data = card;
+        pci_set_drvdata(pdev, card);
 
         /* Remainder of card setup */
         fst_init_card ( card );
@@ -1785,7 +1785,7 @@ fst_remove_one ( struct pci_dev *pdev )
         struct fst_card_info *card;
         int i;
 
-        card = pdev->driver_data;
+        card = pci_get_drvdata(pdev);
 
         for ( i = 0 ; i < card->nports ; i++ )
         {
@@ -1810,7 +1810,7 @@ static struct pci_driver fst_driver = {
         name:           FST_NAME,
         id_table:       fst_pci_dev_id,
         probe:          fst_add_one,
-        remove:         fst_remove_one,
+        remove:         __devexit_p(fst_remove_one),
         suspend:        NULL,
         resume:         NULL,
 };

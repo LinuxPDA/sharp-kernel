@@ -46,6 +46,7 @@
 #include <linux/tty.h>
 #include <linux/in6.h>
 #include <linux/completion.h>
+#include <linux/seq_file.h>
 #include <asm/checksum.h>
 
 #if defined(CONFIG_PROC_FS)
@@ -115,7 +116,6 @@ EXPORT_SYMBOL(vmtruncate);
 EXPORT_SYMBOL(find_vma);
 EXPORT_SYMBOL(get_unmapped_area);
 EXPORT_SYMBOL(init_mm);
-EXPORT_SYMBOL(deactivate_page);
 #ifdef CONFIG_HIGHMEM
 EXPORT_SYMBOL(kmap_high);
 EXPORT_SYMBOL(kunmap_high);
@@ -199,15 +199,17 @@ EXPORT_SYMBOL(submit_bh);
 EXPORT_SYMBOL(unlock_buffer);
 EXPORT_SYMBOL(__wait_on_buffer);
 EXPORT_SYMBOL(___wait_on_page);
+EXPORT_SYMBOL(generic_direct_IO);
+EXPORT_SYMBOL(discard_bh_page);
 EXPORT_SYMBOL(block_write_full_page);
 EXPORT_SYMBOL(block_read_full_page);
 EXPORT_SYMBOL(block_prepare_write);
 EXPORT_SYMBOL(block_sync_page);
+EXPORT_SYMBOL(generic_cont_expand);
 EXPORT_SYMBOL(cont_prepare_write);
 EXPORT_SYMBOL(generic_commit_write);
 EXPORT_SYMBOL(block_truncate_page);
 EXPORT_SYMBOL(generic_block_bmap);
-EXPORT_SYMBOL(waitfor_one_page);
 EXPORT_SYMBOL(generic_file_read);
 EXPORT_SYMBOL(do_generic_file_read);
 EXPORT_SYMBOL(generic_file_write);
@@ -253,7 +255,9 @@ EXPORT_SYMBOL(ROOT_DEV);
 EXPORT_SYMBOL(__find_get_page);
 EXPORT_SYMBOL(__find_lock_page);
 EXPORT_SYMBOL(grab_cache_page);
+EXPORT_SYMBOL(grab_cache_page_nowait);
 EXPORT_SYMBOL(read_cache_page);
+EXPORT_SYMBOL(set_page_dirty);
 EXPORT_SYMBOL(vfs_readlink);
 EXPORT_SYMBOL(vfs_follow_link);
 EXPORT_SYMBOL(page_readlink);
@@ -275,6 +279,7 @@ EXPORT_SYMBOL(filemap_sync);
 EXPORT_SYMBOL(filemap_fdatasync);
 EXPORT_SYMBOL(filemap_fdatawait);
 EXPORT_SYMBOL(lock_page);
+EXPORT_SYMBOL(unlock_page);
 
 /* device registration */
 EXPORT_SYMBOL(register_chrdev);
@@ -350,8 +355,8 @@ EXPORT_SYMBOL(add_timer);
 EXPORT_SYMBOL(del_timer);
 EXPORT_SYMBOL(request_irq);
 EXPORT_SYMBOL(free_irq);
-#if !defined(CONFIG_ARCH_S390)
-EXPORT_SYMBOL(irq_stat);	/* No separate irq_stat for s390, it is part of PSA */
+#if !defined(CONFIG_IA64)	/* irq_stat is part of struct cpuinfo_ia64 */
+EXPORT_SYMBOL(irq_stat);
 #endif
 
 /* waitqueue handling */
@@ -456,7 +461,9 @@ EXPORT_SYMBOL(vsscanf);
 EXPORT_SYMBOL(kdevname);
 EXPORT_SYMBOL(bdevname);
 EXPORT_SYMBOL(cdevname);
+EXPORT_SYMBOL(simple_strtol);
 EXPORT_SYMBOL(simple_strtoul);
+EXPORT_SYMBOL(simple_strtoull);
 EXPORT_SYMBOL(system_utsname);	/* UTS data */
 EXPORT_SYMBOL(uts_sem);		/* UTS semaphore */
 #ifndef __mips__
@@ -473,6 +480,12 @@ EXPORT_SYMBOL(cap_bset);
 EXPORT_SYMBOL(reparent_to_init);
 EXPORT_SYMBOL(daemonize);
 EXPORT_SYMBOL(csum_partial); /* for networking and md */
+EXPORT_SYMBOL(seq_escape);
+EXPORT_SYMBOL(seq_printf);
+EXPORT_SYMBOL(seq_open);
+EXPORT_SYMBOL(seq_release);
+EXPORT_SYMBOL(seq_read);
+EXPORT_SYMBOL(seq_lseek);
 
 /* Program loader interfaces */
 EXPORT_SYMBOL(setup_arg_pages);
@@ -491,7 +504,6 @@ EXPORT_SYMBOL(file_fsync);
 EXPORT_SYMBOL(fsync_inode_buffers);
 EXPORT_SYMBOL(fsync_inode_data_buffers);
 EXPORT_SYMBOL(clear_inode);
-EXPORT_SYMBOL(nr_async_pages);
 EXPORT_SYMBOL(___strtok);
 EXPORT_SYMBOL(init_special_inode);
 EXPORT_SYMBOL(read_ahead);
@@ -520,9 +532,6 @@ EXPORT_SYMBOL(disk_name);	/* for md.c */
 
 /* binfmt_aout */
 EXPORT_SYMBOL(get_write_access);
-
-/* time */
-EXPORT_SYMBOL(get_fast_time);
 
 /* library functions */
 EXPORT_SYMBOL(strnicmp);

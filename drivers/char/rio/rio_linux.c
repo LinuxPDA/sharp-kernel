@@ -63,6 +63,9 @@
 #include <linux/compatmac.h>
 #include <linux/generic_serial.h>
 
+#if BITS_PER_LONG != 32
+#  error FIXME: this driver only works on 32-bit platforms
+#endif
 
 #include "linux_compat.h"
 #include "typdef.h"
@@ -739,7 +742,7 @@ static int rio_ioctl (struct tty_struct * tty, struct file * filp,
   case TIOCGSERIAL:
     if ((rc = verify_area(VERIFY_WRITE, (void *) arg,
                           sizeof(struct serial_struct))) == 0)
-      gs_getserial(&PortP->gs, (struct serial_struct *) arg);
+      rc = gs_getserial(&PortP->gs, (struct serial_struct *) arg);
     break;
   case TCSBRK:
     if ( PortP->State & RIO_DELETED ) {

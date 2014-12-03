@@ -85,6 +85,11 @@ static char *serial_revdate = "2001-07-08";
  * SERIAL_PARANOIA_CHECK
  * 		Check the magic number for the async_structure where
  * 		ever possible.
+ *
+ * CONFIG_SERIAL_ACPI
+ *		Enable support for serial console port and serial 
+ *		debug port as defined by the SPCR and DBGP tables in 
+ *		ACPI 2.0.
  */
 
 #include <linux/config.h>
@@ -111,6 +116,10 @@ static char *serial_revdate = "2001-07-08";
 #ifndef CONFIG_SERIAL_MANY_PORTS
 #define CONFIG_SERIAL_MANY_PORTS
 #endif
+#endif
+
+#ifdef CONFIG_SERIAL_ACPI
+#define ENABLE_SERIAL_ACPI
 #endif
 
 #if defined(CONFIG_ISAPNP)|| (defined(CONFIG_ISAPNP_MODULE) && defined(MODULE))
@@ -222,8 +231,8 @@ static char *serial_revdate = "2001-07-08";
 #include <asm/irq.h>
 #include <asm/bitops.h>
 
-#ifdef CONFIG_MAC_SERIAL
-#define SERIAL_DEV_OFFSET	2
+#if defined(CONFIG_MAC_SERIAL)
+#define SERIAL_DEV_OFFSET	((_machine == _MACH_prep || _machine == _MACH_chrp) ? 0 : 2)
 #else
 #define SERIAL_DEV_OFFSET	0
 #endif
@@ -1766,13 +1775,11 @@ static void change_speed(struct async_struct *info,
 		if (I_IGNPAR(info->tty))
 			info->ignore_status_mask |= UART_LSR_OE;
 	}
-#if 0 /* breaks serial console during boot stage */
 	/*
 	 * !!! ignore all characters if CREAD is not set
 	 */
 	if ((cflag & CREAD) == 0)
 		info->ignore_status_mask |= UART_LSR_DR;
-#endif
 	save_flags(flags); cli();
 	if (uart_config[info->state->type].flags & UART_STARTECH) {
 		serial_outp(info, UART_LCR, 0xBF);
@@ -2243,7 +2250,7 @@ static int get_lsr_info(struct async_struct * info, unsigned int *value)
 	    ((CIRC_CNT(info->xmit.head, info->xmit.tail,
 		       SERIAL_XMIT_SIZE) > 0) &&
 	     !info->tty->stopped && !info->tty->hw_stopped))
-		result &= TIOCSER_TEMT;
+		result &= ~TIOCSER_TEMT;
 
 	if (copy_to_user(value, &result, sizeof(int)))
 		return -EFAULT;
@@ -2355,7 +2362,7 @@ static int do_autoconfig(struct async_struct * info)
 
 	autoconfig(info->state);
 	if ((info->state->flags & ASYNC_AUTO_IRQ) &&
-	    (info->state->port != 0) &&
+	    (info->state->port != 0  || info->state->iomem_base != 0) &&
 	    (info->state->type != PORT_UNKNOWN)) {
 		irq = detect_uart_irq(info->state);
 		if (irq > 0)
@@ -3126,6 +3133,10 @@ static int get_async_struct(int line, struct async_struct **ret_info)
  * enables interrupts for a serial port, linking in its async structure into
  * the IRQ chain.   It also performs the serial-specific
  * initialization for the tty structure.
+ *
+ * Note that on failure, we don't decrement the module use count - the tty
+ * later will call rs_close, which will decrement it for us as long as
+ * tty->driver_data is set non-NULL. --rmk
  */
 static int rs_open(struct tty_struct *tty, struct file * filp)
 {
@@ -3146,10 +3157,8 @@ static int rs_open(struct tty_struct *tty, struct file * filp)
 	}
 	tty->driver_data = info;
 	info->tty = tty;
-	if (serial_paranoia_check(info, tty->device, "rs_open")) {
-		MOD_DEC_USE_COUNT;		
+	if (serial_paranoia_check(info, tty->device, "rs_open"))
 		return -ENODEV;
-	}
 
 #ifdef SERIAL_DEBUG_OPEN
 	printk("rs_open %s%d, count = %d\n", tty->driver.name, info->line,
@@ -3164,10 +3173,8 @@ static int rs_open(struct tty_struct *tty, struct file * filp)
 	 */
 	if (!tmp_buf) {
 		page = get_zeroed_page(GFP_KERNEL);
-		if (!page) {
-			MOD_DEC_USE_COUNT;
+		if (!page)
 			return -ENOMEM;
-		}
 		if (tmp_buf)
 			free_page(page);
 		else
@@ -3181,7 +3188,6 @@ static int rs_open(struct tty_struct *tty, struct file * filp)
 	    (info->flags & ASYNC_CLOSING)) {
 		if (info->flags & ASYNC_CLOSING)
 			interruptible_sleep_on(&info->close_wait);
-		MOD_DEC_USE_COUNT;
 #ifdef SERIAL_DO_RESTART
 		return ((info->flags & ASYNC_HUP_NOTIFY) ?
 			-EAGAIN : -ERESTARTSYS);
@@ -3194,10 +3200,8 @@ static int rs_open(struct tty_struct *tty, struct file * filp)
 	 * Start up serial port
 	 */
 	retval = startup(info);
-	if (retval) {
-		MOD_DEC_USE_COUNT;
+	if (retval)
 		return retval;
-	}
 
 	retval = block_til_ready(tty, filp, info);
 	if (retval) {
@@ -3205,7 +3209,6 @@ static int rs_open(struct tty_struct *tty, struct file * filp)
 		printk("rs_open returning after block_til_ready with %d\n",
 		       retval);
 #endif
-		MOD_DEC_USE_COUNT;
 		return retval;
 	}
 
@@ -3382,6 +3385,10 @@ static char serial_options[] __initdata =
 #endif
 #ifdef ENABLE_SERIAL_PNP
        " ISAPNP"
+#define SERIAL_OPT
+#endif
+#ifdef ENABLE_SERIAL_ACPI
+       " SERIAL_ACPI"
 #define SERIAL_OPT
 #endif
 #ifdef SERIAL_OPT
@@ -4457,7 +4464,7 @@ static int __devinit serial_init_one(struct pci_dev *dev,
 	else if (serial_pci_guess_board(dev, &tmp) == 0) {
 		printk(KERN_INFO "Redundant entry in serial pci_table.  "
 		       "Please send the output of\n"
-		       "lspci -vv, this message (%d,%d,%d,%d)\n"
+		       "lspci -vv, this message (%04x,%04x,%04x,%04x)\n"
 		       "and the manufacturer and name of "
 		       "serial board or modem board\n"
 		       "to serial-pci-info@lists.sourceforge.net.\n",
@@ -4885,7 +4892,7 @@ MODULE_DEVICE_TABLE(pci, serial_pci_tbl);
 static struct pci_driver serial_pci_driver = {
        name:           "serial",
        probe:          serial_init_one,
-       remove:	       serial_remove_one,
+       remove:	       __devexit_p(serial_remove_one),
        id_table:       serial_pci_tbl,
 };
 
@@ -5386,6 +5393,7 @@ static int __init rs_init(void)
 #endif
 	serial_driver.major = TTY_MAJOR;
 	serial_driver.minor_start = 64 + SERIAL_DEV_OFFSET;
+	serial_driver.name_base = SERIAL_DEV_OFFSET;
 	serial_driver.num = NR_PORTS;
 	serial_driver.type = TTY_DRIVER_TYPE_SERIAL;
 	serial_driver.subtype = SERIAL_TYPE_NORMAL;
@@ -5475,13 +5483,22 @@ static int __init rs_init(void)
 			continue;
 		if (   (state->flags & ASYNC_BOOT_AUTOCONF)
 		    && (state->flags & ASYNC_AUTO_IRQ)
-		    && (state->port != 0))
+		    && (state->port != 0 || state->iomem_base != 0))
 			state->irq = detect_uart_irq(state);
-		printk(KERN_INFO "ttyS%02d%s at 0x%04lx (irq = %d) is a %s\n",
-		       state->line + SERIAL_DEV_OFFSET,
-		       (state->flags & ASYNC_FOURPORT) ? " FourPort" : "",
-		       state->port, state->irq,
-		       uart_config[state->type].name);
+		if (state->io_type == SERIAL_IO_MEM) {
+			printk(KERN_INFO"ttyS%02d%s at 0x%px (irq = %d) is a %s\n",
+	 		       state->line + SERIAL_DEV_OFFSET,
+			       (state->flags & ASYNC_FOURPORT) ? " FourPort" : "",
+			       state->iomem_base, state->irq,
+			       uart_config[state->type].name);
+		}
+		else {
+			printk(KERN_INFO "ttyS%02d%s at 0x%04lx (irq = %d) is a %s\n",
+	 		       state->line + SERIAL_DEV_OFFSET,
+			       (state->flags & ASYNC_FOURPORT) ? " FourPort" : "",
+			       state->port, state->irq,
+			       uart_config[state->type].name);
+		}
 		tty_register_devfs(&serial_driver, 0,
 				   serial_driver.minor_start + state->line);
 		tty_register_devfs(&callout_driver, 0,

@@ -21,7 +21,7 @@ static void check_objectid_map (struct super_block * s, __u32 * map)
 {
     if (le32_to_cpu (map[0]) != 1)
 	reiserfs_panic (s, "vs-15010: check_objectid_map: map corrupted: %lx",
-			le32_to_cpu (map[0]));
+			( long unsigned int ) le32_to_cpu (map[0]));
 
     // FIXME: add something else here
 }
@@ -145,9 +145,11 @@ void reiserfs_release_objectid (struct reiserfs_transaction_handle *th,
 	    }
 
             /* JDM comparing two little-endian values for equality -- safe */
-	    if (rs->s_oid_cursize == rs->s_oid_maxsize)
+	if (rs->s_oid_cursize == rs->s_oid_maxsize) {
 		/* objectid map must be expanded, but there is no space */
+		PROC_INFO_INC( s, leaked_oid );
 		return;
+	}
 
 	    /* expand the objectid map*/
 	    memmove (map + i + 3, map + i + 1, 
@@ -160,8 +162,8 @@ void reiserfs_release_objectid (struct reiserfs_transaction_handle *th,
 	i += 2;
     }
 
-    reiserfs_warning ("vs-15010: reiserfs_release_objectid: tried to free free object id (%lu)", 
-		      objectid_to_release);
+    reiserfs_warning ("vs-15011: reiserfs_release_objectid: tried to free free object id (%lu)\n", 
+		      ( long unsigned ) objectid_to_release);
 }
 
 

@@ -3,7 +3,7 @@
  * 
  * Written 1997 by David Woodhouse.
  * Written 1994-1999 by Avery Pennarun.
- * Written 1999-2000 by Martin Mares <mj@suse.cz>.
+ * Written 1999-2000 by Martin Mares <mj@ucw.cz>.
  * Derived from skeleton.c by Donald Becker.
  *
  * Special thanks to Contemporary Controls, Inc. (www.ccontrols.com)
@@ -241,7 +241,10 @@ static int __init com90io_found(struct net_device *dev)
 		return -ENODEV;
 	}
 	/* Reserve the I/O region - guaranteed to work by check_region */
-	request_region(dev->base_addr, ARCNET_TOTAL_SIZE, "arcnet (COM90xx-IO)");
+	if (!request_region(dev->base_addr, ARCNET_TOTAL_SIZE, "arcnet (COM90xx-IO)")) {
+		free_irq(dev->irq, dev);
+		return -EBUSY;
+	}
 
 	/* Initialize the rest of the device structure. */
 	dev->priv = kmalloc(sizeof(struct arcnet_local), GFP_KERNEL);

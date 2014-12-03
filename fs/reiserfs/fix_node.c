@@ -575,6 +575,11 @@ static void set_parameters (struct tree_balance * tb, int h, int lnum,
       tb->lbytes = lb;
       tb->rbytes = rb;
     }
+  PROC_INFO_ADD( tb -> tb_sb, lnum[ h ], lnum );
+  PROC_INFO_ADD( tb -> tb_sb, rnum[ h ], rnum );
+
+  PROC_INFO_ADD( tb -> tb_sb, lbytes[ h ], lb );
+  PROC_INFO_ADD( tb -> tb_sb, rbytes[ h ], rb );
 }
 
 
@@ -666,6 +671,7 @@ static int are_leaves_removable (struct tree_balance * tb, int lfree, int rfree)
 
   if (MAX_CHILD_SIZE (S0) + vn->vn_size <= rfree + lfree + ih_size) {
     set_parameters (tb, 0, -1, -1, -1, NULL, -1, -1);
+    PROC_INFO_INC( tb -> tb_sb, leaves_removable );
     return 1;  
   }
   return 0;
@@ -800,7 +806,7 @@ static int  get_empty_nodes(
     RFALSE( ! *p_n_blocknr,
 	    "PAP-8135: reiserfs_new_blocknrs failed when got new blocks");
 
-    p_s_new_bh = reiserfs_getblk(p_s_sb->s_dev, *p_n_blocknr, p_s_sb->s_blocksize);
+    p_s_new_bh = getblk(p_s_sb->s_dev, *p_n_blocknr, p_s_sb->s_blocksize);
     if (atomic_read (&(p_s_new_bh->b_count)) > 1) {
 /*&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&*/
 /*
@@ -914,7 +920,7 @@ static int  is_left_neighbor_in_cache(
   /* Get left neighbor block number. */
   n_left_neighbor_blocknr = B_N_CHILD_NUM(p_s_tb->FL[n_h], n_left_neighbor_position);
   /* Look for the left neighbor in the cache. */
-  if ( (left = get_hash_table(p_s_sb->s_dev, n_left_neighbor_blocknr, p_s_sb->s_blocksize)) ) {
+  if ( (left = sb_get_hash_table(p_s_sb, n_left_neighbor_blocknr)) ) {
 
     RFALSE( buffer_uptodate (left) && ! B_IS_IN_TREE(left),
 	    "vs-8170: left neighbor (%b %z) is not in the tree", left, left);
@@ -1169,6 +1175,7 @@ static inline int can_node_be_removed (int mode, int lfree, int sfree, int rfree
 	    return NO_BALANCING_NEEDED;
 	}
     }
+    PROC_INFO_INC( tb -> tb_sb, can_node_be_removed[ h ] );
     return !NO_BALANCING_NEEDED;
 }
 
@@ -1906,8 +1913,11 @@ static int  get_neighbors(
     struct buffer_head  * p_s_bh;
 
 
+    PROC_INFO_INC( p_s_sb, get_neighbors[ n_h ] );
+
     if ( p_s_tb->lnum[n_h] ) {
 	/* We need left neighbor to balance S[n_h]. */
+	PROC_INFO_INC( p_s_sb, need_l_neighbor[ n_h ] );
 	p_s_bh = PATH_OFFSET_PBUFFER(p_s_tb->tb_path, n_path_offset);
 	
 	RFALSE( p_s_bh == p_s_tb->FL[n_h] && 
@@ -1916,11 +1926,12 @@ static int  get_neighbors(
 
 	n_child_position = ( p_s_bh == p_s_tb->FL[n_h] ) ? p_s_tb->lkey[n_h] : B_NR_ITEMS (p_s_tb->FL[n_h]);
 	n_son_number = B_N_CHILD_NUM(p_s_tb->FL[n_h], n_child_position);
-	p_s_bh = reiserfs_bread(p_s_sb->s_dev, n_son_number, p_s_sb->s_blocksize);
+	p_s_bh = reiserfs_bread(p_s_sb, n_son_number, p_s_sb->s_blocksize);
 	if (!p_s_bh)
 	    return IO_ERROR;
 	if ( FILESYSTEM_CHANGED_TB (p_s_tb) ) {
 	    decrement_bcount(p_s_bh);
+	    PROC_INFO_INC( p_s_sb, get_neighbors_restart[ n_h ] );
 	    return REPEAT_SEARCH;
 	}
 	
@@ -1939,6 +1950,7 @@ static int  get_neighbors(
 
 
     if ( p_s_tb->rnum[n_h] ) { /* We need right neighbor to balance S[n_path_offset]. */
+	PROC_INFO_INC( p_s_sb, need_r_neighbor[ n_h ] );
 	p_s_bh = PATH_OFFSET_PBUFFER(p_s_tb->tb_path, n_path_offset);
 	
 	RFALSE( p_s_bh == p_s_tb->FR[n_h] && 
@@ -1947,11 +1959,12 @@ static int  get_neighbors(
 
 	n_child_position = ( p_s_bh == p_s_tb->FR[n_h] ) ? p_s_tb->rkey[n_h] + 1 : 0;
 	n_son_number = B_N_CHILD_NUM(p_s_tb->FR[n_h], n_child_position);
-	p_s_bh = reiserfs_bread(p_s_sb->s_dev, n_son_number, p_s_sb->s_blocksize);
+	p_s_bh = reiserfs_bread(p_s_sb, n_son_number, p_s_sb->s_blocksize);
 	if (!p_s_bh)
 	    return IO_ERROR;
 	if ( FILESYSTEM_CHANGED_TB (p_s_tb) ) {
 	    decrement_bcount(p_s_bh);
+	    PROC_INFO_INC( p_s_sb, get_neighbors_restart[ n_h ] );
 	    return REPEAT_SEARCH;
 	}
 	decrement_bcount(p_s_tb->R[n_h]);
@@ -2008,23 +2021,6 @@ static int get_virtual_node_size (struct super_block * sb, struct buffer_head * 
   // entry would eat 2 byte of virtual node space
   return sb->s_blocksize;
 
-#if 0
-  size = sizeof (struct virtual_node) + sizeof (struct virtual_item);
-  ih = B_N_PITEM_HEAD (bh, 0);
-  nr_items = B_NR_ITEMS (bh);
-  for (i = 0; i < nr_items; i ++, ih ++) {
-    /* each item occupies some space in virtual node */
-    size += sizeof (struct virtual_item);
-    if (is_direntry_le_ih (ih))
-      /* each entry and new one occupeis 2 byte in the virtual node */
-      size += (ih_entry_count(ih) + 1) * sizeof( __u16 );
-  }
-  
-  /* 1 bit for each bitmap block to note whether bitmap block was
-     dirtied in the operation */
- /* size += (SB_BMAP_NR (sb) * 2 / 8 + 4);*/
-  return size;
-#endif
 }
 
 
@@ -2293,6 +2289,8 @@ int fix_nodes (int n_op_mode,
     int windex ;
     struct buffer_head  * p_s_tbS0 = PATH_PLAST_BUFFER(p_s_tb->tb_path);
 
+    ++ p_s_tb -> tb_sb -> u.reiserfs_sb.s_fix_nodes;
+
     n_pos_in_item = p_s_tb->tb_path->pos_in_item;
 
 
@@ -2327,15 +2325,6 @@ int fix_nodes (int n_op_mode,
 	reiserfs_panic (p_s_tb->tb_sb, "PAP-8320: fix_nodes: S[0] (%b %z) is not uptodate "
 			"at the beginning of fix_nodes or not in tree (mode %c)", p_s_tbS0, p_s_tbS0, n_op_mode);
     }
-
-    // FIXME: new items have to be of 8 byte multiples. Including new
-    // directory items those look like old ones
-    /*
-    if (p_s_tb->insert_size[0] % 8)
-	reiserfs_panic (p_s_tb->tb_sb, "vs-: fix_nodes: incorrect insert_size %d, "
-			"mode %c",
-			p_s_tb->insert_size[0], n_op_mode);
-    */
 
     /* Check parameters. */
     switch (n_op_mode) {

@@ -1,5 +1,5 @@
 /*
- *  $Id: ipconfig.c,v 1.39 2001/10/13 01:47:31 davem Exp $
+ *  $Id: ipconfig.c,v 1.43.2.1 2001/12/13 10:39:53 davem Exp $
  *
  *  Automatic Configuration of IP -- use DHCP, BOOTP, RARP, or
  *  user-supplied information to configure own IP address and routes.
@@ -47,12 +47,14 @@
 #include <linux/route.h>
 #include <linux/udp.h>
 #include <linux/proc_fs.h>
+#include <linux/major.h>
 #include <net/arp.h>
 #include <net/ip.h>
 #include <net/ipconfig.h>
 
 #include <asm/uaccess.h>
 #include <asm/checksum.h>
+#include <asm/processor.h>
 
 /* Define this to allow debugging output */
 #undef IPCONFIG_DEBUG
@@ -194,8 +196,10 @@ static int __init ic_open_devs(void)
 				printk(KERN_ERR "IP-Config: Failed to open %s\n", dev->name);
 				continue;
 			}
-			if (!(d = kmalloc(sizeof(struct ic_device), GFP_KERNEL)))
+			if (!(d = kmalloc(sizeof(struct ic_device), GFP_KERNEL))) {
+				rtnl_shunlock();
 				return -1;
+			}
 			d->dev = dev;
 			*last = d;
 			last = &d->next;
@@ -605,6 +609,12 @@ static void __init ic_bootp_init_ext(u8 *e)
 	*e++ = 17;		/* Boot path */
 	*e++ = 40;
 	e += 40;
+
+	*e++ = 57;		/* set extension buffer size for reply */ 
+	*e++ = 2;
+	*e++ = 1;		/* 128+236+8+20+14, see dhcpd sources */ 
+	*e++ = 150;
+
 	*e++ = 255;		/* End of the list */
 }
 
@@ -630,7 +640,7 @@ static inline void ic_bootp_cleanup(void)
 /*
  *  Send DHCP/BOOTP request to single interface.
  */
-static void __init ic_bootp_send_if(struct ic_device *d, u32 jiffies)
+static void __init ic_bootp_send_if(struct ic_device *d, unsigned long jiffies_diff)
 {
 	struct net_device *dev = d->dev;
 	struct sk_buff *skb;
@@ -677,7 +687,7 @@ static void __init ic_bootp_send_if(struct ic_device *d, u32 jiffies)
 	b->your_ip = INADDR_NONE;
 	b->server_ip = INADDR_NONE;
 	memcpy(b->hw_addr, dev->dev_addr, dev->addr_len);
-	b->secs = htons(jiffies / HZ);
+	b->secs = htons(jiffies_diff / HZ);
 	b->xid = d->xid;
 
 	/* add DHCP options or BOOTP extensions */
@@ -861,6 +871,13 @@ static int __init ic_bootp_recv(struct sk_buff *skb, struct net_device *dev, str
 				printk(" by server %u.%u.%u.%u\n",
 				       NIPQUAD(ic_servaddr));
 #endif
+				/* The DHCP indicated server address takes
+				 * precedence over the bootp header one if
+				 * they are different.
+				 */
+				if ((server_id != INADDR_NONE) &&
+				    (b->server_ip != server_id))
+					b->server_ip = ic_servaddr;
 				break;
 
 			case DHCPACK:
@@ -993,8 +1010,10 @@ static int __init ic_dynamic(void)
 #endif
 
 		jiff = jiffies + (d->next ? CONF_INTER_TIMEOUT : timeout);
-		while (jiffies < jiff && !ic_got_reply)
+		while (time_before(jiffies, jiff) && !ic_got_reply) {
 			barrier();
+			cpu_relax();
+		}
 #ifdef IPCONFIG_DHCP
 		/* DHCP isn't done until we get a DHCPACK. */
 		if ((ic_got_reply & IC_BOOTP)
@@ -1106,7 +1125,7 @@ static int __init ip_auto_config(void)
  try_try_again:
 	/* Give hardware a chance to settle */
 	jiff = jiffies + CONF_PRE_OPEN;
-	while (jiffies < jiff)
+	while (time_before(jiffies, jiff))
 		;
 
 	/* Setup all network devices */
@@ -1115,7 +1134,7 @@ static int __init ip_auto_config(void)
 
 	/* Give drivers a chance to settle */
 	jiff = jiffies + CONF_POST_OPEN;
-	while (jiffies < jiff)
+	while (time_before(jiffies, jiff))
 			;
 
 	/*
@@ -1126,7 +1145,9 @@ static int __init ip_auto_config(void)
 	 */
 	if (ic_myaddr == INADDR_NONE ||
 #ifdef CONFIG_ROOT_NFS
-	    (root_server_addr == INADDR_NONE && ic_servaddr == INADDR_NONE) ||
+	    (MAJOR(ROOT_DEV) == UNNAMED_MAJOR
+	     && root_server_addr == INADDR_NONE
+	     && ic_servaddr == INADDR_NONE) ||
 #endif
 	    ic_first_dev->next) {
 #ifdef IPCONFIG_DYNAMIC

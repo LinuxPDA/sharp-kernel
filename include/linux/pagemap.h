@@ -79,9 +79,11 @@ extern struct page * __find_lock_page (struct address_space * mapping,
 extern struct page * find_or_create_page(struct address_space *mapping,
 				unsigned long index, unsigned int gfp_mask);
 
-extern void lock_page(struct page *page);
+extern void FASTCALL(lock_page(struct page *page));
+extern void FASTCALL(unlock_page(struct page *page));
 #define find_lock_page(mapping, index) \
 	__find_lock_page(mapping, index, page_hash(mapping, index))
+extern struct page *find_trylock_page(struct address_space *, unsigned long);
 
 extern void add_to_page_cache(struct page * page, struct address_space *mapping, unsigned long index);
 extern void add_to_page_cache_locked(struct page * page, struct address_space *mapping, unsigned long index);
@@ -96,6 +98,7 @@ static inline void wait_on_page(struct page * page)
 }
 
 extern struct page * grab_cache_page (struct address_space *, unsigned long);
+extern struct page * grab_cache_page_nowait (struct address_space *, unsigned long);
 
 typedef int filler_t(void *, struct page*);
 

@@ -35,6 +35,7 @@
 #include <linux/delay.h>
 #include <linux/wrapper.h>
 #include <linux/interrupt.h>
+#include <linux/vmalloc.h>
 
 #include "meye.h"
 #include "linux/meye.h"
@@ -1459,7 +1460,7 @@ static struct pci_driver meye_driver = {
 	name:		"meye",
 	id_table:	meye_pci_tbl,
 	probe:		meye_probe,
-	remove:		meye_remove,
+	remove:		__devexit_p(meye_remove),
 };
 
 static int __init meye_init_module(void) {
@@ -1482,6 +1483,7 @@ MODULE_AUTHOR("Stelian Pop <stelian.pop@fr.alcove.com>");
 MODULE_DESCRIPTION("video4linux driver for the MotionEye camera");
 MODULE_LICENSE("GPL");
 
+EXPORT_NO_SYMBOLS;
 
 MODULE_PARM(gbuffers,"i");
 MODULE_PARM_DESC(gbuffers,"number of capture buffers, default is 2 (32 max)");

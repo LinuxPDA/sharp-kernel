@@ -20,7 +20,7 @@
 #include <linux/console.h>
 #include <linux/fs.h>
 #include <linux/mm.h>
-#include <linux/malloc.h>
+#include <linux/slab.h>
 #include <linux/module.h>
 #include <linux/delay.h>
 #include <linux/pm.h>
@@ -673,7 +673,7 @@ static int rs_ioctl (struct tty_struct * tty, struct file * filp,
 	case TIOCGSERIAL:
 		if ((rc = verify_area(VERIFY_WRITE, (void *) arg,
 		                      sizeof(struct serial_struct))) == 0)
-			gs_getserial(&port->gs, (struct serial_struct *) arg);
+			rc = gs_getserial(&port->gs, (struct serial_struct *) arg);
 		break;
 	case TIOCSSERIAL:
 		if ((rc = verify_area(VERIFY_READ, (void *) arg,

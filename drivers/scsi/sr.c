@@ -484,6 +484,15 @@ static int sr_init_command(Scsi_Cmnd * SCpnt)
 	return 1;
 }
 
+struct block_device_operations sr_bdops =
+{
+	owner:			THIS_MODULE,
+	open:			cdrom_open,
+	release:		cdrom_release,
+	ioctl:			cdrom_ioctl,
+	check_media_change:	cdrom_media_changed,
+};
+
 static int sr_open(struct cdrom_device_info *cdi, int purpose)
 {
 	check_disk_change(cdi->dev);
@@ -778,8 +787,9 @@ static int sr_init()
 		return 0;
 
 	if (!sr_registered) {
-		if (devfs_register_blkdev(MAJOR_NR, "sr", &cdrom_fops)) {
+		if (devfs_register_blkdev(MAJOR_NR, "sr", &sr_bdops)) {
 			printk("Unable to get major %d for SCSI-CD\n", MAJOR_NR);
+			sr_template.dev_noticed = 0;
 			return 1;
 		}
 		sr_registered++;
@@ -821,8 +831,10 @@ cleanup_sizes:
 	kfree(sr_sizes);
 cleanup_cds:
 	kfree(scsi_CDs);
+	scsi_CDs = NULL;
 cleanup_devfs:
 	devfs_unregister_blkdev(MAJOR_NR, "sr");
+	sr_template.dev_noticed = 0;
 	sr_registered--;
 	return 1;
 }
@@ -875,7 +887,7 @@ void sr_finish()
                     devfs_register (scsi_CDs[i].device->de, "cd",
                                     DEVFS_FL_DEFAULT, MAJOR_NR, i,
                                     S_IFBLK | S_IRUGO | S_IWUGO,
-                                    &cdrom_fops, NULL);
+                                    &sr_bdops, NULL);
 		register_cdrom(&scsi_CDs[i].cdi);
 	}
 
@@ -896,6 +908,8 @@ static void sr_detach(Scsi_Device * SDp)
 	Scsi_CD *cpnt;
 	int i;
 
+	if (scsi_CDs == NULL)
+		return;
 	for (cpnt = scsi_CDs, i = 0; i < sr_template.dev_max; i++, cpnt++)
 		if (cpnt->device == SDp) {
 			/*

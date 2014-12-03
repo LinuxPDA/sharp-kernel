@@ -885,6 +885,12 @@ static int __devinit btaudio_probe(struct pci_dev *pci_dev,
 	}
 
 	bta = kmalloc(sizeof(*bta),GFP_ATOMIC);
+	if (!bta) {
+		printk(KERN_WARNING 
+		       "btaudio: not enough memory\n");
+		rc = -ENOMEM;
+		goto fail1;
+	}
 	memset(bta,0,sizeof(*bta));
 
 	bta->pci  = pci_dev;
@@ -1030,7 +1036,7 @@ static struct pci_driver btaudio_pci_driver = {
         name:     "btaudio",
         id_table: btaudio_pci_tbl,
         probe:    btaudio_probe,
-        remove:   btaudio_remove,
+        remove:   __devexit_p(btaudio_remove),
 };
 
 int btaudio_init_module(void)

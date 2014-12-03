@@ -582,10 +582,12 @@ struct ace_info {
 	aceaddr	stats2_ptr;
 };
 
+
 struct ring_info {
 	struct sk_buff		*skb;
-	dma_addr_t		mapping;
+	DECLARE_PCI_UNMAP_ADDR(mapping)
 };
+
 
 /*
  * Funny... As soon as we add maplen on alpha, it starts to work
@@ -594,9 +596,10 @@ struct ring_info {
  */
 struct tx_ring_info {
 	struct sk_buff		*skb;
-	dma_addr_t		mapping;
-	int			maplen;
+	DECLARE_PCI_UNMAP_ADDR(mapping)
+	DECLARE_PCI_UNMAP_LEN(maplen)
 };
+
 
 /*
  * struct ace_skb holding the rings of skb's. This is an awful lot of

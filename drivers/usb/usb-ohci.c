@@ -76,7 +76,8 @@
 
 
 #ifdef CONFIG_PMAC_PBOOK
-#include <asm/feature.h>
+#include <asm/machdep.h>
+#include <asm/pmac_feature.h>
 #include <asm/pci-bridge.h>
 #ifndef CONFIG_PM
 #define CONFIG_PM
@@ -2372,7 +2373,7 @@ static ohci_t * __devinit hc_alloc_ohci (struct pci_dev *dev, void * mem_base)
 	ohci->regs = mem_base;   
 
 	ohci->ohci_dev = dev;
-	dev->driver_data = ohci;
+	pci_set_drvdata(dev, ohci);
  
 	INIT_LIST_HEAD (&ohci->ohci_hcd_list);
 	list_add (&ohci->ohci_hcd_list, &ohci_hcd_list);
@@ -2411,7 +2412,7 @@ static void hc_release_ohci (ohci_t * ohci)
 		free_irq (ohci->irq, ohci);
 		ohci->irq = -1;
 	}
-	ohci->ohci_dev->driver_data = 0;
+	pci_set_drvdata(ohci->ohci_dev, NULL);
 
 	usb_deregister_bus (ohci->bus);
 	usb_free_bus (ohci->bus);
@@ -2600,7 +2601,7 @@ ohci_pci_probe (struct pci_dev *dev, const struct pci_device_id *id)
 static void __devexit
 ohci_pci_remove (struct pci_dev *dev)
 {
-	ohci_t		*ohci = (ohci_t *) dev->driver_data;
+	ohci_t		*ohci = pci_get_drvdata(dev);
 
 	dbg ("remove %s controller usb-%s%s%s",
 		hcfs2string (ohci->hc_control & OHCI_CTRL_HCFS),
@@ -2636,7 +2637,7 @@ ohci_pci_remove (struct pci_dev *dev)
 static int
 ohci_pci_suspend (struct pci_dev *dev, u32 state)
 {
-	ohci_t			*ohci = (ohci_t *) dev->driver_data;
+	ohci_t			*ohci = pci_get_drvdata(dev);
 	unsigned long		flags;
 	u16 cmd;
 
@@ -2699,12 +2700,12 @@ ohci_pci_suspend (struct pci_dev *dev, u32 state)
 	pci_write_config_word (dev, PCI_COMMAND, cmd);
 #ifdef CONFIG_PMAC_PBOOK
 	{
-   	struct device_node	*of_node;
+	   	struct device_node	*of_node;
 
-	/* Disable USB PAD & cell clock */
-	of_node = pci_device_to_OF_node (ohci->ohci_dev);
-	if (of_node && _machine == _MACH_Pmac)
-		feature_set_usb_power (of_node, 0);
+		/* Disable USB PAD & cell clock */
+		of_node = pci_device_to_OF_node (ohci->ohci_dev);
+		if (of_node)
+			pmac_call_feature(PMAC_FTR_USB_ENABLE, of_node, 0, 0);
 	}
 #endif
 	return 0;
@@ -2715,7 +2716,7 @@ ohci_pci_suspend (struct pci_dev *dev, u32 state)
 static int
 ohci_pci_resume (struct pci_dev *dev)
 {
-	ohci_t		*ohci = (ohci_t *) dev->driver_data;
+	ohci_t		*ohci = pci_get_drvdata(dev);
 	int		temp;
 	unsigned long	flags;
 
@@ -2729,12 +2730,12 @@ ohci_pci_resume (struct pci_dev *dev)
 
 #ifdef CONFIG_PMAC_PBOOK
 	{
-	struct device_node *of_node;
+		struct device_node *of_node;
 
-	/* Re-enable USB PAD & cell clock */
-	of_node = pci_device_to_OF_node (ohci->ohci_dev);
-	if (of_node && _machine == _MACH_Pmac)
-		feature_set_usb_power (of_node, 1);
+		/* Re-enable USB PAD & cell clock */
+		of_node = pci_device_to_OF_node (ohci->ohci_dev);
+		if (of_node)
+			pmac_call_feature(PMAC_FTR_USB_ENABLE, of_node, 0, 1);
 	}
 #endif
 
@@ -2860,7 +2861,7 @@ static struct pci_driver ohci_pci_driver = {
 	id_table:	&ohci_pci_ids [0],
 
 	probe:		ohci_pci_probe,
-	remove:		ohci_pci_remove,
+	remove:		__devexit_p(ohci_pci_remove),
 
 #ifdef	CONFIG_PM
 	suspend:	ohci_pci_suspend,

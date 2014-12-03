@@ -1,4 +1,4 @@
-/* $Id: pgtable.h,v 1.147 2001/10/17 18:26:58 davem Exp $
+/* $Id: pgtable.h,v 1.154 2001/12/05 06:05:36 davem Exp $
  * pgtable.h: SpitFire page table operations.
  *
  * Copyright 1996,1997 David S. Miller (davem@caip.rutgers.edu)
@@ -18,6 +18,23 @@
 #include <asm/system.h>
 #include <asm/page.h>
 #include <asm/processor.h>
+
+/* The kernel image occupies 0x4000000 to 0x1000000 (4MB --> 16MB).
+ * The page copy blockops use 0x1000000 to 0x18000000 (16MB --> 24MB).
+ * The PROM resides in an area spanning 0xf0000000 to 0x100000000.
+ * The vmalloc area spans 0x140000000 to 0x200000000.
+ * There is a single static kernel PMD which maps from 0x0 to address
+ * 0x400000000.
+ */
+#define	TLBTEMP_BASE		0x0000000001000000
+#define MODULES_VADDR		0x0000000002000000
+#define MODULES_LEN		0x000000007e000000
+#define MODULES_END		0x0000000080000000
+#define VMALLOC_START		0x0000000140000000
+#define VMALLOC_VMADDR(x)	((unsigned long)(x))
+#define VMALLOC_END		0x0000000200000000
+#define LOW_OBP_ADDRESS		0x00000000f0000000
+#define HI_OBP_ADDRESS		0x0000000100000000
 
 /* XXX All of this needs to be rethought so we can take advantage
  * XXX cheetah's full 64-bit virtual address space, ie. no more hole
@@ -45,31 +62,6 @@
 #define PGDIR_MASK	(~(PGDIR_SIZE-1))
 
 #ifndef __ASSEMBLY__
-
-#define PG_dcache_dirty		PG_arch_1
-
-#define dcache_dirty_cpu(page) \
-	(((page)->flags >> 24) & (NR_CPUS - 1UL))
-
-#define set_dcache_dirty(PAGE) \
-do {	unsigned long mask = smp_processor_id(); \
-	unsigned long non_cpu_bits = (1UL << 24UL) - 1UL; \
-	mask = (mask << 24) | (1UL << PG_dcache_dirty); \
-	__asm__ __volatile__("1:\n\t" \
-			     "ldx	[%2], %%g7\n\t" \
-			     "and	%%g7, %1, %%g5\n\t" \
-			     "or	%%g5, %0, %%g5\n\t" \
-			     "casx	[%2], %%g7, %%g5\n\t" \
-			     "cmp	%%g7, %%g5\n\t" \
-			     "bne,pn	%%xcc, 1b\n\t" \
-			     " nop" \
-			     : /* no outputs */ \
-			     : "r" (mask), "r" (non_cpu_bits), "r" (&(PAGE)->flags) \
-			     : "g5", "g7"); \
-} while (0)
-
-#define clear_dcache_dirty(PAGE) \
-	clear_bit(PG_dcache_dirty, &(PAGE)->flags)
 
 /* Certain architectures need to do special things when pte's
  * within a page table are directly modified.  Thus, the following
@@ -101,11 +93,6 @@ do {	unsigned long mask = smp_processor_id(); \
 #define USER_PTRS_PER_PGD	((const int)((current->thread.flags & SPARC_FLAG_32BIT) ? \
 				 (1) : (PTRS_PER_PGD)))
 #define FIRST_USER_PGD_NR	0
-
-/* NOTE: TLB miss handlers depend heavily upon where this is. */
-#define VMALLOC_START		0x0000000140000000UL
-#define VMALLOC_VMADDR(x)	((unsigned long)(x))
-#define VMALLOC_END		0x0000000200000000UL
 
 #define pte_ERROR(e)	__builtin_trap()
 #define pmd_ERROR(e)	__builtin_trap()
@@ -312,6 +299,8 @@ extern inline pte_t mk_pte_io(unsigned long page, pgprot_t prot, int space)
 #define pte_to_swp_entry(pte)		((swp_entry_t) { pte_val(pte) })
 #define swp_entry_to_pte(x)		((pte_t) { (x).val })
 
+extern unsigned long prom_virt_to_phys(unsigned long, int *);
+
 extern __inline__ unsigned long
 sun4u_get_pte (unsigned long addr)
 {
@@ -321,6 +310,8 @@ sun4u_get_pte (unsigned long addr)
 
 	if (addr >= PAGE_OFFSET)
 		return addr & _PAGE_PADDR;
+	if ((addr >= LOW_OBP_ADDRESS) && (addr < HI_OBP_ADDRESS))
+		return prom_virt_to_phys(addr, 0);
 	pgdp = pgd_offset_k (addr);
 	pmdp = pmd_offset (pgdp, addr);
 	ptep = pte_offset (pmdp, addr);
@@ -360,5 +351,10 @@ extern unsigned long get_fb_unmapped_area(struct file *filp, unsigned long, unsi
 #define HAVE_ARCH_FB_UNMAPPED_AREA
 
 #endif /* !(__ASSEMBLY__) */
+
+/*
+ * No page table caches to initialise
+ */
+#define pgtable_cache_init()	do { } while (0)
 
 #endif /* !(_SPARC64_PGTABLE_H) */

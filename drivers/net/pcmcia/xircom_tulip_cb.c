@@ -101,7 +101,9 @@ static int csr0 = 0x00A00000 | 0x4800;
 #include <linux/init.h>
 #include <linux/mii.h>
 #include <linux/ethtool.h>
-#include <asm/processor.h>		/* Processor type for cache alignment. */
+
+#include <asm/io.h>
+#include <asm/processor.h>	/* Processor type for cache alignment. */
 #include <asm/uaccess.h>
 
 
@@ -1699,7 +1701,7 @@ MODULE_DEVICE_TABLE(pci, xircom_pci_table);
 #ifdef CONFIG_PM
 static int xircom_suspend(struct pci_dev *pdev, u32 state)
 {
-	struct net_device *dev = pdev->driver_data;
+	struct net_device *dev = pci_get_drvdata(pdev);
 	struct xircom_private *tp = dev->priv;
 	printk(KERN_INFO "xircom_suspend(%s)\n", dev->name);
 	if (tp->open)
@@ -1710,7 +1712,7 @@ static int xircom_suspend(struct pci_dev *pdev, u32 state)
 
 static int xircom_resume(struct pci_dev *pdev)
 {
-	struct net_device *dev = pdev->driver_data;
+	struct net_device *dev = pci_get_drvdata(pdev);
 	struct xircom_private *tp = dev->priv;
 	printk(KERN_INFO "xircom_resume(%s)\n", dev->name);
 
@@ -1732,7 +1734,7 @@ static int xircom_resume(struct pci_dev *pdev)
 
 static void __devexit xircom_remove_one(struct pci_dev *pdev)
 {
-	struct net_device *dev = pdev->driver_data;
+	struct net_device *dev = pci_get_drvdata(pdev);
 
 	printk(KERN_INFO "xircom_remove_one(%s)\n", dev->name);
 	unregister_netdev(dev);
@@ -1746,7 +1748,7 @@ static struct pci_driver xircom_driver = {
 	name:		DRV_NAME,
 	id_table:	xircom_pci_table,
 	probe:		xircom_init_one,
-	remove:		xircom_remove_one,
+	remove:		__devexit_p(xircom_remove_one),
 #ifdef CONFIG_PM
 	suspend:	xircom_suspend,
 	resume:		xircom_resume

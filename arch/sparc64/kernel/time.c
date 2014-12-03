@@ -1,4 +1,4 @@
-/* $Id: time.c,v 1.40 2001/09/06 02:44:28 davem Exp $
+/* $Id: time.c,v 1.41.2.1 2002/01/23 14:35:45 davem Exp $
  * time.c: UltraSparc timer and TOD clock support.
  *
  * Copyright (C) 1997 David S. Miller (davem@caip.rutgers.edu)
@@ -330,8 +330,6 @@ static void __init set_system_time(void)
 #endif
 	u8 tmp;
 
-	do_get_fast_time = do_gettimeofday;
-
 	if (!mregs && !dregs) {
 		prom_printf("Something wrong, clock regs not mapped yet.\n");
 		prom_halt();
@@ -609,7 +607,6 @@ void __init time_init(void)
 	unsigned long clock;
 
 	init_timers(timer_interrupt, &clock);
-	timer_tick_offset = clock / HZ;
 	timer_ticks_per_usec_quotient = ((1UL<<32) / (clock / 1000020));
 }
 

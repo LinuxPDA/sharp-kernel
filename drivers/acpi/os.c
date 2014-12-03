@@ -1,7 +1,7 @@
 /******************************************************************************
  * 
  * Module Name: os.c - Linux OSL functions
- *		$Revision: 46 $
+ *		$Revision: 49 $
  *
  *****************************************************************************/
 
@@ -40,7 +40,6 @@
 #include <linux/delay.h>
 #include <asm/io.h>
 #include <acpi.h>
-#include "driver.h"
 
 #ifdef CONFIG_ACPI_EFI
 #include <asm/efi.h>
@@ -190,18 +189,6 @@ acpi_os_map_memory(ACPI_PHYSICAL_ADDRESS phys, u32 size, void **virt)
 		return AE_ERROR;
 	}
 
-	if ((unsigned long) phys < virt_to_phys(high_memory)) {
-		struct page *page;
-		*virt = phys_to_virt((unsigned long) phys);
-	
-		/* Check for stamping */
-		page = virt_to_page(*virt);
-		if(page && !test_bit(PG_reserved, &page->flags))
-			printk(KERN_WARNING "ACPI attempting to access kernel owned memory at %08lX.\n", (unsigned long)phys);
-
-		return AE_OK;
-	}
-
 	*virt = ioremap((unsigned long) phys, size);
 	if (!*virt)
 		return AE_ERROR;
@@ -212,8 +199,7 @@ acpi_os_map_memory(ACPI_PHYSICAL_ADDRESS phys, u32 size, void **virt)
 void
 acpi_os_unmap_memory(void *virt, u32 size)
 {
-	if (virt >= high_memory)
-		iounmap(virt);
+	iounmap(virt);
 }
 
 acpi_status
@@ -322,7 +308,7 @@ acpi_os_read_port(
 acpi_status
 acpi_os_write_port(
 	ACPI_IO_ADDRESS	port,
-	u32		value,
+	NATIVE_UINT	value,
 	u32		width)
 {
 	switch (width)

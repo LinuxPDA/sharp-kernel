@@ -10,9 +10,7 @@ tristate 'Bonding driver support' CONFIG_BONDING
 tristate 'EQL (serial line load balancing) support' CONFIG_EQUALIZER
 tristate 'Universal TUN/TAP device driver support' CONFIG_TUN
 if [ "$CONFIG_EXPERIMENTAL" = "y" ]; then
-   if [ "$CONFIG_NETLINK" = "y" ]; then
-      tristate 'Ethertap network tap (OBSOLETE)' CONFIG_ETHERTAP
-   fi
+   tristate 'Ethertap network tap (OBSOLETE)' CONFIG_ETHERTAP
 fi
 
 if [ "$CONFIG_ISAPNP" = "y" -o "$CONFIG_ISAPNP" = "m" ]; then
@@ -34,13 +32,17 @@ if [ "$CONFIG_NET_ETHERNET" = "y" ]; then
       fi
    fi
    if [ "$CONFIG_PPC" = "y" ]; then
-      tristate '  MACE (Power Mac ethernet) support' CONFIG_MACE
+      dep_tristate '  MACE (Power Mac ethernet) support' CONFIG_MACE $CONFIG_ALL_PPC
       if [ "$CONFIG_MACE" != "n" ]; then
-        bool '    Use AAUI port instead of TP by default' CONFIG_MACE_AAUI_PORT
+	 bool '    Use AAUI port instead of TP by default' CONFIG_MACE_AAUI_PORT
       fi
-      tristate '  BMAC (G3 ethernet) support' CONFIG_BMAC
-      tristate '  GMAC (G4/iBook ethernet) support' CONFIG_GMAC
-      tristate '  National DP83902AV (Oak ethernet) support' CONFIG_OAKNET
+      dep_tristate '  BMAC (G3 ethernet) support' CONFIG_BMAC $CONFIG_ALL_PPC
+      dep_tristate '  GMAC (G4/iBook ethernet) support' CONFIG_GMAC $CONFIG_ALL_PPC
+      if [ "$CONFIG_4xx" = "y" ]; then
+         if [ "$CONFIG_STB03xxx" = "y" -o "$CONFIG_403GCX" = "y" ]; then
+	    tristate '  National DP83902AV (Oak ethernet) support' CONFIG_OAKNET
+	 fi
+      fi
    fi
    if [ "$CONFIG_ZORRO" = "y" ]; then
       tristate '  Ariadne support' CONFIG_ARIADNE
@@ -75,7 +77,6 @@ if [ "$CONFIG_NET_ETHERNET" = "y" ]; then
    fi
    dep_tristate '  Sun BigMAC 10/100baseT support (EXPERIMENTAL)' CONFIG_SUNBMAC $CONFIG_SBUS $CONFIG_EXPERIMENTAL
    dep_tristate '  Sun QuadEthernet support' CONFIG_SUNQE $CONFIG_SBUS
-   dep_tristate '  Sun LANCE support' CONFIG_SUNLANCE $CONFIG_SBUS
    dep_tristate '  Sun GEM support' CONFIG_SUNGEM $CONFIG_PCI
    bool '  3COM cards' CONFIG_NET_VENDOR_3COM
    if [ "$CONFIG_NET_VENDOR_3COM" = "y" ]; then
@@ -173,6 +174,9 @@ if [ "$CONFIG_NET_ETHERNET" = "y" ]; then
       dep_tristate '    Mylex EISA LNE390A/B support (EXPERIMENTAL)' CONFIG_LNE390 $CONFIG_EISA $CONFIG_EXPERIMENTAL
       dep_tristate '    Myson MTD-8xx PCI Ethernet support' CONFIG_FEALNX $CONFIG_PCI
       dep_tristate '    National Semiconductor DP8381x series PCI Ethernet support' CONFIG_NATSEMI $CONFIG_PCI
+      if [ "$CONFIG_NATSEMI" = "y" -o "$CONFIG_NATSEMI" = "m" ]; then
+        bool       '      NatSemi workaround for high errors' CONFIG_NATSEMI_CABLE_MAGIC
+      fi
       dep_tristate '    PCI NE2000 and clones support (see help)' CONFIG_NE2K_PCI $CONFIG_PCI
       dep_tristate '    Novell/Eagle/Microdyne NE3210 EISA support (EXPERIMENTAL)' CONFIG_NE3210 $CONFIG_EISA $CONFIG_EXPERIMENTAL
       dep_tristate '    Racal-Interlan EISA ES3210 support (EXPERIMENTAL)' CONFIG_ES3210 $CONFIG_EISA $CONFIG_EXPERIMENTAL
@@ -181,6 +185,7 @@ if [ "$CONFIG_NET_ETHERNET" = "y" ]; then
       dep_mbool '      Use PIO instead of MMIO' CONFIG_8139TOO_PIO $CONFIG_8139TOO
       dep_mbool '      Support for automatic channel equalization (EXPERIMENTAL)' CONFIG_8139TOO_TUNE_TWISTER $CONFIG_8139TOO $CONFIG_EXPERIMENTAL
       dep_mbool '      Support for older RTL-8129/8130 boards' CONFIG_8139TOO_8129 $CONFIG_8139TOO
+      dep_mbool '      Experiment for better RX reset (EXPERIMENTAL)' CONFIG_8139_NEW_RX_RESET $CONFIG_8139TOO $CONFIG_EXPERIMENTAL
       dep_tristate '    SiS 900/7016 PCI Fast Ethernet Adapter support' CONFIG_SIS900 $CONFIG_PCI
       dep_tristate '    SMC EtherPower II' CONFIG_EPIC100 $CONFIG_PCI
       dep_tristate '    Sundance Alta support' CONFIG_SUNDANCE $CONFIG_PCI
@@ -188,6 +193,7 @@ if [ "$CONFIG_NET_ETHERNET" = "y" ]; then
          tristate '    TI ThunderLAN support' CONFIG_TLAN
       fi
       dep_tristate '    VIA Rhine support' CONFIG_VIA_RHINE $CONFIG_PCI
+      dep_mbool '      Use MMIO instead of PIO (EXPERIMENTAL)' CONFIG_VIA_RHINE_MMIO $CONFIG_VIA_RHINE $CONFIG_EXPERIMENTAL
       dep_tristate '    Winbond W89c840 Ethernet support' CONFIG_WINBOND_840 $CONFIG_PCI
       if [ "$CONFIG_OBSOLETE" = "y" ]; then
 	 dep_bool '    Zenith Z-Note support (EXPERIMENTAL)' CONFIG_ZNET $CONFIG_ISA
@@ -273,6 +279,9 @@ if [ ! "$CONFIG_PPP" = "n" ]; then
    dep_tristate '  PPP BSD-Compress compression' CONFIG_PPP_BSDCOMP $CONFIG_PPP
    if [ "$CONFIG_EXPERIMENTAL" = "y" ]; then
       dep_tristate '  PPP over Ethernet (EXPERIMENTAL)' CONFIG_PPPOE $CONFIG_PPP
+   fi
+   if [ ! "$CONFIG_ATM" = "n" ]; then
+      dep_tristate '  PPP over ATM (EXPERIMENTAL)' CONFIG_PPPOATM $CONFIG_PPP
    fi
 fi
 

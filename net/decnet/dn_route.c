@@ -638,8 +638,8 @@ static int dn_forward(struct sk_buff *skb)
 {
 	struct dn_skb_cb *cb = DN_SKB_CB(skb);
 	struct dst_entry *dst = skb->dst;
-	struct net_device *dev = skb->dev;
 	struct neighbour *neigh;
+	struct net_device *dev = skb->dev;
 	int err = -EINVAL;
 
 	if ((neigh = dst->neighbour) == NULL)
@@ -1020,7 +1020,6 @@ int dn_route_input(struct sk_buff *skb)
 	return dn_route_input_slow(skb);
 }
 
-#ifdef CONFIG_RTNETLINK
 static int dn_rt_fill_info(struct sk_buff *skb, u32 pid, u32 seq, int event, int nowait)
 {
 	struct dn_route *rt = (struct dn_route *)skb->dst;
@@ -1181,7 +1180,6 @@ done:
 	cb->args[1] = idx;
 	return skb->len;
 }
-#endif /* CONFIG_RTNETLINK */
 
 #ifdef CONFIG_PROC_FS
 

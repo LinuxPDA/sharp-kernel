@@ -50,6 +50,7 @@ CONFIG_X86_GOOD_APIC=y
 CONFIG_X86_PGE=y
 CONFIG_X86_USE_PPRO_CHECKSUM=y
 # CONFIG_TOSHIBA is not set
+# CONFIG_I8K is not set
 # CONFIG_MICROCODE is not set
 # CONFIG_X86_MSR is not set
 # CONFIG_X86_CPUID is not set
@@ -84,8 +85,16 @@ CONFIG_HOTPLUG=y
 #
 CONFIG_PCMCIA=y
 CONFIG_CARDBUS=y
+# CONFIG_I82092 is not set
 # CONFIG_I82365 is not set
 # CONFIG_TCIC is not set
+
+#
+# PCI Hotplug Support
+#
+# CONFIG_HOTPLUG_PCI is not set
+# CONFIG_HOTPLUG_PCI_COMPAQ is not set
+# CONFIG_HOTPLUG_PCI_COMPAQ_NVRAM is not set
 CONFIG_SYSVIPC=y
 # CONFIG_BSD_PROCESS_ACCT is not set
 CONFIG_SYSCTL=y
@@ -313,6 +322,7 @@ CONFIG_SCSI_CONSTANTS=y
 # CONFIG_SCSI_INIA100 is not set
 # CONFIG_SCSI_NCR53C406A is not set
 # CONFIG_SCSI_NCR53C7xx is not set
+# CONFIG_SCSI_SYM53C8XX_2 is not set
 # CONFIG_SCSI_NCR53C8XX is not set
 CONFIG_SCSI_SYM53C8XX=y
 CONFIG_SCSI_NCR53C8XX_DEFAULT_TAGS=4
@@ -466,6 +476,7 @@ CONFIG_PCMCIA_PCNET=y
 # CONFIG_PCMCIA_NMCLAN is not set
 # CONFIG_PCMCIA_SMC91C92 is not set
 # CONFIG_PCMCIA_XIRC2PS is not set
+# CONFIG_PCMCIA_AXNET is not set
 # CONFIG_ARCNET_COM20020_CS is not set
 # CONFIG_PCMCIA_IBMTR is not set
 # CONFIG_PCMCIA_XIRCOM is not set
@@ -485,6 +496,9 @@ CONFIG_PCMCIA_RAYCS=y
 # IrDA (infrared) support
 #
 # CONFIG_IRDA is not set
+CONFIG_IRDA_CACHE_LAST_LSAP=y
+CONFIG_IRDA_FAST_RR=y
+CONFIG_IRDA_DEBUG=y
 
 #
 # ISDN subsystem
@@ -595,11 +609,15 @@ CONFIG_DRM_RADEON=y
 CONFIG_AUTOFS4_FS=y
 # CONFIG_REISERFS_FS is not set
 # CONFIG_REISERFS_CHECK is not set
+# CONFIG_REISERFS_PROC_INFO is not set
 # CONFIG_ADFS_FS is not set
 # CONFIG_ADFS_FS_RW is not set
 # CONFIG_AFFS_FS is not set
 # CONFIG_HFS_FS is not set
 # CONFIG_BFS_FS is not set
+# CONFIG_EXT3_FS is not set
+# CONFIG_JBD is not set
+# CONFIG_JBD_DEBUG is not set
 # CONFIG_FAT_FS is not set
 # CONFIG_MSDOS_FS is not set
 # CONFIG_UMSDOS_FS is not set
@@ -612,6 +630,7 @@ CONFIG_TMPFS=y
 # CONFIG_RAMFS is not set
 CONFIG_ISO9660_FS=y
 # CONFIG_JOLIET is not set
+# CONFIG_ZISOFS is not set
 # CONFIG_MINIX_FS is not set
 # CONFIG_VXFS_FS is not set
 # CONFIG_NTFS_FS is not set
@@ -636,6 +655,7 @@ CONFIG_EXT2_FS=y
 # Network File Systems
 #
 # CONFIG_CODA_FS is not set
+# CONFIG_INTERMEZZO_FS is not set
 CONFIG_NFS_FS=y
 # CONFIG_NFS_V3 is not set
 # CONFIG_ROOT_NFS is not set
@@ -653,6 +673,8 @@ CONFIG_LOCKD=y
 # CONFIG_NCPFS_SMALLDOS is not set
 # CONFIG_NCPFS_NLS is not set
 # CONFIG_NCPFS_EXTRAS is not set
+# CONFIG_ZISOFS_FS is not set
+# CONFIG_ZLIB_FS_INFLATE is not set
 
 #
 # Partition Types
@@ -706,7 +728,6 @@ CONFIG_USB=y
 # CONFIG_USB_DEVICEFS is not set
 # CONFIG_USB_BANDWIDTH is not set
 # CONFIG_USB_LONG_TIMEOUT is not set
-# CONFIG_USB_LARGE_CONFIG is not set
 
 #
 # USB Controllers

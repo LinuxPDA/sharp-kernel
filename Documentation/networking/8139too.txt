@@ -17,9 +17,6 @@
 Disclaimer
 ----------
 
-THIS DRIVER IS A DEVELOPMENT RELEASE FOR A DEVELOPMENT KERNEL.  DO NOT
-USE IN A PRODUCTION ENVIRONMENT.
-
 DO NOT CONTACT DONALD BECKER FOR SUPPORT OF THIS DRIVER, his driver is
 completely different and maintained independently of the 8139too code base.
 
@@ -85,7 +82,7 @@ OPTION 1: Build inside kernel tree (into kernel image, or as module)
 
 	(overwrite 8139too driver in kernel tree with different version)
 	1) cp 8139too.c $my_source_tree/drivers/net/8139too.c
-	
+
 OPTION 2: Build outside kernel tree
 
 	Use the included Makefile.
@@ -95,10 +92,14 @@ OPTION 2: Build outside kernel tree
 Tested Adapters
 ---------------
 AOpen ALN-325C
+AT-2500TX 10/100 PCI Fast Ethernet Network Adapter Card
 KTI KF-230TX
 KTI KF-230TX/2
 Lantech FastNet TX
+Ovislink Fast Ethernet
+Planet ENW-9504 (V.4) 10/100
 SMC EZNET 10/100
+UNEX NexNIC ND012C
 
 (please add your adapter model to this list)
 
@@ -141,7 +142,7 @@ And thanks to every supporter free software.
 
 Submitting Bug Reports
 ----------------------
-Obtain and compile the modified rtl8139-diag source code from the 
+Obtain and compile the modified rtl8139-diag source code from the
 8139too driver Web site, http://sourceforge.net/projects/gkernel/
 This diagnostics programs, originally from Donald Becker, has been
 modified to display all registers on your RTL8139 chip, not just the
@@ -183,6 +184,34 @@ suggestions welcome)  (WIP)
 Change History
 --------------
 
+Version 0.9.23 - January 16, 2002
+
+* New, compile-time conditional for testing better RX reset
+* Only account specific RX errors if rx_status is !OK
+
+
+Version 0.9.22 - November 8, 2001
+
+* Additional retries before aborting Tx
+* Do not write other TxConfig bits when writing clear-abort bit.
+* Ack TxErr intr status after each Tx abort, too.
+* Fix oops in interface restart
+
+
+Version 0.9.21 - November 1, 2001
+
+* Disable early Rx, it hurts performance and creates races.
+* Remove DPRINTK macro function tracing.
+* Better interrupt sharing behavior.
+* Acknowledge PCI errors.
+* Remove early-Rx acknowledgement, unnecessary
+* Remove code for uncommon case where Tx packets are
+  properly aligned, and do not need to be copied.
+  Tx packets are now always copied into a static DMA buffer,
+  which is allocated at interface open.
+* Fix problems with kernel thread exit.
+
+
 Version 0.9.20 - October 18, 2001
 
 * Print out notice when 8139C+ chip is detected
@@ -214,7 +243,7 @@ Version 0.9.18 - July 6, 2001
 Version 0.9.17 - May 7, 2001
 
 * Fix chipset wakeup bug which prevent media connection for 8139B
-* Print out "media is unconnected..." instead of 
+* Print out "media is unconnected..." instead of
   "partner ability 0000"
 
 

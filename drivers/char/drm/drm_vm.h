@@ -59,12 +59,12 @@ struct vm_operations_struct   DRM(vm_sg_ops) = {
 #if LINUX_VERSION_CODE < 0x020317
 unsigned long DRM(vm_nopage)(struct vm_area_struct *vma,
 			     unsigned long address,
-			     int write_access)
+			     int unused)
 #else
 				/* Return type changed in 2.3.23 */
 struct page *DRM(vm_nopage)(struct vm_area_struct *vma,
 			    unsigned long address,
-			    int write_access)
+			    int unused)
 #endif
 {
 #if __REALLY_HAVE_AGP
@@ -137,12 +137,12 @@ vm_nopage_error:
 #if LINUX_VERSION_CODE < 0x020317
 unsigned long DRM(vm_shm_nopage)(struct vm_area_struct *vma,
 				 unsigned long address,
-				 int write_access)
+				 int unused)
 #else
 				/* Return type changed in 2.3.23 */
 struct page *DRM(vm_shm_nopage)(struct vm_area_struct *vma,
 				unsigned long address,
-				int write_access)
+				int unused)
 #endif
 {
 #if LINUX_VERSION_CODE >= 0x020300
@@ -273,12 +273,12 @@ void DRM(vm_shm_close)(struct vm_area_struct *vma)
 #if LINUX_VERSION_CODE < 0x020317
 unsigned long DRM(vm_dma_nopage)(struct vm_area_struct *vma,
 				 unsigned long address,
-				 int write_access)
+				 int unused)
 #else
 				/* Return type changed in 2.3.23 */
 struct page *DRM(vm_dma_nopage)(struct vm_area_struct *vma,
 				unsigned long address,
-				int write_access)
+				int unused)
 #endif
 {
 	drm_file_t	 *priv	 = vma->vm_file->private_data;
@@ -310,12 +310,12 @@ struct page *DRM(vm_dma_nopage)(struct vm_area_struct *vma,
 #if LINUX_VERSION_CODE < 0x020317
 unsigned long DRM(vm_sg_nopage)(struct vm_area_struct *vma,
 				unsigned long address,
-				int write_access)
+				int unused)
 #else
 				/* Return type changed in 2.3.23 */
 struct page *DRM(vm_sg_nopage)(struct vm_area_struct *vma,
 			       unsigned long address,
-			       int write_access)
+			       int unused)
 #endif
 {
 #if LINUX_VERSION_CODE >= 0x020300
@@ -423,7 +423,7 @@ int DRM(mmap_dma)(struct file *filp, struct vm_area_struct *vma)
 	unlock_kernel();
 
 	vma->vm_ops   = &DRM(vm_dma_ops);
-	vma->vm_flags |= VM_LOCKED | VM_SHM; /* Don't swap */
+	vma->vm_flags |= VM_RESERVED; /* Don't swap */
 
 #if LINUX_VERSION_CODE < 0x020203 /* KERNEL_VERSION(2,2,3) */
 				/* In Linux 2.2.3 and above, this is
@@ -558,7 +558,7 @@ int DRM(mmap)(struct file *filp, struct vm_area_struct *vma)
 #endif
 				/* Don't let this area swap.  Change when
 				   DRM_KERNEL advisory is supported. */
-		vma->vm_flags |= VM_LOCKED;
+		vma->vm_flags |= VM_RESERVED;
 		break;
 	case _DRM_SCATTER_GATHER:
 		vma->vm_ops = &DRM(vm_sg_ops);
@@ -567,12 +567,12 @@ int DRM(mmap)(struct file *filp, struct vm_area_struct *vma)
 #else
 		vma->vm_pte = (unsigned long)map;
 #endif
-                vma->vm_flags |= VM_LOCKED;
+                vma->vm_flags |= VM_RESERVED;
                 break;
 	default:
 		return -EINVAL;	/* This should never happen. */
 	}
-	vma->vm_flags |= VM_LOCKED | VM_SHM; /* Don't swap */
+	vma->vm_flags |= VM_RESERVED; /* Don't swap */
 
 #if LINUX_VERSION_CODE < 0x020203 /* KERNEL_VERSION(2,2,3) */
 				/* In Linux 2.2.3 and above, this is

@@ -1,7 +1,7 @@
 /******************************************************************************
  *
  * Module Name: pr_osl.c
- *   $Revision: 18 $
+ *   $Revision: 21 $
  *
  *****************************************************************************/
 
@@ -144,7 +144,7 @@ pr_osl_add_device(
 	PR_CONTEXT		*processor)
 {
 	u32			i = 0;
-	struct proc_dir_entry	*proc_entry = NULL;
+	struct proc_dir_entry	*proc_entry = NULL, *proc;
 	char			processor_uid[16];
 
 	if (!processor) {
@@ -157,28 +157,27 @@ pr_osl_add_device(
 			printk(" C%d", i);
 		}
 	}
-
-	if (processor->performance.state_count > 1) {
-		printk(", throttling states: %d", processor->performance.state_count);
-	}
-
-	if (acpi_piix4_bmisx)
-		printk(", PIIX workaround active");
-
+	if (processor->performance.state_count > 1)
+		printk(", %d throttling states", processor->performance.state_count);
+	if (acpi_piix4_bmisx && processor->power.state[3].is_valid)
+		printk(" (PIIX errata enabled)");
 	printk("\n");
 
 	sprintf(processor_uid, "%d", processor->uid);
 
 	proc_entry = proc_mkdir(processor_uid, pr_proc_root);
-	if (!proc_entry) {
+	if (!proc_entry)
 		return(AE_ERROR);
-	}
 
-	create_proc_read_entry(PR_PROC_STATUS, S_IFREG | S_IRUGO,
-		proc_entry, pr_osl_proc_read_status, (void*)processor);
+	proc = create_proc_read_entry(PR_PROC_STATUS, S_IFREG | S_IRUGO, 
+				      proc_entry, pr_osl_proc_read_status, (void*)processor);
+	if (!proc_entry)
+		return(AE_ERROR);
 
-	create_proc_read_entry(PR_PROC_INFO, S_IFREG | S_IRUGO,
-		proc_entry, pr_osl_proc_read_info, (void*)processor);
+	proc = create_proc_read_entry(PR_PROC_INFO, S_IFREG | S_IRUGO, 
+				      proc_entry, pr_osl_proc_read_info, (void*)processor);
+	if (!proc_entry)
+		return(AE_ERROR);
 
 	return(AE_OK);
 }

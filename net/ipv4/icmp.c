@@ -3,7 +3,7 @@
  *	
  *		Alan Cox, <alan@redhat.com>
  *
- *	Version: $Id: icmp.c,v 1.81 2001/09/01 00:31:50 davem Exp $
+ *	Version: $Id: icmp.c,v 1.82.2.1 2001/12/13 08:59:27 davem Exp $
  *
  *	This program is free software; you can redistribute it and/or
  *	modify it under the terms of the GNU General Public License
@@ -139,7 +139,7 @@ struct icmp_err icmp_err_convert[] = {
   { EHOSTUNREACH,	1 }	/*	ICMP_PREC_CUTOFF	*/
 };
 
-/* Control parameters for ECHO relies. */
+/* Control parameters for ECHO replies. */
 int sysctl_icmp_echo_ignore_all;
 int sysctl_icmp_echo_ignore_broadcasts;
 
@@ -154,8 +154,8 @@ int sysctl_icmp_ignore_bogus_error_responses;
  * 	it's bit position.
  *
  *	default: 
- *	dest unreachable (0x03), source quench (0x04),
- *	time exceeded (0x11), parameter problem (0x12)
+ *	dest unreachable (3), source quench (4),
+ *	time exceeded (11), parameter problem (12)
  */
 
 int sysctl_icmp_ratelimit = 1*HZ;

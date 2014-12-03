@@ -50,6 +50,9 @@ dep_tristate 'ACARD SCSI support' CONFIG_SCSI_ACARD $CONFIG_SCSI
 dep_tristate 'Adaptec AHA152X/2825 support' CONFIG_SCSI_AHA152X $CONFIG_SCSI
 dep_tristate 'Adaptec AHA1542 support' CONFIG_SCSI_AHA1542 $CONFIG_SCSI
 dep_tristate 'Adaptec AHA1740 support' CONFIG_SCSI_AHA1740 $CONFIG_SCSI
+if [ "$CONFIG_EXPERIMENTAL" = "y" ]; then
+   dep_tristate 'Adaptec AACRAID support (EXPERIMENTAL)' CONFIG_SCSI_AACRAID $CONFIG_SCSI $CONFIG_PCI
+fi
 source drivers/scsi/aic7xxx/Config.in
 if [ "$CONFIG_SCSI_AIC7XXX" != "y" ]; then
    dep_tristate 'Old Adaptec AIC7xxx support' CONFIG_SCSI_AIC7XXX_OLD $CONFIG_SCSI
@@ -135,7 +138,16 @@ if [ "$CONFIG_SCSI_NCR53C7xx" != "n" ]; then
    bool '  allow FAST-SCSI [10MHz]' CONFIG_SCSI_NCR53C7xx_FAST
    bool '  allow DISCONNECT' CONFIG_SCSI_NCR53C7xx_DISCONNECT
 fi
-if [ "$CONFIG_PCI" = "y" -a "$CONFIG_SCSI_NCR53C7xx" != "y" ]; then
+if [ "$CONFIG_PCI" = "y" ]; then
+   dep_tristate 'SYM53C8XX Version 2 SCSI support' CONFIG_SCSI_SYM53C8XX_2 $CONFIG_SCSI
+   if [ "$CONFIG_SCSI_SYM53C8XX_2" != "n" ]; then
+      int  '  DMA addressing mode' CONFIG_SCSI_SYM53C8XX_DMA_ADDRESSING_MODE 1
+      int  '  default tagged command queue depth' CONFIG_SCSI_SYM53C8XX_DEFAULT_TAGS 16
+      int  '  maximum number of queued commands' CONFIG_SCSI_SYM53C8XX_MAX_TAGS 64
+      bool '  use normal IO' CONFIG_SCSI_SYM53C8XX_IOMAPPED
+   fi
+fi
+if [ "$CONFIG_PCI" = "y" -a "$CONFIG_SCSI_SYM53C8XX_2" != "y" ]; then
    dep_tristate 'NCR53C8XX SCSI support' CONFIG_SCSI_NCR53C8XX $CONFIG_SCSI
    dep_tristate 'SYM53C8XX SCSI support' CONFIG_SCSI_SYM53C8XX $CONFIG_SCSI
    if [ "$CONFIG_SCSI_NCR53C8XX" != "n" -o "$CONFIG_SCSI_SYM53C8XX" != "n" ]; then
@@ -202,7 +214,7 @@ fi
 if [ "$CONFIG_EXPERIMENTAL" = "y" ]; then
    dep_tristate 'SCSI debugging host simulator (EXPERIMENTAL)' CONFIG_SCSI_DEBUG $CONFIG_SCSI
 fi
-if [ "$CONFIG_PPC" = "y" ]; then
+if [ "$CONFIG_ALL_PPC" = "y" ]; then
    dep_tristate 'MESH (Power Mac internal SCSI) support' CONFIG_SCSI_MESH $CONFIG_SCSI
    if [ "$CONFIG_SCSI_MESH" != "n" ]; then
       int '  maximum synchronous transfer rate (MB/s) (0 = async)' CONFIG_SCSI_MESH_SYNC_RATE 5

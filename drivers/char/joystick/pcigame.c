@@ -133,7 +133,7 @@ static int __devinit pcigame_probe(struct pci_dev *dev, const struct pci_device_
 	pcigame->data = pcigame_data + id->driver_data;
 
 	pcigame->dev = dev;
-	dev->driver_data = pcigame;
+	pci_set_drvdata(dev, pcigame);
 
 	pcigame->gameport.private = pcigame;
 	pcigame->gameport.fuzz = 64;
@@ -163,7 +163,7 @@ static int __devinit pcigame_probe(struct pci_dev *dev, const struct pci_device_
 
 static void __devexit pcigame_remove(struct pci_dev *dev)
 {
-	struct pcigame *pcigame = dev->driver_data;
+	struct pcigame *pcigame = pci_get_drvdata(dev);
 	gameport_unregister_port(&pcigame->gameport);
 	iounmap(pcigame->base);
 	kfree(pcigame);
@@ -180,7 +180,7 @@ static struct pci_driver pcigame_driver = {
 	name:		"pcigame",
 	id_table:	pcigame_id_table,
 	probe:		pcigame_probe,
-	remove:		pcigame_remove,
+	remove:		__devexit_p(pcigame_remove),
 };
 
 int __init pcigame_init(void)

@@ -137,6 +137,7 @@ static struct gendisk xd_gendisk = {
 };
 
 static struct block_device_operations xd_fops = {
+	owner:		THIS_MODULE,
 	open:		xd_open,
 	release:	xd_release,
 	ioctl:		xd_ioctl,
@@ -264,8 +265,6 @@ static int xd_open (struct inode *inode,struct file *file)
 {
 	int dev = DEVICE_NR(inode->i_rdev);
 
-	MOD_INC_USE_COUNT;
-
 	if (dev < xd_drives) {
 		while (!xd_valid[dev])
 			sleep_on(&xd_wait_open);
@@ -275,7 +274,6 @@ static int xd_open (struct inode *inode,struct file *file)
 		return (0);
 	}
 
-	MOD_DEC_USE_COUNT;
 	return -ENXIO;
 }
 
@@ -334,11 +332,6 @@ static int xd_ioctl (struct inode *inode,struct file *file,u_int cmd,u_long arg)
 			g.start = xd_struct[MINOR(inode->i_rdev)].start_sect;
 			return copy_to_user(geometry, &g, sizeof g) ? -EFAULT : 0;
 		}
-		case BLKGETSIZE:
-			if (!arg) return -EINVAL;
-			return put_user(xd_struct[MINOR(inode->i_rdev)].nr_sects,(unsigned long *) arg);
-		case BLKGETSIZE64:
-			return put_user((u64)xd_struct[MINOR(inode->i_rdev)].nr_sects << 9, (u64 *)arg);
 		case HDIO_SET_DMA:
 			if (!capable(CAP_SYS_ADMIN)) return -EACCES;
 			if (xdc_busy) return -EBUSY;
@@ -357,6 +350,8 @@ static int xd_ioctl (struct inode *inode,struct file *file,u_int cmd,u_long arg)
 				return -EACCES;
 			return xd_reread_partitions(inode->i_rdev);
 
+		case BLKGETSIZE:
+		case BLKGETSIZE64:
 		case BLKFLSBUF:
 		case BLKROSET:
 		case BLKROGET:
@@ -374,10 +369,8 @@ static int xd_ioctl (struct inode *inode,struct file *file,u_int cmd,u_long arg)
 static int xd_release (struct inode *inode, struct file *file)
 {
 	int target = DEVICE_NR(inode->i_rdev);
-	if (target < xd_drives) {
+	if (target < xd_drives)
 		xd_access[target]--;
-		MOD_DEC_USE_COUNT;
-	}
 	return 0;
 }
 

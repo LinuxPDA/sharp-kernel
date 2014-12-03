@@ -109,6 +109,7 @@ EXPORT_SYMBOL(strchr);
 EXPORT_SYMBOL(strrchr);
 EXPORT_SYMBOL(memcmp);
 EXPORT_SYMBOL(memmove);
+EXPORT_SYMBOL(memscan);
 EXPORT_SYMBOL(__memcpy);
 EXPORT_SYMBOL(__memset);
 EXPORT_SYMBOL(__memsetw);
@@ -221,12 +222,13 @@ EXPORT_SYMBOL(__global_cli);
 EXPORT_SYMBOL(__global_sti);
 EXPORT_SYMBOL(__global_save_flags);
 EXPORT_SYMBOL(__global_restore_flags);
-#if DEBUG_SPINLOCK
+EXPORT_SYMBOL(atomic_dec_and_lock);
+#ifdef CONFIG_DEBUG_SPINLOCK
 EXPORT_SYMBOL(spin_unlock);
 EXPORT_SYMBOL(debug_spin_lock);
 EXPORT_SYMBOL(debug_spin_trylock);
 #endif
-#if DEBUG_RWLOCK
+#ifdef CONFIG_DEBUG_RWLOCK
 EXPORT_SYMBOL(write_lock);
 EXPORT_SYMBOL(read_lock);
 #endif
@@ -257,3 +259,8 @@ EXPORT_SYMBOL_NOVERS(memset);
 EXPORT_SYMBOL_NOVERS(memchr);
 
 EXPORT_SYMBOL(get_wchan);
+
+#ifdef CONFIG_ALPHA_IRONGATE
+EXPORT_SYMBOL(irongate_ioremap);
+EXPORT_SYMBOL(irongate_iounmap);
+#endif

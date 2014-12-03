@@ -520,7 +520,8 @@ static void uhci_append_queued_urb(struct uhci *uhci, struct urb *eurb, struct u
 
 	lltd = list_entry(lurbp->td_list.prev, struct uhci_td, list);
 
-	uhci_fixup_toggle(urb, uhci_toggle(lltd->info) ^ 1);
+	usb_settoggle(urb->dev, usb_pipeendpoint(urb->pipe), usb_pipeout(urb->pipe),
+		uhci_fixup_toggle(urb, uhci_toggle(lltd->info) ^ 1));
 
 	/* All qh's in the queue need to link to the next queue */
 	urbp->qh->link = eurbp->qh->link;
@@ -556,6 +557,7 @@ static void uhci_delete_queued_urb(struct uhci *uhci, struct urb *urb)
 
 	/* Fix up the toggle for the next URB's */
 	if (!urbp->queued)
+		/* We set the toggle when we unlink */
 		toggle = usb_gettoggle(urb->dev, usb_pipeendpoint(urb->pipe), usb_pipeout(urb->pipe));
 	else {
 		/* If we're in the middle of the queue, grab the toggle */
@@ -1683,8 +1685,8 @@ static void uhci_unlink_generic(struct uhci *uhci, struct urb *urb)
 
 		/* Control and Isochronous ignore the toggle, so this */
 		/* is safe for all types */
-		if (!(td->status & TD_CTRL_ACTIVE) &&
-		    (uhci_actual_length(td->status) < uhci_expected_length(td->info) ||
+		if ((!(td->status & TD_CTRL_ACTIVE) &&
+		    (uhci_actual_length(td->status) < uhci_expected_length(td->info)) ||
 		    tmp == head)) {
 			usb_settoggle(urb->dev, uhci_endpoint(td->info),
 				uhci_packetout(td->info),
@@ -2623,7 +2625,7 @@ static int alloc_uhci(struct pci_dev *dev, unsigned int io_addr, unsigned int io
 	uhci->dev = dev;
 	uhci->io_addr = io_addr;
 	uhci->io_size = io_size;
-	dev->driver_data = uhci;
+	pci_set_drvdata(dev, uhci);
 
 #ifdef CONFIG_PROC_FS
 	uhci->num = uhci_num++;
@@ -2931,7 +2933,7 @@ static int __devinit uhci_pci_probe(struct pci_dev *dev, const struct pci_device
 
 static void __devexit uhci_pci_remove(struct pci_dev *dev)
 {
-	struct uhci *uhci = dev->driver_data;
+	struct uhci *uhci = pci_get_drvdata(dev);
 
 	if (uhci->bus->root_hub)
 		usb_disconnect(&uhci->bus->root_hub);
@@ -2956,14 +2958,14 @@ static void __devexit uhci_pci_remove(struct pci_dev *dev)
 #ifdef CONFIG_PM
 static int uhci_pci_suspend(struct pci_dev *dev, u32 state)
 {
-	suspend_hc((struct uhci *) dev->driver_data);
+	suspend_hc((struct uhci *) pci_get_drvdata(dev));
 	return 0;
 }
 
 static int uhci_pci_resume(struct pci_dev *dev)
 {
-	reset_hc((struct uhci *) dev->driver_data);
-	start_hc((struct uhci *) dev->driver_data);
+	reset_hc((struct uhci *) pci_get_drvdata(dev));
+	start_hc((struct uhci *) pci_get_drvdata(dev));
 	return 0;
 }
 #endif
@@ -2990,7 +2992,7 @@ static struct pci_driver uhci_pci_driver = {
 	id_table:	uhci_pci_ids,
 
 	probe:		uhci_pci_probe,
-	remove:		uhci_pci_remove,
+	remove:		__devexit_p(uhci_pci_remove),
 
 #ifdef	CONFIG_PM
 	suspend:	uhci_pci_suspend,

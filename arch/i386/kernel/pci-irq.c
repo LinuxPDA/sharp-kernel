@@ -1,7 +1,7 @@
 /*
  *	Low-Level PCI Support for PC -- Routing of Interrupts
  *
- *	(c) 1999--2000 Martin Mares <mj@suse.cz>
+ *	(c) 1999--2000 Martin Mares <mj@ucw.cz>
  */
 
 #include <linux/config.h>
@@ -225,12 +225,12 @@ static int pirq_opti_set(struct pci_dev *router, struct pci_dev *dev, int pirq, 
  */
 static int pirq_cyrix_get(struct pci_dev *router, struct pci_dev *dev, int pirq)
 {
-	return read_config_nybble(router, 0x5C, pirq-1);
+	return read_config_nybble(router, 0x5C, (pirq-1)^1);
 }
 
 static int pirq_cyrix_set(struct pci_dev *router, struct pci_dev *dev, int pirq, int irq)
 {
-	write_config_nybble(router, 0x5C, pirq-1, irq);
+	write_config_nybble(router, 0x5C, (pirq-1)^1, irq);
 	return 1;
 }
 

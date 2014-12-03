@@ -11,6 +11,17 @@
  * partition split defined below.
  *
  * $Log: axisflashmap.c,v $
+ * Revision 1.17  2001/11/12 19:42:38  pkj
+ * Fixed compiler warnings.
+ *
+ * Revision 1.16  2001/11/08 11:18:58  jonashg
+ * Always read from uncached address to avoid problems with flushing
+ * cachelines after write and MTD-erase. No performance loss have been
+ * seen yet.
+ *
+ * Revision 1.15  2001/10/19 12:41:04  jonashg
+ * Name of probe has changed in MTD.
+ *
  * Revision 1.14  2001/09/21 07:14:10  jonashg
  * Made root filesystem (cramfs) use mtdblock driver when booting from flash.
  *
@@ -118,7 +129,7 @@ static __u32 flash_read32(struct map_info *map, unsigned long ofs)
 static void flash_copy_from(struct map_info *map, void *to,
 			    unsigned long from, ssize_t len)
 {
-	memcpy(to, (void *)(FLASH_CACHED_ADDR + from), len);
+	memcpy(to, (void *)(FLASH_UNCACHED_ADDR + from), len);
 }
 
 static void flash_write8(struct map_info *map, __u8 d, unsigned long adr)
@@ -234,10 +245,12 @@ init_axis_flash(void)
 	int use_default_ptable = 1; /* Until proven otherwise */
 	const char *pmsg = "  /dev/flash%d at 0x%x, size 0x%x\n";
 
-	printk(KERN_NOTICE "Axis flash mapping: %x at %x\n",
+	printk(KERN_NOTICE "Axis flash mapping: %x at %lx\n",
 	       WINDOW_SIZE, FLASH_CACHED_ADDR);
 
-	mymtd = (struct mtd_info *)do_map_probe("cfi", &axis_map);
+#ifdef CONFIG_MTD_CFI
+	mymtd = (struct mtd_info *)do_map_probe("cfi_probe", &axis_map);
+#endif
 
 #ifdef CONFIG_MTD_AMDSTD
 	if (!mymtd) {

@@ -2,7 +2,7 @@
  *
  *	vlsi_ir.c:	VLSI82C147 PCI IrDA controller driver for Linux
  *
- *	Version:	0.3, Sep 30, 2001
+ *	Version:	0.3a, Nov 10, 2001
  *
  *	Copyright (c) 2001 Martin Diehl
  *
@@ -490,7 +490,7 @@ static int vlsi_set_baud(struct net_device *ndev)
 	if (mode == IFF_FIR)
 		config ^= IRENABLE_FIR_ON;
 	else if (mode == IFF_MIR)
-		config ^= (IRENABLE_FIR_ON|IRENABLE_CRC16_ON);
+		config ^= (IRENABLE_MIR_ON|IRENABLE_CRC16_ON);
 	else
 		config ^= IRENABLE_SIR_ON;
 
@@ -877,6 +877,7 @@ static int vlsi_open(struct net_device *ndev)
 	idev->irlap = irlap_open(ndev,&idev->qos,hwname);
 
 	netif_start_queue(ndev);
+	outw(0, ndev->base_addr+VLSI_PIO_PROMPT);	/* kick hw state machine */
 
 	printk(KERN_INFO "%s: device %s operational using (%d,%d) tx,rx-ring\n",
 		__FUNCTION__, ndev->name, ringsize[0], ringsize[1]);
@@ -1200,7 +1201,6 @@ vlsi_irda_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	int			alloc_size;
 
 
-	vlsi_reg_debug(0x3000, "vlsi initial state");
 	if (pci_enable_device(pdev))
 		goto out;
 
@@ -1238,7 +1238,7 @@ vlsi_irda_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	}
 	printk(KERN_INFO "%s: registered device %s\n", drivername, ndev->name);
 
-	pdev->driver_data = ndev;
+	pci_set_drvdata(pdev, ndev);
 
 	return 0;
 
@@ -1247,13 +1247,13 @@ out_freedev:
 out_disable:
 	pci_disable_device(pdev);
 out:
-	pdev->driver_data = NULL;
+	pci_set_drvdata(pdev, NULL);
 	return -ENODEV;
 }
 
 static void __devexit vlsi_irda_remove(struct pci_dev *pdev)
 {
-	struct net_device *ndev = pdev->driver_data;
+	struct net_device *ndev = pci_get_drvdata(pdev);
 
 	if (ndev) {
 		printk(KERN_INFO "%s: unregister device %s\n",
@@ -1267,7 +1267,7 @@ static void __devexit vlsi_irda_remove(struct pci_dev *pdev)
 	}
 	else
 		printk(KERN_CRIT "%s: lost netdevice?\n", drivername);
-	pdev->driver_data = NULL;
+	pci_set_drvdata(pdev, NULL);
 
 	pci_disable_device(pdev);
 	printk(KERN_INFO "%s: %s disabled\n", drivername, pdev->name);
@@ -1291,7 +1291,7 @@ static struct pci_driver vlsi_irda_driver = {
 	name:           drivername,
 	id_table:       vlsi_irda_table,
 	probe:          vlsi_irda_probe,
-	remove:         vlsi_irda_remove,
+	remove:         __devexit_p(vlsi_irda_remove),
 	suspend:        vlsi_irda_suspend,
 	resume:         vlsi_irda_resume,
 };

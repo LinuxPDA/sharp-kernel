@@ -1,4 +1,4 @@
-/*  $Id: process.c,v 1.156 2001/10/02 02:22:26 davem Exp $
+/*  $Id: process.c,v 1.158 2001/11/26 23:45:00 davem Exp $
  *  linux/arch/sparc/kernel/process.c
  *
  *  Copyright (C) 1995 David S. Miller (davem@caip.rutgers.edu)
@@ -285,37 +285,29 @@ void show_regs(struct pt_regs * regs)
 	show_regwindow((struct reg_window *)regs->u_regs[14]);
 }
 
-#if NOTUSED
-void show_thread(struct thread_struct *thread)
+void show_trace_task(struct task_struct *tsk)
 {
-	int i;
+	unsigned long pc, fp;
+	unsigned long task_base = (unsigned long) tsk;
+	struct reg_window *rw;
+	int count = 0;
 
-	printk("uwinmask:          0x%08lx  kregs:             0x%08lx\n", thread->uwinmask, (unsigned long)thread->kregs);
-	show_regs(thread->kregs);
-	printk("ksp:               0x%08lx  kpc:               0x%08lx\n", thread->ksp, thread->kpc);
-	printk("kpsr:              0x%08lx  kwim:              0x%08lx\n", thread->kpsr, thread->kwim);
-	printk("fork_kpsr:         0x%08lx  fork_kwim:         0x%08lx\n", thread->fork_kpsr, thread->fork_kwim);
+	if (!tsk)
+		return;
 
-	for (i = 0; i < NSWINS; i++) {
-		if (!thread->rwbuf_stkptrs[i])
-			continue;
-		printk("reg_window[%d]:\n", i);
-		printk("stack ptr:         0x%08lx\n", thread->rwbuf_stkptrs[i]);
-		show_regwindow(&thread->reg_window[i]);
-	}
-	printk("w_saved:           0x%08lx\n", thread->w_saved);
-
-	/* XXX missing: float_regs */
-	printk("fsr:               0x%08lx  fpqdepth:          0x%08lx\n", thread->fsr, thread->fpqdepth);
-	/* XXX missing: fpqueue */
-
-	printk("flags:             0x%08lx  current_ds:        0x%08lx\n", thread->flags, thread->current_ds.seg);
-	
-	show_regwindow((struct reg_window *)thread->ksp);
-
-	/* XXX missing: core_exec */
+	fp = tsk->thread.ksp;
+	do {
+		/* Bogus frame pointer? */
+		if (fp < (task_base + sizeof(struct task_struct)) ||
+		    fp >= (task_base + (PAGE_SIZE << 1)))
+			break;
+		rw = (struct reg_window *) fp;
+		pc = rw->ins[7];
+		printk("[%08lx] ", pc);
+		fp = rw->ins[6];
+	} while (++count < 16);
+	printk("\n");
 }
-#endif
 
 /*
  * Free current thread data structures etc..
@@ -455,11 +447,7 @@ clone_stackframe(struct sparc_stackf *dst, struct sparc_stackf *src)
  *       allocate the task_struct and kernel stack in
  *       do_fork().
  */
-#ifdef CONFIG_SMP
-extern void ret_from_smpfork(void);
-#else
-extern void ret_from_syscall(void);
-#endif
+extern void ret_from_fork(void);
 
 int copy_thread(int nr, unsigned long clone_flags, unsigned long sp,
 		unsigned long unused,
@@ -493,13 +481,8 @@ int copy_thread(int nr, unsigned long clone_flags, unsigned long sp,
 	copy_regwin(new_stack, (((struct reg_window *) regs) - 1));
 
 	p->thread.ksp = (unsigned long) new_stack;
-#ifdef CONFIG_SMP
-	p->thread.kpc = (((unsigned long) ret_from_smpfork) - 0x8);
-	p->thread.kpsr = current->thread.fork_kpsr | PSR_PIL;
-#else
-	p->thread.kpc = (((unsigned long) ret_from_syscall) - 0x8);
+	p->thread.kpc = (((unsigned long) ret_from_fork) - 0x8);
 	p->thread.kpsr = current->thread.fork_kpsr;
-#endif
 	p->thread.kwim = current->thread.fork_kwim;
 
 	/* This is used for sun4c only */

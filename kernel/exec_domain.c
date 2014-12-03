@@ -4,7 +4,7 @@
  * We group personalities into execution domains which have their
  * own handlers for kernel entry points, signal mapping, etc...
  *
- * 2001-05-06	Complete rewrite,  Christoph Hellwig (hch@caldera.de)
+ * 2001-05-06	Complete rewrite,  Christoph Hellwig (hch@infradead.org)
  */
 
 #include <linux/config.h>
@@ -77,7 +77,6 @@ static struct exec_domain *
 lookup_exec_domain(u_long personality)
 {
 	struct exec_domain *	ep;
-	char			buffer[30];
 	u_long			pers = personality(personality);
 		
 	read_lock(&exec_domains_lock);
@@ -89,8 +88,11 @@ lookup_exec_domain(u_long personality)
 
 #ifdef CONFIG_KMOD
 	read_unlock(&exec_domains_lock);
-	sprintf(buffer, "personality-%ld", pers);
-	request_module(buffer);
+	{
+		char buffer[30];
+		sprintf(buffer, "personality-%ld", pers);
+		request_module(buffer);
+	}
 	read_lock(&exec_domains_lock);
 
 	for (ep = exec_domains; ep; ep = ep->next) {
@@ -160,8 +162,6 @@ __set_personality(u_long personality)
 	struct exec_domain	*ep, *oep;
 
 	ep = lookup_exec_domain(personality);
-	if (ep == NULL)
-		return -EINVAL;
 	if (ep == current->exec_domain) {
 		current->personality = personality;
 		return 0;

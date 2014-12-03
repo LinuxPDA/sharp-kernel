@@ -119,6 +119,7 @@ static void cciss_procinit(int i) {}
 #endif /* CONFIG_PROC_FS */
 
 static struct block_device_operations cciss_fops  = {
+	owner:			THIS_MODULE,
 	open:			cciss_open, 
 	release:        	cciss_release,
         ioctl:			cciss_ioctl,
@@ -347,7 +348,6 @@ static int cciss_open(struct inode *inode, struct file *filep)
 
 	hba[ctlr]->drv[dsk].usage_count++;
 	hba[ctlr]->usage_count++;
-	MOD_INC_USE_COUNT;
 	return 0;
 }
 /*
@@ -366,7 +366,6 @@ static int cciss_release(struct inode *inode, struct file *filep)
 
 	hba[ctlr]->drv[dsk].usage_count--;
 	hba[ctlr]->usage_count--;
-	MOD_DEC_USE_COUNT;
 	return 0;
 }
 
@@ -1215,7 +1214,12 @@ static inline void complete_command( CommandList_struct *cmd, int timeout)
 				status=0;
 		}
 	}
-	complete_buffers(cmd->bh, status);
+	complete_buffers(cmd->rq->bh, status);
+
+#ifdef CCISS_DEBUG
+	printk("Done with %p\n", cmd->rq);
+#endif /* CCISS_DEBUG */ 
+	end_that_request_last(cmd->rq);
 }
 
 
@@ -1270,7 +1274,7 @@ static void do_cciss_request(request_queue_t *q)
 {
 	ctlr_info_t *h= q->queuedata; 
 	CommandList_struct *c;
-	int log_unit, start_blk, seg, sect;
+	int log_unit, start_blk, seg;
 	char *lastdataend;
 	struct buffer_head *bh;
 	struct list_head *queue_head = &q->queue_head;
@@ -1279,13 +1283,12 @@ static void do_cciss_request(request_queue_t *q)
 	struct my_sg tmp_sg[MAXSGENTRIES];
 	int i;
 
-    // Loop till the queue is empty if or it is plugged
-    while (1)
-    {
-	if (q->plugged || list_empty(queue_head)) {
-                start_io(h);
-                return;
-        }
+	if (q->plugged)
+		goto startio;
+
+queue_next:
+	if (list_empty(queue_head))
+		goto startio;
 
 	creq =	blkdev_entry_next_request(queue_head); 
 	if (creq->nr_segments > MAXSGENTRIES)
@@ -1297,17 +1300,20 @@ static void do_cciss_request(request_queue_t *q)
                                 h->ctlr, creq->rq_dev, creq);
                 blkdev_dequeue_request(creq);
                 complete_buffers(creq->bh, 0);
-                start_io(h);
-                return;
+		end_that_request_last(creq);
+		goto startio;
         }
 
 	if (( c = cmd_alloc(h, 1)) == NULL)
-	{
-		start_io(h);
-		return;
-	}
+		goto startio;
+
+	blkdev_dequeue_request(creq);
+
+	spin_unlock_irq(&io_request_lock);
+
 	c->cmd_type = CMD_RWREQ;      
-	bh = c->bh = creq->bh;
+	bh = creq->bh;
+	c->rq = creq;
 	
 	/* fill in the request */ 
 	log_unit = MINOR(creq->rq_dev) >> NWD_SHIFT; 
@@ -1331,10 +1337,8 @@ static void do_cciss_request(request_queue_t *q)
 #endif /* CCISS_DEBUG */
 	seg = 0; 
 	lastdataend = NULL;
-	sect = 0;
 	while(bh)
 	{
-		sect += bh->b_size/512;
 		if (bh->b_data == lastdataend)
 		{  // tack it on to the last segment 
 			tmp_sg[seg-1].len +=bh->b_size;
@@ -1368,7 +1372,7 @@ static void do_cciss_request(request_queue_t *q)
 		h->maxSG = seg; 
 
 #ifdef CCISS_DEBUG
-	printk(KERN_DEBUG "cciss: Submitting %d sectors in %d segments\n", sect, seg);
+	printk(KERN_DEBUG "cciss: Submitting %d sectors in %d segments\n", creq->nr_sectors, seg);
 #endif /* CCISS_DEBUG */
 
 	c->Header.SGList = c->Header.SGTotal = seg;
@@ -1378,28 +1382,20 @@ static void do_cciss_request(request_queue_t *q)
 	c->Request.CDB[4]= (start_blk >>  8) & 0xff;
 	c->Request.CDB[5]= start_blk & 0xff;
 	c->Request.CDB[6]= 0; // (sect >> 24) & 0xff; MSB
-	c->Request.CDB[7]= (sect >>  8) & 0xff; 
-	c->Request.CDB[8]= sect & 0xff; 
+	c->Request.CDB[7]= (creq->nr_sectors >>  8) & 0xff; 
+	c->Request.CDB[8]= creq->nr_sectors & 0xff; 
 	c->Request.CDB[9] = c->Request.CDB[11] = c->Request.CDB[12] = 0;
 
-			
-	blkdev_dequeue_request(creq);
-
-	
-        /*
-         * ehh, we can't really end the request here since it's not
-         * even started yet. for now it shouldn't hurt though
-         */
-#ifdef CCISS_DEBUG
-	printk("Done with %p\n", creq);
-#endif /* CCISS_DEBUG */ 
-	end_that_request_last(creq);
+	spin_lock_irq(&io_request_lock);
 
 	addQ(&(h->reqQ),c);
 	h->Qdepth++;
 	if(h->Qdepth > h->maxQsinceinit)
 		h->maxQsinceinit = h->Qdepth; 
-   }  // while loop
+
+	goto queue_next;
+startio:
+	start_io(h);
 }
 
 static void do_cciss_intr(int irq, void *dev_id, struct pt_regs *regs)
@@ -1928,7 +1924,7 @@ static int __init cciss_init_one(struct pci_dev *pdev,
 
 	/* Initialize the pdev driver private data. 
 		have it point to hba[i].  */
-	pdev->driver_data = hba[i];
+	pci_set_drvdata(pdev, hba[i]);
 	/* command and error info recs zeroed out before 
 			they are used */
         memset(hba[i]->cmd_pool_bits, 0, ((NR_CMDS+31)/32)*sizeof(__u32));
@@ -1987,12 +1983,12 @@ static void __devexit cciss_remove_one (struct pci_dev *pdev)
 	ctlr_info_t *tmp_ptr;
 	int i;
 
-	if (pdev->driver_data == NULL)
+	if (pci_get_drvdata(pdev) == NULL)
 	{
 		printk( KERN_ERR "cciss: Unable to remove device \n");
 		return;
 	}
-	tmp_ptr = (ctlr_info_t *) pdev->driver_data;
+	tmp_ptr = pci_get_drvdata(pdev);
 	i = tmp_ptr->ctlr;
 	if (hba[i] == NULL) 
 	{
@@ -2003,7 +1999,7 @@ static void __devexit cciss_remove_one (struct pci_dev *pdev)
 	/* Turn board interrupts off */
 	hba[i]->access.set_intr_mask(hba[i], CCISS_INTR_OFF);
 	free_irq(hba[i]->intr, hba[i]);
-	pdev->driver_data = NULL;
+	pci_set_drvdata(pdev, NULL);
 	iounmap((void*)hba[i]->vaddr);
 	unregister_blkdev(MAJOR_NR+i, hba[i]->devname);
 	remove_proc_entry(hba[i]->devname, proc_cciss);	
@@ -2023,7 +2019,7 @@ static void __devexit cciss_remove_one (struct pci_dev *pdev)
 static struct pci_driver cciss_pci_driver = {
 	 name:   "cciss",
 	probe:  cciss_init_one,
-	remove:  cciss_remove_one,
+	remove:  __devexit_p(cciss_remove_one),
 	id_table:  cciss_pci_device_id, /* id_table */
 };
 

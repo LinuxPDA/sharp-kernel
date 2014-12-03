@@ -41,12 +41,6 @@ static int rw_swap_page_base(int rw, swp_entry_t entry, struct page *page)
 	kdev_t dev = 0;
 	int block_size;
 	struct inode *swapf = 0;
-	int wait = 0;
-
-	/* Don't allow too many pending pages in flight.. */
-	if ((rw == WRITE) && atomic_read(&nr_async_pages) >
-			pager_daemon.swap_cluster * (1 << page_cluster))
-		wait = 1;
 
 	if (rw == READ) {
 		ClearPageUptodate(page);
@@ -75,10 +69,6 @@ static int rw_swap_page_base(int rw, swp_entry_t entry, struct page *page)
 	} else {
 		return 0;
 	}
- 	if (!wait) {
- 		SetPageDecrAfter(page);
- 		atomic_inc(&nr_async_pages);
- 	}
 
  	/* block_size == PAGE_SIZE/zones_used */
  	brw_page(rw, page, dev, zones, block_size);
@@ -87,14 +77,6 @@ static int rw_swap_page_base(int rw, swp_entry_t entry, struct page *page)
  	 * decrementing the page count, and unlocking the page in the
  	 * swap lock map - in the IO completion handler.
  	 */
- 	if (!wait)
- 		return 1;
-
- 	wait_on_page(page);
-	/* This shouldn't happen, but check to be sure. */
-	if (page_count(page) == 0)
-		printk(KERN_ERR "rw_swap_page: page unused while waiting!\n");
-
 	return 1;
 }
 

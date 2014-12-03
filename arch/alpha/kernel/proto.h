@@ -91,7 +91,6 @@ extern void unregister_srm_console(void);
 
 /* smp.c */
 extern void setup_smp(void);
-extern int smp_info(char *buffer);
 extern void handle_ipi(struct pt_regs *);
 extern void smp_percpu_timer_interrupt(struct pt_regs *);
 
@@ -107,7 +106,7 @@ extern unsigned long est_cycle_freq;
 extern void SMC93x_Init(void);
 
 /* smc37c669.c */
-extern void SMC669_Init(int);
+extern int SMC669_Init(int);
 
 /* es1888.c */
 extern void es1888_init(void);

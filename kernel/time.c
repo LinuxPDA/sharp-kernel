@@ -36,24 +36,6 @@
  */
 struct timezone sys_tz;
 
-static void do_normal_gettime(struct timeval * tm)
-{
-        *tm=xtime;
-}
-
-void (*do_get_fast_time)(struct timeval *) = do_normal_gettime;
-
-/*
- * Generic way to access 'xtime' (the current time of day).
- * This can be changed if the platform provides a more accurate (and fast!) 
- * version.
- */
-
-void get_fast_time(struct timeval * t)
-{
-	do_get_fast_time(t);
-}
-
 /* The xtime_lock is not only serializing the xtime read/writes but it's also
    serializing all accesses to the global NTP variables now. */
 extern rwlock_t xtime_lock;
@@ -70,11 +52,11 @@ extern rwlock_t xtime_lock;
  */
 asmlinkage long sys_time(int * tloc)
 {
-	int i;
+	struct timeval now; 
+	int i; 
 
-	/* SMP: This is fairly trivial. We grab CURRENT_TIME and 
-	   stuff it to user space. No side effects */
-	i = CURRENT_TIME;
+	do_gettimeofday(&now);
+	i = now.tv_sec;
 	if (tloc) {
 		if (put_user(i,tloc))
 			i = -EFAULT;

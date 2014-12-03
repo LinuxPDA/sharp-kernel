@@ -354,6 +354,7 @@ static struct gendisk pd_gendisk = {
 };
 
 static struct block_device_operations pd_fops = {
+	owner:			THIS_MODULE,
         open:			pd_open,
         release:		pd_release,
         ioctl:			pd_ioctl,
@@ -430,8 +431,6 @@ static int pd_open (struct inode *inode, struct file *file)
 
         if ((unit >= PD_UNITS) || (!PD.present)) return -ENODEV;
 
-        MOD_INC_USE_COUNT;
-
 	wait_event (pd_wait_open, pd_valid);
 
         PD.access++;
@@ -476,18 +475,12 @@ static int pd_ioctl(struct inode *inode,struct file *file,
 		}
                 put_user(pd_hd[dev].start_sect,(long *)&geo->start);
                 return 0;
-            case BLKGETSIZE:
-                if (!arg) return -EINVAL;
-                err = verify_area(VERIFY_WRITE,(unsigned long *) arg,sizeof(unsigned long));
-                if (err) return (err);
-                put_user(pd_hd[dev].nr_sects,(unsigned long *) arg);
-                return (0);
-            case BLKGETSIZE64:
-                return put_user((u64)pd_hd[dev].nr_sects << 9, (u64 *)arg);
             case BLKRRPART:
 		if (!capable(CAP_SYS_ADMIN))
 			return -EACCES;
                 return pd_revalidate(inode->i_rdev);
+	    case BLKGETSIZE:
+	    case BLKGETSIZE64:
 	    case BLKROSET:
 	    case BLKROGET:
 	    case BLKRASET:
@@ -515,8 +508,6 @@ static int pd_release (struct inode *inode, struct file *file)
 
         if (!PD.access && PD.removable)
 		pd_doorlock(unit,IDE_DOORUNLOCK);
-
-        MOD_DEC_USE_COUNT;
 
 	return 0;
 }

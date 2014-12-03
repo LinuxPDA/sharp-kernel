@@ -109,7 +109,7 @@ static void sprintf_de_head( char *buf, struct reiserfs_de_head *deh )
 static void sprintf_item_head (char * buf, struct item_head * ih)
 {
     if (ih) {
-	sprintf (buf, "%s", (ih_version (ih) == ITEM_VERSION_2) ? "*NEW* " : "*OLD*");
+	sprintf (buf, "%s", (ih_version (ih) == KEY_FORMAT_3_6) ? "*3.6* " : "*3.5*");
 	sprintf_le_key (buf + strlen (buf), &(ih->ih_key));
 	sprintf (buf + strlen (buf), ", item_len %d, item_location %d, "
 		 "free_space(entry_count) %d",
@@ -332,26 +332,8 @@ void reiserfs_panic (struct super_block * sb, const char * fmt, ...)
   do_reiserfs_warning(fmt);
   printk ( KERN_EMERG "%s", error_buf);
   BUG ();
-  // console_print (error_buf);
-  // for (;;);
 
-  /* comment before release */
-  //for (;;);
-
-#if 0 /* this is not needed, the state is ignored */
-  if (sb && !(sb->s_flags & MS_RDONLY)) {
-    sb->u.reiserfs_sb.s_mount_state |= REISERFS_ERROR_FS;
-    sb->u.reiserfs_sb.s_rs->s_state = REISERFS_ERROR_FS;
-    
-    mark_buffer_dirty(sb->u.reiserfs_sb.s_sbh) ;
-    sb->s_dirt = 1;
-  }
-#endif
-
-  /* this is to prevent panic from syncing this filesystem */
-  if (sb)
-    sb->s_flags |= MS_RDONLY;
-
+  /* this is not actually called, but makes reiserfs_panic() "noreturn" */
   panic ("REISERFS: panic (device %s): %s\n",
 	 sb ? kdevname(sb->s_dev) : "sb == 0", error_buf);
 }
@@ -538,15 +520,8 @@ static int print_super_block (struct buffer_head * bh)
 	    (sb_state(rs) == REISERFS_VALID_FS) ? "VALID" : "ERROR");
     printk ("Hash function \"%s\"\n",
             sb_hash_function_code(rs) == TEA_HASH ? "tea" :
-	    ((sb_hash_function_code(rs) == YURA_HASH) ? "rupasov" : "unknown"));
+	    ( sb_hash_function_code(rs) == YURA_HASH ? "rupasov" : (sb_hash_function_code(rs) == R5_HASH ? "r5" : "unknown")));
 
-#if 0
-    __u32 s_journal_trans_max ;           /* max number of blocks in a transaction.  */
-    __u32 s_journal_block_count ;         /* total size of the journal. can change over time  */
-    __u32 s_journal_max_batch ;           /* max number of blocks to batch into a trans */
-    __u32 s_journal_max_commit_age ;      /* in seconds, how old can an async commit be */
-    __u32 s_journal_max_trans_age ;       /* in seconds, how old can a transaction be */
-#endif
     printk ("Tree height %d\n", sb_tree_height(rs));
     return 0;
 }

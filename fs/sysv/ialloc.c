@@ -55,7 +55,7 @@ sysv_raw_inode(struct super_block *sb, unsigned ino, struct buffer_head **bh)
 	struct sysv_inode *res;
 	int block = sb->sv_firstinodezone + sb->sv_block_base;
 	block += (ino-1) >> sb->sv_inodes_per_block_bits;
-	*bh = bread(sb->s_dev, block, sb->s_blocksize);
+	*bh = sb_bread(sb, block);
 	if (!*bh)
 		return NULL;
 	res = (struct sysv_inode *) (*bh)->b_data;
@@ -165,6 +165,7 @@ struct inode * sysv_new_inode(const struct inode * dir, mode_t mode)
 	inode->i_ino = fs16_to_cpu(sb, ino);
 	inode->i_mtime = inode->i_atime = inode->i_ctime = CURRENT_TIME;
 	inode->i_blocks = inode->i_blksize = 0;
+	inode->u.sysv_i.i_dir_start_lookup = 0;
 	insert_inode_hash(inode);
 	mark_inode_dirty(inode);
 

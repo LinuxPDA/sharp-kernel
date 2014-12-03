@@ -1462,11 +1462,9 @@ int cdrom_queue_packet_command(ide_drive_t *drive, struct packet_command *pc)
 		ide_init_drive_cmd (&req);
 		req.cmd = PACKET_COMMAND;
 		req.buffer = (char *)pc;
-		if (ide_do_drive_cmd (drive, &req, ide_wait)) {
-			printk("%s: do_drive_cmd returned stat=%02x,err=%02x\n",
-				drive->name, req.buffer[0], req.buffer[1]);
-			/* FIXME: we should probably abort/retry or something */
-		}
+		ide_do_drive_cmd (drive, &req, ide_wait);
+		/* FIXME: we should probably abort/retry or something 
+		 * in case of failure */
 		if (pc->stat != 0) {
 			/* The request failed.  Retry if it was due to a unit
 			   attention status
@@ -2642,6 +2640,13 @@ int ide_cdrom_probe_capabilities (ide_drive_t *drive)
 	if (cap.mechtype == mechtype_caddy || cap.mechtype == mechtype_popup)
 		CDROM_CONFIG_FLAGS (drive)->close_tray = 0;
 
+	/* Some drives used by Apple don't advertise audio play
+	 * but they do support reading TOC & audio datas
+	 */
+	if (strcmp (drive->id->model, "MATSHITADVD-ROM SR-8187") == 0 ||
+	    strcmp (drive->id->model, "MATSHITADVD-ROM SR-8186") == 0)
+		CDROM_CONFIG_FLAGS (drive)->audio_play = 1;
+
 #if ! STANDARD_ATAPI
 	if (cdi->sanyo_slot > 0) {
 		CDROM_CONFIG_FLAGS (drive)->is_changer = 1;
@@ -2863,7 +2868,7 @@ int ide_cdrom_ioctl (ide_drive_t *drive,
 		     struct inode *inode, struct file *file,
 		     unsigned int cmd, unsigned long arg)
 {
-	return cdrom_fops.ioctl (inode, file, cmd, arg);
+	return cdrom_ioctl (inode, file, cmd, arg);
 }
 
 static
@@ -2875,7 +2880,7 @@ int ide_cdrom_open (struct inode *ip, struct file *fp, ide_drive_t *drive)
 	MOD_INC_USE_COUNT;
 	if (info->buffer == NULL)
 		info->buffer = (char *) kmalloc(SECTOR_BUFFER_SIZE, GFP_KERNEL);
-        if ((info->buffer == NULL) || (rc = cdrom_fops.open(ip, fp))) {
+        if ((info->buffer == NULL) || (rc = cdrom_open(ip, fp))) {
 		drive->usage--;
 		MOD_DEC_USE_COUNT;
 	}
@@ -2886,14 +2891,14 @@ static
 void ide_cdrom_release (struct inode *inode, struct file *file,
 			ide_drive_t *drive)
 {
-	cdrom_fops.release (inode, file);
+	cdrom_release (inode, file);
 	MOD_DEC_USE_COUNT;
 }
 
 static
 int ide_cdrom_check_media_change (ide_drive_t *drive)
 {
-	return cdrom_fops.check_media_change(MKDEV (HWIF (drive)->major,
+	return cdrom_media_changed(MKDEV (HWIF (drive)->major,
 			(drive->select.b.unit) << PARTN_BITS));
 }
 

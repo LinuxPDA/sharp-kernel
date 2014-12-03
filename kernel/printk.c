@@ -16,6 +16,7 @@
  *	01Mar01 Andrew Morton <andrewm@uow.edu.au>
  */
 
+#include <linux/kernel.h>
 #include <linux/mm.h>
 #include <linux/tty.h>
 #include <linux/tty_driver.h>
@@ -24,11 +25,25 @@
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/interrupt.h>			/* For in_interrupt() */
+#include <linux/config.h>
 
 #include <asm/uaccess.h>
 
+#ifdef CONFIG_MULTIQUAD
+#define LOG_BUF_LEN	(65536)
+#elif defined(CONFIG_ARCH_S390)
+#define LOG_BUF_LEN	(131072)
+#elif defined(CONFIG_SMP)
+#define LOG_BUF_LEN	(32768)
+#else	
 #define LOG_BUF_LEN	(16384)			/* This must be a power of two */
+#endif
+
 #define LOG_BUF_MASK	(LOG_BUF_LEN-1)
+
+#ifndef arch_consoles_callable
+#define arch_consoles_callable() (1)
+#endif
 
 /* printk's without a loglevel use this.. */
 #define DEFAULT_MESSAGE_LOGLEVEL 4 /* KERN_WARNING */
@@ -39,11 +54,12 @@
 
 DECLARE_WAIT_QUEUE_HEAD(log_wait);
 
-/* Keep together for sysctl support */
-int console_loglevel = DEFAULT_CONSOLE_LOGLEVEL;
-int default_message_loglevel = DEFAULT_MESSAGE_LOGLEVEL;
-int minimum_console_loglevel = MINIMUM_CONSOLE_LOGLEVEL;
-int default_console_loglevel = DEFAULT_CONSOLE_LOGLEVEL;
+int console_printk[4] = {
+	DEFAULT_CONSOLE_LOGLEVEL,	/* console_loglevel */
+	DEFAULT_MESSAGE_LOGLEVEL,	/* default_message_loglevel */
+	MINIMUM_CONSOLE_LOGLEVEL,	/* minimum_console_loglevel */
+	DEFAULT_CONSOLE_LOGLEVEL,	/* default_console_loglevel */
+};
 
 int oops_in_progress;
 
@@ -430,6 +446,14 @@ asmlinkage int printk(const char *fmt, ...)
 			log_level_unknown = 1;
 	}
 
+	if (!arch_consoles_callable()) {
+		/*
+		 * On some architectures, the consoles are not usable
+		 * on secondary CPUs early in the boot process.
+		 */
+		spin_unlock_irqrestore(&logbuf_lock, flags);
+		goto out;
+	}
 	if (!down_trylock(&console_sem)) {
 		/*
 		 * We own the drivers.  We can drop the spinlock and let
@@ -446,6 +470,7 @@ asmlinkage int printk(const char *fmt, ...)
 		 */
 		spin_unlock_irqrestore(&logbuf_lock, flags);
 	}
+out:
 	return printed_len;
 }
 EXPORT_SYMBOL(printk);
@@ -526,6 +551,18 @@ void console_print(const char *s)
 	printk(KERN_EMERG "%s", s);
 }
 EXPORT_SYMBOL(console_print);
+
+void console_unblank(void)
+{
+	struct console *c;
+
+	acquire_console_sem();
+	for (c = console_drivers; c != NULL; c = c->next)
+		if ((c->flags & CON_ENABLED) && c->unblank)
+			c->unblank();
+	release_console_sem();
+}
+EXPORT_SYMBOL(console_unblank);
 
 /*
  * The console driver calls this routine during kernel initialization

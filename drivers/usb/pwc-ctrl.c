@@ -782,7 +782,7 @@ int pwc_camera_power(struct pwc_device *pdev, int power)
 {
 	char buf;
 
-	if (pdev->type < 675 || pdev->release < 6)
+	if (pdev->type < 675 || (pdev->type < 730 && pdev->release < 6))
 		return 0;	/* Not supported by Nala or Timon < release 6 */
 
 	if (power)
@@ -1008,6 +1008,8 @@ int pwc_set_leds(struct pwc_device *pdev, int on_value, int off_value)
 
 	if (pdev->type < 730)
 		return 0;
+	on_value /= 100;
+	off_value /= 100;
 	if (on_value < 0)
 		on_value = 0;
 	if (on_value > 0xff)
@@ -1048,8 +1050,8 @@ int pwc_get_leds(struct pwc_device *pdev, int *on_value, int *off_value)
 
 	if (ret < 0)
 		return ret;
-	*on_value = buf[0];
-	*off_value = buf[1];
+	*on_value = buf[0] * 100;
+	*off_value = buf[1] * 100;
 	return 0;
 }
 
@@ -1175,6 +1177,8 @@ int pwc_ioctl(struct pwc_device *pdev, unsigned int cmd, void *arg)
 			wb.read_red = pwc_read_red_gain(pdev);
 			wb.read_blue = pwc_read_blue_gain(pdev);
 		}
+		if (copy_to_user(arg, &wb, sizeof(wb)))
+			return -EFAULT;
 		break;
 	}
 

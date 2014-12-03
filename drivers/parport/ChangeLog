@@ -1,3 +1,127 @@
+2002-01-13  Niels Kristian Bech Jensen  <nkbj@image.dk>
+
+	* parport_pc.c: Change some occurrences of frob_set_mode to
+	ECR_WRITE.  This fixes PLIP.
+
+2002-01-04  Tim Waugh  <twaugh@redhat.com>
+
+	* share.c (parport_claim_or_block): Sleep interruptibly to prevent
+	a possible deadlock.
+
+2001-12-07  Damian Gruszka  <damian.gruszka@VisionSystems.de>
+
+	* parport_pc.c (ECR_WRITE): Define.  If there are forbidden bits
+	in the ECR register for some chips, this will be a useful place to
+	put that knowledge.
+	(change_mode): Use ECR_WRITE.
+	(parport_pc_restore_state): Likewise.
+	(parport_ECPPS2_supported): Likewise.
+	(parport_ECPEPP_supported): Likewise.
+	(irq_probe_EPP): Likewise.
+	(programmable_irq_support): Likewise.
+	(programmable_dma_support): Likewise.
+	(parport_pc_probe_port): Likewise.
+
+	(frob_set_mode): New function.  Set the mode bits of the ECR.
+	(get_fifo_residue): Use frob_set_mode.
+	(parport_pc_ecpepp_read_data): Likewise.
+	(parport_pc_ecpepp_write_data): Likewise.
+	(parport_pc_ecpepp_read_addr): Likewise.
+	(parport_pc_ecpepp_write_addr): Likewise.
+	(parport_pc_compat_write_block_pio): Likewise.
+	(parport_pc_ecp_write_block_pio): Likewise.
+	(parport_ECR_present): Likewise.
+	(parport_ECP_supported): Likewise.
+	(parport_EPP_supported): Likewise.
+	(parport_ECPEPP_supported): Likewise.
+	(programmable_irq_support): Likewise.
+	(irq_probe_ECP): Likewise.
+	(programmable_dma_support): Likewise.
+
+	(parport_pc_enable_irq): Only enable interrupts if we know which
+	IRQ line they will come from.
+	(parport_pc_init_state): Set nErrIntrEn at initialisation.
+	(parport_pc_restore_state): Only write writable bits of CTR.
+	(parport_irq_probe): If no IRQ is found, take ackIntEn out of the
+	writable bit set.
+
+2001-12-07  Tim Waugh  <twaugh@redhat.com>
+
+	* parport_pc.c (parport_pc_fifo_write_block_pio): Correct typo.
+	(parport_pc_init_state): Only set ackIntEn if we know which IRQ
+	line the interrupts will come from.
+
+2001-12-07  Tim Waugh  <twaugh@redhat.com>
+
+	* ieee1284_ops.c (parport_ieee1284_epp_write_addr,
+	parport_ieee1284_epp_read_addr): Actually do something useful.
+
+2001-12-07  Tim Waugh  <twaugh@redhat.com>
+
+	* parport_pc.c (dmaval): Don't use DMA by default.  It seems to be
+	too buggy at the moment.  Use 'dma=auto' to restore the previous
+	behaviour.
+
+2001-12-03  Rich Liu  <Rich.Liu@ite.com.tw>
+
+	* parport_pc.c (sio_ite_8872_probe): ITE8873 is a single-port
+	serial board, not a serial+parallel.
+
+2001-11-30  Niels Kristian Bech Jensen  <nkbj@image.dk>
+
+	* parport_pc.c: Fix compiler warning.
+
+2001-12-07  Tim Waugh  <twaugh@redhat.com>
+
+	* daisy.c (DEBUG): Undefine.
+
+2001-12-06  Tim Waugh  <twaugh@redhat.com>
+
+	* ieee1284_ops.c (parport_ieee1284_ecp_read_data): Mask off
+	PARPORT_CONTROL_AUTOFD as well.  Bug spotted by Joe
+	<joeja@mindspring.com>.
+
+2001-11-12  Tim Waugh  <twaugh@redhat.com>
+
+	* parport_pc.c (init_module): Warn when parameters are ignored.
+
+2001-11-01  Damian Gruszka  <damian.gruszka@VisionSystems.de>
+
+	* parport_serial.c (serial_register): Set base_baud before
+	calling register_serial.
+
+2001-10-26  Tim Waugh  <twaugh@redhat.com>
+
+	* parport_pc.c (parport_irq_probe): When ECR programmable IRQ
+	support fails, generate interrupts using the FIFO even if we don't
+	want to use the FIFO for real data transfers.
+	(parport_pc_probe_port): Display the ECR address if we have an
+	ECR, not just if we will use the FIFO.
+
+2001-10-24  Dave Strauss  <D.Strauss@motorola.com>
+
+	* parport_pc.c (parport_pc_compat_write_block_pio,
+	parport_pc_ecp_write_block_pio): Allow a few seconds for an ECP
+	transfer to finish up.
+
+2001-10-11  Tim Waugh  <twaugh@redhat.com>
+
+	* parport_pc (sio_ite_8872_probe): New function, submitted by Rich
+	Liu from ITE.  Cleaned up, removed bogus phys_to_virt calls.
+
+2001-10-24  Tim Waugh  <twaugh@redhat.com>
+
+	* parport_pc.c: Support for AKS AladdinCARD.  Patch from
+	Aladdin Knowledge Systems (Christian Groessler).
+
+2001-10-24  Tim Waugh  <twaugh@redhat.com>
+	
+	* ieee1284_ops.c (parport_ieee1284_ecp_read_data): Try to minimise
+	turnaround time.
+
+	* ieee1284.c (parport_poll_peripheral): Try a couple of times
+	first without delaying.
+
 2001-10-10  Tim Waugh  <twaugh@redhat.com>
 
 	* parport_pc.c: Support for OX16PCI954 PCI card.

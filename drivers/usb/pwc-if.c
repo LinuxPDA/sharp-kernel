@@ -39,7 +39,10 @@
 
 /* Contributors:
    - Alvarado: adding whitebalance code
-   - Alistar Moire: QuickCam 3000 Pro testing
+   - Alistar Moire: QuickCam 3000 Pro device/product ID
+   - Tony Hoyle: Creative Labs Webcam 5 device/product ID
+   - Mark Burazin: solving hang in VIDIOCSYNC when camera gets unplugged
+   - Jk Fang: SOTEC device/product ID
 */
 
 #include <linux/errno.h>
@@ -76,6 +79,8 @@ static __devinitdata struct usb_device_id pwc_device_table [] = {
 	{ USB_DEVICE(0x046D, 0x08b0) },
 	{ USB_DEVICE(0x055D, 0x9000) },
 	{ USB_DEVICE(0x055D, 0x9001) },
+	{ USB_DEVICE(0x041E, 0x400C) },
+	{ USB_DEVICE(0x04CC, 0x8116) },
 	{ }
 };
 MODULE_DEVICE_TABLE(usb, pwc_device_table);
@@ -91,6 +96,8 @@ static struct usb_driver pwc_driver =
 	disconnect:		usb_pwc_disconnect,	/* disconnect() */
 };
 
+#define MAX_DEV_HINTS 10
+
 static int default_size = PSZ_QCIF;
 static int default_fps = 10;
 static int default_palette = VIDEO_PALETTE_YUV420P; /* This format is understood by most tools */
@@ -99,12 +106,16 @@ static int default_mbufs = 2;	/* Default number of mmap() buffers */
        int pwc_trace = TRACE_MODULE | TRACE_FLOW | TRACE_PWCX;
 static int power_save = 0;
 static int led_on = 1, led_off = 0; /* defaults to LED that is on while in use */
-int pwc_preferred_compression = 2; /* 0..3 = uncompressed..high */
+       int pwc_preferred_compression = 2; /* 0..3 = uncompressed..high */
+static struct {
+	int type;
+	char serial_number[30];
+	int device_node;
+	struct pwc_device *pdev;
+} device_hint[MAX_DEV_HINTS];
 
 static struct semaphore mem_lock;
 static void *mem_leak = NULL; /* For delayed kfree()s. See below */
-
-static int video_nr = -1;
 
 /***/
 
@@ -647,7 +658,8 @@ static void pwc_isoc_handler(purb_t urb)
 		errmsg = "Unknown";
 		switch(urb->status) {
 			case -ENOSR:		errmsg = "Buffer error (overrun)"; break;
-			case -EPIPE:		errmsg = "Babble/stalled (bad cable?)"; break;
+			case -EPIPE:		errmsg = "Stalled (device not responding)"; break;
+			case -EOVERFLOW:	errmsg = "Babble (bad cable?)"; break;
 			case -EPROTO:		errmsg = "Bit-stuff error (bad cable?)"; break;
 			case -EILSEQ:		errmsg = "CRC/Timeout"; break;
 			case -ETIMEDOUT:	errmsg = "NAK (device does not respond)"; break;
@@ -765,6 +777,11 @@ static void pwc_isoc_handler(purb_t urb)
 			} /* .. flen < last_packet_size */
 			pdev->vlast_packet_size = flen;
 		} /* ..status == 0 */
+#ifdef PWC_DEBUG
+		/* This is normally not interesting to the user, unless you are really debugging something */
+		else 
+			Trace(TRACE_FLOW, "Iso frame %d of USB has error %d\n", i, fst);
+#endif			
 	}
 	if (awake)
 		wake_up_interruptible(&pdev->frameq);
@@ -875,6 +892,7 @@ static void pwc_isoc_cleanup(struct pwc_device *pdev)
 	/* Stop camera, but only if we are sure the camera is still there */
 	if (!pdev->unplugged)
 		usb_set_interface(pdev->udev, 0, 0);
+	/* Unlinking ISOC buffers one by one */
 	for (i = MAX_ISO_BUFS - 1; i >= 0; i--) {
 		pdev->sbuf[i].urb->next = NULL;
 		usb_unlink_urb(pdev->sbuf[i].urb);
@@ -1140,7 +1158,7 @@ static long pwc_video_read(struct video_device *vdev, char *buf, unsigned long c
 	                	return -ERESTARTSYS;
 	                }
 	                schedule();
-	                set_current_state(TASK_INTERRUPTIBLE);
+	               	set_current_state(TASK_INTERRUPTIBLE);
 		}
 		remove_wait_queue(&pdev->frameq, &wait);
 		set_current_state(TASK_RUNNING);
@@ -1481,6 +1499,12 @@ static int pwc_video_ioctl(struct video_device *vdev, unsigned int cmd, void *ar
 			 */
 			add_wait_queue(&pdev->frameq, &wait);
 			while (pdev->full_frames == NULL) {
+				if (pdev->unplugged) {
+					remove_wait_queue(&pdev->frameq, &wait);
+					set_current_state(TASK_RUNNING);
+					return -ENODEV;
+				}
+			
 	                	if (signal_pending(current)) {
 	                		remove_wait_queue(&pdev->frameq, &wait);
 		                	set_current_state(TASK_RUNNING);
@@ -1595,7 +1619,9 @@ static void *usb_pwc_probe(struct usb_device *udev, unsigned int ifnum, const st
 	struct pwc_device *pdev = NULL;
 	struct video_device *vdev;
 	int vendor_id, product_id, type_id;
-	int i;
+	int i, hint;
+	int video_nr = -1; /* default: use next available device */
+	char serial_number[30];
 
 	free_mem_leak();
 	
@@ -1696,7 +1722,33 @@ static void *usb_pwc_probe(struct usb_device *udev, unsigned int ifnum, const st
 			break;
 		}
 	}
-	else return NULL; /* Not Philips, Askey, Logitech or Samsung, for sure. */
+	else if (vendor_id == 0x041e) {
+		switch(product_id) {
+		case 0x400c:
+			Info("Creative Labs Webcam 5 detected.\n");
+			type_id = 730;
+			break;
+		default:
+			return NULL;
+			break;
+		}
+	}
+	else if (vendor_id == 0x04cc) { 
+		switch(product_id) {
+		case 0x8116:
+			Info("SOTEC CMS-001 USB webcam detected.\n");
+			type_id = 730;
+			break;  
+		default:
+			return NULL;
+			break;
+		}
+	}
+	else return NULL; /* Not Philips, Askey, Logitech, Samsung, Creative or SOTEC, for sure. */
+
+	memset(serial_number, 0, 30);
+	usb_string(udev, udev->descriptor.iSerialNumber, serial_number, 29);
+	Trace(TRACE_PROBE, "Device serial number is %s\n", serial_number);
 
 	if (udev->descriptor.bNumConfigurations > 1)
 		Info("Warning: more than 1 configuration available.\n");
@@ -1734,6 +1786,21 @@ static void *usb_pwc_probe(struct usb_device *udev, unsigned int ifnum, const st
 	pdev->release = udev->descriptor.bcdDevice;
 	Trace(TRACE_PROBE, "Release: %04x\n", pdev->release);
 
+
+	/* Now search device_hint[] table for a match, so we can hint a node number. */
+	for (hint = 0; hint < MAX_DEV_HINTS; hint++) {
+		if (((device_hint[hint].type == -1) || (device_hint[hint].type == pdev->type)) &&
+		     (device_hint[hint].pdev == NULL)) {
+			/* so far, so good... try serial number */
+			if ((device_hint[hint].serial_number[0] == '*') || !strcmp(device_hint[hint].serial_number, serial_number)) {
+			    	/* match! */
+			    	video_nr = device_hint[hint].device_node;
+			    	Trace(TRACE_PROBE, "Found hint, will try to register as /dev/video%d\n", video_nr);
+			    	break;
+			}
+		}
+	}
+
 	i = video_register_device(vdev, VFL_TYPE_GRABBER, video_nr);
 	if (i < 0) {
 		Err("Failed to register as video device (%d).\n", i);
@@ -1743,16 +1810,9 @@ static void *usb_pwc_probe(struct usb_device *udev, unsigned int ifnum, const st
 		Trace(TRACE_PROBE, "Registered video struct at 0x%p.\n", vdev);
 		Info("Registered as /dev/video%d.\n", vdev->minor & 0x3F);
 	}
-
-#if 0
-	/* Shut down camera now (some people like the LED off) */
-	if (power_save) {
-		Trace(TRACE_PROBE, "Powering down camera");
-		i = pwc_camera_power(pdev, 0);
-		if (i < 0)
-			Info("Failed to power-down the camera (%d)\n", i);
-	}
-#endif
+	/* occupy slot */
+	if (hint < MAX_DEV_HINTS) 
+		device_hint[hint].pdev = pdev;
 
 	Trace(TRACE_PROBE, "probe() function returning struct at 0x%p.\n", pdev);
 	return pdev;
@@ -1762,6 +1822,8 @@ static void *usb_pwc_probe(struct usb_device *udev, unsigned int ifnum, const st
 static void usb_pwc_disconnect(struct usb_device *udev, void *ptr)
 {
 	struct pwc_device *pdev;
+	int hint;
+	DECLARE_WAITQUEUE(wait, current);
 
 	lock_kernel();
 	free_mem_leak();
@@ -1796,13 +1858,19 @@ static void usb_pwc_disconnect(struct usb_device *udev, void *ptr)
 			 */
 			wake_up(&pdev->frameq);
 			
-			/* Wait until we get a 'go' from _close(). This
-			   had a gigantic race condition, since we kfree()
+			/* Wait until we get a 'go' from _close(). This used
+			   to have a gigantic race condition, since we kfree()
 			   stuff here, but we have to wait until close() 
-			   is finished. */
+			   is finished. 
+			 */
 			   
 			Trace(TRACE_PROBE, "Sleeping on remove_ok.\n");
-			sleep_on(&pdev->remove_ok);
+			add_wait_queue(&pdev->remove_ok, &wait);
+			set_current_state(TASK_UNINTERRUPTIBLE);
+			/* ... wait ... */
+			schedule();
+			remove_wait_queue(&pdev->remove_ok, &wait);
+			set_current_state(TASK_RUNNING);
 			Trace(TRACE_PROBE, "Done sleeping.\n");
 			set_mem_leak(pdev->vdev);
 			pdev->vdev = NULL;
@@ -1815,11 +1883,30 @@ static void usb_pwc_disconnect(struct usb_device *udev, void *ptr)
 			pdev->vdev = NULL;
 		}
 	}
+
+	/* search device_hint[] table if we occupy a slot, by any chance */
+	for (hint = 0; hint < MAX_DEV_HINTS; hint++)
+		if (device_hint[hint].pdev == pdev)
+			device_hint[hint].pdev = NULL;
+
 	pdev->udev = NULL;
 	unlock_kernel();
 	kfree(pdev);
 }
 
+
+/* *grunt* We have to do atoi ourselves :-( */
+static int pwc_atoi(char *s)
+{
+	int k = 0;
+	
+	k = 0;
+	while (*s != '\0' && *s >= '0' && *s <= '9') {
+		k = 10 * k + (*s - '0');
+		s++;
+	}
+	return k;
+}
 
 
 /* 
@@ -1833,8 +1920,8 @@ static int mbufs = 0;
 static int trace = -1;
 static int compression = -1;
 static int leds[2] = { -1, -1 };
+static char *dev_hint[10] = { };
 
-MODULE_PARM(video_nr, "i");
 MODULE_PARM(size, "s");
 MODULE_PARM_DESC(size, "Initial image size. One of sqcif, qsif, qcif, sif, cif, vga");
 MODULE_PARM(fps, "i");
@@ -1851,17 +1938,20 @@ MODULE_PARM(compression, "i");
 MODULE_PARM_DESC(compression, "Preferred compression quality. Range 0 (uncompressed) to 3 (high compression)");
 MODULE_PARM(leds, "2i");
 MODULE_PARM_DESC(leds, "LED on,off time in milliseconds");
+MODULE_PARM(dev_hint, "0-10s");
+MODULE_PARM_DESC(dev_hint, "Device node hints");
+
 MODULE_DESCRIPTION("Philips USB webcam driver");
 MODULE_AUTHOR("Nemosoft Unv. <nemosoft@smcc.demon.nl>");
 MODULE_LICENSE("GPL");
 
 static int __init usb_pwc_init(void)
 {
-	int s;
+	int i, sz;
 	char *sizenames[PSZ_MAX] = { "sqcif", "qsif", "qcif", "sif", "cif", "vga" };
 
 	Info("Philips PCA645/646 + PCVC675/680/690 + PCVC730/740/750 webcam module version " PWC_VERSION " loaded.\n");
-	Info("Also supports the Askey VC010, Logitech Quickcam 3000 Pro and the Samsung MPC-C10 and MPC-C30.\n");
+	Info("Also supports the Askey VC010, Logitech Quickcam 3000 Pro, Samsung MPC-C10 and MPC-C30, the Creative WebCam 5 and the SOTEC CMS-001.\n");
 
 	if (fps) {
 		if (fps < 5 || fps > 30) {
@@ -1874,13 +1964,13 @@ static int __init usb_pwc_init(void)
 	
 	if (size) {
 		/* string; try matching with array */
-		for (s = 0; s < PSZ_MAX; s++) {
-			if (!strcmp(sizenames[s], size)) { /* Found! */
-				default_size = s;
+		for (sz = 0; sz < PSZ_MAX; sz++) {
+			if (!strcmp(sizenames[sz], size)) { /* Found! */
+				default_size = sz;
 				break;
 			}
 		}
-		if (s == PSZ_MAX) {
+		if (sz == PSZ_MAX) {
 			Err("Size not recognized; try size=[sqcif | qsif | qcif | sif | cif | vga].\n");
 			return -EINVAL;
 		}
@@ -1920,6 +2010,74 @@ static int __init usb_pwc_init(void)
 		led_on = leds[0] / 100;
 	if (leds[1] >= 0)
 		led_off = leds[1] / 100;
+
+	/* Big device node whoopla. Basicly, it allows you to assign a 
+	   device node (/dev/videoX) to a camera, based on its type 
+	   & serial number. The format is [type[.serialnumber]:]node.
+
+           Any camera that isn't matched by these rules gets the next 
+           available free device node.
+	 */
+	for (i = 0; i < MAX_DEV_HINTS; i++) {
+		char *s, *colon, *dot;
+
+		/* This loop also initializes the array */
+		device_hint[i].pdev = NULL;
+		s = dev_hint[i];
+		if (s != NULL && *s != '\0') {
+			device_hint[i].type = -1; /* wildcard */
+			strcpy(device_hint[i].serial_number, "*");
+
+			/* parse string: chop at ':' & '/' */
+			colon = dot = s;
+			while (*colon != '\0' && *colon != ':')
+				colon++;
+			while (*dot != '\0' && *dot != '.')
+				dot++;
+			/* Few sanity checks */
+			if (*dot != '\0' && dot > colon) {
+				Err("Malformed camera hint: the colon must be after the dot.\n");
+				return -EINVAL;
+			}
+
+			if (*colon == '\0') {
+				/* No colon */
+				if (*dot != '\0') {
+					Err("Malformed camera hint: no colon + device node given.\n");
+					return -EINVAL;
+				}
+				else {
+					/* No type or serial number specified, just a number. */
+					device_hint[i].device_node = pwc_atoi(s);
+				}
+			}
+			else {
+				/* There's a colon, so we have at least a type and a device node */
+				device_hint[i].type = pwc_atoi(s);
+				device_hint[i].device_node = pwc_atoi(colon + 1);
+				if (*dot != '\0') {
+					/* There's a serial number as well */
+					int k;
+					
+					dot++;
+					k = 0;
+					while (*dot != ':' && k < 29) {
+						device_hint[i].serial_number[k++] = *dot;
+						dot++;
+					}
+					device_hint[i].serial_number[k] = '\0';
+				}
+			}
+#ifdef PWC_DEBUG		
+			Debug("device_hint[%d]:\n", i);
+			Debug("  type    : %d\n", device_hint[i].type);
+			Debug("  serial# : %s\n", device_hint[i].serial_number);
+			Debug("  node    : %d\n", device_hint[i].device_node);
+#endif			
+		}
+		else
+			device_hint[i].type = 0; /* not filled */
+	} /* ..for MAX_DEV_HINTS */
 
 	init_MUTEX(&mem_lock);
  	Trace(TRACE_PROBE, "Registering driver at address 0x%p.\n", &pwc_driver);

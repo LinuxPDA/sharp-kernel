@@ -230,11 +230,8 @@ static int sd_ioctl(struct inode * inode, struct file * file, unsigned int cmd, 
 				return -EFAULT;
 			return 0;
 		}
-		case BLKGETSIZE:   /* Return device size */
-			return put_user(sd[SD_PARTITION(inode->i_rdev)].nr_sects, (unsigned long *) arg);
+		case BLKGETSIZE:
 		case BLKGETSIZE64:
-			return put_user((u64)sd[SD_PARTITION(inode->i_rdev)].nr_sects << 9, (u64 *)arg);
-
 		case BLKROSET:
 		case BLKROGET:
 		case BLKRASET:
@@ -459,8 +456,10 @@ static int sd_open(struct inode *inode, struct file *filp)
 	 * is being re-read.
 	 */
 
-	while (rscsi_disks[target].device->busy)
+	while (rscsi_disks[target].device->busy) {
 		barrier();
+		cpu_relax();
+	}
 	/*
 	 * The following code can sleep.
 	 * Module unloading must be prevented
@@ -555,6 +554,7 @@ static int sd_release(struct inode *inode, struct file *file)
 
 static struct block_device_operations sd_fops =
 {
+	owner:			THIS_MODULE,
 	open:			sd_open,
 	release:		sd_release,
 	ioctl:			sd_ioctl,
@@ -1078,6 +1078,7 @@ static int sd_init()
 		for (i = 0; i < N_USED_SD_MAJORS; i++) {
 			if (devfs_register_blkdev(SD_MAJOR(i), "sd", &sd_fops)) {
 				printk("Unable to get major %d for SCSI disk\n", SD_MAJOR(i));
+				sd_template.dev_noticed = 0;
 				return 1;
 			}
 		}
@@ -1175,7 +1176,8 @@ cleanup_gendisks_de_arr:
 		kfree(sd_gendisks[i].de_arr);
 		kfree(sd_gendisks[i].flags);
 	}
-	kfree(sd_gendisks);
+	if (sd_gendisks != &sd_gendisk)
+		kfree(sd_gendisks);
 cleanup_sd_gendisks:
 	kfree(sd);
 cleanup_sd:
@@ -1188,11 +1190,13 @@ cleanup_sizes:
 	kfree(sd_sizes);
 cleanup_disks:
 	kfree(rscsi_disks);
+	rscsi_disks = NULL;
 cleanup_devfs:
 	for (i = 0; i < N_USED_SD_MAJORS; i++) {
 		devfs_unregister_blkdev(SD_MAJOR(i), "sd");
 	}
 	sd_registered--;
+	sd_template.dev_noticed = 0;
 	return 1;
 }
 
@@ -1251,7 +1255,7 @@ static int sd_attach(Scsi_Device * SDp)
 	if (SDp->type != TYPE_DISK && SDp->type != TYPE_MOD)
 		return 0;
 
-	if (sd_template.nr_dev >= sd_template.dev_max) {
+	if (sd_template.nr_dev >= sd_template.dev_max || rscsi_disks == NULL) {
 		SDp->attached--;
 		return 1;
 	}
@@ -1259,8 +1263,13 @@ static int sd_attach(Scsi_Device * SDp)
 		if (!dpnt->device)
 			break;
 
-	if (i >= sd_template.dev_max)
-		panic("scsi_devices corrupt (sd)");
+	if (i >= sd_template.dev_max) {
+		printk(KERN_WARNING "scsi_devices corrupt (sd),"
+		    " nr_dev %d dev_max %d\n",
+		    sd_template.nr_dev, sd_template.dev_max);
+		SDp->attached--;
+		return 1;
+	}
 
 	rscsi_disks[i].device = SDp;
 	rscsi_disks[i].has_part_table = 0;
@@ -1347,6 +1356,9 @@ static void sd_detach(Scsi_Device * SDp)
 	int i, j;
 	int max_p;
 	int start;
+
+	if (rscsi_disks == NULL)
+		return;
 
 	for (dpnt = rscsi_disks, i = 0; i < sd_template.dev_max; i++, dpnt++)
 		if (dpnt->device == SDp) {

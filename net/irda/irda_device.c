@@ -10,6 +10,7 @@
  * Modified by:   Dag Brattli <dagb@cs.uit.no>
  * 
  *     Copyright (c) 1999-2000 Dag Brattli, All Rights Reserved.
+ *     Copyright (c) 2000-2001 Jean Tourrilhes <jt@hpl.hp.com>
  *     
  *     This program is free software; you can redistribute it and/or 
  *     modify it under the terms of the GNU General Public License as 
@@ -65,6 +66,8 @@ extern int esi_init(void);
 extern int tekram_init(void);
 extern int actisys_init(void);
 extern int girbil_init(void);
+extern int sa1100_irda_init(void);
+extern int ep7211_ir_init(void);
 
 static void __irda_task_delete(struct irda_task *task);
 
@@ -78,6 +81,7 @@ const char *infrared_mode[] = {
 	"TV_REMOTE",
 };
 
+#ifdef CONFIG_IRDA_DEBUG
 static const char *task_state[] = {
 	"IRDA_TASK_INIT",
 	"IRDA_TASK_DONE", 
@@ -89,6 +93,7 @@ static const char *task_state[] = {
 	"IRDA_TASK_CHILD_WAIT",
 	"IRDA_TASK_CHILD_DONE",
 };
+#endif	/* CONFIG_IRDA_DEBUG */
 
 static void irda_task_timer_expired(void *data);
 
@@ -124,6 +129,9 @@ int __init irda_device_init( void)
 #ifdef CONFIG_WINBOND_FIR
 	w83977af_init();
 #endif
+#ifdef CONFIG_SA1100_FIR
+	sa1100_irda_init();
+#endif
 #ifdef CONFIG_NSC_FIR
 	nsc_ircc_init();
 #endif
@@ -150,6 +158,9 @@ int __init irda_device_init( void)
 #endif
 #ifdef CONFIG_OLD_BELKIN
  	old_belkin_init();
+#endif
+#ifdef CONFIG_EP7211_IR
+ 	ep7211_ir_init();
 #endif
 	return 0;
 }
@@ -181,7 +192,10 @@ void irda_device_set_media_busy(struct net_device *dev, int status)
 
 	if (status) {
 		self->media_busy = TRUE;
-		irlap_start_mbusy_timer(self);
+		if (status == SMALL)
+			irlap_start_mbusy_timer(self, SMALLBUSY_TIMEOUT);
+		else
+			irlap_start_mbusy_timer(self, MEDIABUSY_TIMEOUT);
 		IRDA_DEBUG( 4, "Media busy!\n");
 	} else {
 		self->media_busy = FALSE;

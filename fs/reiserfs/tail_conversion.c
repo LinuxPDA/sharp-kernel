@@ -189,7 +189,7 @@ int indirect2direct (struct reiserfs_transaction_handle *th,
 		     struct inode * p_s_inode,
 		     struct page *page, 
 		     struct path * p_s_path, /* path to the indirect item. */
-		     struct cpu_key * p_s_item_key, /* Key to look for unformatted node pointer to be cut. */
+		     const struct cpu_key * p_s_item_key, /* Key to look for unformatted node pointer to be cut. */
 		     loff_t n_new_file_size, /* New file size. */
 		     char * p_c_mode)
 {
@@ -240,7 +240,7 @@ int indirect2direct (struct reiserfs_transaction_handle *th,
 
 
     /* Set direct item header to insert. */
-    make_le_item_head (&s_ih, 0, inode_items_version (p_s_inode), pos1 + 1,
+    make_le_item_head (&s_ih, 0, get_inode_item_key_version (p_s_inode), pos1 + 1,
 		       TYPE_DIRECT, round_tail_len, 0xffff/*ih_free_space*/);
 
     /* we want a pointer to the first byte of the tail in the page.

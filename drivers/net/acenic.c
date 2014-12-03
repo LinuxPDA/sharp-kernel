@@ -208,7 +208,35 @@ static inline void *pci_alloc_consistent(struct pci_dev *hwdev, size_t size,
 	(((u64)(mask) & 0xffffffff00000000) == 0 ? 0 : -EIO)
 #define pci_dma_supported(dev, mask)		\
 	(((u64)(mask) & 0xffffffff00000000) == 0 ? 1 : 0)
+#define DECLARE_PCI_UNMAP_ADDR(ADDR_NAME)
+#define DECLARE_PCI_UNMAP_LEN(LEN_NAME)
+
+#elif (LINUX_VERSION_CODE < 0x02040d)
+
+/*
+ * 2.4.13 introduced pci_map_page()/pci_unmap_page() - for 2.4.12 and prior,
+ * fall back on pci_map_single()/pci_unnmap_single().
+ *
+ * We are guaranteed that the page is mapped at this point since
+ * pci_map_page() is only used upon valid struct skb's.
+ */
+static inline dma_addr_t
+pci_map_page(struct pci_dev *cookie, struct page *page, unsigned long off,
+	     size_t size, int dir)
+{
+	void *page_virt;
+
+	page_virt = page_address(page);
+	if (!page_virt)
+		BUG();
+	return pci_map_single(cookie, (page_virt + off), size, dir);
+}
+#define pci_unmap_page(cookie, dma_addr, size, dir)	\
+	pci_unmap_single(cookie, dma_addr, size, dir)
+#define DECLARE_PCI_UNMAP_ADDR(ADDR_NAME)
+#define DECLARE_PCI_UNMAP_LEN(LEN_NAME)
 #endif
+
 
 #if (LINUX_VERSION_CODE < 0x02032b)
 /*
@@ -525,7 +553,7 @@ static int tx_ratio[ACE_MAX_MOD_PARMS];
 static int dis_pci_mem_inval[ACE_MAX_MOD_PARMS] = {1, 1, 1, 1, 1, 1, 1, 1};
 
 static char version[] __initdata = 
-  "acenic.c: v0.83 09/30/2001  Jes Sorensen, linux-acenic@SunSITE.dk\n"
+  "acenic.c: v0.85 11/08/2001  Jes Sorensen, linux-acenic@SunSITE.dk\n"
   "                            http://home.cern.ch/~jes/gige/acenic.html\n";
 
 static struct net_device *root_dev;
@@ -538,7 +566,6 @@ int __devinit acenic_probe (ACE_PROBE_ARG)
 #ifdef NEW_NETINIT
 	struct net_device *dev;
 #endif
-
 	struct ace_private *ap;
 	struct pci_dev *pdev = NULL;
 	int boards_found = 0;
@@ -738,6 +765,7 @@ int __devinit acenic_probe (ACE_PROBE_ARG)
 			kfree(dev);
 			continue;
 		}
+
 		if (ap->pci_using_dac)
 			dev->features |= NETIF_F_HIGHDMA;
 
@@ -767,12 +795,14 @@ MODULE_PARM(tx_coal_tick, "1-" __MODULE_STRING(8) "i");
 MODULE_PARM(max_tx_desc, "1-" __MODULE_STRING(8) "i");
 MODULE_PARM(rx_coal_tick, "1-" __MODULE_STRING(8) "i");
 MODULE_PARM(max_rx_desc, "1-" __MODULE_STRING(8) "i");
-MODULE_PARM_DESC(link, "Acenic/3C985/NetGear link state");
-MODULE_PARM_DESC(trace, "Acenic/3C985/NetGear firmware trace level");
+MODULE_PARM(tx_ratio, "1-" __MODULE_STRING(8) "i");
+MODULE_PARM_DESC(link, "AceNIC/3C985/NetGear link state");
+MODULE_PARM_DESC(trace, "AceNIC/3C985/NetGear firmware trace level");
 MODULE_PARM_DESC(tx_coal_tick, "AceNIC/3C985/GA620 max clock ticks to wait from first tx descriptor arrives");
 MODULE_PARM_DESC(max_tx_desc, "AceNIC/3C985/GA620 max number of transmit descriptors to wait");
 MODULE_PARM_DESC(rx_coal_tick, "AceNIC/3C985/GA620 max clock ticks to wait from first rx descriptor arrives");
 MODULE_PARM_DESC(max_rx_desc, "AceNIC/3C985/GA620 max number of receive descriptors to wait");
+MODULE_PARM_DESC(tx_ratio, "AceNIC/3C985/GA620 ratio of NIC memory used for TX/RX descriptors (range 0-63)");
 #endif
 
 
@@ -813,9 +843,11 @@ static void __exit ace_module_cleanup(void)
 			struct sk_buff *skb = ap->skb->rx_std_skbuff[i].skb;
 
 			if (skb) {
+				struct ring_info *ringp;
 				dma_addr_t mapping;
 
-				mapping = ap->skb->rx_std_skbuff[i].mapping;
+				ringp = &ap->skb->rx_std_skbuff[i];
+				mapping = pci_unmap_addr(ringp, mapping);
 				pci_unmap_page(ap->pdev, mapping,
 					       ACE_STD_BUFSIZE - (2 + 16),
 					       PCI_DMA_FROMDEVICE);
@@ -830,9 +862,11 @@ static void __exit ace_module_cleanup(void)
 				struct sk_buff *skb = ap->skb->rx_mini_skbuff[i].skb;
 
 				if (skb) {
+					struct ring_info *ringp;
 					dma_addr_t mapping;
 
-					mapping = ap->skb->rx_mini_skbuff[i].mapping;
+					ringp = &ap->skb->rx_mini_skbuff[i];
+					mapping = pci_unmap_addr(ringp,mapping);
 					pci_unmap_page(ap->pdev, mapping,
 						       ACE_MINI_BUFSIZE - (2 + 16),
 						       PCI_DMA_FROMDEVICE);
@@ -846,9 +880,11 @@ static void __exit ace_module_cleanup(void)
 		for (i = 0; i < RX_JUMBO_RING_ENTRIES; i++) {
 			struct sk_buff *skb = ap->skb->rx_jumbo_skbuff[i].skb;
 			if (skb) {
+				struct ring_info *ringp;
 				dma_addr_t mapping;
 
-				mapping = ap->skb->rx_jumbo_skbuff[i].mapping;
+				ringp = &ap->skb->rx_jumbo_skbuff[i];
+				mapping = pci_unmap_addr(ringp, mapping);
 				pci_unmap_page(ap->pdev, mapping,
 					       ACE_JUMBO_BUFSIZE - (2 + 16),
 					       PCI_DMA_FROMDEVICE);
@@ -911,8 +947,7 @@ static void ace_free_descriptors(struct net_device *dev)
 			 RX_JUMBO_RING_ENTRIES +
 			 RX_MINI_RING_ENTRIES +
 			 RX_RETURN_RING_ENTRIES));
-		pci_free_consistent(ap->pdev, size,
-				    ap->rx_std_ring,
+		pci_free_consistent(ap->pdev, size, ap->rx_std_ring,
 				    ap->rx_ring_base_dma);
 		ap->rx_std_ring = NULL;
 		ap->rx_jumbo_ring = NULL;
@@ -921,8 +956,7 @@ static void ace_free_descriptors(struct net_device *dev)
 	}
 	if (ap->evt_ring != NULL) {
 		size = (sizeof(struct event) * EVT_RING_ENTRIES);
-		pci_free_consistent(ap->pdev, size,
-				    ap->evt_ring,
+		pci_free_consistent(ap->pdev, size, ap->evt_ring,
 				    ap->evt_ring_dma);
 		ap->evt_ring = NULL;
 	}
@@ -933,7 +967,8 @@ static void ace_free_descriptors(struct net_device *dev)
 	}
 	if (ap->rx_ret_prd != NULL) {
 		pci_free_consistent(ap->pdev, sizeof(u32),
-				    (void *)ap->rx_ret_prd, ap->rx_ret_prd_dma);
+				    (void *)ap->rx_ret_prd,
+				    ap->rx_ret_prd_dma);
 		ap->rx_ret_prd = NULL;
 	}
 	if (ap->tx_csm != NULL) {
@@ -1051,7 +1086,8 @@ static int __init ace_init(struct net_device *dev)
 	struct ace_private *ap;
 	struct ace_regs *regs;
 	struct ace_info *info = NULL;
-	unsigned long tmp_ptr, myjif;
+	unsigned long myjif;
+	u64 tmp_ptr;
 	u32 tig_ver, mac1, mac2, tmp, pci_state;
 	int board_idx, ecode = 0;
 	short i;
@@ -1305,9 +1341,9 @@ static int __init ace_init(struct net_device *dev)
 	/*
 	 * Configure DMA attributes.
 	 */
-	if (!pci_set_dma_mask(ap->pdev, (u64) 0xffffffffffffffff)) {
+	if (!pci_set_dma_mask(ap->pdev, 0xffffffffffffffffULL)) {
 		ap->pci_using_dac = 1;
-	} else if (!pci_set_dma_mask(ap->pdev, (u64) 0xffffffff)) {
+	} else if (!pci_set_dma_mask(ap->pdev, 0xffffffffULL)) {
 		ap->pci_using_dac = 0;
 	} else {
 		ecode = -ENODEV;
@@ -1361,7 +1397,7 @@ static int __init ace_init(struct net_device *dev)
 	ace_load_firmware(dev);
 	ap->fw_running = 0;
 
-	tmp_ptr = (u64) ap->info_dma;
+	tmp_ptr = ap->info_dma;
 	writel(tmp_ptr >> 32, &regs->InfoPtrHi);
 	writel(tmp_ptr & 0xffffffff, &regs->InfoPtrLo);
 
@@ -1427,7 +1463,8 @@ static int __init ace_init(struct net_device *dev)
 			      (RX_STD_RING_ENTRIES +
 			       RX_JUMBO_RING_ENTRIES))));
 		info->rx_mini_ctrl.max_len = ACE_MINI_SIZE;
-		info->rx_mini_ctrl.flags = RCB_FLG_TCP_UDP_SUM|RCB_FLG_NO_PSEUDO_HDR;
+		info->rx_mini_ctrl.flags = 
+			RCB_FLG_TCP_UDP_SUM|RCB_FLG_NO_PSEUDO_HDR;
 
 		for (i = 0; i < RX_MINI_RING_ENTRIES; i++)
 			ap->rx_mini_ring[i].flags =
@@ -1711,10 +1748,12 @@ static void ace_watchdog(struct net_device *data)
 		       dev->name, (unsigned int)readl(&regs->HostCtrl));
 		/* This can happen due to ieee flow control. */
 	} else {
-		printk(KERN_DEBUG "%s: BUG... transmitter died. Kicking it.\n", dev->name);
+		printk(KERN_DEBUG "%s: BUG... transmitter died. Kicking it.\n",
+		       dev->name);
 		netif_wake_queue(dev);
 	}
 }
+
 
 static void ace_tasklet(unsigned long dev)
 {
@@ -1746,7 +1785,7 @@ static void ace_tasklet(unsigned long dev)
 	if (ap->jumbo && (cur_size < RX_LOW_JUMBO_THRES) &&
 	    !test_and_set_bit(0, &ap->jumbo_refill_busy)) {
 #if DEBUG
-		printk("refilling jumbo buffers (current %i)\n", >cur_size);
+		printk("refilling jumbo buffers (current %i)\n", cur_size);
 #endif
 		ace_load_jumbo_rx_ring(ap, RX_JUMBO_SIZE - cur_size);
 	}
@@ -1798,14 +1837,13 @@ static void ace_load_std_rx_ring(struct ace_private *ap, int nr_bufs)
 		 * Make sure IP header starts on a fresh cache line.
 		 */
 		skb_reserve(skb, 2 + 16);
-		mapping = pci_map_page(ap->pdev,
-				       virt_to_page(skb->data),
-				       ((unsigned long) skb->data &
-					~PAGE_MASK),
+		mapping = pci_map_page(ap->pdev, virt_to_page(skb->data),
+				       ((unsigned long)skb->data & ~PAGE_MASK),
 				       ACE_STD_BUFSIZE - (2 + 16),
 				       PCI_DMA_FROMDEVICE);
 		ap->skb->rx_std_skbuff[idx].skb = skb;
-		ap->skb->rx_std_skbuff[idx].mapping = mapping;
+		pci_unmap_addr_set(&ap->skb->rx_std_skbuff[idx],
+				   mapping, mapping);
 
 		rd = &ap->rx_std_ring[idx];
 		set_aceaddr(&rd->addr, mapping);
@@ -1865,14 +1903,13 @@ static void ace_load_mini_rx_ring(struct ace_private *ap, int nr_bufs)
 		 * Make sure the IP header ends up on a fresh cache line
 		 */
 		skb_reserve(skb, 2 + 16);
-		mapping = pci_map_page(ap->pdev,
-				       virt_to_page(skb->data),
-				       ((unsigned long) skb->data &
-					~PAGE_MASK),
+		mapping = pci_map_page(ap->pdev, virt_to_page(skb->data),
+				       ((unsigned long)skb->data & ~PAGE_MASK),
 				       ACE_MINI_BUFSIZE - (2 + 16),
 				       PCI_DMA_FROMDEVICE);
 		ap->skb->rx_mini_skbuff[idx].skb = skb;
-		ap->skb->rx_mini_skbuff[idx].mapping = mapping;
+		pci_unmap_addr_set(&ap->skb->rx_mini_skbuff[idx],
+				   mapping, mapping);
 
 		rd = &ap->rx_mini_ring[idx];
 		set_aceaddr(&rd->addr, mapping);
@@ -1927,14 +1964,13 @@ static void ace_load_jumbo_rx_ring(struct ace_private *ap, int nr_bufs)
 		 * Make sure the IP header ends up on a fresh cache line
 		 */
 		skb_reserve(skb, 2 + 16);
-		mapping = pci_map_page(ap->pdev,
-				       virt_to_page(skb->data),
-				       ((unsigned long) skb->data &
-					~PAGE_MASK),
+		mapping = pci_map_page(ap->pdev, virt_to_page(skb->data),
+				       ((unsigned long)skb->data & ~PAGE_MASK),
 				       ACE_JUMBO_BUFSIZE - (2 + 16),
 				       PCI_DMA_FROMDEVICE);
 		ap->skb->rx_jumbo_skbuff[idx].skb = skb;
-		ap->skb->rx_jumbo_skbuff[idx].mapping = mapping;
+		pci_unmap_addr_set(&ap->skb->rx_jumbo_skbuff[idx],
+				   mapping, mapping);
 
 		rd = &ap->rx_jumbo_ring[idx];
 		set_aceaddr(&rd->addr, mapping);
@@ -2140,7 +2176,9 @@ static void ace_rx_int(struct net_device *dev, u32 rxretprd, u32 rxretcsm)
 
 		skb = rip->skb;
 		rip->skb = NULL;
-		pci_unmap_page(ap->pdev, rip->mapping, mapsize,
+		pci_unmap_page(ap->pdev,
+			       pci_unmap_addr(rip, mapping),
+			       mapsize,
 			       PCI_DMA_FROMDEVICE);
 		skb_put(skb, retdesc->size);
 
@@ -2206,12 +2244,13 @@ static inline void ace_tx_int(struct net_device *dev,
 
 		info = ap->skb->tx_skbuff + idx;
 		skb = info->skb;
-		mapping = info->mapping;
+		mapping = pci_unmap_addr(info, mapping);
 
 		if (mapping) {
-			pci_unmap_page(ap->pdev, mapping, info->maplen,
+			pci_unmap_page(ap->pdev, mapping,
+				       pci_unmap_len(info, maplen),
 				       PCI_DMA_TODEVICE);
-			info->mapping = 0;
+			pci_unmap_addr_set(info, mapping, 0);
 		}
 
 		if (skb) {
@@ -2495,13 +2534,14 @@ static int ace_close(struct net_device *dev)
 
 		info = ap->skb->tx_skbuff + i;
 		skb = info->skb;
-		mapping = info->mapping;
+		mapping = pci_unmap_addr(info, mapping);
 
 		if (mapping) {
-			memset(ap->tx_ring+i, 0, sizeof(struct tx_desc));
-			pci_unmap_page(ap->pdev, mapping, info->maplen,
+			memset(ap->tx_ring + i, 0, sizeof(struct tx_desc));
+			pci_unmap_page(ap->pdev, mapping,
+				       pci_unmap_len(info, maplen),
 				       PCI_DMA_TODEVICE);
-			info->mapping = 0;
+			pci_unmap_addr_set(info, mapping, 0);
 		}
 		if (skb) {
 			dev_kfree_skb(skb);
@@ -2526,20 +2566,18 @@ static inline dma_addr_t
 ace_map_tx_skb(struct ace_private *ap, struct sk_buff *skb,
 	       struct sk_buff *tail, u32 idx)
 {
-	unsigned long addr;
+	dma_addr_t mapping;
 	struct tx_ring_info *info;
 
-	addr = pci_map_page(ap->pdev,
-			    virt_to_page(skb->data),
-			    ((unsigned long) skb->data &
-			     ~PAGE_MASK),
-			    skb->len, PCI_DMA_TODEVICE);
+	mapping = pci_map_page(ap->pdev, virt_to_page(skb->data),
+			       ((unsigned long) skb->data & ~PAGE_MASK),
+			       skb->len, PCI_DMA_TODEVICE);
 
 	info = ap->skb->tx_skbuff + idx;
 	info->skb = tail;
-	info->mapping = addr;
-	info->maplen = skb->len;
-	return addr;
+	pci_unmap_addr_set(info, mapping, mapping);
+	pci_unmap_len_set(info, maplen, skb->len);
+	return mapping;
 }
 
 
@@ -2580,9 +2618,9 @@ restart:
 	if (!skb_shinfo(skb)->nr_frags)
 #endif
 	{
-		unsigned long addr;
+		dma_addr_t mapping;
 
-		addr = ace_map_tx_skb(ap, skb, skb, idx);
+		mapping = ace_map_tx_skb(ap, skb, skb, idx);
 		flagsize = (skb->len << 16) | (BD_FLG_END);
 		if (skb->ip_summed == CHECKSUM_HW)
 			flagsize |= BD_FLG_TCP_UDP_SUM;
@@ -2593,42 +2631,40 @@ restart:
 		if (tx_ring_full(ap->tx_ret_csm, idx))
 			flagsize |= BD_FLG_COAL_NOW;
 
-		ace_load_tx_bd(desc, addr, flagsize);
+		ace_load_tx_bd(desc, mapping, flagsize);
 	}
 #if MAX_SKB_FRAGS
 	else {
-		unsigned long addr;
+		dma_addr_t mapping;
 		int i, len = 0;
 
-		addr = ace_map_tx_skb(ap, skb, NULL, idx);
+		mapping = ace_map_tx_skb(ap, skb, NULL, idx);
 		flagsize = ((skb->len - skb->data_len) << 16);
 		if (skb->ip_summed == CHECKSUM_HW)
 			flagsize |= BD_FLG_TCP_UDP_SUM;
 
-		ace_load_tx_bd(ap->tx_ring + idx, addr, flagsize);
+		ace_load_tx_bd(ap->tx_ring + idx, mapping, flagsize);
 
 		idx = (idx + 1) % TX_RING_ENTRIES;
 
 		for (i = 0; i < skb_shinfo(skb)->nr_frags; i++) {
 			skb_frag_t *frag = &skb_shinfo(skb)->frags[i];
 			struct tx_ring_info *info;
-			dma_addr_t phys;
 
 			len += frag->size;
 			info = ap->skb->tx_skbuff + idx;
 			desc = ap->tx_ring + idx;
 
-			phys = pci_map_page(ap->pdev, frag->page,
-					    frag->page_offset,
-					    frag->size,
-					    PCI_DMA_TODEVICE);
+			mapping = pci_map_page(ap->pdev, frag->page,
+					       frag->page_offset, frag->size,
+					       PCI_DMA_TODEVICE);
 
 			flagsize = (frag->size << 16);
 			if (skb->ip_summed == CHECKSUM_HW)
 				flagsize |= BD_FLG_TCP_UDP_SUM;
 			idx = (idx + 1) % TX_RING_ENTRIES;
 
-			if (i == skb_shinfo(skb)->nr_frags-1) {
+			if (i == skb_shinfo(skb)->nr_frags - 1) {
 				flagsize |= BD_FLG_END;
 				if (tx_ring_full(ap->tx_ret_csm, idx))
 					flagsize |= BD_FLG_COAL_NOW;
@@ -2641,9 +2677,9 @@ restart:
 			} else {
 				info->skb = NULL;
 			}
-			info->mapping = phys;
-			info->maplen = frag->size;
-			ace_load_tx_bd(desc, phys, flagsize);
+			pci_unmap_addr_set(info, mapping, mapping);
+			pci_unmap_len_set(info, maplen, frag->size);
+			ace_load_tx_bd(desc, mapping, flagsize);
 		}
 	}
 #endif

@@ -16,6 +16,7 @@
 
 #include <linux/sunrpc/debug.h>
 #include <linux/sunrpc/auth.h>
+#include <linux/sunrpc/clnt.h>
 
 #include <linux/nfs.h>
 #include <linux/nfs2.h>
@@ -207,10 +208,14 @@ extern int  nfs_updatepage(struct file *, struct page *, unsigned int, unsigned 
  */
 extern int  nfs_sync_file(struct inode *, struct file *, unsigned long, unsigned int, int);
 extern int  nfs_flush_file(struct inode *, struct file *, unsigned long, unsigned int, int);
-extern int  nfs_flush_timeout(struct inode *, int);
+extern int  nfs_flush_list(struct list_head *, int, int);
+extern int  nfs_scan_lru_dirty(struct nfs_server *, struct list_head *);
+extern int  nfs_scan_lru_dirty_timeout(struct nfs_server *, struct list_head *);
 #ifdef CONFIG_NFS_V3
 extern int  nfs_commit_file(struct inode *, struct file *, unsigned long, unsigned int, int);
-extern int  nfs_commit_timeout(struct inode *, int);
+extern int  nfs_commit_list(struct list_head *, int);
+extern int  nfs_scan_lru_commit(struct nfs_server *, struct list_head *);
+extern int  nfs_scan_lru_commit_timeout(struct nfs_server *, struct list_head *);
 #endif
 
 static inline int
@@ -257,7 +262,9 @@ nfs_wb_file(struct inode *inode, struct file *file)
  */
 extern int  nfs_readpage(struct file *, struct page *);
 extern int  nfs_pagein_inode(struct inode *, unsigned long, unsigned int);
-extern int  nfs_pagein_timeout(struct inode *);
+extern int  nfs_pagein_list(struct list_head *, int);
+extern int  nfs_scan_lru_read(struct nfs_server *, struct list_head *);
+extern int  nfs_scan_lru_read_timeout(struct nfs_server *, struct list_head *);
 
 /*
  * linux/fs/mount_clnt.c
@@ -325,6 +332,29 @@ extern void * nfs_root_data(void);
 		wait_event(wq, condition);				\
 	__retval;							\
 })
+
+#ifdef CONFIG_NFS_V3
+
+#define NFS_JUKEBOX_RETRY_TIME (5 * HZ)
+static inline int
+nfs_async_handle_jukebox(struct rpc_task *task)
+{
+	if (task->tk_status != -EJUKEBOX)
+		return 0;
+	task->tk_status = 0;
+	rpc_restart_call(task);
+	rpc_delay(task, NFS_JUKEBOX_RETRY_TIME);
+	return 1;
+}
+
+#else
+
+static inline int
+nfs_async_handle_jukebox(struct rpc_task *task)
+{
+	return 0;
+}
+#endif /* CONFIG_NFS_V3 */
 
 #endif /* __KERNEL__ */
 

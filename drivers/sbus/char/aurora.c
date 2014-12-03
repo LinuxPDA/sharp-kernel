@@ -1,4 +1,4 @@
-/*	$Id: aurora.c,v 1.17 2001/10/13 08:27:50 davem Exp $
+/*	$Id: aurora.c,v 1.18.2.1 2002/02/04 22:37:43 davem Exp $
  *	linux/drivers/sbus/char/aurora.c -- Aurora multiport driver
  *
  *	Copyright (c) 1999 by Oliver Aldulea (oli at bv dot ro)
@@ -180,7 +180,7 @@ extern inline void aurora_long_delay(unsigned long delay)
 #ifdef AURORA_DEBUG
 	printk("aurora_long_delay: start\n");
 #endif
-	for (i = jiffies + delay; i > jiffies; ) ;
+	for (i = jiffies + delay; time_before(jiffies, i); ) ;
 #ifdef AURORA_DEBUG
 	printk("aurora_long_delay: end\n");
 #endif
@@ -2454,7 +2454,7 @@ static void __exit aurora_cleanup(void)
 	
 #ifdef AURORA_DEBUG
 printk("cleanup_module: aurora_release_drivers\n");
-#endif;
+#endif
 
 	aurora_release_drivers();
 	for (i = 0; i < AURORA_NBOARD; i++)

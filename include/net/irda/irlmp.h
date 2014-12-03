@@ -11,6 +11,7 @@
  * 
  *     Copyright (c) 1998-1999 Dag Brattli <dagb@cs.uit.no>, 
  *     All Rights Reserved.
+ *     Copyright (c) 2000-2001 Jean Tourrilhes <jt@hpl.hp.com>
  *     
  *     This program is free software; you can redistribute it and/or 
  *     modify it under the terms of the GNU General Public License as 
@@ -131,7 +132,6 @@ struct lap_cb {
 
 	struct irlap_cb *irlap;   /* Instance of IrLAP layer */
 	hashbin_t *lsaps;         /* LSAP associated with this link */
-	int refcount;
 
 	__u8  caddr;  /* Connection address */
  	__u32 saddr;  /* Source device address */
@@ -262,6 +262,18 @@ static inline int irlmp_get_lap_tx_queue_len(struct lsap_cb *self)
 		return 0;
 
 	return IRLAP_GET_TX_QUEUE_LEN(self->lap->irlap);
+}
+
+/* After doing a irlmp_dup(), this get one of the two socket back into
+ * a state where it's waiting incomming connections.
+ * Note : this can be used *only* if the socket is not yet connected
+ * (i.e. NO irlmp_connect_response() done on this socket).
+ * - Jean II */
+static inline void irlmp_listen(struct lsap_cb *self)
+{
+	self->dlsap_sel = LSAP_ANY;
+	self->lap = NULL;
+	self->lsap_state = LSAP_DISCONNECTED;
 }
 
 #endif

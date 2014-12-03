@@ -1057,6 +1057,9 @@ static void chandev_init_default_models(void)
 	chandev_add_model(chandev_type_osad,0x3088,0x62,-1,-1,0,default_msck_bits,FALSE,FALSE);
 	/* claw */
 	chandev_add_model(chandev_type_claw,0x3088,0x61,-1,-1,0,default_msck_bits,FALSE,FALSE);
+
+	/* ficon attached ctc */
+	chandev_add_model(chandev_type_escon,0x3088,0x1E,-1,-1,0,default_msck_bits,FALSE,FALSE);
 }
 
 
@@ -2428,8 +2431,7 @@ static int chandev_setup(int in_read_conf,char *instr,char *errstr,int lineno)
 					else if(ints[0]==2)
 						ints[3]=ints[2];
 					chandev_add_parms(ints[1],ints[2],ints[3],currstr);
-//					currstr=currstr+strlen(currstr)+1;
-					continue;
+					goto NextOption;
 				}
 				else
 					goto BadArgs;
@@ -2696,6 +2698,7 @@ static int chandev_setup(int in_read_conf,char *instr,char *errstr,int lineno)
 		}
 		else
 			goto BadArgs;
+	NextOption:
 		if(cnt<strcnt)
 		{
 			/* eat up stuff till next string */
@@ -3092,7 +3095,7 @@ static int chandev_read_proc(char *page, char **start, off_t offset,
 				chandevs_detected=TRUE;
 				if(pass)
 				{
-					chandev_printf(chan_exit,"0x%04x 0x%04x 0x%02x  0x%04x 0x%02x  0x%04x 0x%02x 0x%02x 0x%016Lx  %-5s %-5s\n",
+					chandev_printf(chan_exit,"0x%04x 0x%04x 0x%02x  0x%04x 0x%02x  0x%04x 0x%02x 0x%02x 0x%016Lx  %-5s%-5s\n",
 						       curr_irq,curr_devinfo.devno,
 						       ( curr_force ? curr_force->chan_type : 
 						       ( curr_model ? curr_model->chan_type : 

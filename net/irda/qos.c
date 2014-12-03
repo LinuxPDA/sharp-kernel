@@ -11,6 +11,7 @@
  * 
  *     Copyright (c) 1998-2000 Dag Brattli <dagb@cs.uit.no>, 
  *     All Rights Reserved.
+ *     Copyright (c) 2000-2001 Jean Tourrilhes <jt@hpl.hp.com>
  *     
  *     This program is free software; you can redistribute it and/or 
  *     modify it under the terms of the GNU General Public License as 
@@ -50,7 +51,16 @@ int sysctl_max_baud_rate = 16000000;
  * may want to keep the LAP alive longuer or shorter in case of link failure.
  * Remember that the threshold time (early warning) is fixed to 3s...
  */
-int sysctl_max_inactive_time = 12;
+int sysctl_max_noreply_time = 12;
+/*
+ * Minimum turn time to be applied before transmitting to the peer.
+ * Nonzero values (usec) are used as lower limit to the per-connection
+ * mtt value which was announced by the other end during negotiation.
+ * Might be helpful if the peer device provides too short mtt.
+ * Default is 10 which means using the unmodified value given by the peer
+ * except if it's 0 (0 is likely a bug in the other stack).
+ */
+unsigned sysctl_min_tx_turn_time = 10;
 
 static int irlap_param_baud_rate(void *instance, irda_param_t *param, int get);
 static int irlap_param_link_disconnect(void *instance, irda_param_t *parm, 
@@ -183,7 +193,6 @@ static inline __u32 byte_value(__u8 byte, __u32 *array)
  * Function value_lower_bits (value, array)
  *
  *    Returns a bit field marking all possibility lower than value.
- *    We may need a "value_higher_bits" in the future...
  */
 static inline int value_lower_bits(__u32 value, __u32 *array, int size, __u16 *field)
 {
@@ -199,6 +208,33 @@ static inline int value_lower_bits(__u32 value, __u32 *array, int size, __u16 *f
 		if (array[i] >= value)
 			break;
 	}
+	/* Send back a valid index */
+	if(i >= size)
+	  i = size - 1;	/* Last item */
+	*field = result;
+	return i;
+}
+
+/*
+ * Function value_highest_bit (value, array)
+ *
+ *    Returns a bit field marking the highest possibility lower than value.
+ */
+static inline int value_highest_bit(__u32 value, __u32 *array, int size, __u16 *field)
+{
+	int	i;
+	__u16	mask = 0x1;
+	__u16	result = 0x0;
+
+	for (i=0; i < size; i++) {
+		/* Finished ? */
+		if (array[i] <= value)
+			break;
+		/* Shift mask */
+		mask <<= 1;
+	}
+	/* Set the current value to the bit field */
+	result |= mask;
 	/* Send back a valid index */
 	if(i >= size)
 	  i = size - 1;	/* Last item */
@@ -253,9 +289,9 @@ void irda_init_max_qos_capabilies(struct qos_info *qos)
 	sysctl_max_baud_rate = index_value(i, baud_rates);
 
 	/* Set configured max disc time */
-	i = value_lower_bits(sysctl_max_inactive_time, link_disc_times, 8,
+	i = value_lower_bits(sysctl_max_noreply_time, link_disc_times, 8,
 			     &qos->link_disc_time.bits);
-	sysctl_max_inactive_time = index_value(i, link_disc_times);
+	sysctl_max_noreply_time = index_value(i, link_disc_times);
 
 	/* LSB is first byte, MSB is second byte */
 	qos->baud_rate.bits    &= 0x03ff;
@@ -280,6 +316,19 @@ void irlap_adjust_qos_settings(struct qos_info *qos)
 	int index;
 
 	IRDA_DEBUG(2, __FUNCTION__ "()\n");
+
+	/*
+	 * Make sure the mintt is sensible.
+	 */
+	if (sysctl_min_tx_turn_time > qos->min_turn_time.value) {
+		int i;
+
+		/* We don't really need bits, but easier this way */
+		i = value_highest_bit(sysctl_min_tx_turn_time, min_turn_times,
+				      8, &qos->min_turn_time.bits);
+		sysctl_min_tx_turn_time = index_value(i, min_turn_times);
+		qos->min_turn_time.value = sysctl_min_tx_turn_time;
+	}
 
 	/* 
 	 * Not allowed to use a max turn time less than 500 ms if the baudrate
@@ -455,8 +504,8 @@ static int irlap_param_baud_rate(void *instance, irda_param_t *param, int get)
 		 *  Stations must agree on baud rate, so calculate
 		 *  intersection 
 		 */
-		IRDA_DEBUG(2, "Requested BAUD_RATE: 0x%04x\n", param->pv.s);
-		final = param->pv.s & self->qos_rx.baud_rate.bits;
+		IRDA_DEBUG(2, "Requested BAUD_RATE: 0x%04x\n", (__u16) param->pv.i);
+		final = (__u16) param->pv.i & self->qos_rx.baud_rate.bits;
 
 		IRDA_DEBUG(2, "Final BAUD_RATE: 0x%04x\n", final);
 		self->qos_tx.baud_rate.bits = final;
@@ -483,14 +532,14 @@ static int irlap_param_link_disconnect(void *instance, irda_param_t *param,
 	ASSERT(self->magic == LAP_MAGIC, return -1;);
 	
 	if (get)
-		param->pv.b = self->qos_rx.link_disc_time.bits;
+		param->pv.i = self->qos_rx.link_disc_time.bits;
 	else {
 		/*  
 		 *  Stations must agree on link disconnect/threshold 
 		 *  time.
 		 */
-		IRDA_DEBUG(2, "LINK_DISC: %02x\n", param->pv.b);
-		final = param->pv.b & self->qos_rx.link_disc_time.bits;
+		IRDA_DEBUG(2, "LINK_DISC: %02x\n", (__u8) param->pv.i);
+		final = (__u8) param->pv.i & self->qos_rx.link_disc_time.bits;
 
 		IRDA_DEBUG(2, "Final LINK_DISC: %02x\n", final);
 		self->qos_tx.link_disc_time.bits = final;
@@ -515,9 +564,9 @@ static int irlap_param_max_turn_time(void *instance, irda_param_t *param,
 	ASSERT(self->magic == LAP_MAGIC, return -1;);
 	
 	if (get)
-		param->pv.b = self->qos_rx.max_turn_time.bits;
+		param->pv.i = self->qos_rx.max_turn_time.bits;
 	else
-		self->qos_tx.max_turn_time.bits = param->pv.b;
+		self->qos_tx.max_turn_time.bits = (__u8) param->pv.i;
 
 	return 0;
 }
@@ -537,9 +586,9 @@ static int irlap_param_data_size(void *instance, irda_param_t *param, int get)
 	ASSERT(self->magic == LAP_MAGIC, return -1;);
 	
 	if (get)
-		param->pv.b = self->qos_rx.data_size.bits;
+		param->pv.i = self->qos_rx.data_size.bits;
 	else
-		self->qos_tx.data_size.bits = param->pv.b;
+		self->qos_tx.data_size.bits = (__u8) param->pv.i;
 
 	return 0;
 }
@@ -560,9 +609,9 @@ static int irlap_param_window_size(void *instance, irda_param_t *param,
 	ASSERT(self->magic == LAP_MAGIC, return -1;);
 	
 	if (get)
-		param->pv.b = self->qos_rx.window_size.bits;
+		param->pv.i = self->qos_rx.window_size.bits;
 	else
-		self->qos_tx.window_size.bits = param->pv.b;
+		self->qos_tx.window_size.bits = (__u8) param->pv.i;
 
 	return 0;
 }
@@ -581,9 +630,9 @@ static int irlap_param_additional_bofs(void *instance, irda_param_t *param, int 
 	ASSERT(self->magic == LAP_MAGIC, return -1;);
 	
 	if (get)
-		param->pv.b = self->qos_rx.additional_bofs.bits;
+		param->pv.i = self->qos_rx.additional_bofs.bits;
 	else
-		self->qos_tx.additional_bofs.bits = param->pv.b;
+		self->qos_tx.additional_bofs.bits = (__u8) param->pv.i;
 
 	return 0;
 }
@@ -603,9 +652,9 @@ static int irlap_param_min_turn_time(void *instance, irda_param_t *param,
 	ASSERT(self->magic == LAP_MAGIC, return -1;);
 	
 	if (get)
-		param->pv.b = self->qos_rx.min_turn_time.bits;
+		param->pv.i = self->qos_rx.min_turn_time.bits;
 	else
-		self->qos_tx.min_turn_time.bits = param->pv.b;
+		self->qos_tx.min_turn_time.bits = (__u8) param->pv.i;
 
 	return 0;
 }

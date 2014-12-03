@@ -1,5 +1,5 @@
 /*
- * BK Id: SCCS/s.entry.S 1.22 08/15/01 22:43:06 paulus
+ * BK Id: SCCS/s.entry.S 1.26 01/25/02 15:15:24 benh
  */
 /*
  *  PowerPC version 
@@ -216,6 +216,7 @@ _GLOBAL(_switch)
 	SAVE_8GPRS(14, r1)
 	SAVE_10GPRS(22, r1)
 	mflr	r20		/* Return to switch caller */
+	stw	r20,INT_FRAME_SIZE+4(r1)
 	mfmsr	r22
 	li	r0,MSR_FP	/* Disable floating-point */
 #ifdef CONFIG_ALTIVEC
@@ -223,10 +224,12 @@ BEGIN_FTR_SECTION
 	oris	r0,r0,MSR_VEC@h	/* Disable altivec */
 END_FTR_SECTION_IFSET(CPU_FTR_ALTIVEC)
 #endif /* CONFIG_ALTIVEC */
+	and.	r0,r0,r22	/* FP or altivec enabled? */
+	beq+	1f
 	andc	r22,r22,r0
 	mtmsr	r22
 	isync
-	stw	r20,_NIP(r1)
+1:	stw	r20,_NIP(r1)
 	stw	r22,_MSR(r1)
 	stw	r20,_LINK(r1)
 	mfcr	r20
@@ -335,13 +338,24 @@ END_FTR_SECTION_IFSET(CPU_FTR_ALTIVEC)
 	REST_4GPRS(3, r1)
 	REST_2GPRS(7, r1)
 
+#ifndef CONFIG_SMP
 	/* We have to "dummy" load from the context save area in case
 	 * these instructions cause an MMU fault.  If this happens
 	 * after we load SRR0/SRR1, our return context is hosed.  -- Dan
+	 * 
+	 * This workaround is not enough, we must also make sure the
+	 * actual code for this routine is in the TLB or BAT mapped.
+	 * For 6xx/Power3, we know the code is in a BAT, so this should
+	 * be enough in UP. In SMP, I limit lowmem to the amount of
+	 * RAM that can be BAT mapped. Other CPUs may need additional
+	 * tweaks, especially if used SMP or if the code for this routine
+	 * crosses page boundaries. The TLB pin down for 4xx should help
+	 * for example. --BenH.
 	 */
 	lwz	r0,GPR0(r1)
 	lwz	r0,GPR2(r1)
 	lwz	r0,GPR1(r1)
+#endif /* ndef CONFIG_SMP */
 
 	/* We re-use r3,r4 here (the load above was to cause the MMU
 	 * fault if necessary).  Using r3,r4 removes the need to "dummy"
@@ -391,9 +405,9 @@ enter_rtas:
 	mfmsr	r9
 	stw	r9,8(r1)
 	li	r0,0
-	ori	r0,r0,MSR_EE|MSR_SE|MSR_BE
+	ori	r0,r0,MSR_EE|MSR_SE|MSR_BE|MSR_FE0|MSR_FE1
 	andc	r0,r9,r0
-	li	r10,MSR_IR|MSR_DR|MSR_FE0|MSR_FE1|MSR_FP
+	li	r10,MSR_IR|MSR_DR|MSR_FP
 	andc	r9,r0,r10
 	SYNC			/* disable interrupts so SRR0/1 */
 	mtmsr	r0		/* don't get trashed */

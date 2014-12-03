@@ -1,5 +1,5 @@
 /*
- * BK Id: SCCS/s.machdep.h 1.21 08/29/01 10:07:29 paulus
+ * BK Id: SCCS/s.machdep.h 1.27 12/01/01 20:09:11 benh
  */
 #ifdef __KERNEL__
 #ifndef _PPC_MACHDEP_H
@@ -14,13 +14,18 @@
 struct pt_regs;
 struct pci_bus;	
 struct pci_dev;
+struct seq_file;
+
+/* We export this macro for external modules like Alsa to know if
+ * ppc_md.feature_call is implemented or not
+ */
+#define CONFIG_PPC_HAS_FEATURE_CALLS
 
 struct machdep_calls {
 	void		(*setup_arch)(void);
 	/* Optional, may be NULL. */
-	int		(*setup_residual)(char *buffer);
-	/* Optional, may be NULL. */
-	int		(*get_cpuinfo)(char *buffer);
+	int		(*show_cpuinfo)(struct seq_file *m);
+	int		(*show_percpuinfo)(struct seq_file *m, int i);
 	/* Optional, may be NULL. */
 	unsigned int	(*irq_cannonicalize)(unsigned int irq);
 	void		(*init_IRQ)(void);
@@ -61,9 +66,7 @@ struct machdep_calls {
 	char		(*kbd_unexpected_up)(unsigned char keycode);
 	void		(*kbd_leds)(unsigned char leds);
 	void		(*kbd_init_hw)(void);
-#ifdef CONFIG_MAGIC_SYSRQ
 	unsigned char 	*ppc_kbd_sysrq_xlate;
-#endif
 
 	/*
 	 * optional PCI "hooks"
@@ -96,6 +99,12 @@ struct machdep_calls {
 
 	/* this is for modules, since _machine can be a define -- Cort */
 	int ppc_machine;
+
+	/* Motherboard/chipset features. This is a kind of general purpose
+	 * hook used to control some machine specific features (like reset
+	 * lines, chip power control, etc...).
+	 */
+	int (*feature_call)(unsigned int feature, ...);
 
 #ifdef CONFIG_SMP
 	/* functions for dealing with other cpus */

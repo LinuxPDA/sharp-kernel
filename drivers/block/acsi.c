@@ -1134,14 +1134,8 @@ static int acsi_ioctl( struct inode *inode, struct file *file,
 		put_user( 0, &((Scsi_Idlun *) arg)->host_unique_id );
 		return 0;
 		
-	  case BLKGETSIZE:   /* Return device size */
-		return put_user(acsi_part[MINOR(inode->i_rdev)].nr_sects,
-				(unsigned long *) arg);
-
-	  case BLKGETSIZE64:   /* Return device size */
-		return put_user((u64)acsi_part[MINOR(inode->i_rdev)].nr_sects << 9,
-				(u64 *) arg);
-
+	  case BLKGETSIZE:
+	  case BLKGETSIZE64:
 	  case BLKROSET:
 	  case BLKROGET:
 	  case BLKFLSBUF:
@@ -1196,7 +1190,6 @@ static int acsi_open( struct inode * inode, struct file * filp )
 		acsi_prevent_removal(device, 1);
 	}
 	access_count[device]++;
-	MOD_INC_USE_COUNT;
 
 	if (filp && filp->f_mode) {
 		check_disk_change( inode->i_rdev );
@@ -1221,7 +1214,6 @@ static int acsi_release( struct inode * inode, struct file * file )
 	int device = DEVICE_NR(MINOR(inode->i_rdev));
 	if (--access_count[device] == 0 && acsi_info[device].removable)
 		acsi_prevent_removal(device, 0);
-	MOD_DEC_USE_COUNT;
 	return( 0 );
 }
 
@@ -1657,6 +1649,7 @@ int SLM_devices[8];
 #endif
 
 static struct block_device_operations acsi_fops = {
+	owner:			THIS_MODULE,
 	open:			acsi_open,
 	release:		acsi_release,
 	ioctl:			acsi_ioctl,

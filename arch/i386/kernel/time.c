@@ -519,6 +519,7 @@ unsigned long get_cmos_time(void)
 	unsigned int year, mon, day, hour, min, sec;
 	int i;
 
+	spin_lock(&rtc_lock);
 	/* The Linux interpretation of the CMOS clock register contents:
 	 * When the Update-In-Progress (UIP) flag goes from 1 to 0, the
 	 * RTC registers show the second which has precisely just started.
@@ -548,6 +549,7 @@ unsigned long get_cmos_time(void)
 	    BCD_TO_BIN(mon);
 	    BCD_TO_BIN(year);
 	  }
+	spin_unlock(&rtc_lock);
 	if ((year += 1900) < 1970)
 		year += 100;
 	return mktime(year, mon, day, hour, min, sec);
@@ -679,7 +681,6 @@ void __init time_init(void)
 #ifndef do_gettimeoffset
 			do_gettimeoffset = do_fast_gettimeoffset;
 #endif
-			do_get_fast_time = do_gettimeofday;
 
 			/* report CPU clock rate in Hz.
 			 * The formula is (10^6 * 2^32) / (2^32 * 1 / (clocks/us)) =

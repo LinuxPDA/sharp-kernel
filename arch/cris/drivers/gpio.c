@@ -1,4 +1,4 @@
-/* $Id: gpio.c,v 1.9 2001/05/04 14:16:07 matsfg Exp $
+/* $Id: gpio.c,v 1.12 2001/11/12 19:42:15 pkj Exp $
  *
  * Etrax general port I/O device
  *
@@ -6,9 +6,22 @@
  *
  * Authors:    Bjorn Wesen      (initial version)
  *             Ola Knutsson     (LED handling)
- *             Johan Adolfsson  (read/set directions)
+ *             Johan Adolfsson  (read/set directions, write)
  *
  * $Log: gpio.c,v $
+ * Revision 1.12  2001/11/12 19:42:15  pkj
+ * * Corrected return values from gpio_leds_ioctl().
+ * * Fixed compiler warnings.
+ *
+ * Revision 1.11  2001/10/30 14:39:12  johana
+ * Added D() around gpio_write printk.
+ *
+ * Revision 1.10  2001/10/25 10:24:42  johana
+ * Added IO_CFG_WRITE_MODE ioctl and write method that can do fast
+ * bittoggling in the kernel. (This speeds up programming an FPGA with 450kB
+ * from ~60 seconds to 4 seconds).
+ * Added save_flags/cli/restore_flags in ioctl.
+ *
  * Revision 1.9  2001/05/04 14:16:07  matsfg
  * Corrected spelling error
  *
@@ -65,10 +78,14 @@
 
 static char gpio_name[] = "etrax gpio";
 
+#if 0
 static wait_queue_head_t *gpio_wq;
+#endif
 
 static int gpio_ioctl(struct inode *inode, struct file *file,
 		      unsigned int cmd, unsigned long arg);
+static ssize_t gpio_write(struct file * file, const char * buf, size_t count,
+                          loff_t *off);
 static int gpio_open(struct inode *inode, struct file *filp);
 static int gpio_release(struct inode *inode, struct file *filp);
 static unsigned int gpio_poll(struct file *filp, struct poll_table_struct *wait);
@@ -82,6 +99,9 @@ struct gpio_private {
 	unsigned char changeable_dir;
 	unsigned char changeable_bits;
 	unsigned char highalarm, lowalarm;
+	unsigned char clk_mask;
+	unsigned char data_mask;
+	unsigned char write_msb;
 	wait_queue_head_t alarm_wq;
 	int minor;
 };
@@ -129,7 +149,7 @@ gpio_poll(struct file *filp,
 {
 	/* TODO poll on alarms! */
 #if 0
-        if(!ANYTHING_WANTED) {
+        if (!ANYTHING_WANTED) {
 		D(printk("gpio_select sleeping task\n"));
 	        select_wait(&gpio_wq, table);
 	        return 0;
@@ -139,19 +159,70 @@ gpio_poll(struct file *filp,
 	return 1;
 }
 
+static ssize_t gpio_write(struct file * file, const char * buf, size_t count,
+                          loff_t *off)
+{
+	struct gpio_private *priv = (struct gpio_private *)file->private_data;
+	unsigned char data, clk_mask, data_mask, write_msb;
+	unsigned long flags;
+	ssize_t retval = count;
+	if (verify_area(VERIFY_READ, buf, count)) {
+		return -EFAULT;
+	}
+	clk_mask = priv->clk_mask;
+	data_mask = priv->data_mask;
+	/* It must have been configured using the IO_CFG_WRITE_MODE */
+	/* Perhaps a better error code? */
+	if (clk_mask == 0 || data_mask == 0) {
+		return -EPERM;
+	}
+	write_msb = priv->write_msb;
+	D(printk("gpio_write: %lu to data 0x%02X clk 0x%02X msb: %i\n",count, data_mask, clk_mask, write_msb));
+	while (count--) {
+		int i;
+		data = *buf++;
+		if (priv->write_msb) {
+			for (i = 7; i >= 0;i--) {
+				save_flags(flags); cli();
+				*priv->port = *priv->shadow &= ~clk_mask;
+				if (data & 1<<i)
+					*priv->port = *priv->shadow |= data_mask;
+				else
+					*priv->port = *priv->shadow &= ~data_mask;
+			/* For FPGA: min 5.0ns (DCC) before CCLK high */
+				*priv->port = *priv->shadow |= clk_mask;
+				restore_flags(flags);
+			}
+		} else {
+			for (i = 0; i <= 7;i++) {
+				save_flags(flags); cli();
+				*priv->port = *priv->shadow &= ~clk_mask;
+				if (data & 1<<i)
+					*priv->port = *priv->shadow |= data_mask;
+				else
+					*priv->port = *priv->shadow &= ~data_mask;
+			/* For FPGA: min 5.0ns (DCC) before CCLK high */
+				*priv->port = *priv->shadow |= clk_mask;
+				restore_flags(flags);
+			}
+		}
+	}
+	return retval;
+}
+
 static int
 gpio_open(struct inode *inode, struct file *filp)
 {
 	struct gpio_private *priv;
 	int p = MINOR(inode->i_rdev);
 
-	if(p >= NUM_PORTS && p != LEDS)
+	if (p >= NUM_PORTS && p != LEDS)
 		return -EINVAL;
 
 	priv = (struct gpio_private *)kmalloc(sizeof(struct gpio_private), 
 					      GFP_KERNEL);
 
-	if(!priv)
+	if (!priv)
 		return -ENOMEM;
 
 	priv->minor = p;
@@ -170,6 +241,8 @@ gpio_open(struct inode *inode, struct file *filp)
 
 	priv->highalarm = 0;
 	priv->lowalarm = 0;
+	priv->clk_mask = 0;
+	priv->data_mask = 0;
 	init_waitqueue_head(&priv->alarm_wq);
 
 	filp->private_data = (void *)priv;
@@ -185,10 +258,10 @@ gpio_release(struct inode *inode, struct file *filp)
 
 	/* unlink from alarmlist and free the private structure */
 
-	if(p == todel) {
+	if (p == todel) {
 		alarmlist = todel->next;
 	} else {
-		while(p->next != todel)
+		while (p->next != todel)
 			p = p->next;
 		p->next = todel->next;
 	}
@@ -209,9 +282,9 @@ static int
 gpio_ioctl(struct inode *inode, struct file *file,
 	   unsigned int cmd, unsigned long arg)
 {
+	unsigned long flags;
 	struct gpio_private *priv = (struct gpio_private *)file->private_data;
-
-	if(_IOC_TYPE(cmd) != ETRAXGPIO_IOCTYPE) {
+	if (_IOC_TYPE(cmd) != ETRAXGPIO_IOCTYPE) {
 		return -EINVAL;
 	}
 
@@ -220,14 +293,18 @@ gpio_ioctl(struct inode *inode, struct file *file,
 			// read the port
 			return *priv->port;
 		case IO_SETBITS:
+			save_flags(flags); cli();
 			// set changeable bits with a 1 in arg
 			*priv->port = *priv->shadow |= 
 			  ((unsigned char)arg & priv->changeable_bits);
+			restore_flags(flags);
 			break;
 		case IO_CLRBITS:
+			save_flags(flags); cli();
 			// clear changeable bits with a 1 in arg
 			*priv->port = *priv->shadow &= 
 			  ~((unsigned char)arg & priv->changeable_bits);
+			restore_flags(flags);
 			break;
 		case IO_HIGHALARM:
 			// set alarm when bits with 1 in arg go high
@@ -246,14 +323,18 @@ gpio_ioctl(struct inode *inode, struct file *file,
 			/* Read direction 0=input 1=output */
 			return *priv->dir_shadow;
 		case IO_SETINPUT:
+			save_flags(flags); cli();
 			/* Set direction 0=unchanged 1=input */
 			*priv->dir = *priv->dir_shadow &= 
 			~((unsigned char)arg & priv->changeable_dir);
+			restore_flags(flags);
 			return *priv->dir_shadow;
 		case IO_SETOUTPUT:
+			save_flags(flags); cli();
 			/* Set direction 0=unchanged 1=output */
 			*priv->dir = *priv->dir_shadow |= 
 			  ((unsigned char)arg & priv->changeable_dir);
+			restore_flags(flags);
 			return *priv->dir_shadow;
                 case IO_SHUTDOWN:
                        SOFT_SHUTDOWN();
@@ -265,8 +346,26 @@ gpio_ioctl(struct inode *inode, struct file *file,
 #else
                        return 0;
 #endif
+			break;
+		case IO_CFG_WRITE_MODE:
+			priv->clk_mask = arg & 0xFF;
+			priv->data_mask = (arg >> 8) & 0xFF;
+			priv->write_msb = (arg >> 16) & 0x01;
+			/* Check if we're allowed to change the bits and
+			 * the direction is correct
+			 */
+			if (!((priv->clk_mask & priv->changeable_bits) &&
+			      (priv->data_mask & priv->changeable_bits) &&
+			      (priv->clk_mask & *priv->dir_shadow) &&
+			      (priv->data_mask & *priv->dir_shadow)))
+			{
+				priv->clk_mask = 0;
+				priv->data_mask = 0;
+				return -EPERM;
+			}
+			break;
 		default:
-			if(priv->minor == LEDS)
+			if (priv->minor == LEDS)
 				return gpio_leds_ioctl(cmd, arg);
                         else
 				return -EINVAL;
@@ -280,6 +379,7 @@ gpio_leds_ioctl(unsigned int cmd, unsigned long arg)
 {
 	unsigned char green;
 	unsigned char red;
+
 	switch (_IOC_NR(cmd)) {
 		case IO_LEDACTIVE_SET:
 			green = ((unsigned char) arg) & 1;
@@ -287,20 +387,27 @@ gpio_leds_ioctl(unsigned int cmd, unsigned long arg)
 			LED_ACTIVE_SET_G(green);
 			LED_ACTIVE_SET_R(red);
 			break;
-                case IO_LED_SETBIT:                 
-                        LED_BIT_SET(arg);
-                       break;
-                case IO_LED_CLRBIT:
-                        LED_BIT_CLR(arg);
+
+		case IO_LED_SETBIT:                 
+			LED_BIT_SET(arg);
+			break;
+
+		case IO_LED_CLRBIT:
+			LED_BIT_CLR(arg);
+			break;
+
 		default:
 			return -EINVAL;
 	}
+
+	return 0;
 }
 
 struct file_operations gpio_fops = {
 	owner:       THIS_MODULE,
 	poll:        gpio_poll,
 	ioctl:       gpio_ioctl,
+	write:       gpio_write,
 	open:        gpio_open,
 	release:     gpio_release,
 };
@@ -310,35 +417,37 @@ struct file_operations gpio_fops = {
 static __init int
 gpio_init(void)
 {
-	int res,i;
+	extern void init_ioremap(void);
+	int res;
+#if defined (CONFIG_ETRAX_CSP0_LEDS)
+	int i;
+#endif
 
 	/* do the formalities */
 
 	res = register_chrdev(GPIO_MAJOR, gpio_name, &gpio_fops);
-	if(res < 0) {
+	if (res < 0) {
 		printk(KERN_ERR "gpio: couldn't get a major number.\n");
 		return res;
 	}
 
         /* Clear all leds */
-#if defined (CONFIG_ETRAX_CSP0_LEDS) ||  defined (CONFIG_ETRAX_PA_LEDS)         || defined (CONFIG_ETRAX_PB_LEDS) 
-
-        init_ioremap();
-        LED_NETWORK_SET(0);
-        LED_ACTIVE_SET(0);
-        LED_DISK_READ(0);
-        LED_DISK_WRITE(0);        
+#if defined (CONFIG_ETRAX_CSP0_LEDS) ||  defined (CONFIG_ETRAX_PA_LEDS) || defined (CONFIG_ETRAX_PB_LEDS) 
+	init_ioremap();
+	LED_NETWORK_SET(0);
+	LED_ACTIVE_SET(0);
+	LED_DISK_READ(0);
+	LED_DISK_WRITE(0);        
 
 #if defined (CONFIG_ETRAX_CSP0_LEDS)
-        for( i = 0; i < 32; i ++)
-        {
-            LED_BIT_SET(i);
-        }
+	for (i = 0; i < 32; i++) {
+		LED_BIT_SET(i);
+	}
 #endif
 
 #endif
 	
-	printk("ETRAX 100LX GPIO driver v2.1, (c) 2001 Axis Communications AB\n");
+	printk("ETRAX 100LX GPIO driver v2.2, (c) 2001 Axis Communications AB\n");
 
 	return res;
 }

@@ -114,6 +114,8 @@ extern int rivafb_init(void);
 extern int rivafb_setup(char*);
 extern int tdfxfb_init(void);
 extern int tdfxfb_setup(char*);
+extern int tridentfb_init(void);
+extern int tridentfb_setup(char*);
 extern int sisfb_init(void);
 extern int sisfb_setup(char*);
 extern int stifb_init(void);
@@ -204,6 +206,9 @@ static struct {
 #endif 
 #ifdef CONFIG_FB_SIS
 	{ "sisfb", sisfb_init, sisfb_setup },
+#endif
+#ifdef CONFIG_FB_TRIDENT
+	{ "trident", tridentfb_init, tridentfb_setup },
 #endif
 
 	/*
@@ -563,8 +568,10 @@ fb_mmap(struct file *file, struct vm_area_struct * vma)
 		/* memory mapped io */
 		off -= len;
 		fb->fb_get_var(&var, PROC_CONSOLE(info), info);
-		if (var.accel_flags)
+		if (var.accel_flags) {
+			unlock_kernel();
 			return -EINVAL;
+		}
 		start = fix.mmio_start;
 		len = PAGE_ALIGN((start & ~PAGE_MASK)+fix.mmio_len);
 	}
@@ -929,3 +936,5 @@ EXPORT_SYMBOL(num_registered_fb);
 #if 1 /* to go away in 2.5.0 */
 EXPORT_SYMBOL(GET_FB_IDX);
 #endif
+
+MODULE_LICENSE("GPL");

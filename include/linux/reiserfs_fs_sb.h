@@ -201,7 +201,7 @@ struct reiserfs_journal_cnode {
   struct buffer_head *bh ;		 /* real buffer head */
   kdev_t dev ;				 /* dev of real buffer head */
   unsigned long blocknr ;		 /* block number of real buffer head, == 0 when buffer on disk */		 
-  int state ;
+  long state ;
   struct reiserfs_journal_list *jlist ;  /* journal list this cnode lives in */
   struct reiserfs_journal_cnode *next ;  /* next in transaction list */
   struct reiserfs_journal_cnode *prev ;  /* prev in transaction list */
@@ -264,7 +264,7 @@ struct reiserfs_journal {
   struct reiserfs_journal_cnode *j_last ; /* newest journal block */
   struct reiserfs_journal_cnode *j_first ; /*  oldest journal block.  start here for traverse */
 				
-  int j_state ;			
+  long j_state ;			
   unsigned long j_trans_id ;
   unsigned long j_mount_id ;
   unsigned long j_start ;             /* start of current waiting commit (index into j_ap_blocks) */
@@ -314,6 +314,74 @@ struct reiserfs_journal {
 
 typedef __u32 (*hashf_t) (const signed char *, int);
 
+struct proc_dir_entry;
+
+#if defined( CONFIG_PROC_FS ) && defined( CONFIG_REISERFS_PROC_INFO )
+typedef unsigned long int stat_cnt_t;
+typedef struct reiserfs_proc_info_data
+{
+  spinlock_t lock;
+  int exiting;
+  int max_hash_collisions;
+
+  stat_cnt_t breads;
+  stat_cnt_t bread_miss;
+  stat_cnt_t search_by_key;
+  stat_cnt_t search_by_key_fs_changed;
+  stat_cnt_t search_by_key_restarted;
+
+  stat_cnt_t leaked_oid;
+  stat_cnt_t leaves_removable;
+
+  /* balances per level. Use explicit 5 as MAX_HEIGHT is not visible yet. */
+  stat_cnt_t balance_at[ 5 ]; /* XXX */
+  /* sbk == search_by_key */
+  stat_cnt_t sbk_read_at[ 5 ]; /* XXX */
+  stat_cnt_t sbk_fs_changed[ 5 ];
+  stat_cnt_t sbk_restarted[ 5 ];
+  stat_cnt_t items_at[ 5 ]; /* XXX */
+  stat_cnt_t free_at[ 5 ]; /* XXX */
+  stat_cnt_t can_node_be_removed[ 5 ]; /* XXX */
+  long int lnum[ 5 ]; /* XXX */
+  long int rnum[ 5 ]; /* XXX */
+  long int lbytes[ 5 ]; /* XXX */
+  long int rbytes[ 5 ]; /* XXX */
+  stat_cnt_t get_neighbors[ 5 ];
+  stat_cnt_t get_neighbors_restart[ 5 ];
+  stat_cnt_t need_l_neighbor[ 5 ];
+  stat_cnt_t need_r_neighbor[ 5 ];
+
+  stat_cnt_t free_block;
+  struct __find_forward_stats {
+	stat_cnt_t call;
+	stat_cnt_t wait;
+	stat_cnt_t bmap;
+	stat_cnt_t retry;
+	stat_cnt_t in_journal_hint;
+	stat_cnt_t in_journal_out;
+  } find_forward;
+  struct __journal_stats {
+	stat_cnt_t in_journal;
+	stat_cnt_t in_journal_bitmap;
+	stat_cnt_t in_journal_reusable;
+	stat_cnt_t lock_journal;
+	stat_cnt_t lock_journal_wait;
+	stat_cnt_t journal_being;
+	stat_cnt_t journal_relock_writers;
+	stat_cnt_t journal_relock_wcount;
+	stat_cnt_t mark_dirty;
+	stat_cnt_t mark_dirty_already;
+	stat_cnt_t mark_dirty_notjournal;
+	stat_cnt_t restore_prepared;
+	stat_cnt_t prepare;
+	stat_cnt_t prepare_retry;
+  } journal;
+} reiserfs_proc_info_data_t;
+#else
+typedef struct reiserfs_proc_info_data
+{} reiserfs_proc_info_data_t;
+#endif
+
 /* reiserfs union of in-core super block data */
 struct reiserfs_sb_info
 {
@@ -339,6 +407,8 @@ struct reiserfs_sb_info
 				/* To be obsoleted soon by per buffer seals.. -Hans */
     atomic_t s_generation_counter; // increased by one every time the
     // tree gets re-balanced
+    unsigned long s_properties;    /* File system properties. Currently holds
+				     on-disk FS format */
     
     /* session statistics */
     int s_kmallocs;
@@ -352,9 +422,19 @@ struct reiserfs_sb_info
     int s_bmaps_without_search;
     int s_direct2indirect;
     int s_indirect2direct;
+	/* set up when it's ok for reiserfs_read_inode2() to read from
+	   disk inode with nlink==0. Currently this is only used during
+	   finish_unfinished() processing at mount time */
+    int s_is_unlinked_ok;
+    reiserfs_proc_info_data_t s_proc_info_data;
+    struct proc_dir_entry *procdir;
 };
 
+/* Definitions of reiserfs on-disk properties: */
+#define REISERFS_3_5 0
+#define REISERFS_3_6 1
 
+/* Mount options */
 #define NOTAIL 0  /* -o notail: no tails will be created in a session */
 #define REPLAYONLY 3 /* replay journal and return 0. Use by fsck */
 #define REISERFS_NOLOG 4      /* -o nolog: turn journalling off */
@@ -404,7 +484,8 @@ struct reiserfs_sb_info
 #define dont_have_tails(s) ((s)->u.reiserfs_sb.s_mount_opt & (1 << NOTAIL))
 #define replay_only(s) ((s)->u.reiserfs_sb.s_mount_opt & (1 << REPLAYONLY))
 #define reiserfs_dont_log(s) ((s)->u.reiserfs_sb.s_mount_opt & (1 << REISERFS_NOLOG))
-#define old_format_only(s) ((SB_VERSION(s) != REISERFS_VERSION_2) && !((s)->u.reiserfs_sb.s_mount_opt & (1 << REISERFS_CONVERT)))
+#define old_format_only(s) ((s)->u.reiserfs_sb.s_properties & (1 << REISERFS_3_5))
+#define convert_reiserfs(s) ((s)->u.reiserfs_sb.s_mount_opt & (1 << REISERFS_CONVERT))
 
 
 void reiserfs_file_buffer (struct buffer_head * bh, int list);

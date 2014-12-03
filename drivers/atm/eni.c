@@ -2266,7 +2266,7 @@ static int __devinit eni_init_one(struct pci_dev *pci_dev,
 	}
 	dev = atm_dev_register(DEV_LABEL,&ops,-1,NULL);
 	if (!dev) goto out2;
-	pci_dev->driver_data = dev;
+	pci_set_drvdata(pci_dev, dev);
 	eni_dev->pci_dev = pci_dev;
 	ENI_DEV(dev) = eni_dev;
 	eni_dev->asic = ent->driver_data;
@@ -2310,7 +2310,7 @@ static struct pci_driver eni_driver = {
 	name:		DEV_LABEL,
 	id_table:	eni_pci_tbl,
 	probe:		eni_init_one,
-	remove:		eni_remove_one,
+	remove:		__devexit_p(eni_remove_one),
 };
 
 

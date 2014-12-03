@@ -180,12 +180,15 @@ static int lo_send(struct loop_device *lo, struct buffer_head *bh, int bsize,
 	unsigned size, offset;
 	int len;
 
+	down(&mapping->host->i_sem);
 	index = pos >> PAGE_CACHE_SHIFT;
 	offset = pos & (PAGE_CACHE_SIZE - 1);
 	len = bh->b_size;
 	data = bh->b_data;
 	while (len > 0) {
 		int IV = index * (PAGE_CACHE_SIZE/bsize) + offset/bsize;
+		int transfer_result;
+
 		size = PAGE_CACHE_SIZE - offset;
 		if (size > len)
 			size = len;
@@ -197,9 +200,18 @@ static int lo_send(struct loop_device *lo, struct buffer_head *bh, int bsize,
 			goto unlock;
 		kaddr = page_address(page);
 		flush_dcache_page(page);
-		if (lo_do_transfer(lo, WRITE, kaddr + offset, data, size, IV))
-			goto write_fail;
+		transfer_result = lo_do_transfer(lo, WRITE, kaddr + offset, data, size, IV);
+		if (transfer_result) {
+			/*
+			 * The transfer failed, but we still write the data to
+			 * keep prepare/commit calls balanced.
+			 */
+			printk(KERN_ERR "loop: transfer error block %ld\n", index);
+			memset(kaddr + offset, 0, size);
+		}
 		if (aops->commit_write(file, page, offset, offset+size))
+			goto unlock;
+		if (transfer_result)
 			goto unlock;
 		data += size;
 		len -= size;
@@ -207,20 +219,16 @@ static int lo_send(struct loop_device *lo, struct buffer_head *bh, int bsize,
 		index++;
 		pos += size;
 		UnlockPage(page);
-		deactivate_page(page);
 		page_cache_release(page);
 	}
+	up(&mapping->host->i_sem);
 	return 0;
 
-write_fail:
-	printk(KERN_ERR "loop: transfer error block %ld\n", index);
-	ClearPageUptodate(page);
-	kunmap(page);
 unlock:
 	UnlockPage(page);
-	deactivate_page(page);
 	page_cache_release(page);
 fail:
+	up(&mapping->host->i_sem);
 	return -1;
 }
 
@@ -570,6 +578,8 @@ static int loop_thread(void *data)
 	atomic_inc(&lo->lo_pending);
 	spin_unlock_irq(&lo->lo_lock);
 
+	current->flags |= PF_NOIO;
+
 	/*
 	 * up sem, we are running
 	 */
@@ -632,6 +642,10 @@ static int loop_set_fd(struct loop_device *lo, struct file *lo_file, kdev_t dev,
 
 	if (S_ISBLK(inode->i_mode)) {
 		lo_device = inode->i_rdev;
+		if (lo_device == dev) {
+			error = -EBUSY;
+			goto out;
+		}
 	} else if (S_ISREG(inode->i_mode)) {
 		struct address_space_operations *aops = inode->i_mapping->a_ops;
 		/*
@@ -941,6 +955,7 @@ static int lo_release(struct inode *inode, struct file *file)
 }
 
 static struct block_device_operations lo_fops = {
+	owner:		THIS_MODULE,
 	open:		lo_open,
 	release:	lo_release,
 	ioctl:		lo_ioctl,
@@ -951,6 +966,7 @@ static struct block_device_operations lo_fops = {
  */
 MODULE_PARM(max_loop, "i");
 MODULE_PARM_DESC(max_loop, "Maximum number of loop devices (1-255)");
+MODULE_LICENSE("GPL");
 
 int loop_register_transfer(struct loop_func_table *funcs)
 {

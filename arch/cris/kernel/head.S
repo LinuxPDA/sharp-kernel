@@ -1,4 +1,4 @@
-/* $Id: head.S,v 1.40 2001/10/03 14:59:57 pkj Exp $
+/* $Id: head.S,v 1.43 2001/11/08 15:09:43 starvik Exp $
  * 
  * Head of the kernel - alter with care
  *
@@ -7,6 +7,15 @@
  * Authors:	Bjorn Wesen (bjornw@axis.com)
  * 
  * $Log: head.S,v $
+ * Revision 1.43  2001/11/08 15:09:43  starvik
+ * Only start MII clock if Ethernet is configured
+ *
+ * Revision 1.42  2001/11/08 14:37:34  starvik
+ * Start MII clock early to make sure that it is running at tranceiver reset
+ *
+ * Revision 1.41  2001/10/29 14:55:58  pkj
+ * Corrected pa$r0 to par0.
+ *
  * Revision 1.40  2001/10/03 14:59:57  pkj
  * Added support for resetting the Bluetooth hardware.
  *
@@ -153,7 +162,10 @@
 
 #define CRAMFS_MAGIC 0x28cd3d45
 #define RAM_INIT_MAGIC 0x56902387
-		
+
+#define START_ETHERNET_CLOCK IO_STATE(R_NETWORK_GEN_CONFIG, enable, on) |\
+                             IO_STATE(R_NETWORK_GEN_CONFIG, phy, mii_clk)
+				
 	;; exported symbols
 		
 	.globl	etrax_irv
@@ -298,6 +310,12 @@ _inflash0:
 	;; after init.
 	.section ".text.init"
 _inflash:
+#ifdef CONFIG_ETRAX_ETHERNET	
+	;; Start MII clock to make sure it is running when tranceiver is reset
+	move.d START_ETHERNET_CLOCK, $r0
+	move.d $r0, [R_NETWORK_GEN_CONFIG]
+#endif
+		
 	;; We need to initialze DRAM registers before we start using the DRAM
 
 	cmp.d	RAM_INIT_MAGIC, $r8	; Already initialized?
@@ -520,7 +538,7 @@ _start_it:
 	moveq	0,$r0
 #if (!defined(CONFIG_ETRAX_KGDB) || !defined(CONFIG_ETRAX_DEBUG_PORT0)) \
 	&& !defined(CONFIG_DMA_MEMCPY)
-	; DMA channels 6 and 7 to se$r0, kgdb doesnt want DMA
+	; DMA channels 6 and 7 to ser0, kgdb doesnt want DMA
 	or.d	  IO_STATE (R_GEN_CONFIG, dma7, serial0)	\
 		| IO_STATE (R_GEN_CONFIG, dma6, serial0),$r0
 #endif
@@ -554,7 +572,7 @@ _start_it:
 #endif
 #if defined(CONFIG_ETRAX_PARALLEL_PORT0) || defined(CONFIG_ETRAX_ETHERNET_LPSLAVE)
 	; parport 0 enabled using DMA 2/3
-	or.w	IO_STATE (R_GEN_CONFIG, pa$r0, select),$r0
+	or.w	IO_STATE (R_GEN_CONFIG, par0, select),$r0
 #endif
 #if defined(CONFIG_ETRAX_PARALLEL_PORT1) || defined(CONFIG_ETRAX_ETHERNET_LPSLAVE)
 	; parport 1 enabled using DMA 4/5

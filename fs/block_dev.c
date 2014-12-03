@@ -113,6 +113,11 @@ static int blkdev_get_block(struct inode * inode, long iblock, struct buffer_hea
 	return 0;
 }
 
+static int blkdev_direct_IO(int rw, struct inode * inode, struct kiobuf * iobuf, unsigned long blocknr, int blocksize)
+{
+	return generic_direct_IO(rw, inode, iobuf, blocknr, blocksize, blkdev_get_block);
+}
+
 static int blkdev_writepage(struct page * page)
 {
 	return block_write_full_page(page, blkdev_get_block);
@@ -166,11 +171,15 @@ static loff_t block_llseek(struct file *file, loff_t offset, int origin)
 
 static int __block_fsync(struct inode * inode)
 {
-	int ret;
+	int ret, err;
 
-	filemap_fdatasync(inode->i_mapping);
-	ret = sync_buffers(inode->i_rdev, 1);
-	filemap_fdatawait(inode->i_mapping);
+	ret = filemap_fdatasync(inode->i_mapping);
+	err = sync_buffers(inode->i_rdev, 1);
+	if (err && !ret)
+		ret = err;
+	err = filemap_fdatawait(inode->i_mapping);
+	if (err && !ret)
+		ret = err;
 
 	return ret;
 }
@@ -229,7 +238,7 @@ static struct vfsmount *bd_mnt;
 #define HASH_SIZE	(1UL << HASH_BITS)
 #define HASH_MASK	(HASH_SIZE-1)
 static struct list_head bdev_hashtable[HASH_SIZE];
-static spinlock_t bdev_lock = SPIN_LOCK_UNLOCKED;
+static spinlock_t bdev_lock __cacheline_aligned_in_smp = SPIN_LOCK_UNLOCKED;
 static kmem_cache_t * bdev_cachep;
 
 #define alloc_bdev() \
@@ -324,6 +333,7 @@ struct block_device *bdget(dev_t dev)
 			inode->i_bdev = new_bdev;
 			inode->i_data.a_ops = &def_blk_aops;
 			inode->i_data.gfp_mask = GFP_USER;
+			inode->i_mode = S_IFBLK;
 			spin_lock(&bdev_lock);
 			bdev = bdfind(dev, head);
 			if (!bdev) {
@@ -493,7 +503,10 @@ int check_disk_change(kdev_t dev)
 
 		de = devfs_find_handle (NULL, NULL, i, MINOR (dev),
 					DEVFS_SPECIAL_BLK, 0);
-		if (de) bdops = devfs_get_ops (de);
+		if (de) {
+			bdops = devfs_get_ops (de);
+			devfs_put_ops (de); /* We're running in owner module */
+		}
 	}
 	if (bdops == NULL)
 		return 0;
@@ -537,14 +550,20 @@ static int do_open(struct block_device *bdev, struct inode *inode, struct file *
 		bdev->bd_op = get_blkfops(MAJOR(dev));
 	if (bdev->bd_op) {
 		ret = 0;
+		if (bdev->bd_op->owner)
+			__MOD_INC_USE_COUNT(bdev->bd_op->owner);
 		if (bdev->bd_op->open)
 			ret = bdev->bd_op->open(inode, file);
 		if (!ret) {
 			bdev->bd_openers++;
 			bdev->bd_inode->i_size = blkdev_size(dev);
 			bdev->bd_inode->i_blkbits = blksize_bits(block_size(dev));
-		} else if (!bdev->bd_openers)
-			bdev->bd_op = NULL;
+		} else {
+			if (bdev->bd_op->owner)
+				__MOD_DEC_USE_COUNT(bdev->bd_op->owner);
+			if (!bdev->bd_openers)
+				bdev->bd_op = NULL;
+		}
 	}
 	unlock_kernel();
 	up(&bdev->bd_sem);
@@ -605,6 +624,8 @@ int blkdev_put(struct block_device *bdev, int kind)
 		kill_bdev(bdev);
 	if (bdev->bd_op->release)
 		ret = bdev->bd_op->release(bd_inode, NULL);
+	if (bdev->bd_op->owner)
+		__MOD_DEC_USE_COUNT(bdev->bd_op->owner);
 	if (!bdev->bd_openers)
 		bdev->bd_op = NULL;
 	unlock_kernel();
@@ -632,6 +653,7 @@ struct address_space_operations def_blk_aops = {
 	sync_page: block_sync_page,
 	prepare_write: blkdev_prepare_write,
 	commit_write: blkdev_commit_write,
+	direct_IO: blkdev_direct_IO,
 };
 
 struct file_operations def_blk_fops = {

@@ -227,6 +227,9 @@
 #define __NR_madvise		219
 #define __NR_getdents64		220
 #define __NR_fcntl64		221
+#define __NR_security           223     /* syscall for security modules */
+#define __NR_gettid             224
+#define __NR_readahead          225
 
 /* XXX - _foo needs to be __foo, while __NR_bar could be _NR_bar. */
 #define _syscall0(type,name) \
@@ -375,6 +378,7 @@ static inline _syscall3(int,open,const char *,file,int,flag,int,mode)
 static inline _syscall1(int,close,int,fd)
 static inline _syscall1(int,_exit,int,exitcode)
 static inline _syscall3(pid_t,waitpid,pid_t,pid,int *,wait_stat,int,options)
+static inline _syscall3(off_t,lseek,int,fd,off_t,offset,int,count)
 
   /* the following are just while developing the elinux port! */
 

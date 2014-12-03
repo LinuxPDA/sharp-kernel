@@ -15,6 +15,8 @@
 #define PCIBIOS_MIN_IO		0UL
 #define PCIBIOS_MIN_MEM		0UL
 
+#define PCI_IRQ_NONE		0xffffffff
+
 extern inline void pcibios_set_master(struct pci_dev *dev)
 {
 	/* No special bus mastering setup handling */
@@ -74,6 +76,20 @@ extern void pci_unmap_single(struct pci_dev *hwdev, dma_addr_t dma_addr, size_t 
 #define pci_map_page(dev, page, off, size, dir) \
 	pci_map_single(dev, (page_address(page) + (off)), size, dir)
 #define pci_unmap_page(dev,addr,sz,dir) pci_unmap_single(dev,addr,sz,dir)
+
+/* pci_unmap_{single,page} is not a nop, thus... */
+#define DECLARE_PCI_UNMAP_ADDR(ADDR_NAME)	\
+	dma_addr_t ADDR_NAME;
+#define DECLARE_PCI_UNMAP_LEN(LEN_NAME)		\
+	__u32 LEN_NAME;
+#define pci_unmap_addr(PTR, ADDR_NAME)			\
+	((PTR)->ADDR_NAME)
+#define pci_unmap_addr_set(PTR, ADDR_NAME, VAL)		\
+	(((PTR)->ADDR_NAME) = (VAL))
+#define pci_unmap_len(PTR, LEN_NAME)			\
+	((PTR)->LEN_NAME)
+#define pci_unmap_len_set(PTR, LEN_NAME, VAL)		\
+	(((PTR)->LEN_NAME) = (VAL))
 
 /* Map a set of buffers described by scatterlist in streaming
  * mode for DMA.  This is the scather-gather version of the

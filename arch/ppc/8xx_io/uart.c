@@ -1,5 +1,5 @@
 /*
- * BK Id: SCCS/s.uart.c 1.16 09/14/01 18:01:17 trini
+ * BK Id: SCCS/s.uart.c 1.23 12/29/01 14:50:03 trini
  */
 /*
  *  UART driver for MPC860 CPM SCC or SMC
@@ -94,10 +94,10 @@ static struct tty_driver serial_driver, callout_driver;
 static int serial_refcount;
 static int serial_console_setup(struct console *co, char *options);
 
-static int serial_console_wait_key(struct console *co);
 static void serial_console_write(struct console *c, const char *s,
 				unsigned count);
 static kdev_t serial_console_device(struct console *c);
+static int serial_console_wait_key(struct console *co);
 
 #if defined(CONFIG_SERIAL_CONSOLE) && defined(CONFIG_MAGIC_SYSRQ)
 static unsigned long break_pressed; /* break, really ... */
@@ -481,7 +481,9 @@ static _INLINE_ void receive_chars(ser_info_t *info, struct pt_regs *regs)
 			tty->flip.count++;
 		}
 
+#if defined(CONFIG_SERIAL_CONSOLE) && defined(CONFIG_MAGIC_SYSRQ)
 	ignore_char:	
+#endif
 		/* This BD is ready to be used again.  Clear status.
 		 * Get next BD.
 		 */
@@ -876,7 +878,7 @@ static void shutdown(ser_info_t * info)
 static void change_speed(ser_info_t *info)
 {
 	int	baud_rate;
-	unsigned cflag, cval, scval, prev_mode;
+	unsigned cflag, cval, scval, prev_mode, new_mode;
 	int	i, bits, sbits, idx;
 	unsigned long	flags;
 	struct serial_state *state;
@@ -917,10 +919,10 @@ static void change_speed(ser_info_t *info)
 		cval |= SMCMR_PEN;
 		scval |= SCU_PMSR_PEN;
 		bits++;
-	}
-	if (!(cflag & PARODD)) {
-		cval |= SMCMR_PM_EVEN;
-		scval |= (SCU_PMSR_REVP | SCU_PMSR_TEVP);
+		if (!(cflag & PARODD)) {
+			cval |= SMCMR_PM_EVEN;
+			scval |= (SCU_PMSR_REVP | SCU_PMSR_TEVP);
+		}
 	}
 
 	/* Determine divisor based on baud rate */
@@ -993,7 +995,13 @@ static void change_speed(ser_info_t *info)
 	idx = PORT_NUM(state->smc_scc_num);
 	if (state->smc_scc_num & NUM_IS_SCC) {
 		sccp = &cpmp->cp_scc[idx];
-		sccp->scc_pmsr = (sbits << 12) | scval;
+		new_mode = (sbits << 12) | scval;
+		prev_mode = sccp->scc_pmsr;
+		if (!(prev_mode & SCU_PMSR_PEN)) 
+			/* If parity is disabled, mask out even/odd */
+			prev_mode &= ~(SCU_PMSR_TPM|SCU_PMSR_RPM);
+		if (prev_mode != new_mode)
+			sccp->scc_pmsr = new_mode;
 	}
 	else {
 		smcp = &cpmp->cp_smc[idx];
@@ -1003,8 +1011,13 @@ static void change_speed(ser_info_t *info)
 		 * present.
 		 */
 		prev_mode = smcp->smc_smcmr;
-		smcp->smc_smcmr = smcr_mk_clen(bits) | cval |  SMCMR_SM_UART;
-		smcp->smc_smcmr |= (prev_mode & (SMCMR_REN | SMCMR_TEN));
+		new_mode = smcr_mk_clen(bits) | cval |  SMCMR_SM_UART;
+		new_mode |= (prev_mode & (SMCMR_REN | SMCMR_TEN));
+		if (!(prev_mode & SMCMR_PEN))
+			/* If parity is disabled, mask out even/odd */
+			prev_mode &= ~SMCMR_PM_EVEN;
+		if (prev_mode != new_mode)
+			smcp->smc_smcmr = new_mode;
 	}
 
 	m8xx_cpm_setbrg((state - rs_table), baud_rate);
@@ -1789,7 +1802,7 @@ static void rs_8xx_wait_until_sent(struct tty_struct *tty, int timeout)
 		schedule_timeout(char_time);
 		if (signal_pending(current))
 			break;
-		if (timeout && ((orig_jiffies + timeout) < jiffies))
+		if (timeout && time_after(jiffies, orig_jiffies + timeout))
 			break;
 
 		/* The 'tx_cur' is really the next buffer to send.  We
@@ -2516,7 +2529,11 @@ int __init rs_8xx_init(void)
 	__clear_user(&serial_driver,sizeof(struct tty_driver));
 	serial_driver.magic = TTY_DRIVER_MAGIC;
 	serial_driver.driver_name = "serial";
+#ifdef CONFIG_DEVFS_FS
+	serial_driver.name = "tts/%d";
+#else
 	serial_driver.name = "ttyS";
+#endif
 	serial_driver.major = TTY_MAJOR;
 	serial_driver.minor_start = 64;
 	serial_driver.num = NR_PORTS;
@@ -2554,7 +2571,11 @@ int __init rs_8xx_init(void)
 	 * major number and the subtype code.
 	 */
 	callout_driver = serial_driver;
+#ifdef CONFIG_DEVFS_FS
+	callout_driver.name = "cua/%d";
+#else
 	callout_driver.name = "cua";
+#endif
 	callout_driver.major = TTYAUX_MAJOR;
 	callout_driver.subtype = SERIAL_TYPE_CALLOUT;
 	callout_driver.read_proc = 0;

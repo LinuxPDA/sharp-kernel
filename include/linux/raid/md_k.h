@@ -43,6 +43,7 @@ static inline int pers_to_level (int pers)
 static inline int level_to_pers (int level)
 {
 	switch (level) {
+		case -4: return MULTIPATH;
 		case -3: return HSM;
 		case -2: return TRANSLUCENT;
 		case -1: return LINEAR;
@@ -90,7 +91,7 @@ static inline mddev_t * kdev_to_mddev (kdev_t dev)
 /*
  * default readahead
  */
-#define MD_READAHEAD	MAX_READAHEAD
+#define MD_READAHEAD	vm_max_readahead
 
 static inline int disk_faulty(mdp_disk_t * d)
 {

@@ -170,7 +170,7 @@ static struct pci_driver xircom_ops = {
 	name:		"xircom_cb", 
 	id_table:	xircom_pci_table, 
 	probe:		xircom_probe, 
-	remove:		xircom_remove, 
+	remove:		__devexit_p(xircom_remove), 
 };
 
 
@@ -319,7 +319,7 @@ static int __devinit xircom_probe(struct pci_dev *pdev, const struct pci_device_
  */
 static void __devexit xircom_remove(struct pci_dev *pdev)
 {
-	struct net_device *dev = pdev->driver_data;
+	struct net_device *dev = pci_get_drvdata(pdev);
 	struct xircom_private *card;
 	enter();
 	

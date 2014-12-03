@@ -195,10 +195,10 @@ ENTRY(system_call)
 	pushl %eax			# save orig_eax
 	SAVE_ALL
 	GET_CURRENT(%ebx)
-	cmpl $(NR_syscalls),%eax
-	jae badsys
 	testb $0x02,tsk_ptrace(%ebx)	# PT_TRACESYS
 	jne tracesys
+	cmpl $(NR_syscalls),%eax
+	jae badsys
 	call *SYMBOL_NAME(sys_call_table)(,%eax,4)
 	movl %eax,EAX(%esp)		# save the return value
 ENTRY(ret_from_sys_call)
@@ -622,6 +622,18 @@ ENTRY(sys_call_table)
 	.long SYMBOL_NAME(sys_ni_syscall)	/* Reserved for Security */
 	.long SYMBOL_NAME(sys_gettid)
 	.long SYMBOL_NAME(sys_readahead)	/* 225 */
+	.long SYMBOL_NAME(sys_ni_syscall)	/* reserved for setxattr */
+	.long SYMBOL_NAME(sys_ni_syscall)	/* reserved for lsetxattr */
+	.long SYMBOL_NAME(sys_ni_syscall)	/* reserved for fsetxattr */
+	.long SYMBOL_NAME(sys_ni_syscall)	/* reserved for getxattr */
+	.long SYMBOL_NAME(sys_ni_syscall)	/* 230 reserved for lgetxattr */
+	.long SYMBOL_NAME(sys_ni_syscall)	/* reserved for fgetxattr */
+	.long SYMBOL_NAME(sys_ni_syscall)	/* reserved for listxattr */
+	.long SYMBOL_NAME(sys_ni_syscall)	/* reserved for llistxattr */
+	.long SYMBOL_NAME(sys_ni_syscall)	/* reserved for flistxattr */
+	.long SYMBOL_NAME(sys_ni_syscall)	/* 235 reserved for removexattr */
+	.long SYMBOL_NAME(sys_ni_syscall)	/* reserved for lremovexattr */
+	.long SYMBOL_NAME(sys_ni_syscall)	/* reserved for fremovexattr */
 
 	.rept NR_syscalls-(.-sys_call_table)/4
 		.long SYMBOL_NAME(sys_ni_syscall)

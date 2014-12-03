@@ -30,6 +30,7 @@
 #include <linux/in_route.h>
 #include <linux/rtnetlink.h>
 #include <linux/route.h>
+#include <linux/ip.h>
 #include <linux/cache.h>
 
 #ifndef __KERNEL__
@@ -147,12 +148,7 @@ static inline void ip_rt_put(struct rtable * rt)
 		dst_release(&rt->u.dst);
 }
 
-#ifdef CONFIG_INET_ECN
 #define IPTOS_RT_MASK	(IPTOS_TOS_MASK & ~3)
-#else
-#define IPTOS_RT_MASK	IPTOS_TOS_MASK
-#endif
-
 
 extern __u8 ip_tos2prio[16];
 

@@ -19,9 +19,7 @@
 
 #include <asm/uaccess.h>
 
-#include <linux/nfs_fs.h>
-#include <linux/nfs_fs_sb.h>
-#include <linux/nfs_mount.h>
+#include <linux/seq_file.h>
 
 struct vfsmount *do_kern_mount(char *type, int flags, char *name, void *data);
 int do_remount_sb(struct super_block *sb, int flags, void * data);
@@ -167,159 +165,91 @@ void __mntput(struct vfsmount *mnt)
 	kill_super(sb);
 }
 
-/* Use octal escapes, like mount does, for embedded spaces etc. */
-static unsigned char need_escaping[] = { ' ', '\t', '\n', '\\' };
-
-static int
-mangle(const unsigned char *s, char *buf, int len) {
-        char *sp;
-        int n;
-
-        sp = buf;
-        while(*s && sp-buf < len-3) {
-                for (n = 0; n < sizeof(need_escaping); n++) {
-                        if (*s == need_escaping[n]) {
-                                *sp++ = '\\';
-                                *sp++ = '0' + ((*s & 0300) >> 6);
-                                *sp++ = '0' + ((*s & 070) >> 3);
-                                *sp++ = '0' + (*s & 07);
-                                goto next;
-                        }
-                }
-                *sp++ = *s;
-        next:
-                s++;
-        }
-        return sp - buf;	/* no trailing NUL */
-}
-
-static struct proc_fs_info {
-	int flag;
-	char *str;
-} fs_info[] = {
-	{ MS_SYNCHRONOUS, ",sync" },
-	{ MS_MANDLOCK, ",mand" },
-	{ MS_NOATIME, ",noatime" },
-	{ MS_NODIRATIME, ",nodiratime" },
-	{ 0, NULL }
-};
-
-static struct proc_fs_info mnt_info[] = {
-	{ MNT_NOSUID, ",nosuid" },
-	{ MNT_NODEV, ",nodev" },
-	{ MNT_NOEXEC, ",noexec" },
-	{ 0, NULL }
-};
-
-static struct proc_nfs_info {
-	int flag;
-	char *str;
-	char *nostr;
-} nfs_info[] = {
-	{ NFS_MOUNT_SOFT, ",soft", ",hard" },
-	{ NFS_MOUNT_INTR, ",intr", "" },
-	{ NFS_MOUNT_POSIX, ",posix", "" },
-	{ NFS_MOUNT_TCP, ",tcp", ",udp" },
-	{ NFS_MOUNT_NOCTO, ",nocto", "" },
-	{ NFS_MOUNT_NOAC, ",noac", "" },
-	{ NFS_MOUNT_NONLM, ",nolock", ",lock" },
-	{ NFS_MOUNT_BROKEN_SUID, ",broken_suid", "" },
-	{ 0, NULL, NULL }
-};
-
-int get_filesystem_info( char *buf )
+/* iterator */
+static void *m_start(struct seq_file *m, loff_t *pos)
 {
 	struct list_head *p;
-	struct proc_fs_info *fs_infop;
-	struct proc_nfs_info *nfs_infop;
-	struct nfs_server *nfss;
-	int len, prevlen;
-	char *path, *buffer = (char *) __get_free_page(GFP_KERNEL);
+	loff_t n = *pos;
 
-	if (!buffer) return 0;
-	len = prevlen = 0;
-
-#define FREEROOM	((int)PAGE_SIZE-200-len)
-#define MANGLE(s)	len += mangle((s), buf+len, FREEROOM);
-
-	for (p = vfsmntlist.next; p != &vfsmntlist; p = p->next) {
-		struct vfsmount *tmp = list_entry(p, struct vfsmount, mnt_list);
-		path = d_path(tmp->mnt_root, tmp, buffer, PAGE_SIZE);
-		if (!path)
-			continue;
-		MANGLE(tmp->mnt_devname ? tmp->mnt_devname : "none");
-		buf[len++] = ' ';
-		MANGLE(path);
-		buf[len++] = ' ';
-		MANGLE(tmp->mnt_sb->s_type->name);
-		len += sprintf(buf+len, " %s",
-			       tmp->mnt_sb->s_flags & MS_RDONLY ? "ro" : "rw");
-		for (fs_infop = fs_info; fs_infop->flag; fs_infop++) {
-			if (tmp->mnt_sb->s_flags & fs_infop->flag)
-				MANGLE(fs_infop->str);
-		}
-		for (fs_infop = mnt_info; fs_infop->flag; fs_infop++) {
-			if (tmp->mnt_flags & fs_infop->flag)
-				MANGLE(fs_infop->str);
-		}
-		if (!strcmp("nfs", tmp->mnt_sb->s_type->name)) {
-			nfss = &tmp->mnt_sb->u.nfs_sb.s_server;
-			len += sprintf(buf+len, ",v%d", nfss->rpc_ops->version);
-
-			len += sprintf(buf+len, ",rsize=%d", nfss->rsize);
-
-			len += sprintf(buf+len, ",wsize=%d", nfss->wsize);
-#if 0
-			if (nfss->timeo != 7*HZ/10) {
-				len += sprintf(buf+len, ",timeo=%d",
-					       nfss->timeo*10/HZ);
-			}
-			if (nfss->retrans != 3) {
-				len += sprintf(buf+len, ",retrans=%d",
-					       nfss->retrans);
-			}
-#endif
-			if (nfss->acregmin != 3*HZ) {
-				len += sprintf(buf+len, ",acregmin=%d",
-					       nfss->acregmin/HZ);
-			}
-			if (nfss->acregmax != 60*HZ) {
-				len += sprintf(buf+len, ",acregmax=%d",
-					       nfss->acregmax/HZ);
-			}
-			if (nfss->acdirmin != 30*HZ) {
-				len += sprintf(buf+len, ",acdirmin=%d",
-					       nfss->acdirmin/HZ);
-			}
-			if (nfss->acdirmax != 60*HZ) {
-				len += sprintf(buf+len, ",acdirmax=%d",
-					       nfss->acdirmax/HZ);
-			}
-			for (nfs_infop = nfs_info; nfs_infop->flag; nfs_infop++) {
-				char *str;
-				if (nfss->flags & nfs_infop->flag)
-					str = nfs_infop->str;
-				else
-					str = nfs_infop->nostr;
-				MANGLE(str);
-			}
-			len += sprintf(buf+len, ",addr=");
-			MANGLE(nfss->hostname);
-		}
-		len += sprintf(buf + len, " 0 0\n");
-		if (FREEROOM <= 3) {
-			len = prevlen;
-			len += sprintf(buf+len, "# truncated\n");
-			break;
-		}
-		prevlen = len;
-	}
-
-	free_page((unsigned long) buffer);
-	return len;
-#undef MANGLE
-#undef FREEROOM
+	down(&mount_sem);
+	list_for_each(p, &vfsmntlist)
+		if (!n--)
+			return list_entry(p, struct vfsmount, mnt_list);
+	return NULL;
 }
+
+static void *m_next(struct seq_file *m, void *v, loff_t *pos)
+{
+	struct list_head *p = ((struct vfsmount *)v)->mnt_list.next;
+	(*pos)++;
+	return p==&vfsmntlist ? NULL : list_entry(p, struct vfsmount, mnt_list);
+}
+
+static void m_stop(struct seq_file *m, void *v)
+{
+	up(&mount_sem);
+}
+
+static inline void mangle(struct seq_file *m, const char *s)
+{
+	seq_escape(m, s, " \t\n\\");
+}
+
+static int show_vfsmnt(struct seq_file *m, void *v)
+{
+	struct vfsmount *mnt = v;
+	int err = 0;
+	static struct proc_fs_info {
+		int flag;
+		char *str;
+	} fs_info[] = {
+		{ MS_SYNCHRONOUS, ",sync" },
+		{ MS_MANDLOCK, ",mand" },
+		{ MS_NOATIME, ",noatime" },
+		{ MS_NODIRATIME, ",nodiratime" },
+		{ 0, NULL }
+	};
+	static struct proc_fs_info mnt_info[] = {
+		{ MNT_NOSUID, ",nosuid" },
+		{ MNT_NODEV, ",nodev" },
+		{ MNT_NOEXEC, ",noexec" },
+		{ 0, NULL }
+	};
+	struct proc_fs_info *fs_infop;
+	char *path_buf, *path;
+
+	path_buf = (char *) __get_free_page(GFP_KERNEL);
+	if (!path_buf)
+		return -ENOMEM;
+	path = d_path(mnt->mnt_root, mnt, path_buf, PAGE_SIZE);
+
+	mangle(m, mnt->mnt_devname ? mnt->mnt_devname : "none");
+	seq_putc(m, ' ');
+	mangle(m, path);
+	free_page((unsigned long) path_buf);
+	seq_putc(m, ' ');
+	mangle(m, mnt->mnt_sb->s_type->name);
+	seq_puts(m, mnt->mnt_sb->s_flags & MS_RDONLY ? " ro" : " rw");
+	for (fs_infop = fs_info; fs_infop->flag; fs_infop++) {
+		if (mnt->mnt_sb->s_flags & fs_infop->flag)
+			seq_puts(m, fs_infop->str);
+	}
+	for (fs_infop = mnt_info; fs_infop->flag; fs_infop++) {
+		if (mnt->mnt_flags & fs_infop->flag)
+			seq_puts(m, fs_infop->str);
+	}
+	if (mnt->mnt_sb->s_op->show_options)
+		err = mnt->mnt_sb->s_op->show_options(m, mnt);
+	seq_puts(m, " 0 0\n");
+	return err;
+}
+
+struct seq_operations mounts_op = {
+	start:	m_start,
+	next:	m_next,
+	stop:	m_stop,
+	show:	show_vfsmnt
+};
 
 /*
  * Doesn't take quota and stuff into account. IOW, in some cases it will
@@ -592,9 +522,11 @@ static int do_loopback(struct nameidata *nd, char *old_name, int recurse)
 
 	if (mnt) {
 		err = graft_tree(mnt, nd);
-		if (err)
+		if (err) {
+			spin_lock(&dcache_lock);
 			umount_tree(mnt);
-		else
+			spin_unlock(&dcache_lock);
+		} else
 			mntput(mnt);
 	}
 
@@ -628,6 +560,67 @@ static int do_remount(struct nameidata *nd,int flags,int mnt_flags,void *data)
 	if (!err)
 		nd->mnt->mnt_flags=mnt_flags;
 	up_write(&sb->s_umount);
+	return err;
+}
+
+static int do_move_mount(struct nameidata *nd, char *old_name)
+{
+	struct nameidata old_nd, parent_nd;
+	struct vfsmount *p;
+	int err = 0;
+	if (!capable(CAP_SYS_ADMIN))
+		return -EPERM;
+	if (!old_name || !*old_name)
+		return -EINVAL;
+	if (path_init(old_name, LOOKUP_POSITIVE|LOOKUP_FOLLOW, &old_nd))
+		err = path_walk(old_name, &old_nd);
+	if (err)
+		return err;
+
+	down(&mount_sem);
+	while(d_mountpoint(nd->dentry) && follow_down(&nd->mnt, &nd->dentry))
+		;
+	err = -EINVAL;
+	if (!check_mnt(nd->mnt) || !check_mnt(old_nd.mnt))
+		goto out;
+
+	err = -ENOENT;
+	down(&nd->dentry->d_inode->i_zombie);
+	if (IS_DEADDIR(nd->dentry->d_inode))
+		goto out1;
+
+	spin_lock(&dcache_lock);
+	if (!IS_ROOT(nd->dentry) && d_unhashed(nd->dentry))
+		goto out2;
+
+	err = -EINVAL;
+	if (old_nd.dentry != old_nd.mnt->mnt_root)
+		goto out2;
+
+	if (old_nd.mnt == old_nd.mnt->mnt_parent)
+		goto out2;
+
+	if (S_ISDIR(nd->dentry->d_inode->i_mode) !=
+	      S_ISDIR(old_nd.dentry->d_inode->i_mode))
+		goto out2;
+
+	err = -ELOOP;
+	for (p = nd->mnt; p->mnt_parent!=p; p = p->mnt_parent)
+		if (p == old_nd.mnt)
+			goto out2;
+	err = 0;
+
+	detach_mnt(old_nd.mnt, &parent_nd);
+	attach_mnt(old_nd.mnt, nd);
+out2:
+	spin_unlock(&dcache_lock);
+out1:
+	up(&nd->dentry->d_inode->i_zombie);
+out:
+	up(&mount_sem);
+	if (!err)
+		path_release(&parent_nd);
+	path_release(&old_nd);
 	return err;
 }
 
@@ -747,6 +740,8 @@ long do_mount(char * dev_name, char * dir_name, char *type_page,
 				    data_page);
 	else if (flags & MS_BIND)
 		retval = do_loopback(&nd, dev_name, flags & MS_REC);
+	else if (flags & MS_MOVE)
+		retval = do_move_mount(&nd, dev_name);
 	else
 		retval = do_add_mount(&nd, type_page, flags, mnt_flags,
 				      dev_name, data_page);

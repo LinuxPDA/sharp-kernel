@@ -63,7 +63,7 @@ static void leaf_copy_dir_entries (struct buffer_info * dest_bi, struct buffer_h
 
 	/* form item header */
 	memcpy (&new_ih.ih_key, &ih->ih_key, KEY_SIZE);
-	put_ih_version( &new_ih, ITEM_VERSION_1 );
+	put_ih_version( &new_ih, KEY_FORMAT_3_5 );
 	/* calculate item len */
 	put_ih_item_len( &new_ih, DEH_SIZE * copy_count + copy_records_len );
 	put_ih_entry_count( &new_ih, 0 );
@@ -78,7 +78,7 @@ static void leaf_copy_dir_entries (struct buffer_info * dest_bi, struct buffer_h
 		set_le_ih_k_offset (&new_ih, U32_MAX);
 		/* this item is not yet valid, but we want I_IS_DIRECTORY_ITEM to return 1 for it, so we -1 */
 	    }
-	    set_le_key_k_type (ITEM_VERSION_1, &(new_ih.ih_key), TYPE_DIRENTRY);
+	    set_le_key_k_type (KEY_FORMAT_3_5, &(new_ih.ih_key), TYPE_DIRENTRY);
 	}
     
 	/* insert item into dest buffer */
@@ -216,7 +216,7 @@ static int leaf_copy_boundary_item (struct buffer_info * dest_bi, struct buffer_
     /* merge to right only part of item */
     RFALSE( ih_item_len(ih) <= bytes_or_entries,
             "vs-10060: no so much bytes %lu (needed %lu)",
-            ih_item_len(ih), bytes_or_entries);
+            ( unsigned long )ih_item_len(ih), ( unsigned long )bytes_or_entries);
     
     /* change first item key of the DEST */
     if ( is_direct_le_ih (dih) ) {
@@ -325,7 +325,8 @@ static void leaf_copy_items_entirely (struct buffer_info * dest_bi, struct buffe
 	t_dc = B_N_CHILD (dest_bi->bi_parent, dest_bi->bi_position);
 	RFALSE( dc_block_number(t_dc) != dest->b_blocknr,
 	        "vs-10160: block number in bh does not match to field in disk_child structure %lu and %lu",
-                dest->b_blocknr, dc_block_number(t_dc));
+                ( long unsigned ) dest->b_blocknr, 
+		( long unsigned ) dc_block_number(t_dc));
 	put_dc_size( t_dc, dc_size(t_dc) + (j - last_inserted_loc + IH_SIZE * cpy_num ) );
     
 	do_balance_mark_internal_dirty (dest_bi->tb, dest_bi->bi_parent, 0);
@@ -359,7 +360,7 @@ static void leaf_item_bottle (struct buffer_info * dest_bi, struct buffer_head *
 	    if (is_indirect_le_ih (ih)) {
 		RFALSE( cpy_bytes == ih_item_len(ih) && get_ih_free_space(ih),
 		        "vs-10180: when whole indirect item is bottle to left neighbor, it must have free_space==0 (not %lu)",
-                        get_ih_free_space (ih));
+                        ( long unsigned ) get_ih_free_space (ih));
 		set_ih_free_space (&n_ih, 0);
 	    }
 
@@ -989,7 +990,8 @@ void leaf_cut_from_buffer (struct buffer_info * bi, int cut_item_num,
         RFALSE( is_statdata_le_ih (ih), "10195: item is stat data");
         RFALSE( pos_in_item && pos_in_item + cut_size != ih_item_len(ih),
                 "10200: invalid offset (%lu) or trunc_size (%lu) or ih_item_len (%lu)",
-                pos_in_item, cut_size, ih_item_len (ih));
+                ( long unsigned ) pos_in_item, ( long unsigned ) cut_size, 
+		( long unsigned ) ih_item_len (ih));
 
         /* shift item body to left if cut is from the head of item */
         if (pos_in_item == 0) {

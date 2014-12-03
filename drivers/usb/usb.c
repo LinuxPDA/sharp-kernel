@@ -1019,7 +1019,7 @@ void usb_free_urb(urb_t* urb)
 /*-------------------------------------------------------------------*/
 int usb_submit_urb(urb_t *urb)
 {
-	if (urb && urb->dev)
+	if (urb && urb->dev && urb->dev->bus && urb->dev->bus->op)
 		return urb->dev->bus->op->submit_urb(urb);
 	else
 		return -ENODEV;
@@ -1028,7 +1028,7 @@ int usb_submit_urb(urb_t *urb)
 /*-------------------------------------------------------------------*/
 int usb_unlink_urb(urb_t *urb)
 {
-	if (urb && urb->dev)
+	if (urb && urb->dev && urb->dev->bus && urb->dev->bus->op)
 		return urb->dev->bus->op->unlink_urb(urb);
 	else
 		return -ENODEV;
@@ -1950,6 +1950,14 @@ int usb_set_interface(struct usb_device *dev, int interface, int alternate)
 	if (!iface) {
 		warn("selecting invalid interface %d", interface);
 		return -EINVAL;
+	}
+
+	/* 9.4.10 says devices don't need this, if the interface
+	   only has one alternate setting */
+	if (iface->num_altsetting == 1) {
+		warn("ignoring set_interface for dev %d, iface %d, alt %d",
+			dev->devnum, interface, alternate);
+		return 0;
 	}
 
 	if ((ret = usb_control_msg(dev, usb_sndctrlpipe(dev, 0),

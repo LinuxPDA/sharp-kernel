@@ -1,5 +1,5 @@
 /*
- * BK Id: SCCS/s.pmac_setup.c 1.39 09/08/01 15:47:42 paulus
+ * BK Id: SCCS/s.pmac_setup.c 1.45 12/01/01 20:09:06 benh
  */
 /*
  *  linux/arch/ppc/kernel/setup.c
@@ -49,6 +49,7 @@
 #include <linux/adb.h>
 #include <linux/cuda.h>
 #include <linux/pmu.h>
+#include <linux/seq_file.h>
 
 #include <asm/processor.h>
 #include <asm/sections.h>
@@ -60,7 +61,6 @@
 #include <asm/pci-bridge.h>
 #include <asm/ohare.h>
 #include <asm/mediabay.h>
-#include <asm/feature.h>
 #include <asm/machdep.h>
 #include <asm/keyboard.h>
 #include <asm/dma.h>
@@ -68,6 +68,7 @@
 #include <asm/cputable.h>
 #include <asm/btext.h>
 
+#include <asm/pmac_feature.h>
 #include <asm/time.h>
 #include "local_irq.h"
 #include "pmac_pic.h"
@@ -82,6 +83,10 @@ extern void pmac_read_rtc_time(void);
 extern void pmac_calibrate_decr(void);
 extern void pmac_pcibios_fixup(void);
 extern void pmac_find_bridges(void);
+extern int pmac_ide_check_base(ide_ioreg_t base);
+extern ide_ioreg_t pmac_ide_get_base(int index);
+extern void pmac_ide_init_hwif_ports(hw_regs_t *hw,
+	ide_ioreg_t data_port, ide_ioreg_t ctrl_port, int *irq);
 
 extern int mackbd_setkeycode(unsigned int scancode, unsigned int keycode);
 extern int mackbd_getkeycode(unsigned int scancode);
@@ -94,11 +99,9 @@ extern int mac_hid_kbd_translate(unsigned char scancode, unsigned char *keycode,
 				 char raw_mode);
 extern char mac_hid_kbd_unexpected_up(unsigned char keycode);
 extern void mac_hid_init_hw(void);
-#ifdef CONFIG_MAGIC_SYSRQ
-extern unsigned char mac_hid_kbd_sysrq_xlate[128];
-extern unsigned char pckbd_sysrq_xlate[128];
-extern unsigned char mackbd_sysrq_xlate[128];
-#endif /* CONFIG_MAGIC_SYSRQ */
+extern unsigned char mac_hid_kbd_sysrq_xlate[];
+extern unsigned char pckbd_sysrq_xlate[];
+extern unsigned char mackbd_sysrq_xlate[];
 extern int pckbd_setkeycode(unsigned int scancode, unsigned int keycode);
 extern int pckbd_getkeycode(unsigned int scancode);
 extern int pckbd_translate(unsigned char scancode, unsigned char *keycode,
@@ -159,36 +162,56 @@ core99_init_l2(void)
 }
 #endif /* CONFIG_SMP */
 
-int __pmac
-pmac_get_cpuinfo(char *buffer)
+/*
+ * Assume here that all clock rates are the same in a
+ * smp system.  -- Cort
+ */
+int __openfirmware
+of_show_percpuinfo(struct seq_file *m, int i)
 {
-	int len;
+	struct device_node *cpu_node;
+	int *fp, s;
+			
+	cpu_node = find_type_devices("cpu");
+	if (!cpu_node)
+		return 0;
+	for (s = 0; s < i && cpu_node->next; s++)
+		cpu_node = cpu_node->next;
+	fp = (int *) get_property(cpu_node, "clock-frequency", NULL);
+	if (fp)
+		seq_printf(m, "clock\t\t: %dMHz\n", *fp / 1000000);
+	return 0;
+}
+
+int __pmac
+pmac_show_cpuinfo(struct seq_file *m)
+{
 	struct device_node *np;
 	char *pp;
 	int plen;
 
 	/* find motherboard type */
-	len = sprintf(buffer, "machine\t\t: ");
+	seq_printf(m, "machine\t\t: ");
 	np = find_devices("device-tree");
 	if (np != NULL) {
 		pp = (char *) get_property(np, "model", NULL);
 		if (pp != NULL)
-			len += sprintf(buffer+len, "%s\n", pp);
+			seq_printf(m, "%s\n", pp);
 		else
-			len += sprintf(buffer+len, "PowerMac\n");
+			seq_printf(m, "PowerMac\n");
 		pp = (char *) get_property(np, "compatible", &plen);
 		if (pp != NULL) {
-			len += sprintf(buffer+len, "motherboard\t:");
+			seq_printf(m, "motherboard\t:");
 			while (plen > 0) {
 				int l = strlen(pp) + 1;
-				len += sprintf(buffer+len, " %s", pp);
+				seq_printf(m, " %s", pp);
 				plen -= l;
 				pp += l;
 			}
-			buffer[len++] = '\n';
+			seq_printf(m, "\n");
 		}
 	} else
-		len += sprintf(buffer+len, "PowerMac\n");
+		seq_printf(m, "PowerMac\n");
 
 	/* find l2 cache info */
 	np = find_devices("l2-cache");
@@ -199,22 +222,21 @@ pmac_get_cpuinfo(char *buffer)
 			get_property(np, "i-cache-size", NULL);
 		unsigned int *dc = (unsigned int *)
 			get_property(np, "d-cache-size", NULL);
-		len += sprintf(buffer+len, "L2 cache\t:");
+		seq_printf(m, "L2 cache\t:");
 		has_l2cache = 1;
 		if (get_property(np, "cache-unified", NULL) != 0 && dc) {
-			len += sprintf(buffer+len, " %dK unified", *dc / 1024);
+			seq_printf(m, " %dK unified", *dc / 1024);
 		} else {
 			if (ic)
-				len += sprintf(buffer+len, " %dK instruction",
-					       *ic / 1024);
+				seq_printf(m, " %dK instruction", *ic / 1024);
 			if (dc)
-				len += sprintf(buffer+len, "%s %dK data",
-					       (ic? " +": ""), *dc / 1024);
+				seq_printf(m, "%s %dK data",
+					   (ic? " +": ""), *dc / 1024);
 		}
 		pp = get_property(np, "ram-type", NULL);
 		if (pp)
-			len += sprintf(buffer+len, " %s", pp);
-		buffer[len++] = '\n';
+			seq_printf(m, " %s", pp);
+		seq_printf(m, "\n");
 	}
 
 	/* find ram info */
@@ -229,8 +251,7 @@ pmac_get_cpuinfo(char *buffer)
 
 			for (n /= sizeof(struct reg_property); n > 0; --n)
 				total += (reg++)->size;
-			len += sprintf(buffer+len, "memory\t\t: %luMB\n",
-				       total >> 20);
+			seq_printf(m, "memory\t\t: %luMB\n", total >> 20);
 		}
 	}
 
@@ -242,16 +263,16 @@ pmac_get_cpuinfo(char *buffer)
 		unsigned int *l2cr = (unsigned int *)
 			get_property(np, "l2cr-value", NULL);
 		if (l2cr != 0) {
-			len += sprintf(buffer+len, "l2cr override\t: 0x%x\n", *l2cr);
+			seq_printf(m, "l2cr override\t: 0x%x\n", *l2cr);
 		}
 	}
 	
 	/* Indicate newworld/oldworld */
-	len += sprintf(buffer+len, "pmac-generation\t: %s\n",
-		pmac_newworld ? "NewWorld" : "OldWorld");		
+	seq_printf(m, "pmac-generation\t: %s\n",
+		   pmac_newworld ? "NewWorld" : "OldWorld");
 	
 
-	return len;
+	return 0;
 }
 
 #ifdef CONFIG_SCSI
@@ -419,7 +440,8 @@ pmac_init2(void)
 #endif
 #ifdef CONFIG_PMAC_PBOOK
 	media_bay_init();
-#endif	
+#endif
+	pmac_feature_late_init();
 }
 
 #ifdef CONFIG_SCSI
@@ -587,14 +609,11 @@ pmac_halt(void)
 static int __pmac
 pmac_ide_check_region(ide_ioreg_t from, unsigned int extent)
 {
-	/*
-	 * We only do the check_region if `from' looks like a genuine
-	 * I/O port number.  If it actually refers to a memory-mapped
-	 * register, it should be OK.
-	 */
-	if (from < ~_IO_BASE)
-		return check_region(from, extent);
-	return 0;
+#ifdef CONFIG_BLK_DEV_IDE_PMAC
+	if (pmac_ide_check_base(from) >= 0)
+		return 0;
+#endif
+	return check_region(from, extent);
 }
 
 static void __pmac
@@ -602,24 +621,31 @@ pmac_ide_request_region(ide_ioreg_t from,
 			unsigned int extent,
 			const char *name)
 {
-	if (from < ~_IO_BASE)
-		request_region(from, extent, name);
+#ifdef CONFIG_BLK_DEV_IDE_PMAC
+	if (pmac_ide_check_base(from) >= 0)
+		return;
+#endif
+	request_region(from, extent, name);
 }
 
 static void __pmac
 pmac_ide_release_region(ide_ioreg_t from,
 			unsigned int extent)
 {
-	if (from < ~_IO_BASE)
-		release_region(from, extent);
+#ifdef CONFIG_BLK_DEV_IDE_PMAC
+	if (pmac_ide_check_base(from) >= 0)
+		return;
+#endif
+	release_region(from, extent);
 }
 
+#ifndef CONFIG_BLK_DEV_IDE_PMAC
 /*
  * This is only used if we have a PCI IDE controller, not
  * for the IDE controller in the ohare/paddington/heathrow/keylargo.
  */
 static void __pmac
-pmac_ide_init_hwif_ports(hw_regs_t *hw, ide_ioreg_t data_port,
+pmac_ide_pci_init_hwif_ports(hw_regs_t *hw, ide_ioreg_t data_port,
 		ide_ioreg_t ctrl_port, int *irq)
 {
 	ide_ioreg_t reg = data_port;
@@ -631,7 +657,8 @@ pmac_ide_init_hwif_ports(hw_regs_t *hw, ide_ioreg_t data_port,
 	}
 	hw->io_ports[IDE_CONTROL_OFFSET] = ctrl_port;
 }
-#endif
+#endif /* CONFIG_BLK_DEV_IDE_PMAC */
+#endif /* defined(CONFIG_BLK_DEV_IDE) || defined(CONFIG_BLK_DEV_IDE_MODULE) */
 
 /*
  * Read in a property describing some pieces of memory.
@@ -767,8 +794,8 @@ pmac_init(unsigned long r3, unsigned long r4, unsigned long r5,
 	DMA_MODE_WRITE = 2;
 
 	ppc_md.setup_arch     = pmac_setup_arch;
-	ppc_md.setup_residual = NULL;
-	ppc_md.get_cpuinfo    = pmac_get_cpuinfo;
+	ppc_md.show_cpuinfo   = pmac_show_cpuinfo;
+	ppc_md.show_percpuinfo = of_show_percpuinfo;
 	ppc_md.irq_cannonicalize = NULL;
 	ppc_md.init_IRQ       = pmac_pic_init;
 	ppc_md.get_irq        = pmac_get_irq; /* Changed later on ... */
@@ -789,14 +816,21 @@ pmac_init(unsigned long r3, unsigned long r4, unsigned long r5,
 
 	ppc_md.find_end_of_memory = pmac_find_end_of_memory;
 
+	ppc_md.feature_call   = pmac_do_feature_call;
+
 	select_adb_keyboard();
 
-#if defined(CONFIG_BLK_DEV_IDE) && defined(CONFIG_BLK_DEV_IDE_PMAC)
+#if defined(CONFIG_BLK_DEV_IDE) || defined(CONFIG_BLK_DEV_IDE_MODULE)
         ppc_ide_md.ide_check_region	= pmac_ide_check_region;
         ppc_ide_md.ide_request_region	= pmac_ide_request_region;
         ppc_ide_md.ide_release_region	= pmac_ide_release_region;
+#ifdef CONFIG_BLK_DEV_IDE_PMAC
         ppc_ide_md.ide_init_hwif	= pmac_ide_init_hwif_ports;
-#endif /* CONFIG_BLK_DEV_IDE && CONFIG_BLK_DEV_IDE_PMAC */
+        ppc_ide_md.default_io_base	= pmac_ide_get_base;
+#else /* CONFIG_BLK_DEV_IDE_PMAC */
+        ppc_ide_md.ide_init_hwif	= pmac_ide_pci_init_hwif_ports;
+#endif /* CONFIG_BLK_DEV_IDE_PMAC */
+#endif /* defined(CONFIG_BLK_DEV_IDE) || defined(CONFIG_BLK_DEV_IDE_MODULE) */
 
 #ifdef CONFIG_BOOTX_TEXT
 	ppc_md.progress = pmac_progress;

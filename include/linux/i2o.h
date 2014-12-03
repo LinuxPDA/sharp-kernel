@@ -31,7 +31,6 @@
 #include <asm/semaphore.h>	/* Needed for MUTEX init macros */
 #include <linux/config.h>
 #include <linux/notifier.h>
-#include <linux/ioport.h>	/* Needed for struct resource */
 #include <asm/atomic.h>
 
 /*
@@ -82,7 +81,7 @@ struct i2o_device
 struct i2o_pci
 {
 	int		irq;
-	int		queue_buggy:1;	/* Don't send a lot of messages */
+	int		queue_buggy:3;	/* Don't send a lot of messages */
 	int		short_req:1;	/* Use small block sizes        */
 	int		dpt:1;		/* Don't quiesce                */
 #ifdef CONFIG_MTRR
@@ -253,34 +252,34 @@ struct i2o_sys_tbl
  */
 static inline u32 I2O_POST_READ32(struct i2o_controller *c)
 {
-	return *c->post_port;
+	return readl(c->post_port);
 }
 
-static inline void I2O_POST_WRITE32(struct i2o_controller *c, u32 Val)
+static inline void I2O_POST_WRITE32(struct i2o_controller *c, u32 val)
 {
-	*c->post_port = Val;
+	writel(val, c->post_port);
 }
 
 
 static inline u32 I2O_REPLY_READ32(struct i2o_controller *c)
 {
-	return *c->reply_port;
+	return readl(c->reply_port);
 }
 
-static inline void I2O_REPLY_WRITE32(struct i2o_controller *c, u32 Val)
+static inline void I2O_REPLY_WRITE32(struct i2o_controller *c, u32 val)
 {
-	*c->reply_port = Val;
+	writel(val, c->reply_port);
 }
 
 
 static inline u32 I2O_IRQ_READ32(struct i2o_controller *c)
 {
-	return *c->irq_mask;
+	return readl(c->irq_mask);
 }
 
-static inline void I2O_IRQ_WRITE32(struct i2o_controller *c, u32 Val)
+static inline void I2O_IRQ_WRITE32(struct i2o_controller *c, u32 val)
 {
-	*c->irq_mask = Val;
+	writel(val, c->irq_mask);
 }
 
 

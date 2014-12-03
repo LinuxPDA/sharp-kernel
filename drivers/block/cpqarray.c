@@ -32,6 +32,7 @@
 #include <linux/blkpg.h>
 #include <linux/timer.h>
 #include <linux/proc_fs.h>
+#include <linux/devfs_fs_kernel.h>
 #include <linux/init.h>
 #include <linux/hdreg.h>
 #include <linux/spinlock.h>
@@ -70,6 +71,7 @@ MODULE_LICENSE("GPL");
 
 static int nr_ctlr;
 static ctlr_info_t *hba[MAX_CTLR];
+static devfs_handle_t de_arr[MAX_CTLR][NWD];
 
 static int eisa[8];
 
@@ -188,6 +190,7 @@ static void ida_geninit(int ctlr)
 }
 
 static struct block_device_operations ida_fops  = {
+	owner:		THIS_MODULE,
 	open:		ida_open,
 	release:	ida_release,
 	ioctl:		ida_ioctl,
@@ -337,6 +340,7 @@ void cleanup_module(void)
 
 		del_gendisk(&ida_gendisk[i]);
 	}
+	devfs_unregister(devfs_find_handle(NULL, "ida", 0, 0, 0, 0));
 	remove_proc_entry("cpqarray", proc_root_driver);
 	kfree(ida);
 	kfree(ida_sizes);
@@ -539,6 +543,8 @@ int __init cpqarray_init(void)
 		ida_gendisk[i].part = ida + (i*256);
 		ida_gendisk[i].sizes = ida_sizes + (i*256);
 		ida_gendisk[i].nr_real = 0; 
+		ida_gendisk[i].de_arr = de_arr[i]; 
+		ida_gendisk[i].fops = &ida_fops; 
 	
 		/* Get on the disk list */
 		add_gendisk(&ida_gendisk[i]);
@@ -853,7 +859,6 @@ static int ida_open(struct inode *inode, struct file *filep)
 
 	hba[ctlr]->drv[dsk].usage_count++;
 	hba[ctlr]->usage_count++;
-	MOD_INC_USE_COUNT;
 	return 0;
 }
 
@@ -869,7 +874,6 @@ static int ida_release(struct inode *inode, struct file *filep)
 
 	hba[ctlr]->drv[dsk].usage_count--;
 	hba[ctlr]->usage_count--;
-	MOD_DEC_USE_COUNT;
 	return 0;
 }
 
@@ -912,21 +916,19 @@ static void do_ida_request(request_queue_t *q)
 {
 	ctlr_info_t *h = q->queuedata;
 	cmdlist_t *c;
-	int seg, sect;
 	char *lastdataend;
 	struct list_head * queue_head = &q->queue_head;
 	struct buffer_head *bh;
 	struct request *creq;
 	struct my_sg tmp_sg[SG_MAX];
-	int i;
+	int i, seg;
 
-// Loop till the queue is empty if or it is plugged 
-   while (1)
-{
-	if (q->plugged || list_empty(queue_head)) {
-		start_io(h);
-		return;
-	}
+	if (q->plugged)
+		goto startio;
+
+queue_next:
+	if (list_empty(queue_head))
+		goto startio;
 
 	creq = blkdev_entry_next_request(queue_head);
 	if (creq->nr_segments > SG_MAX)
@@ -938,15 +940,16 @@ static void do_ida_request(request_queue_t *q)
 				h->ctlr, creq->rq_dev, creq);
 		blkdev_dequeue_request(creq);
 		complete_buffers(creq->bh, 0);
-		start_io(h);
-                return;
+		end_that_request_last(creq);
+		goto startio;
 	}
 
 	if ((c = cmd_alloc(h,1)) == NULL)
-	{
-                start_io(h);
-                return;
-        }
+		goto startio;
+
+	blkdev_dequeue_request(creq);
+
+	spin_unlock_irq(&io_request_lock);
 
 	bh = creq->bh;
 
@@ -956,7 +959,7 @@ static void do_ida_request(request_queue_t *q)
 	c->size += sizeof(rblk_t);
 
 	c->req.hdr.blk = ida[(h->ctlr<<CTLR_SHIFT) + MINOR(creq->rq_dev)].start_sect + creq->sector;
-	c->bh = bh;
+	c->rq = creq;
 DBGPX(
 	if (bh == NULL)
 		panic("bh == NULL?");
@@ -964,9 +967,7 @@ DBGPX(
 	printk("sector=%d, nr_sectors=%d\n", creq->sector, creq->nr_sectors);
 );
 	seg = 0; lastdataend = NULL;
-	sect = 0;
 	while(bh) {
-		sect += bh->b_size/512;
 		if (bh->b_data == lastdataend) {
 			tmp_sg[seg-1].size += bh->b_size;
 			lastdataend += bh->b_size;
@@ -992,35 +993,22 @@ DBGPX(
 	}
 DBGPX(	printk("Submitting %d sectors in %d segments\n", sect, seg); );
 	c->req.hdr.sg_cnt = seg;
-	c->req.hdr.blk_cnt = sect;
-
-	/*
-	 * Since we control our own merging, we know that this request
-	 * is now fully setup and there's nothing left.
-         */
-	if (creq->nr_sectors != sect) {
-		printk("ida: %ld != %d sectors\n", creq->nr_sectors, sect);
-		BUG();
-	}
-
-	blkdev_dequeue_request(creq);
-
-	/*
-	 * ehh, we can't really end the request here since it's not
-	 * even started yet. for now it shouldn't hurt though
-	 */
-DBGPX(	printk("Done with %p\n", creq); );
-	end_that_request_last(creq);
-
+	c->req.hdr.blk_cnt = creq->nr_sectors;
 	c->req.hdr.cmd = (creq->cmd == READ) ? IDA_READ : IDA_WRITE;
 	c->type = CMD_RWREQ;
+
+	spin_lock_irq(&io_request_lock);
 
 	/* Put the request on the tail of the request queue */
 	addQ(&h->reqQ, c);
 	h->Qdepth++;
 	if (h->Qdepth > h->maxQsinceinit) 
 		h->maxQsinceinit = h->Qdepth;
-   } // while loop
+
+	goto queue_next;
+
+startio:
+	start_io(h);
 }
 
 /* 
@@ -1097,7 +1085,13 @@ static inline void complete_command(cmdlist_t *cmd, int timeout)
                         cmd->req.sg[i].addr, cmd->req.sg[i].size,
                         (cmd->req.hdr.cmd == IDA_READ) ? PCI_DMA_FROMDEVICE : PCI_DMA_TODEVICE);
         }
-	complete_buffers(cmd->bh, ok);
+
+	complete_buffers(cmd->rq->bh, ok);
+
+	DBGPX(printk("Done with %p\n", cmd->rq););
+	end_that_request_last(cmd->rq);
+
+
 }
 
 /*
@@ -1892,6 +1886,14 @@ static void getgeometry(int ctlr)
                 			kfree(id_ldrive);
                 			return;
 
+				}
+				if (!de_arr[ctlr][log_unit]) {
+					char txt[16];
+
+					sprintf(txt, "ida/c%dd%d", ctlr,
+						log_unit);
+					de_arr[ctlr][log_unit] =
+						devfs_mk_dir(NULL, txt, NULL);
 				}
 				info_p->phys_drives =
 				    sense_config_buf->ctlr_phys_drv;

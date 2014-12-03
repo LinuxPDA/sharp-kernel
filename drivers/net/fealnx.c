@@ -15,7 +15,18 @@
 
 	Support information and updates available at
 	http://www.scyld.com/network/pci-skeleton.html
+
+	Linux kernel updates:
+
+	Version 2.51, Nov 17, 2001 (jgarzik):
+	- Add ethtool support
+	- Replace some MII-related magic numbers with constants
+
 */
+
+#define DRV_NAME	"fealnx"
+#define DRV_VERSION	"2.51"
+#define DRV_RELDATE	"Nov-17-2001"
 
 static int debug;		/* 1-> print debug message */
 static int max_interrupt_work = 20;
@@ -72,13 +83,15 @@ static int full_duplex[MAX_UNITS] = { -1, -1, -1, -1, -1, -1, -1, -1 };
 #include <linux/skbuff.h>
 #include <linux/init.h>
 #include <linux/mii.h>
+#include <linux/ethtool.h>
 #include <asm/processor.h>	/* Processor type for cache alignment. */
 #include <asm/bitops.h>
 #include <asm/io.h>
+#include <asm/uaccess.h>
 
 /* These identify the driver base version and may not be removed. */
 static char version[] __devinitdata =
-KERN_INFO "fealnx.c:v2.50 1/17/2001\n";
+KERN_INFO DRV_NAME ".c:v" DRV_VERSION " " DRV_RELDATE "\n";
 
 
 /* This driver was written to use PCI memory space, however some x86 systems
@@ -379,6 +392,8 @@ struct netdev_private {
 	dma_addr_t rx_ring_dma;
 	dma_addr_t tx_ring_dma;
 
+	spinlock_t lock;
+
 	struct net_device_stats stats;
 
 	/* Media monitoring timer. */
@@ -403,19 +418,17 @@ struct netdev_private {
 	unsigned int linkok;
 	unsigned int line_speed;
 	unsigned int duplexmode;
-	unsigned int full_duplex:1;	/* Full-duplex operation requested. */
-	unsigned int duplex_lock:1;
-	unsigned int medialock:1;	/* Do not sense media. */
 	unsigned int default_port:4;	/* Last dev->if_port value. */
 	unsigned int PHYType;
 
 	/* MII transceiver section. */
 	int mii_cnt;		/* MII device addresses. */
 	unsigned char phys[2];	/* MII device addresses. */
+	struct mii_if_info mii;
 };
 
 
-static unsigned int mdio_read(struct net_device *dev, int phy_id, int location);
+static int mdio_read(struct net_device *dev, int phy_id, int location);
 static void mdio_write(struct net_device *dev, int phy_id, int location, int value);
 static int netdev_open(struct net_device *dev);
 static void getlinktype(struct net_device *dev);
@@ -431,7 +444,7 @@ static void set_rx_mode(struct net_device *dev);
 static struct net_device_stats *get_stats(struct net_device *dev);
 static int mii_ioctl(struct net_device *dev, struct ifreq *rq, int cmd);
 static int netdev_close(struct net_device *dev);
-
+static void reset_rx_descriptors(struct net_device *dev);
 
 void stop_nic_tx(long ioaddr, long crvalue)
 {
@@ -539,9 +552,13 @@ static int __devinit fealnx_init_one(struct pci_dev *pdev,
 
 	/* Make certain the descriptor lists are aligned. */
 	np = dev->priv;
+	spin_lock_init(&np->lock);
 	np->pci_dev = pdev;
 	np->flags = skel_netdrv_tbl[chip_id].flags;
 	pci_set_drvdata(pdev, dev);
+	np->mii.dev = dev;
+	np->mii.mdio_read = mdio_read;
+	np->mii.mdio_write = mdio_write;
 
 	ring_space = pci_alloc_consistent(pdev, RX_TOTAL_SIZE, &ring_dma);
 	if (!ring_space) {
@@ -606,6 +623,7 @@ static int __devinit fealnx_init_one(struct pci_dev *pdev,
 		else
 			np->PHYType = OtherPHY;
 	}
+	np->mii.phy_id = np->phys[0];
 
 	if (dev->mem_start)
 		option = dev->mem_start;
@@ -613,17 +631,14 @@ static int __devinit fealnx_init_one(struct pci_dev *pdev,
 	/* The lower four bits are the media type. */
 	if (option > 0) {
 		if (option & 0x200)
-			np->full_duplex = 1;
+			np->mii.full_duplex = 1;
 		np->default_port = option & 15;
-
-		if (np->default_port)
-			np->medialock = 1;
 	}
 
 	if (card_idx < MAX_UNITS && full_duplex[card_idx] > 0)
-		np->full_duplex = full_duplex[card_idx];
+		np->mii.full_duplex = full_duplex[card_idx];
 
-	if (np->full_duplex) {
+	if (np->mii.full_duplex) {
 		printk(KERN_INFO "%s: Media type forced to Full Duplex.\n", dev->name);
 /* 89/6/13 add, (begin) */
 //      if (np->PHYType==MarvellPHY)
@@ -636,10 +651,10 @@ static int __devinit fealnx_init_one(struct pci_dev *pdev,
 		}
 /* 89/6/13 add, (end) */
 		if (np->flags == HAS_MII_XCVR)
-			mdio_write(dev, np->phys[0], 4, 0x141);
+			mdio_write(dev, np->phys[0], MII_ADVERTISE, ADVERTISE_FULL);
 		else
-			writel(0x141, dev->base_addr + ANARANLPAR);
-		np->duplex_lock = 1;
+			writel(ADVERTISE_FULL, dev->base_addr + ANARANLPAR);
+		np->mii.duplex_lock = 1;
 	}
 
 	/* The chip-specific entries in the device structure. */
@@ -787,7 +802,7 @@ static ulong m80x_send_cmd_to_phy(long miiport, int opcode, int phyad, int regad
 }
 
 
-static unsigned int mdio_read(struct net_device *dev, int phyad, int regad)
+static int mdio_read(struct net_device *dev, int phyad, int regad)
 {
 	long miiport = dev->base_addr + MANAGEMENT;
 	ulong miir;
@@ -821,7 +836,7 @@ static unsigned int mdio_read(struct net_device *dev, int phyad, int regad)
 	miir &= ~MASK_MIIR_MII_MDC;
 	writel(miir, miiport);
 
-	return data;
+	return data & 0xffff;
 }
 
 
@@ -887,7 +902,8 @@ static int netdev_open(struct net_device *dev)
 	   1 1 0   128
 	   1 1 1   256
 	   Wait the specified 50 PCI cycles after a reset by initializing
-	   Tx and Rx queues and the address filter list. */
+	   Tx and Rx queues and the address filter list.
+	   FIXME (Ueimor): optimistic for alpha + posted writes ? */
 #if defined(__powerpc__) || defined(__sparc__)
 // 89/9/1 modify, 
 //   np->bcrvalue=0x04 | 0x0x38;  /* big-endian, 256 burst length */
@@ -940,7 +956,7 @@ static int netdev_open(struct net_device *dev)
 // 89/9/1 modify,
 //   np->crvalue = 0x00e40001;    /* tx store and forward, tx/rx enable */
 	np->crvalue |= 0x00e40001;	/* tx store and forward, tx/rx enable */
-	np->full_duplex = np->duplex_lock;
+	np->mii.full_duplex = np->mii.duplex_lock;
 	getlinkstatus(dev);
 	if (np->linkok)
 		getlinktype(dev);
@@ -989,7 +1005,7 @@ static void getlinkstatus(struct net_device *dev)
 		}
 	} else {
 		for (i = 0; i < DelayTime; ++i) {
-			if (mdio_read(dev, np->phys[0], 1) & 0x4) {
+			if (mdio_read(dev, np->phys[0], MII_BMSR) & BMSR_LSTATUS) {
 				np->linkok = 1;
 				return;
 			}
@@ -1164,12 +1180,12 @@ static void tx_timeout(struct net_device *dev)
 {
 	struct netdev_private *np = dev->priv;
 	long ioaddr = dev->base_addr;
+	int i;
 
 	printk(KERN_WARNING "%s: Transmit timed out, status %8.8x,"
 	       " resetting...\n", dev->name, readl(ioaddr + ISR));
 
 	{
-		int i;
 
 		printk(KERN_DEBUG "  Rx ring %p: ", np->rx_ring);
 		for (i = 0; i < RX_RING_SIZE; i++)
@@ -1180,12 +1196,41 @@ static void tx_timeout(struct net_device *dev)
 		printk("\n");
 	}
 
-	/* Perhaps we should reinitialize the hardware here.  Just trigger a
-	   Tx demand for now. */
-	writel(0, dev->base_addr + TXPDR);
-	dev->if_port = 0;
+	   + dev->if_port = np->default_port;
+	/* Reinit. Gross */
 
-	/* Stop and restart the chip's Tx processes . */
+	/* Reset the chip's Tx and Rx processes. */
+	stop_nic_tx(ioaddr, 0);
+	reset_rx_descriptors(dev);
+
+	/* Disable interrupts by clearing the interrupt mask. */
+	writel(0x0000, ioaddr + IMR);
+
+	/* Reset the chip to erase previous misconfiguration. */
+	writel(0x00000001, ioaddr + BCR);
+
+	/* Ueimor: wait for 50 PCI cycles (and flush posted writes btw). 
+	   We surely wait too long (address+data phase). Who cares ? */
+	for (i = 0; i < 50; i++) {
+		readl(ioaddr + BCR);
+		rmb();
+	}
+
+	writel((np->cur_tx - np->tx_ring)*sizeof(struct fealnx_desc) +
+		np->tx_ring_dma, ioaddr + TXLBA);
+	writel((np->cur_rx - np->rx_ring)*sizeof(struct fealnx_desc) +
+		np->rx_ring_dma, ioaddr + RXLBA);
+
+	writel(np->bcrvalue, ioaddr + BCR);
+
+	writel(0, dev->base_addr + RXPDR);
+	set_rx_mode(dev);
+	/* Clear and Enable interrupts by setting the interrupt mask. */
+	writel(FBE | TUNF | CNTOVF | RBU | TI | RI, ioaddr + ISR);
+	writel(np->imrvalue, ioaddr + IMR);
+
+	writel(0, dev->base_addr + TXPDR);
+
 	dev->trans_start = jiffies;
 	np->stats.tx_errors++;
 
@@ -1445,7 +1490,7 @@ static void intr_handler(int irq, void *dev_instance, struct pt_regs *rgs)
 						np->stats.tx_window_errors++;
 					if (tx_status & UDF)
 						np->stats.tx_fifo_errors++;
-					if ((tx_status & HF) && np->full_duplex == 0)
+					if ((tx_status & HF) && np->mii.full_duplex == 0)
 						np->stats.tx_heartbeat_errors++;
 
 #ifdef ETHER_STATS
@@ -1741,12 +1786,91 @@ static void set_rx_mode(struct net_device *dev)
 	writel(np->crvalue, ioaddr + TCRRCR);
 }
 
+static int netdev_ethtool_ioctl (struct net_device *dev, void *useraddr)
+{
+	struct netdev_private *np = dev->priv;
+	u32 ethcmd;
+
+	if (copy_from_user (&ethcmd, useraddr, sizeof (ethcmd)))
+		return -EFAULT;
+
+	switch (ethcmd) {
+	case ETHTOOL_GDRVINFO: {
+		struct ethtool_drvinfo info = { ETHTOOL_GDRVINFO };
+		strcpy (info.driver, DRV_NAME);
+		strcpy (info.version, DRV_VERSION);
+		strcpy (info.bus_info, np->pci_dev->slot_name);
+		if (copy_to_user (useraddr, &info, sizeof (info)))
+			return -EFAULT;
+		return 0;
+	}
+
+	/* get settings */
+	case ETHTOOL_GSET: {
+		struct ethtool_cmd ecmd = { ETHTOOL_GSET };
+		spin_lock_irq(&np->lock);
+		mii_ethtool_gset(&np->mii, &ecmd);
+		spin_unlock_irq(&np->lock);
+		if (copy_to_user(useraddr, &ecmd, sizeof(ecmd)))
+			return -EFAULT;
+		return 0;
+	}
+	/* set settings */
+	case ETHTOOL_SSET: {
+		int r;
+		struct ethtool_cmd ecmd;
+		if (copy_from_user(&ecmd, useraddr, sizeof(ecmd)))
+			return -EFAULT;
+		spin_lock_irq(&np->lock);
+		r = mii_ethtool_sset(&np->mii, &ecmd);
+		spin_unlock_irq(&np->lock);
+		return r;
+	}
+	/* restart autonegotiation */
+	case ETHTOOL_NWAY_RST: {
+		return mii_nway_restart(&np->mii);
+	}
+	/* get link status */
+	case ETHTOOL_GLINK: {
+		struct ethtool_value edata = {ETHTOOL_GLINK};
+		edata.data = mii_link_ok(&np->mii);
+		if (copy_to_user(useraddr, &edata, sizeof(edata)))
+			return -EFAULT;
+		return 0;
+	}
+
+	/* get message-level */
+	case ETHTOOL_GMSGLVL: {
+		struct ethtool_value edata = {ETHTOOL_GMSGLVL};
+		edata.data = debug;
+		if (copy_to_user(useraddr, &edata, sizeof(edata)))
+			return -EFAULT;
+		return 0;
+	}
+	/* set message-level */
+	case ETHTOOL_SMSGLVL: {
+		struct ethtool_value edata;
+		if (copy_from_user(&edata, useraddr, sizeof(edata)))
+			return -EFAULT;
+		debug = edata.data;
+		return 0;
+	}
+	default:
+		break;
+	}
+
+	return -EOPNOTSUPP;
+}
+
 
 static int mii_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
 {
 	struct mii_ioctl_data *data = (struct mii_ioctl_data *) & rq->ifr_data;
 
 	switch (cmd) {
+	case SIOCETHTOOL:
+		return netdev_ethtool_ioctl(dev, (void *) rq->ifr_data);
+
 	case SIOCGMIIPHY:		/* Get address of MII PHY in use. */
 	case SIOCDEVPRIVATE:		/* for binary compat, remove in 2.5 */
 		data->phy_id = ((struct netdev_private *) dev->priv)->phys[0] & 0x1f;
@@ -1759,7 +1883,7 @@ static int mii_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
 
 	case SIOCSMIIREG:		/* Write MII PHY register. */
 	case SIOCDEVPRIVATE+2:		/* for binary compat, remove in 2.5 */
-		if (!suser())
+		if (!capable(CAP_NET_ADMIN))
 			return -EPERM;
 		mdio_write(dev, data->phy_id & 0x1f, data->reg_num & 0x1f, data->val_in);
 		return 0;
@@ -1815,7 +1939,7 @@ static int netdev_close(struct net_device *dev)
 	return 0;
 }
 
-static struct pci_device_id fealnx_pci_tbl[] = __devinitdata {
+static struct pci_device_id fealnx_pci_tbl[] __devinitdata = {
 	{0x1516, 0x0800, PCI_ANY_ID, PCI_ANY_ID, 0, 0, 0},
 	{0x1516, 0x0803, PCI_ANY_ID, PCI_ANY_ID, 0, 0, 1},
 	{0x1516, 0x0891, PCI_ANY_ID, PCI_ANY_ID, 0, 0, 2},
@@ -1828,7 +1952,7 @@ static struct pci_driver fealnx_driver = {
 	name:		"fealnx",
 	id_table:	fealnx_pci_tbl,
 	probe:		fealnx_init_one,
-	remove:		fealnx_remove_one,
+	remove:		__devexit_p(fealnx_remove_one),
 };
 
 static int __init fealnx_init(void)

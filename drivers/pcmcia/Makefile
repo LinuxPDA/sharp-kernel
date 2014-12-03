@@ -10,7 +10,7 @@
 
 O_TARGET := pcmcia.o
 
-export-objs := ds.o cs.o cb_enabler.o yenta.o pci_socket.o
+export-objs := ds.o cs.o yenta.o pci_socket.o
 
 list-multi := pcmcia_core.o yenta_socket.o
 
@@ -24,10 +24,13 @@ endif
 ifeq ($(CONFIG_PCMCIA),y)
   obj-y   := cistpl.o rsrc_mgr.o bulkmem.o ds.o cs.o
   ifeq ($(CONFIG_CARDBUS),y)
-    obj-y += cardbus.o cb_enabler.o yenta.o pci_socket.o
+    obj-y += cardbus.o yenta.o pci_socket.o
   endif
   ifeq ($(CONFIG_I82365),y)
     obj-y += i82365.o
+  endif
+  ifeq ($(CONFIG_I82092),y)
+    obj-y += i82092.o
   endif
   ifeq ($(CONFIG_TCIC),y)
     obj-y += tcic.o
@@ -41,6 +44,9 @@ else
     ifeq ($(CONFIG_I82365),y)
       obj-m += i82365.o
     endif
+    ifeq ($(CONFIG_I82092),y)
+      obj-m += i82092.o
+    endif
     ifeq ($(CONFIG_TCIC),y)
       obj-m += tcic.o
     endif
@@ -48,7 +54,7 @@ else
       obj-m += hd64465_ss.o
     endif
      ifeq ($(CONFIG_CARDBUS),y)
-	obj-m += yenta_socket.o cb_enabler.o
+	obj-m += yenta_socket.o
      endif
   endif
 endif

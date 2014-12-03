@@ -15,7 +15,7 @@ export-objs    := fbmem.o fbcmap.o fbcon.o fbmon.o modedb.o \
 		  fbcon-iplan2p8.o fbcon-vga-planes.o fbcon-cfb16.o \
 		  fbcon-cfb2.o fbcon-cfb24.o fbcon-cfb32.o fbcon-cfb4.o \
 		  fbcon-cfb8.o fbcon-mac.o fbcon-mfb.o \
-		  cyber2000fb.o fbcon-hga.o
+		  cyber2000fb.o sa1100fb.o fbcon-hga.o
 
 # Each configuration option enables a list of files.
 
@@ -64,6 +64,7 @@ obj-$(CONFIG_FB_OF)               += offb.o
 obj-$(CONFIG_FB_IMSTT)            += imsttfb.o
 obj-$(CONFIG_FB_RETINAZ3)         += retz3fb.o
 obj-$(CONFIG_FB_CLGEN)            += clgenfb.o fbgen.o
+obj-$(CONFIG_FB_TRIDENT)          += tridentfb.o fbgen.o
 obj-$(CONFIG_FB_S3TRIO)           += S3triofb.o
 obj-$(CONFIG_FB_TGA)              += tgafb.o fbgen.o
 obj-$(CONFIG_FB_VESA)             += vesafb.o 

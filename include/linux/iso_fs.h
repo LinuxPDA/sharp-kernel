@@ -136,7 +136,7 @@ struct iso_path_table{
 	char extent[4];		/* 731 */
 	char  parent[2];	/* 721 */
 	char name[0];
-};
+} __attribute__((packed));
 
 /* high sierra is identical to iso, except that the date is only 6 bytes, and
    there is an extra reserved byte after the flags */
@@ -153,7 +153,7 @@ struct iso_directory_record {
 	char volume_sequence_number	[ISODCL (29, 32)]; /* 723 */
 	unsigned char name_len		[ISODCL (33, 33)]; /* 711 */
 	char name			[0];
-};
+} __attribute__((packed));
 
 #define ISOFS_BLOCK_BITS 11
 #define ISOFS_BLOCK_SIZE 2048
@@ -207,6 +207,8 @@ static inline int isonum_733(char *p)
 }
 extern int iso_date(char *, int);
 
+struct inode;		/* To make gcc happy */
+
 extern int parse_rock_ridge_inode(struct iso_directory_record *, struct inode *);
 extern int get_rock_ridge_filename(struct iso_directory_record *, char *, struct inode *);
 extern int isofs_name_translate(struct iso_directory_record *, char *, struct inode *);
@@ -217,7 +219,8 @@ int get_joliet_filename(struct iso_directory_record *, unsigned char *, struct i
 int get_acorn_filename(struct iso_directory_record *, char *, struct inode *);
 
 extern struct dentry *isofs_lookup(struct inode *, struct dentry *);
-extern struct buffer_head *isofs_bread(struct inode *, unsigned int, unsigned int);
+extern struct buffer_head *isofs_bread(struct inode *inode, unsigned int block);
+extern int isofs_get_blocks(struct inode *, long, struct buffer_head **, unsigned long);
 
 extern struct inode_operations isofs_dir_inode_operations;
 extern struct file_operations isofs_dir_operations;
@@ -227,11 +230,11 @@ extern struct address_space_operations isofs_symlink_aops;
 #ifdef LEAK_CHECK
 #define free_s leak_check_free_s
 #define malloc leak_check_malloc
-#define bread leak_check_bread
+#define sb_bread leak_check_bread
 #define brelse leak_check_brelse
 extern void * leak_check_malloc(unsigned int size);
 extern void leak_check_free_s(void * obj, int size);
-extern struct buffer_head * leak_check_bread(int dev, int block, int size);
+extern struct buffer_head * leak_check_bread(struct super_block *sb, int block);
 extern void leak_check_brelse(struct buffer_head * bh);
 #endif /* LEAK_CHECK */
 

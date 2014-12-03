@@ -32,7 +32,7 @@
 #include <linux/highuid.h>
 #include <linux/smp_lock.h>
 #include <linux/compiler.h>
-#include <linux/limits.h>
+#include <linux/highmem.h>
 
 #include <asm/uaccess.h>
 #include <asm/param.h>
@@ -137,6 +137,22 @@ create_elf_tables(char *p, int argc, int envc,
 		__copy_to_user(u_platform, k_platform, platform_len);
 	} else
 		u_platform = p;
+
+#if defined(__i386__) && defined(CONFIG_SMP)
+	/*
+	 * In some cases (e.g. Hyper-Threading), we want to avoid L1 evictions
+	 * by the processes running on the same package. One thing we can do
+	 * is to shuffle the initial stack for them.
+	 *
+	 * The conditionals here are unneeded, but kept in to make the
+	 * code behaviour the same as pre change unless we have hyperthreaded
+	 * processors. This keeps Mr Marcelo Person happier but should be
+	 * removed for 2.5
+	 */
+	 
+	if(smp_num_siblings > 1)
+		u_platform = u_platform - ((current->pid % 64) << 7);
+#endif	
 
 	/*
 	 * Force 16 byte _final_ alignment here for generality.
@@ -505,30 +521,10 @@ static int load_elf_binary(struct linux_binprm * bprm, struct pt_regs * regs)
 #if 0
 			printk("Using ELF interpreter %s\n", elf_interpreter);
 #endif
-#ifdef __sparc__
-			if (ibcs2_interpreter) {
-				unsigned long old_pers = current->personality;
-				struct exec_domain *old_domain = current->exec_domain;
-				struct exec_domain *new_domain;
-				struct fs_struct *old_fs = current->fs, *new_fs;
-				get_exec_domain(old_domain);
-				atomic_inc(&old_fs->count);
 
-				set_personality(PER_SVR4);
-				interpreter = open_exec(elf_interpreter);
+			SET_PERSONALITY(elf_ex, ibcs2_interpreter);
 
-				new_domain = current->exec_domain;
-				new_fs = current->fs;
-				current->personality = old_pers;
-				current->exec_domain = old_domain;
-				current->fs = old_fs;
-				put_exec_domain(new_domain);
-				put_fs_struct(new_fs);
-			} else
-#endif
-			{
-				interpreter = open_exec(elf_interpreter);
-			}
+			interpreter = open_exec(elf_interpreter);
 			retval = PTR_ERR(interpreter);
 			if (IS_ERR(interpreter))
 				goto out_free_interp;
@@ -601,10 +597,6 @@ static int load_elf_binary(struct linux_binprm * bprm, struct pt_regs * regs)
 	current->mm->mmap = NULL;
 	current->flags &= ~PF_FORKNOEXEC;
 	elf_entry = (unsigned long) elf_ex.e_entry;
-
-	/* Do this immediately, since STACK_TOP as used in setup_arg_pages
-	   may depend on the personality.  */
-	SET_PERSONALITY(elf_ex, ibcs2_interpreter);
 
 	/* Do this so that we can load the interpreter, if need be.  We will
 	   change some of these later */
@@ -1032,6 +1024,42 @@ static int elf_core_dump(long signr, struct pt_regs * regs, struct file * file)
 	elf_fpregset_t fpu;		/* NT_PRFPREG */
 	struct elf_prpsinfo psinfo;	/* NT_PRPSINFO */
 
+	/* first copy the parameters from user space */
+	memset(&psinfo, 0, sizeof(psinfo));
+	{
+		int i, len;
+
+		len = current->mm->arg_end - current->mm->arg_start;
+		if (len >= ELF_PRARGSZ)
+			len = ELF_PRARGSZ-1;
+		copy_from_user(&psinfo.pr_psargs,
+			      (const char *)current->mm->arg_start, len);
+		for(i = 0; i < len; i++)
+			if (psinfo.pr_psargs[i] == 0)
+				psinfo.pr_psargs[i] = ' ';
+		psinfo.pr_psargs[len] = 0;
+
+	}
+
+	memset(&prstatus, 0, sizeof(prstatus));
+	/*
+	 * This transfers the registers from regs into the standard
+	 * coredump arrangement, whatever that is.
+	 */
+#ifdef ELF_CORE_COPY_REGS
+	ELF_CORE_COPY_REGS(prstatus.pr_reg, regs)
+#else
+	if (sizeof(elf_gregset_t) != sizeof(struct pt_regs))
+	{
+		printk("sizeof(elf_gregset_t) (%ld) != sizeof(struct pt_regs) (%ld)\n",
+			(long)sizeof(elf_gregset_t), (long)sizeof(struct pt_regs));
+	}
+	else
+		*(struct pt_regs *)&prstatus.pr_reg = *regs;
+#endif
+
+	/* now stop all vm operations */
+	down_write(&current->mm->mmap_sem);
 	segs = current->mm->map_count;
 
 #ifdef DEBUG
@@ -1073,8 +1101,6 @@ static int elf_core_dump(long signr, struct pt_regs * regs, struct file * file)
 	 * Set up the notes in similar form to SVR4 core dumps made
 	 * with info from their /proc.
 	 */
-	memset(&psinfo, 0, sizeof(psinfo));
-	memset(&prstatus, 0, sizeof(prstatus));
 
 	notes[0].name = "CORE";
 	notes[0].type = NT_PRSTATUS;
@@ -1096,22 +1122,6 @@ static int elf_core_dump(long signr, struct pt_regs * regs, struct file * file)
 	prstatus.pr_cstime.tv_sec = CT_TO_SECS(current->times.tms_cstime);
 	prstatus.pr_cstime.tv_usec = CT_TO_USECS(current->times.tms_cstime);
 
-	/*
-	 * This transfers the registers from regs into the standard
-	 * coredump arrangement, whatever that is.
-	 */
-#ifdef ELF_CORE_COPY_REGS
-	ELF_CORE_COPY_REGS(prstatus.pr_reg, regs)
-#else
-	if (sizeof(elf_gregset_t) != sizeof(struct pt_regs))
-	{
-		printk("sizeof(elf_gregset_t) (%ld) != sizeof(struct pt_regs) (%ld)\n",
-			(long)sizeof(elf_gregset_t), (long)sizeof(struct pt_regs));
-	}
-	else
-		*(struct pt_regs *)&prstatus.pr_reg = *regs;
-#endif
-
 #ifdef DEBUG
 	dump_regs("Passed in regs", (elf_greg_t *)regs);
 	dump_regs("prstatus regs", (elf_greg_t *)&prstatus.pr_reg);
@@ -1129,23 +1139,6 @@ static int elf_core_dump(long signr, struct pt_regs * regs, struct file * file)
 	psinfo.pr_flag = current->flags;
 	psinfo.pr_uid = NEW_TO_OLD_UID(current->uid);
 	psinfo.pr_gid = NEW_TO_OLD_GID(current->gid);
-	{
-		int i, len;
-
-		set_fs(fs);
-
-		len = current->mm->arg_end - current->mm->arg_start;
-		if (len >= ELF_PRARGSZ)
-			len = ELF_PRARGSZ-1;
-		copy_from_user(&psinfo.pr_psargs,
-			      (const char *)current->mm->arg_start, len);
-		for(i = 0; i < len; i++)
-			if (psinfo.pr_psargs[i] == 0)
-				psinfo.pr_psargs[i] = ' ';
-		psinfo.pr_psargs[len] = 0;
-
-		set_fs(KERNEL_DS);
-	}
 	strncpy(psinfo.pr_fname, current->comm, sizeof(psinfo.pr_fname));
 
 	notes[2].name = "CORE";
@@ -1217,8 +1210,6 @@ static int elf_core_dump(long signr, struct pt_regs * regs, struct file * file)
 		if (!writenote(&notes[i], file))
 			goto end_coredump;
 
-	set_fs(fs);
-
 	DUMP_SEEK(dataoff);
 
 	for(vma = current->mm->mmap; vma != NULL; vma = vma->vm_next) {
@@ -1226,28 +1217,32 @@ static int elf_core_dump(long signr, struct pt_regs * regs, struct file * file)
 
 		if (!maydump(vma))
 			continue;
+
 #ifdef DEBUG
-		printk("elf_core_dump: writing %08lx %lx\n", addr, len);
+		printk("elf_core_dump: writing %08lx-%08lx\n", vma->vm_start, vma->vm_end);
 #endif
+
 		for (addr = vma->vm_start;
 		     addr < vma->vm_end;
 		     addr += PAGE_SIZE) {
-			pgd_t *pgd;
-			pmd_t *pmd;
-			pte_t *pte;
+			struct page* page;
+			struct vm_area_struct *vma;
 
-			pgd = pgd_offset(vma->vm_mm, addr);
-			if (pgd_none(*pgd))
-				goto nextpage_coredump;
-			pmd = pmd_offset(pgd, addr);
-			if (pmd_none(*pmd))
-				goto nextpage_coredump;
-			pte = pte_offset(pmd, addr);
-			if (pte_none(*pte)) {
-nextpage_coredump:
+			if (get_user_pages(current, current->mm, addr, 1, 0, 1,
+						&page, &vma) <= 0) {
 				DUMP_SEEK (file->f_pos + PAGE_SIZE);
 			} else {
-				DUMP_WRITE((void*)addr, PAGE_SIZE);
+				if (page == ZERO_PAGE(addr)) {
+					DUMP_SEEK (file->f_pos + PAGE_SIZE);
+				} else {
+					void *kaddr;
+					flush_cache_page(vma, addr);
+					kaddr = kmap(page);
+					DUMP_WRITE(kaddr, PAGE_SIZE);
+					flush_page_to_ram(page);
+					kunmap(page);
+				}
+				put_page(page);
 			}
 		}
 	}
@@ -1260,6 +1255,7 @@ nextpage_coredump:
 
  end_coredump:
 	set_fs(fs);
+	up_write(&current->mm->mmap_sem);
 	return has_dumped;
 }
 #endif		/* USE_ELF_CORE_DUMP */

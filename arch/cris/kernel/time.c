@@ -1,4 +1,4 @@
-/* $Id: time.c,v 1.8 2001/07/18 14:01:03 bjornw Exp $
+/* $Id: time.c,v 1.11 2001/11/12 18:26:22 pkj Exp $
  *
  *  linux/arch/cris/kernel/time.c
  *
@@ -18,6 +18,7 @@
  * Linux/CRIS specific code:
  *
  * Authors:    Bjorn Wesen
+ *             Johan Adolfsson  
  *
  */
 
@@ -51,11 +52,17 @@ static int have_rtc;  /* used to remember if we have an RTC or not */
 
 extern int setup_etrax_irq(int, struct irqaction *);
 
+/* Lookup table to convert *R_TIMER0 to microseconds (us) 
+ * Timer goes from TIMER0_DIV down to 1 meaning 0-10000us in step of approx 52us
+ */
+unsigned short cris_timer0_value_us[TIMER0_DIV+1];
+
 #define TICK_SIZE tick
 
 static unsigned long do_slow_gettimeoffset(void)
 {
 	unsigned long count;
+	unsigned long usec_count = 0;
 
 	static unsigned long count_p = LATCH;    /* for the first call after boot */
 	static unsigned long jiffies_p = 0;
@@ -88,16 +95,20 @@ static unsigned long do_slow_gettimeoffset(void)
  */
 	if( jiffies_t == jiffies_p ) {
 		if( count > count_p ) {
+			/* Timer wrapped */
+			count = count_p;
+			usec_count = 1000000/CLOCK_TICK_RATE/2;
 		}
 	} else
 		jiffies_p = jiffies_t;
-
         count_p = count;
-
+	/* Convert timer value to usec using table lookup */
+	usec_count += cris_timer0_value_us[count];
+#if 0
 	count = ((LATCH-1) - count) * TICK_SIZE;
 	count = (count + LATCH/2) / LATCH;
-
-	return count;
+#endif
+	return usec_count;
 }
 
 static unsigned long (*do_gettimeoffset)(void) = do_slow_gettimeoffset;
@@ -155,9 +166,8 @@ static int set_rtc_mmss(unsigned long nowtime)
 {
 	int retval = 0;
 	int real_seconds, real_minutes, cmos_minutes;
-	unsigned char save_control, save_freq_select;
 
-	printk("set_rtc_mmss(%d)\n", nowtime);
+	printk("set_rtc_mmss(%lu)\n", nowtime);
 
 	if(!have_rtc)
 		return 0;
@@ -220,7 +230,9 @@ static int set_rtc_mmss(unsigned long nowtime)
 /* right now, starting the watchdog is the same as resetting it */
 #define start_watchdog reset_watchdog
 
+#if defined(CONFIG_ETRAX_WATCHDOG) && !defined(CONFIG_SVINTO_SIM)
 static int watchdog_key = 0;  /* arbitrary number */
+#endif
 
 /* number of pages to consider "out of memory". it is normal that the memory
  * is used though, so put this really low.
@@ -301,12 +313,12 @@ timer_interrupt(int irq, void *dev_id, struct pt_regs *regs)
 	if ((time_status & STA_UNSYNC) == 0 &&
 	    xtime.tv_sec > last_rtc_update + 660 &&
 	    xtime.tv_usec > 500000 - (tick >> 1) &&
-	    xtime.tv_usec < 500000 + (tick >> 1))
+	    xtime.tv_usec < 500000 + (tick >> 1)) {
 		if (set_rtc_mmss(xtime.tv_sec) == 0)
 			last_rtc_update = xtime.tv_sec;
 		else
 			last_rtc_update = xtime.tv_sec - 600;
-	
+	}
 }
 
 #if 0
@@ -317,6 +329,7 @@ void print_timestamp(const char *s)
 {
 	unsigned long flags;
 	unsigned int newjiff;
+
 	save_flags(flags);
 	cli();
 	newjiff = (myjiff << 16) | (unsigned short)(-*R_TIMER01_DATA); 
@@ -332,7 +345,6 @@ unsigned long
 get_cmos_time(void)
 {
 	unsigned int year, mon, day, hour, min, sec;
-	int i;
 
 	sec = CMOS_READ(RTC_SECONDS);
 	min = CMOS_READ(RTC_MINUTES);
@@ -380,6 +392,7 @@ static struct irqaction irq2  = { timer_interrupt, SA_SHIRQ | SA_INTERRUPT,
 void __init
 time_init(void)
 {	
+	int i;
 	/* probe for the RTC and read it if it exists */
 
 	if(RTC_INIT() < 0) {
@@ -442,6 +455,13 @@ time_init(void)
 		IO_STATE(R_TIMER_CTRL, tm0,       run)      |
 		IO_STATE(R_TIMER_CTRL, clksel0,   c19k2Hz);
 #endif
+
+	for (i=0; i <= TIMER0_DIV; i++) {
+		/* We must be careful not to get overflow... */
+		cris_timer0_value_us[TIMER0_DIV-i] = 
+		  (unsigned short)((unsigned long)
+		  ((i*(1000000/HZ))/TIMER0_DIV)&0x0000FFFFL);
+	}
 	
 	*R_IRQ_MASK0_SET =
 		IO_STATE(R_IRQ_MASK0_SET, timer0, set); /* unmask the timer irq */

@@ -1367,7 +1367,10 @@ repeat:
  * the driver.  This makes the driver much more friendlier to shared IRQs
  * than previous designs, while remaining 100% (?) SMP safe and capable.
  */
-static void ide_do_request(ide_hwgroup_t *hwgroup, int masked_irq)
+/* --BenH: made non-static as ide-pmac.c uses it to kick the hwgroup back
+ *         into life on wakeup from machine sleep.
+ */ 
+void ide_do_request(ide_hwgroup_t *hwgroup, int masked_irq)
 {
 	ide_drive_t	*drive;
 	ide_hwif_t	*hwif;
@@ -1884,7 +1887,6 @@ int ide_revalidate_disk (kdev_t i_rdev)
 		if (drive->part[p].nr_sects > 0) {
 			kdev_t devp = MKDEV(major, minor+p);
 			invalidate_device(devp, 1);
-			set_blocksize(devp, 1024);
 		}
 		drive->part[p].start_sect = 0;
 		drive->part[p].nr_sects   = 0;
@@ -1950,11 +1952,9 @@ search:
 static int ide_open (struct inode * inode, struct file * filp)
 {
 	ide_drive_t *drive;
-	int rc;
 
 	if ((drive = get_info_ptr(inode->i_rdev)) == NULL)
 		return -ENXIO;
-	MOD_INC_USE_COUNT;
 	if (drive->driver == NULL)
 		ide_driver_module();
 #ifdef CONFIG_KMOD
@@ -1972,14 +1972,10 @@ static int ide_open (struct inode * inode, struct file * filp)
 	while (drive->busy)
 		sleep_on(&drive->wqueue);
 	drive->usage++;
-	if (drive->driver != NULL) {
-		if ((rc = DRIVER(drive)->open(inode, filp, drive)))
-			MOD_DEC_USE_COUNT;
-		return rc;
-	}
+	if (drive->driver != NULL)
+		return DRIVER(drive)->open(inode, filp, drive);
 	printk ("%s: driver not present\n", drive->name);
 	drive->usage--;
-	MOD_DEC_USE_COUNT;
 	return -ENXIO;
 }
 
@@ -1995,7 +1991,6 @@ static int ide_release (struct inode * inode, struct file * file)
 		drive->usage--;
 		if (drive->driver != NULL)
 			DRIVER(drive)->release(inode, file, drive);
-		MOD_DEC_USE_COUNT;
 	}
 	return 0;
 }
@@ -3643,6 +3638,7 @@ void ide_unregister_module (ide_module_t *module)
 }
 
 struct block_device_operations ide_fops[] = {{
+	owner:			THIS_MODULE,
 	open:			ide_open,
 	release:		ide_release,
 	ioctl:			ide_ioctl,

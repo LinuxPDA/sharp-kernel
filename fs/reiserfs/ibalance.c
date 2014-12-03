@@ -113,7 +113,7 @@ static void	internal_define_dest_src_infos (
 	break;
 
     default:
-	reiserfs_panic (tb->tb_sb, "internal_define_dest_src_infos", "shift type is unknown (%d)", shift_mode);
+	reiserfs_panic (tb->tb_sb, "internal_define_dest_src_infos: shift type is unknown (%d)", shift_mode);
     }
 }
 
@@ -692,7 +692,7 @@ static void balance_internal_when_delete (struct tree_balance * tb,
 
 	return;
     }
-    reiserfs_panic (tb->tb_sb, "balance_internal_when_delete", "unexpected tb->lnum[%d]==%d or tb->rnum[%d]==%d",
+    reiserfs_panic (tb->tb_sb, "balance_internal_when_delete: unexpected tb->lnum[%d]==%d or tb->rnum[%d]==%d",
 		    h, tb->lnum[h], h, tb->rnum[h]);
 }
 
@@ -768,6 +768,8 @@ int balance_internal (struct tree_balance * tb,			/* tree_balance structure 		*/
     struct item_head * new_insert_key_addr = insert_key;
 
     RFALSE( h < 1, "h (%d) can not be < 1 on internal level", h);
+
+    PROC_INFO_INC( tb -> tb_sb, balance_at[ h ] );
 
     order = ( tbSh ) ? PATH_H_POSITION (tb->tb_path, h + 1)/*tb->S[h]->b_item_order*/ : 0;
 
@@ -920,7 +922,7 @@ int balance_internal (struct tree_balance * tb,			/* tree_balance structure 		*/
 
 
 	if ( tb->blknum[h] != 1 )
-	    reiserfs_panic(0, "balance_internal", "One new node required for creating the new root");
+	    reiserfs_panic(0, "balance_internal: One new node required for creating the new root");
 	/* S[h] = empty buffer from the list FEB. */
 	tbSh = get_FEB (tb);
         blkh = B_BLK_HEAD(tbSh);

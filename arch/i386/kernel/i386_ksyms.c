@@ -35,6 +35,8 @@ extern spinlock_t rtc_lock;
 #if defined(CONFIG_APM) || defined(CONFIG_APM_MODULE)
 extern void machine_real_restart(unsigned char *, int);
 EXPORT_SYMBOL(machine_real_restart);
+extern void default_idle(void);
+EXPORT_SYMBOL(default_idle);
 #endif
 
 #ifdef CONFIG_SMP
@@ -93,7 +95,6 @@ EXPORT_SYMBOL_NOVERS(__get_user_4);
 
 EXPORT_SYMBOL(strtok);
 EXPORT_SYMBOL(strpbrk);
-EXPORT_SYMBOL(simple_strtol);
 EXPORT_SYMBOL(strstr);
 
 EXPORT_SYMBOL(strncpy_from_user);
@@ -110,6 +111,11 @@ EXPORT_SYMBOL(pci_free_consistent);
 #ifdef CONFIG_PCI
 EXPORT_SYMBOL(pcibios_penalize_isa_irq);
 EXPORT_SYMBOL(pci_mem_start);
+#endif
+
+#ifdef CONFIG_PCI_BIOS
+EXPORT_SYMBOL(pcibios_set_irq_routing);
+EXPORT_SYMBOL(pcibios_get_irq_routing_table);
 #endif
 
 #ifdef CONFIG_X86_USE_3DNOW
@@ -157,10 +163,6 @@ extern void * memset(void *,int,__kernel_size_t);
 extern void * memcpy(void *,const void *,__kernel_size_t);
 EXPORT_SYMBOL_NOVERS(memcpy);
 EXPORT_SYMBOL_NOVERS(memset);
-
-#ifdef CONFIG_X86_PAE
-EXPORT_SYMBOL(empty_zero_page);
-#endif
 
 #ifdef CONFIG_HAVE_DEC_LOCK
 EXPORT_SYMBOL(atomic_dec_and_lock);
