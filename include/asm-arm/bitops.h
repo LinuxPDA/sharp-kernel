@@ -2,6 +2,7 @@
  * Copyright 1995, Russell King.
  * Various bits and pieces copyrights include:
  *  Linus Torvalds (test_bit).
+ * Big endian support: Copyright 2001, Nicolas Pitre
  *
  * bit 0 is the LSB of addr; bit 32 is the LSB of (addr+1).
  *
@@ -23,30 +24,75 @@
 /*
  * Function prototypes to keep gcc -Wall happy.
  */
-extern void set_bit(int nr, volatile void * addr);
 
-static inline void __set_bit(int nr, volatile void *addr)
+extern void _set_bit_le(int nr, volatile void * addr);
+extern void _set_bit_be(int nr, volatile void * addr);
+extern void _clear_bit_le(int nr, volatile void * addr);
+extern void _clear_bit_be(int nr, volatile void * addr);
+extern void _change_bit_le(int nr, volatile void * addr);
+extern void _change_bit_be(int nr, volatile void * addr);
+
+extern int _test_and_set_bit_le(int nr, volatile void * addr);
+extern int _test_and_set_bit_be(int nr, volatile void * addr);
+extern int _test_and_clear_bit_le(int nr, volatile void * addr);
+extern int _test_and_clear_bit_be(int nr, volatile void * addr);
+extern int _test_and_change_bit_le(int nr, volatile void * addr);
+extern int _test_and_change_bit_be(int nr, volatile void * addr);
+
+extern int _find_first_zero_bit_le(void * addr, unsigned size);
+extern int _find_first_zero_bit_be(void * addr, unsigned size);
+extern int _find_next_zero_bit_le(void * addr, int size, int offset);
+extern int _find_next_zero_bit_be(void * addr, int size, int offset);
+
+/*
+ * These routine don't need to be atomic.
+ */
+
+static __inline__ int _test_bit_le(int nr, const void * addr)
+{
+    return ((unsigned char *) addr)[nr >> 3] & (1U << (nr & 7));
+}	
+
+static __inline__ int _test_bit_be(int nr, const void * addr)
+{
+    return ((unsigned char *) addr)[(nr ^ 0x18) >> 3] & (1U << (nr & 7));
+}	
+
+/*
+ * Non atomic variants of some functions above
+ */
+
+static inline void ___set_bit_le(int nr, volatile void *addr)
 {
 	((unsigned char *) addr)[nr >> 3] |= (1U << (nr & 7));
 }
 
-extern void clear_bit(int nr, volatile void * addr);
+static inline void ___set_bit_be(int nr, volatile void *addr)
+{
+	((unsigned char *) addr)[(nr ^ 0x18) >> 3] |= (1U << (nr & 7));
+}
 
-static inline void __clear_bit(int nr, volatile void *addr)
+static inline void ___clear_bit_le(int nr, volatile void *addr)
 {
 	((unsigned char *) addr)[nr >> 3] &= ~(1U << (nr & 7));
 }
 
-extern void change_bit(int nr, volatile void * addr);
+static inline void ___clear_bit_be(int nr, volatile void *addr)
+{
+	((unsigned char *) addr)[(nr ^ 0x18) >> 3] &= ~(1U << (nr & 7));
+}
 
-static inline void __change_bit(int nr, volatile void *addr)
+static inline void ___change_bit_le(int nr, volatile void *addr)
 {
 	((unsigned char *) addr)[nr >> 3] ^= (1U << (nr & 7));
 }
 
-extern int test_and_set_bit(int nr, volatile void * addr);
+static inline void ___change_bit_be(int nr, volatile void *addr)
+{
+	((unsigned char *) addr)[(nr ^ 0x18) >> 3] ^= (1U << (nr & 7));
+}
 
-static inline int __test_and_set_bit(int nr, volatile void *addr)
+static inline int ___test_and_set_bit_le(int nr, volatile void *addr)
 {
 	unsigned int mask = 1 << (nr & 7);
 	unsigned int oldval;
@@ -56,9 +102,17 @@ static inline int __test_and_set_bit(int nr, volatile void *addr)
 	return oldval & mask;
 }
 
-extern int test_and_clear_bit(int nr, volatile void * addr);
+static inline int ___test_and_set_bit_be(int nr, volatile void *addr)
+{
+	unsigned int mask = 1 << (nr & 7);
+	unsigned int oldval;
 
-static inline int __test_and_clear_bit(int nr, volatile void *addr)
+	oldval = ((unsigned char *) addr)[(nr ^ 0x18) >> 3];
+	((unsigned char *) addr)[(nr ^ 0x18) >> 3] = oldval | mask;
+	return oldval & mask;
+}
+
+static inline int ___test_and_clear_bit_le(int nr, volatile void *addr)
 {
 	unsigned int mask = 1 << (nr & 7);
 	unsigned int oldval;
@@ -68,9 +122,17 @@ static inline int __test_and_clear_bit(int nr, volatile void *addr)
 	return oldval & mask;
 }
 
-extern int test_and_change_bit(int nr, volatile void * addr);
+static inline int ___test_and_clear_bit_be(int nr, volatile void *addr)
+{
+	unsigned int mask = 1 << (nr & 7);
+	unsigned int oldval;
 
-static inline int __test_and_change_bit(int nr, volatile void *addr)
+	oldval = ((unsigned char *) addr)[(nr ^ 0x18) >> 3];
+	((unsigned char *) addr)[(nr ^ 0x18) >> 3] = oldval & ~mask;
+	return oldval & mask;
+}
+
+static inline int ___test_and_change_bit_le(int nr, volatile void *addr)
 {
 	unsigned int mask = 1 << (nr & 7);
 	unsigned int oldval;
@@ -80,16 +142,66 @@ static inline int __test_and_change_bit(int nr, volatile void *addr)
 	return oldval & mask;
 }
 
-extern int find_first_zero_bit(void * addr, unsigned size);
-extern int find_next_zero_bit(void * addr, int size, int offset);
+static inline int ___test_and_change_bit_be(int nr, volatile void *addr)
+{
+	unsigned int mask = 1 << (nr & 7);
+	unsigned int oldval;
+
+	oldval = ((unsigned char *) addr)[(nr ^ 0x18) >> 3];
+	((unsigned char *) addr)[(nr ^ 0x18) >> 3] = oldval ^ mask;
+	return oldval & mask;
+}
 
 /*
- * This routine doesn't need to be atomic.
+ * Definitions according to our current endianness.
  */
-extern __inline__ int test_bit(int nr, const void * addr)
-{
-    return ((unsigned char *) addr)[nr >> 3] & (1U << (nr & 7));
-}	
+
+#ifndef __ARMEB__
+
+#define set_bit				_set_bit_le
+#define clear_bit			_clear_bit_le
+#define change_bit			_change_bit_le
+#define test_bit			_test_bit_le
+
+#define test_and_set_bit		_test_and_set_bit_le
+#define test_and_clear_bit		_test_and_clear_bit_le
+#define test_and_change_bit		_test_and_change_bit_le
+
+#define find_first_zero_bit		_find_first_zero_bit_le
+#define	find_next_zero_bit		_find_next_zero_bit_le
+
+#define __set_bit			___set_bit_le
+#define __clear_bit			___clear_bit_le
+#define __change_bit			___change_bit_le
+
+#define __test_and_set_bit		___test_and_set_bit_le
+#define __test_and_clear_bit		___test_and_clear_bit_le
+#define __test_and_change_bit		___test_and_change_bit_le
+
+#else
+
+#define set_bit				_set_bit_be
+#define clear_bit			_clear_bit_be
+#define change_bit			_change_bit_be
+#define test_bit			_test_bit_be
+
+#define test_and_set_bit		_test_and_set_bit_be
+#define test_and_clear_bit		_test_and_clear_bit_be
+#define test_and_change_bit		_test_and_change_bit_be
+
+#define find_first_zero_bit		_find_first_zero_bit_be
+#define	find_next_zero_bit		_find_next_zero_bit_be
+
+#define __set_bit			___set_bit_be
+#define __clear_bit			___clear_bit_be
+#define __change_bit			___change_bit_be
+
+#define __test_and_set_bit		___test_and_set_bit_be
+#define __test_and_clear_bit		___test_and_clear_bit_be
+#define __test_and_change_bit		___test_and_change_bit_be
+
+#endif
+
 
 /*
  * ffz = Find First Zero in word. Undefined if no zero exists,
@@ -126,18 +238,18 @@ extern __inline__ unsigned long ffz(unsigned long word)
 #define hweight16(x) generic_hweight16(x)
 #define hweight8(x) generic_hweight8(x)
 
-#define ext2_set_bit			test_and_set_bit
-#define ext2_clear_bit			test_and_clear_bit
-#define ext2_test_bit			test_bit
-#define ext2_find_first_zero_bit	find_first_zero_bit
-#define ext2_find_next_zero_bit		find_next_zero_bit
+#define ext2_set_bit			_test_and_set_bit_le
+#define ext2_clear_bit			_test_and_clear_bit_le
+#define ext2_test_bit			_test_bit_le
+#define ext2_find_first_zero_bit	_find_first_zero_bit_le
+#define ext2_find_next_zero_bit		_find_next_zero_bit_le
 
 /* Bitmap functions for the minix filesystem. */
-#define minix_test_and_set_bit(nr,addr)	test_and_set_bit(nr,addr)
-#define minix_set_bit(nr,addr)		set_bit(nr,addr)
-#define minix_test_and_clear_bit(nr,addr)	test_and_clear_bit(nr,addr)
-#define minix_test_bit(nr,addr)		test_bit(nr,addr)
-#define minix_find_first_zero_bit(addr,size)	find_first_zero_bit(addr,size)
+#define minix_test_and_set_bit		_test_and_set_bit_le
+#define minix_set_bit			_set_bit_le
+#define minix_test_and_clear_bit	_test_and_clear_bit_le
+#define minix_test_bit			_test_bit_le
+#define minix_find_first_zero_bit	_find_first_zero_bit_le
 
 #endif /* __KERNEL__ */
 

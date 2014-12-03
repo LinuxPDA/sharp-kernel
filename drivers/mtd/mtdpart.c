@@ -186,6 +186,7 @@ int add_mtd_partitions(struct mtd_info *master,
 		}
 		memset(slave, 0, sizeof(*slave));
 		list_add(&slave->list, &mtd_partitions);
+		MOD_INC_USE_COUNT;
 
 		/* set up the MTD object for this partition */
 		slave->mtd.type = master->type;

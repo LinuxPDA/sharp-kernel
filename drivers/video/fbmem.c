@@ -104,6 +104,9 @@ extern int valkyriefb_setup(char*);
 extern int chips_init(void);
 extern int g364fb_init(void);
 extern int sa1100fb_init(void);
+extern int epson1356fb_init(void);
+extern int mqfb_init(void);
+extern int mqfb_setup(char*);
 extern int fm2fb_init(void);
 extern int fm2fb_setup(char*);
 extern int q40fb_init(void);
@@ -265,6 +268,12 @@ static struct {
 #endif
 #ifdef CONFIG_FB_SA1100
 	{ "sa1100", sa1100fb_init, NULL },
+#endif
+#ifdef CONFIG_FB_EPSON1356
+	{ "epson1356", epson1356fb_init, NULL },
+#endif
+#ifdef CONFIG_FB_MQ200
+	{ "mqfb", mqfb_init,mqfb_setup },
 #endif
 #ifdef CONFIG_FB_SUN3
 	{ "sun3", sun3fb_init, sun3fb_setup },

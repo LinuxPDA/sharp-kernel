@@ -31,12 +31,13 @@
  * provisions above, a recipient may use your version of this file
  * under either the RHEPL or the GPL.
  *
- * $Id: compr_rubin.c,v 1.11 2001/03/21 16:20:48 dwmw2 Exp $
+ * $Id: compr_rubin.c,v 1.12 2001/06/02 22:27:14 nico Exp $
  *
  */
 
  
 #include <linux/string.h>
+#include <linux/types.h>
 #include "compr_rubin.h"
 #include "histo_mips.h"
 

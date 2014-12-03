@@ -5,6 +5,10 @@
 
 #include <asm/arch/hardware.h>
 
+#define PCIBIOS_MIN_IO  0
+#define PCIBIOS_MIN_MEM 0
+#define pcibios_assign_all_busses()	0
+
 extern inline void pcibios_set_master(struct pci_dev *dev)
 {
 	/* No special bus mastering setup handling */
@@ -44,6 +48,7 @@ pci_free_consistent(struct pci_dev *hwdev, size_t size, void *vaddr,
 	consistent_free(vaddr, size, dma_handle);
 }
 
+#if !defined(CONFIG_SA1111)
 /* Map a single buffer of the indicated size for DMA in streaming mode.
  * The 32-bit bus address to use is returned.
  *
@@ -69,6 +74,14 @@ pci_unmap_single(struct pci_dev *hwdev, dma_addr_t dma_addr, size_t size, int di
 {
 	/* nothing to do */
 }
+#else
+/* for SA1111 these functions are "magic" and relocate buffers */
+extern dma_addr_t pci_map_single(struct pci_dev *hwdev,
+				 void *ptr, size_t size, int direction);
+extern void pci_unmap_single(struct pci_dev *hwdev,
+			     dma_addr_t dma_addr,
+			     size_t size, int direction);
+#endif
 
 /* Map a set of buffers described by scatterlist in streaming
  * mode for DMA.  This is the scather-gather version of the

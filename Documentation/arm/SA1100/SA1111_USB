@@ -1,0 +1,33 @@
+StrongARM SA-1111 USB OHCI host controller driver
+Brad Parker <brad@parker.boston.ma.us>
+
+These diffs produce a kernel which may possible allow the SA-1111 OHCI
+controller to work.  I've tested it with various mice and keyboards.
+
+The diffs are against the -test8-rmk4-np3 version of usb-ohci.c
+
+Issues/problems:
+
+- this patch allocates the hcca, ed's & td's from consistent memory.
+Jamie's original patch was close but double frees an ED when a device
+is disconnected.  there is a fix in this patch for that problem;
+basically dl_del_list notices the one ed which should not be free'd
+(it's the urb's ed)
+
+- the patch works around the "A20 dma bug" in the SA-1111 by copying
+buffers.  It keeps two buffer pools, 1K and 64K.  To get properly
+aligned memory is allocated 2Mb of kernel pages.
+
+- there are bugs in the SA-1111 chip which this driver works around:
+
+1. the sound dma to be "exercised" before the DClk is enabled.  There
+is code in the patch to do this.
+
+2. the sa-1111 bus interface has a bug when its a bus master (dma).
+basically if an address with A20 asserted is used the transfer won't
+work and may correupt dram.
+
+A lot of the credit for this work goes to:
+James Hicks <jamey@crl.dec.com>
+"Graziano Meola <graziano.meola@crs4.it> "
+Kunihiko IMAI <imai@vasara.co.jp>

@@ -12,6 +12,7 @@
  * 
  * History:
  * 
+ * 2001/06/12 added support for non-pci SA-1111 OHCI controller
  * 2001/04/08 Identify version on module load gb
  * 2001/03/24 td/ed hashing to remove bus_to_virt (Steve Longerbeam);
  	pci_map_single (db)
@@ -68,12 +69,6 @@
 #include <asm/system.h>
 #include <asm/unaligned.h>
 
-#define OHCI_USE_NPS		// force NoPowerSwitching mode
-// #define OHCI_VERBOSE_DEBUG	/* not always helpful */
-
-#include "usb-ohci.h"
-
-
 #ifdef CONFIG_PMAC_PBOOK
 /* All this PMAC_PBOOK stuff should disappear when those
  * platforms fully support the 2.4 kernel PCI APIs.
@@ -85,6 +80,18 @@
 #endif
 #endif
 
+/* SA1111 compile flags */
+#ifdef CONFIG_SA1111
+#define OHCI_BAD_DONEHEAD_BIT
+#define OHCI_NON_PCI_INIT
+#include "usb-ohci-nopci.h"
+#include "usb-ohci-sa1111.h"
+#endif
+
+#define OHCI_USE_NPS		// force NoPowerSwitching mode
+// #define OHCI_VERBOSE_DEBUG	/* not always helpful */
+
+#include "usb-ohci.h"
 
 /*
  * Version Information
@@ -1309,6 +1316,11 @@ td_fill (ohci_t * ohci, unsigned int info,
 	} else {
 		td->hwCBP = cpu_to_le32 (data); 
 	}			
+#ifdef CONFIG_SA1111
+	if ( (((unsigned long)td->hwCBP) & 0x100000) ) {
+		printk("td_fill() hwCBP %p, a20!\n", (void *)td->hwCBP);
+	}
+#endif
 	if (data)
 		td->hwBE = cpu_to_le32 (data + len - 1);
 	else
@@ -2237,11 +2249,16 @@ static void hc_interrupt (int irq, void * __ohci, struct pt_regs * r)
 	struct ohci_regs * regs = ohci->regs;
  	int ints; 
 
+#ifdef OHCI_BAD_DONEHEAD_BIT
+	/* bug in ohci chip does not set low order correctly */
+	ints = readl (&regs->intrstatus);
+#else
 	if ((ohci->hcca->done_head != 0) && !(le32_to_cpup (&ohci->hcca->done_head) & 0x01)) {
 		ints =  OHCI_INTR_WDH;
 	} else if ((ints = (readl (&regs->intrstatus) & readl (&regs->intrenable))) == 0) {
 		return;
 	} 
+#endif
 
 	// dbg("Interrupt: %x frame: %x", ints, le16_to_cpu (ohci->hcca->frame_no));
 
@@ -2374,8 +2391,12 @@ static void hc_release_ohci (ohci_t * ohci)
 
 	ohci_mem_cleanup (ohci);
     
+#ifndef OHCI_NON_PCI_INIT
 	/* unmap the IO address space */
 	iounmap (ohci->regs);
+#else
+	release_region ( OHCI_NON_PCI_BASE, OHCI_NON_PCI_EXTENT );
+#endif
 
 	pci_free_consistent (ohci->ohci_dev, sizeof *ohci->hcca,
 		ohci->hcca, ohci->hcca_dma);
@@ -2419,6 +2440,7 @@ hc_found_ohci (struct pci_dev *dev, int irq,
 	if (ohci->flags & OHCI_QUIRK_AMD756)
 		printk (KERN_INFO __FILE__ ": AMD756 erratum 4 workaround\n");
 
+#ifndef OHCI_NON_PCI_INIT
 	/* bad pci latencies can contribute to overruns */ 
 	pci_read_config_byte (dev, PCI_LATENCY_TIMER, &latency);
 	if (latency) {
@@ -2432,6 +2454,7 @@ hc_found_ohci (struct pci_dev *dev, int irq,
 			ohci->pci_latency = latency;
 		}
 	}
+#endif
 
 	if (hc_reset (ohci) < 0) {
 		hc_release_ohci (ohci);
@@ -2767,9 +2790,36 @@ static struct pmu_sleep_notifier ohci_sleep_notifier = {
 
 /*-------------------------------------------------------------------------*/
 
+#ifdef OHCI_NON_PCI_INIT
+static int __init ohci_non_pci_hcd_init(void)
+{
+	static struct pci_dev dev;
+	struct pci_device_id id;
+
+//	if (ohci_non_pci_mem_init())
+//		return -1;
+
+	memset((char *)&dev, 0, sizeof(dev));
+	strcpy(dev.name, "usb-ohci");
+	strcpy(dev.slot_name, "builtin");
+
+	memset((char *)&id, 0, sizeof(id));
+
+	request_region ( OHCI_NON_PCI_BASE, OHCI_NON_PCI_EXTENT, "usb-ohci" );
+
+	return hc_found_ohci (&dev, OHCI_NON_PCI_IRQ,
+			      (void *)OHCI_NON_PCI_BASE,
+			      &id);
+}
+#endif
+
 static int __init ohci_hcd_init (void) 
 {
 	int ret;
+
+#ifdef OHCI_NON_PCI_INIT
+	return ohci_non_pci_hcd_init();
+#endif
 
 	if ((ret = pci_module_init (&ohci_pci_driver)) < 0) {
 		return ret;
@@ -2786,6 +2836,11 @@ static int __init ohci_hcd_init (void)
 
 static void __exit ohci_hcd_cleanup (void) 
 {	
+#ifdef OHCI_NON_PCI_INIT
+	ohci_non_pci_cleanup();
+	return;
+#endif
+
 #ifdef CONFIG_PMAC_PBOOK
 	pmu_unregister_sleep_notifier (&ohci_sleep_notifier);
 #endif  

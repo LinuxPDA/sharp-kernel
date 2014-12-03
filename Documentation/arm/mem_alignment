@@ -1,0 +1,51 @@
+Too many problems poped up because of unnoticed misaligned memory access in
+kernel code lately.  Therefore the alignment fixup is now unconditionally 
+configured in for SA11x0 based targets.  According to Alan Cox, this is a 
+bad idea to configure it out, but Russell King has some good reasons for
+doing so on some f***ed up ARM architectures like the EBSA110.  However
+this is not the case on many design I'm aware of, like all SA11x0 based
+ones.
+
+Of course this is a bad idea to rely on the alignment trap to perform
+unaligned memory access in general.  If those access are predictable, you
+are better to use the macros provided by include/asm/unaligned.h.  The
+alignment trap can fixup misaligned access for the exception cases, but at
+a high performance cost.  It better be rare.
+
+Now for user space applications, it is possible to configure the alignment
+trap to SIGBUS any code performing unaligned access (good for debugging bad
+code), or even fixup the access by software like for kernel code.  The later
+mode isn't recommended for performance reasons (just think about the
+floating point emulation that works about the same way).  Fix your code
+instead!
+
+To change the alignment trap behavior, simply echo one of the following mode
+numbers into /proc/sys/debug/alignment:
+
+mode		behavior
+----		--------
+
+0		unaligned access ignored, needed for compatibility with
+		older ARM binaries that used to do unaligned memory access
+		on purpose for their documented results.  This is the
+		ARM Linux legacy mode and the default.
+
+1		any process performing an unaligned memory access will be
+		killed with a SIGBUS.
+
+2		any process performing an unaligned memory access will have
+		its access fixed up by the kernel in software.  This is of
+		course slow (think about the floating point emulator) and
+		not recommended for production use.
+
+For example, you can do this on system boot:
+
+	echo 1 > /proc/sys/debug/alignment
+
+You can also read the content of the same file to get statistical
+information on unaligned access occurences plus the current mode of
+operation for user space code.
+
+
+Nicolas Pitre
+Mar 13, 2001

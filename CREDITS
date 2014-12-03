@@ -695,7 +695,7 @@ D: PowerPC
 N: Oleg Drokin
 E: green@ccssu.crimea.ua
 W: http://www.ccssu.crimea.ua/~green
-D: Cleaning up sound drivers.
+D: Cleaning up sound drivers, SA1100 Watchdog.
 S: Skvoznoy per., 14a
 S: Evpatoria
 S: Crimea

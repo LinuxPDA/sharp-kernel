@@ -84,8 +84,6 @@ CONFIG_SA1100_ASSABET=y
 CONFIG_SA1100_USB=m
 CONFIG_SA1100_USB_NETLINK=m
 # CONFIG_SA1100_USB_CHAR is not set
-CONFIG_SA1100_FREQUENCY_SCALE=y
-# CONFIG_SA1100_VOLTAGE_SCALE is not set
 
 #
 # CLPS711X/EP721X Implementations
@@ -119,7 +117,7 @@ CONFIG_DISCONTIGMEM=y
 # CONFIG_PCI is not set
 # CONFIG_ISA is not set
 # CONFIG_ISA_DMA is not set
-# CONFIG_CPU_CLOCK is not set
+CONFIG_CPU_FREQ=y
 CONFIG_HOTPLUG=y
 
 #
@@ -141,7 +139,7 @@ CONFIG_KCORE_ELF=y
 # CONFIG_BINFMT_AOUT is not set
 CONFIG_BINFMT_ELF=y
 # CONFIG_BINFMT_MISC is not set
-# CONFIG_PM is not set
+CONFIG_PM=y
 # CONFIG_APM is not set
 # CONFIG_ARTHUR is not set
 CONFIG_CMDLINE=""
@@ -219,10 +217,11 @@ CONFIG_MTD_SA1100_REDBOOT_PARTITIONS=y
 # CONFIG_MTD_DBOX2 is not set
 # CONFIG_MTD_CSTM_MIPS_IXX is not set
 # CONFIG_MTD_CFI_FLAGADM is not set
+# CONFIG_MTD_ARM_INTEGRATOR is not set
 # CONFIG_MTD_MIXMEM is not set
 # CONFIG_MTD_OCTAGON is not set
 # CONFIG_MTD_VMAX is not set
-# CONFIG_MTD_ARMFLASH is not set
+# CONFIG_MTD_OCELOT is not set
 
 #
 # Self-contained MTD device drivers
@@ -243,7 +242,6 @@ CONFIG_MTD_SA1100_REDBOOT_PARTITIONS=y
 # NAND Flash Device Drivers
 #
 # CONFIG_MTD_NAND is not set
-# CONFIG_MTD_NAND_SPIA is not set
 
 #
 # Plug and Play configuration
@@ -331,19 +329,20 @@ CONFIG_NETDEVICES=y
 # CONFIG_BONDING is not set
 # CONFIG_EQUALIZER is not set
 # CONFIG_TUN is not set
-# CONFIG_NET_SB1000 is not set
 
 #
 # Ethernet (10 or 100Mbit)
 #
 CONFIG_NET_ETHERNET=y
-# CONFIG_ARM_AM79C961A is not set
+# CONFIG_SUNLANCE is not set
+# CONFIG_SUNBMAC is not set
+# CONFIG_SUNQE is not set
+# CONFIG_SUNLANCE is not set
+# CONFIG_SUNGEM is not set
 # CONFIG_NET_VENDOR_3COM is not set
 # CONFIG_LANCE is not set
 # CONFIG_NET_VENDOR_SMC is not set
 # CONFIG_NET_VENDOR_RACAL is not set
-# CONFIG_AT1700 is not set
-# CONFIG_DEPCA is not set
 # CONFIG_NET_ISA is not set
 # CONFIG_NET_PCI is not set
 # CONFIG_NET_POCKET is not set
@@ -352,11 +351,14 @@ CONFIG_NET_ETHERNET=y
 # Ethernet (1000 Mbit)
 #
 # CONFIG_ACENIC is not set
+# CONFIG_ACENIC_OMIT_TIGON_I is not set
+# CONFIG_MYRI_SBUS is not set
 # CONFIG_HAMACHI is not set
 # CONFIG_YELLOWFIN is not set
 # CONFIG_SK98LIN is not set
 # CONFIG_FDDI is not set
 # CONFIG_HIPPI is not set
+# CONFIG_PLIP is not set
 # CONFIG_PPP is not set
 # CONFIG_SLIP is not set
 
@@ -392,7 +394,6 @@ CONFIG_PCMCIA_PCNET=y
 # CONFIG_ARCNET_COM20020_CS is not set
 # CONFIG_PCMCIA_IBMTR is not set
 # CONFIG_NET_PCMCIA_RADIO is not set
-CONFIG_PCMCIA_NETCARD=y
 
 #
 # Amateur Radio support
@@ -630,7 +631,6 @@ CONFIG_DEVPTS_FS=y
 # CONFIG_ROMFS_FS is not set
 CONFIG_EXT2_FS=y
 # CONFIG_SYSV_FS is not set
-# CONFIG_SYSV_FS_WRITE is not set
 # CONFIG_UDF_FS is not set
 # CONFIG_UDF_RW is not set
 # CONFIG_UFS_FS is not set
@@ -724,7 +724,6 @@ CONFIG_NLS_CODEPAGE_437=y
 #
 CONFIG_PC_KEYMAP=y
 # CONFIG_VGA_CONSOLE is not set
-CONFIG_FB=y
 
 #
 # Frame-buffer support
@@ -757,8 +756,11 @@ CONFIG_FONT_8x8=y
 # Sound
 #
 CONFIG_SOUND=y
-CONFIG_SOUND_UDA1341=y
-# CONFIG_SOUND_SA1100_SSP is not set
+CONFIG_SOUND_ASSABET_UDA1341=y
+# CONFIG_SOUND_BITSY_UDA1341 is not set
+# CONFIG_SOUND_SA1111_UDA1341 is not set
+# CONFIG_SOUND_SA1100SSP is not set
+# CONFIG_SOUND_UDA1341 is not set
 # CONFIG_SOUND_CMPCI is not set
 # CONFIG_SOUND_EMU10K1 is not set
 # CONFIG_SOUND_FUSION is not set
@@ -774,6 +776,7 @@ CONFIG_SOUND_UDA1341=y
 # CONFIG_SOUND_MSNDCLAS is not set
 # CONFIG_SOUND_MSNDPIN is not set
 # CONFIG_SOUND_VIA82CXXX is not set
+# CONFIG_MIDI_VIA82CXXX is not set
 # CONFIG_SOUND_OSS is not set
 # CONFIG_SOUND_TVMIXER is not set
 
@@ -781,6 +784,11 @@ CONFIG_SOUND_UDA1341=y
 # USB support
 #
 # CONFIG_USB is not set
+
+#
+# Bluetooth support
+#
+# CONFIG_BLUEZ is not set
 
 #
 # Kernel hacking

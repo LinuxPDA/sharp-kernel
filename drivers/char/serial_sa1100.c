@@ -136,11 +136,7 @@ static void sa1100_enable_ms(struct uart_port *port)
 }
 
 static void
-#ifdef SUPPORT_SYSRQ
 sa1100_rx_chars(struct uart_info *info, struct pt_regs *regs)
-#else
-sa1100_rx_chars(struct uart_info *info)
-#endif
 {
 	struct tty_struct *tty = info->tty;
 	unsigned int status, ch, flg, ignored = 0;
@@ -266,11 +262,7 @@ static void sa1100_int(int irq, void *dev_id, struct pt_regs *regs)
 			/* Clear the receiver idle bit, if set */
 			if (status & UTSR0_RID)
 				UART_PUT_UTSR0(port, UTSR0_RID);
-#ifdef SUPPORT_SYSRQ
 			sa1100_rx_chars(info, regs);
-#else
-			sa1100_rx_chars(info);
-#endif
 		}
 
 		/* Clear the relevent break bits */

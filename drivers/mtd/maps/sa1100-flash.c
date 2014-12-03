@@ -3,7 +3,7 @@
  * 
  * (C) 2000 Nicolas Pitre <nico@cam.org>
  * 
- * $Id: sa1100-flash.c,v 1.15 2001/06/02 18:29:22 nico Exp $
+ * $Id: sa1100-flash.c,v 1.16 2001/06/12 21:29:46 nico Exp $
  */
 
 #include <linux/config.h>
@@ -485,12 +485,8 @@ int __init sa1100_mtd_init(void)
 	int parsed_nr_parts = 0;
 	char *part_type;
 	
+	/* Default flash buswidth */
 	sa1100_map.buswidth = (MSC0 & MSC_RBW) ? 2 : 4;
-	printk(KERN_NOTICE "SA1100 flash: probing %d-bit flash bus\n", sa1100_map.buswidth*8);
-	mymtd = do_map_probe("cfi", &sa1100_map);
-	if (!mymtd)
-		return -ENXIO;
-	mymtd->module = THIS_MODULE;
 
 	/*
 	 * Static partition definition selection
@@ -585,12 +581,15 @@ int __init sa1100_mtd_init(void)
 	}
 #endif
 
-
-	if (!nb_parts) {
-		printk(KERN_WARNING "MTD: no known flash definition for this SA1100 machine\n");
+	/*
+	 * Now let's probe for the actual flash.  Do it here since
+	 * specific machine settings might have been set above.
+	 */
+	printk(KERN_NOTICE "SA1100 flash: probing %d-bit flash bus\n", sa1100_map.buswidth*8);
+	mymtd = do_map_probe("cfi", &sa1100_map);
+	if (!mymtd)
 		return -ENXIO;
-	}
-
+	mymtd->module = THIS_MODULE;
 
 	/*
 	 * Dynamic partition selection stuff (might override the static ones)

@@ -86,7 +86,6 @@
 #include <asm/uaccess.h>
 #include <asm/bitops.h>
 #include <asm/arch/hardware.h>
-#include <asm/arch/serial_reg.h>
 
 #undef UTCR0
 #undef UTCR1
@@ -1895,12 +1894,12 @@ static void __init autoconfig(struct serial_state * state, int adv)
 			GPDR |= GPIO_UART_TXD;
 			GPDR &= ~GPIO_UART_RXD;
 			PPAR |= PPAR_UPR;
-		if( adv )
-			printk(", using GPIO 14/15\n");
+			if( adv )
+				printk(", using GPIO 14/15\n");
 		} else {
 			Ser1SDCR0 |= SDCR0_UART;
-		if( adv )
-			printk("\n");
+			if( adv )
+				printk("\n");
 		}
 		break;
 	case (int)&Ser2UTCR0:

@@ -35,6 +35,8 @@ extern unsigned char Brutus_kbd_sysrq_xlate[128];
 #define SYSRQ_KEY 0x54
 
 #elif CONFIG_SA1100_GRAPHICSCLIENT
+extern int gc_kbd_setkeycode(unsigned int scancode, unsigned int keycode);
+extern int gc_kbd_getkeycode(unsigned int scancode);
 extern int gc_kbd_translate(unsigned char scancode, unsigned char *keycode, char raw_mode);
 extern void gc_kbd_leds(unsigned char leds);
 extern void gc_kbd_init_hw(void);
@@ -42,15 +44,15 @@ extern void gc_kbd_enable_irq(void);
 extern void gc_kbd_disable_irq(void);
 extern unsigned char gc_kbd_sysrq_xlate[128];
 
-#define kbd_setkeycode(x...)    (-ENOSYS)
-#define kbd_getkeycode(x...)    (-ENOSYS)
+#define kbd_setkeycode(x...)    gc_kbd_setkeycode	//(-ENOSYS)
+#define kbd_getkeycode(x...)    gc_kbd_getkeycode	//(-ENOSYS)
 #define kbd_translate           gc_kbd_translate
 #define kbd_unexpected_up(x...) (1)
 #define kbd_leds                gc_kbd_leds
 #define kbd_init_hw             gc_kbd_init_hw
 #define kbd_enable_irq          gc_kbd_enable_irq
 #define kbd_disable_irq         gc_kbd_disable_irq
-#define kbd_sysrq_xlate         gc_kbd_sysrq_xlate
+#define kbd_sysrq_xlate         (1)
 
 #elif CONFIG_SA1100_BITSY
 
@@ -63,7 +65,7 @@ extern unsigned char gc_kbd_sysrq_xlate[128];
 #define kbd_enable_irq(x...)	do { } while (0)
 #define kbd_disable_irq(x...)	do { } while (0)
 
-#elif 0 //defined(CONFIG_SA1111)   /*@@@@@*/
+#elif defined(CONFIG_SA1111)
 
 #define KEYBOARD_IRQ           TPRXINT
 #define DISABLE_KBD_DURING_INTERRUPTS  0

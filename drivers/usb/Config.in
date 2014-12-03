@@ -25,6 +25,11 @@ comment 'USB Controllers'
    fi
    dep_tristate '  OHCI (Compaq, iMacs, OPTi, SiS, ALi, ...) support' CONFIG_USB_OHCI $CONFIG_USB
 
+   # if SA1111 & OHCI, then PCI substitution is required
+   if [ "$CONFIG_SA1111" = "y" ]; then
+       define_bool CONFIG_USB_OHCI_NOPCI $CONFIG_USB_OHCI
+   fi
+
    comment 'USB Device Class drivers'
    dep_tristate '  USB Audio support' CONFIG_USB_AUDIO $CONFIG_USB $CONFIG_SOUND
    dep_tristate '  USB Bluetooth support (EXPERIMENTAL)' CONFIG_USB_BLUETOOTH $CONFIG_USB $CONFIG_EXPERIMENTAL
@@ -68,6 +73,7 @@ comment 'USB Controllers'
    dep_tristate '  USB ADMtek Pegasus-based ethernet device support (EXPERIMENTAL)' CONFIG_USB_PEGASUS $CONFIG_USB $CONFIG_NET $CONFIG_EXPERIMENTAL
    dep_tristate '  USB CATC NetMate-based Ethernet driver (EXPERIMENTAL)' CONFIG_USB_CATC $CONFIG_USB $CONFIG_NET $CONFIG_EXPERIMENTAL
    dep_tristate '  NetChip 1080-based USB Host-to-Host Link (EXPERIMENTAL)' CONFIG_USB_NET1080 $CONFIG_USB $CONFIG_NET $CONFIG_EXPERIMENTAL
+   dep_tristate '  USB-to-USB Networking (NetChip, Prolific, ...) (EXPERIMENTAL)' CONFIG_USB_USBNET $CONFIG_USB $CONFIG_NET $CONFIG_EXPERIMENTAL
 
    comment 'USB port drivers'
    dep_tristate '  USS720 parport driver' CONFIG_USB_USS720 $CONFIG_USB $CONFIG_PARPORT

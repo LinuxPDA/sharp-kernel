@@ -65,6 +65,10 @@ else
 SEDFLAGS	+= s/BSS_START/ALIGN(4)/
 endif
 
+ifeq ($(CONFIG_CPU_BIG_ENDIAN),y)
+OBJS		+= big-endian.o
+endif
+
 all:		vmlinux
 
 vmlinux:	$(HEAD) $(OBJS) piggy.o vmlinux.lds

@@ -102,6 +102,10 @@ if [ "$CONFIG_ASSABET_NEPONSET" = "y" -o \
      "$CONFIG_SA1100_XP860" = "y" ]; then
    define_bool CONFIG_SA1111 y
 fi
+
+dep_tristate 'SA1100 USB function support' CONFIG_SA1100_USB $CONFIG_ARCH_SA1100
+dep_tristate '  Support for SA11x0 USB network link function' CONFIG_SA1100_USB_NETLINK $CONFIG_SA1100_USB
+dep_tristate '  Support for SA11x0 USB character device emulation' CONFIG_SA1100_USB_CHAR $CONFIG_SA1100_USB
 endmenu
 
 mainmenu_option next_comment
@@ -264,6 +268,8 @@ else
    define_bool CONFIG_DISCONTIGMEM n
 fi
 
+bool 'Generate big endian kernel' CONFIG_CPU_BIG_ENDIAN
+
 endmenu
 
 mainmenu_option next_comment
@@ -324,6 +330,10 @@ tristate 'Kernel support for a.out binaries' CONFIG_BINFMT_AOUT
 tristate 'Kernel support for ELF binaries' CONFIG_BINFMT_ELF
 tristate 'Kernel support for MISC binaries' CONFIG_BINFMT_MISC
 dep_bool 'Power Management support (experimental)' CONFIG_PM $CONFIG_EXPERIMENTAL
+if [ "$CONFIG_ARCH_SA1100" = "y" ]; then
+   dep_tristate 'Advanced power management support' CONFIG_APM $CONFIG_PM
+fi
+
 dep_tristate 'RISC OS personality' CONFIG_ARTHUR $CONFIG_CPU_32
 
 if [ "$CONFIG_ARCH_EBSA110" = "y" -o         \
@@ -334,6 +344,7 @@ if [ "$CONFIG_ARCH_EBSA110" = "y" -o         \
      "$CONFIG_ARCH_P720T" = "y" -o	     \
      "$CONFIG_ARCH_ANAKIN" = "y" ]; then
    string 'Default kernel command string' CONFIG_CMDLINE ""
+   dep_bool 'Enable support for Tulsa command line parameters area' CONFIG_PFS168_CMDLINE $CONFIG_SA1100_PFS168
 fi
 if [ "$CONFIG_ARCH_NETWINDER" = "y" -o  \
      "$CONFIG_ARCH_EBSA110" = "y" -o    \
@@ -361,8 +372,13 @@ if [ "$CONFIG_ARCH_NETWINDER" = "y" -o  \
       define_bool CONFIG_LEDS_TIMER y
    fi
 fi
-if [ "$CONFIG_CPU_32" = "y" -a "$CONFIG_ARCH_EBSA110" != "y" ]; then
+if [ "$CONFIG_CPU_32" = "y" -a \
+     "$CONFIG_ARCH_EBSA110" != "y" -a \
+     "$CONFIG_ARCH_SA1100" != "y" ]; then
    bool 'Kernel-mode alignment trap handler' CONFIG_ALIGNMENT_TRAP
+fi
+if [ "$CONFIG_ARCH_SA1100" = "y" ]; then
+   define_bool CONFIG_ALIGNMENT_TRAP y
 fi
 endmenu
 
@@ -495,6 +511,7 @@ if [ "$CONFIG_ARCH_ACORN" = "y" -o \
      "$CONFIG_ARCH_CLPS7500" = "y" -o \
      "$CONFIG_ARCH_TBOX" = "y" -o \
      "$CONFIG_ARCH_SHARK" = "y" -o \
+     "$CONFIG_ARCH_SA1100" = "y" -o \
      "$CONFIG_PCI" = "y" ]; then
    mainmenu_option next_comment
    comment 'Sound'

@@ -45,15 +45,6 @@
 /* MECR: Expansion Memory Configuration Register
  * (SA-1100 Developers Manual, p.10-13; SA-1110 Developers Manual, p.10-24)
  *
- * BS_xx = ( PCMCIA_CYCLE / ( 2 * 3 * CPU_CYCLE ) ) - 1
- *
- * Official PCMCIA cycle times:
- *
- *   - I/O:                  255ns
- *   - attribute:            300ns
- *   - common memory (3.3V): 600, 250, 200, 150, 100ns
- *   - common memory (5V):   250, 200, 150, 100ns
- *
  * MECR layout is:  
  *
  *   FAST1 BSM1<4:0> BSA1<4:0> BSIO1<4:0> FAST0 BSM0<4:0> BSA0<4:0> BSIO0<4:0>

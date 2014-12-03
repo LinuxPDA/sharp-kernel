@@ -30,7 +30,18 @@ if [ "$CONFIG_FB" = "y" ]; then
    dep_bool '  Acorn VIDC support' CONFIG_FB_ACORN $CONFIG_ARCH_ACORN
    dep_bool '  CLPS711X LCD support' CONFIG_FB_CLPS711X $CONFIG_ARCH_CLPS711X
    dep_tristate '  Cyber2000 support' CONFIG_FB_CYBER2000 $CONFIG_PCI
+   dep_bool '  EPSON1356 LCD support' CONFIG_FB_EPSON1356 $CONFIG_SA1100_JORNADA720
    dep_bool '  SA-1100 LCD support' CONFIG_FB_SA1100 $CONFIG_ARCH_SA1100
+   if [ "$CONFIG_FB_SA1100" = "y" -a "$CONFIG_SA1100_CERF" = "y" ]; then
+      choice 'CerfBoard LCD Display Size' \
+      "3.8              CONFIG_CERF_LCD_38_A \
+       5.7              CONFIG_CERF_LCD_57_A \
+       7.2              CONFIG_CERF_LCD_72_A" 5.7
+   fi
+   if [ "$CONFIG_SA1100_ASSABET" = "y" -o \
+        "$CONFIG_SA1100_PANGOLIN" = "y" ]; then
+      bool '  MQ200 VGA support' CONFIG_FB_MQ200
+   fi
    dep_bool '  Anakin LCD support' CONFIG_FB_ANAKIN $CONFIG_ARCH_ANAKIN
    if [ "$CONFIG_APOLLO" = "y" ]; then
       define_bool CONFIG_FB_APOLLO y
@@ -228,7 +239,7 @@ if [ "$CONFIG_FB" = "y" ]; then
 	   "$CONFIG_FB_RIVA" = "y" -o \
 	   "$CONFIG_FB_SGIVW" = "y" -o "$CONFIG_FB_CYBER2000" = "y" -o \
 	   "$CONFIG_FB_SA1100" = "y" -o "$CONFIG_FB_3DFX" = "y" -o \
-	   "$CONFIG_FB_SIS" = "y" ]; then
+	   "$CONFIG_FB_SIS" = "y" -o "$CONFIG_FB_MQ200" = "y" ]; then
 	 define_tristate CONFIG_FBCON_CFB8 y
       else
 	 if [ "$CONFIG_FB_ACORN" = "m" -o "$CONFIG_FB_ATARI" = "m" -o \
@@ -245,7 +256,8 @@ if [ "$CONFIG_FB" = "y" ]; then
 	      "$CONFIG_FB_P9100" = "m" -o "$CONFIG_FB_ATY128" = "m" -o \
 	      "$CONFIG_FB_RIVA" = "m" -o "$CONFIG_FB_3DFX" = "m" -o \
 	      "$CONFIG_FB_SGIVW" = "m" -o "$CONFIG_FB_CYBER2000" = "m" -o \
-	      "$CONFIG_FB_SA1100" = "m" -o "$CONFIG_FB_SIS" = "m" ]; then
+	      "$CONFIG_FB_SA1100" = "m" -o "$CONFIG_FB_SIS" = "m" -o \
+		  "$CONFIG_FB_MQ200" = "m" ]; then
 	    define_tristate CONFIG_FBCON_CFB8 m
 	 fi
       fi

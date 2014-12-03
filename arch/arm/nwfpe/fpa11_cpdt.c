@@ -41,8 +41,13 @@ void loadDouble(const unsigned int Fn,const unsigned int *pMem)
    unsigned int *p;
    p = (unsigned int*)&fpa11->fpreg[Fn].fDouble;
    fpa11->fType[Fn] = typeDouble;
+#ifdef __ARMEB__
+   get_user(p[0], &pMem[0]);
+   get_user(p[1], &pMem[1]); /* sign & exponent */
+#else
    get_user(p[0], &pMem[1]);
    get_user(p[1], &pMem[0]); /* sign & exponent */
+#endif
 }   
 
 extern __inline__
@@ -52,8 +57,13 @@ void loadExtended(const unsigned int Fn,const unsigned int *pMem)
    p = (unsigned int*)&fpa11->fpreg[Fn].fExtended;
    fpa11->fType[Fn] = typeExtended;
    get_user(p[0], &pMem[0]);  /* sign & exponent */
+#ifdef __ARMEB__
+   get_user(p[1], &pMem[1]);  /* ls bits */
+   get_user(p[2], &pMem[2]);  /* ms bits */
+#else
    get_user(p[1], &pMem[2]);  /* ls bits */
    get_user(p[2], &pMem[1]);  /* ms bits */
+#endif
 }   
 
 extern __inline__
@@ -79,9 +89,14 @@ void loadMultiple(const unsigned int Fn,const unsigned int *pMem)
    
       case typeExtended:
       {
+#ifdef __ARMEB__
+         get_user(p[1], &pMem[1]);
+         get_user(p[2], &pMem[2]);  /* msw */
+#else
          get_user(p[1], &pMem[2]);
          get_user(p[2], &pMem[1]);  /* msw */
-         p[0] = (x & 0x80003fff);      
+#endif
+	 p[0] = (x & 0x80003fff);      
       }
       break;
    }
@@ -127,8 +142,13 @@ void storeDouble(const unsigned int Fn,unsigned int *pMem)
 
       default: val = fpa11->fpreg[Fn].fDouble;
    }
+#ifdef __ARMEB__
+   put_user(p[0], &pMem[0]);	/* msw */
+   put_user(p[1], &pMem[1]);	/* lsw */
+#else
    put_user(p[1], &pMem[0]);	/* msw */
    put_user(p[0], &pMem[1]);	/* lsw */
+#endif
 }   
 
 extern __inline__
@@ -151,8 +171,13 @@ void storeExtended(const unsigned int Fn,unsigned int *pMem)
    }
    
    put_user(p[0], &pMem[0]); /* sign & exp */
+#ifdef __ARMEB__
+   put_user(p[1], &pMem[1]); /* msw */
+   put_user(p[2], &pMem[2]);
+#else
    put_user(p[1], &pMem[2]);
    put_user(p[2], &pMem[1]); /* msw */
+#endif
 }   
 
 extern __inline__
@@ -176,8 +201,13 @@ void storeMultiple(const unsigned int Fn,unsigned int *pMem)
    
       case typeExtended:
       {
+#ifdef __ARMEB__
+	 put_user(p[1], &pMem[1]); /* msw */
+	 put_user(p[2], &pMem[2]);
+#else
 	 put_user(p[2], &pMem[1]); /* msw */
 	 put_user(p[1], &pMem[2]);
+#endif
 	 put_user((p[0] & 0x80003fff) | (nType << 14), &pMem[0]);
       }
       break;

@@ -10,14 +10,14 @@
  * the Free Software Foundation; either version 2 of the License, or
  * (at your option) any later version.
  *
- * $Id: jffs_fm.c,v 1.18 2000/08/21 10:41:45 dwmw2 Exp $
+ * $Id: jffs_fm.c,v 1.18.2.1 2001/02/21 09:20:44 dwmw2 Exp $
  *
  * Ported to Linux 2.3.x and MTD:
  * Copyright (C) 2000  Alexander Larsson (alex@cendio.se), Cendio Systems AB
  *
  */
 #define __NO_VERSION__
-#include <linux/slab.h>
+#include <linux/malloc.h>
 #include <linux/blkdev.h>
 #include <linux/jffs.h>
 #include "jffs_fm.h"
@@ -68,8 +68,11 @@ jffs_build_begin(struct jffs_control *c, kdev_t dev)
 		   to write out larger nodes than the ones it's obsoleting.
 		   We should fix it so it doesn't have to write the name
 		   _every_ time. Later.
+	   + another 2 sectors because people keep getting GC stuck and
+	           we don't know why. This scares me - I want formal proof
+		   of correctness of whatever number we put here. dwmw2.
 	*/
-	fmc->min_free_size = fmc->sector_size << 1;
+	fmc->min_free_size = fmc->sector_size << 2;
 	fmc->mtd = mtd;
 	fmc->c = c;
 	fmc->head = 0;

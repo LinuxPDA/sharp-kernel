@@ -102,6 +102,8 @@ obj-$(CONFIG_FB_SA1100)           += sa1100fb.o
 obj-$(CONFIG_FB_VIRTUAL)          += vfb.o  
 obj-$(CONFIG_FB_HIT)              += hitfb.o fbgen.o
 obj-$(CONFIG_FB_E1355)            += epson1355fb.o fbgen.o
+obj-$(CONFIG_FB_EPSON1356)        += epson1356fb.o
+obj-$(CONFIG_FB_MQ200)            += mq200fb.o
 obj-$(CONFIG_FB_DC)               += dcfb.o fbgen.o
 obj-$(CONFIG_FB_ANAKIN)           += anakinfb.o
 
@@ -123,6 +125,11 @@ obj-$(CONFIG_FBCON_MAC)           += fbcon-mac.o
 obj-$(CONFIG_FBCON_MFB)           += fbcon-mfb.o
 obj-$(CONFIG_FBCON_VGA)           += fbcon-vga.o
 obj-$(CONFIG_FBCON_HGA)           += fbcon-hga.o
+
+# Frontlight Driver Module
+ifeq ($(CONFIG_SA1100_ASSABET),y)
+   obj-m += sa1100_frontlight.o
+endif
 
 include $(TOPDIR)/Rules.make
 

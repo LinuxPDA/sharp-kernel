@@ -31,7 +31,7 @@
  * provisions above, a recipient may use your version of this file
  * under either the RHEPL or the GPL.
  *
- * $Id: scan.c,v 1.45 2001/05/01 21:02:31 dwmw2 Exp $
+ * $Id: scan.c,v 1.49 2001/07/02 16:40:01 nico Exp $
  *
  */
 #include <linux/kernel.h>
@@ -76,6 +76,7 @@ static int jffs2_scan_dirent_node(struct jffs2_sb_info *c, struct jffs2_eraseblo
 int jffs2_scan_medium(struct jffs2_sb_info *c)
 {
 	int i, ret;
+	__u32 empty_blocks = 0;
 
 	if (!c->blocks) {
 		printk(KERN_WARNING "EEEK! c->blocks is NULL!\n");
@@ -85,13 +86,24 @@ int jffs2_scan_medium(struct jffs2_sb_info *c)
 		struct jffs2_eraseblock *jeb = &c->blocks[i];
 
 		ret = jffs2_scan_eraseblock(c, jeb);
-		if (ret)
+		if (ret < 0)
 			return ret;
 
 		ACCT_PARANOIA_CHECK(jeb);
 
-		   /* Now decide which list to put it on */
-		if (jeb->used_size == PAD(sizeof(struct jffs2_unknown_node)) && !jeb->first_node->next_in_ino) {
+		/* Now decide which list to put it on */
+		if (ret == 1) {
+			/* 
+			 * Empty block.   Since we can't be sure it 
+			 * was entirely erased, we just queue it for erase
+			 * again.  It will be marked as such when the erase
+			 * is complete.  Meanwhile we still count it as empty
+			 * for later checks.
+			 */
+			list_add(&jeb->list, &c->erase_pending_list);
+			empty_blocks++;
+			c->nr_erasing_blocks++;
+		} else if (jeb->used_size == PAD(sizeof(struct jffs2_unknown_node)) && !jeb->first_node->next_in_ino) {
 			/* Only a CLEANMARKER node is valid */
 			if (!jeb->dirty_size) {
 				/* It's actually free */
@@ -128,16 +140,15 @@ int jffs2_scan_medium(struct jffs2_sb_info *c)
 			printk(KERN_NOTICE "JFFS2: Erase block at 0x%08x is not formatted. It will be erased\n", jeb->offset);
                         list_add(&jeb->list, &c->erase_pending_list);
 			c->nr_erasing_blocks++;
-                }
-        }
+		}
+	}
 	if (c->nr_erasing_blocks) {
-		if (!c->used_size) {
+		if (!c->used_size && empty_blocks != c->nr_blocks) {
 			printk(KERN_NOTICE "Cowardly refusing to erase blocks on filesystem with no valid JFFS2 nodes\n");
 			return -EIO;
 		}
 		jffs2_erase_pending_trigger(c);
 	}
-
 	return 0;
 }
 
@@ -146,12 +157,21 @@ static int jffs2_scan_eraseblock (struct jffs2_sb_info *c, struct jffs2_eraseblo
 	__u32 ofs, prevofs;
 	__u32 hdr_crc, nodetype;
 	int err;
-	int noise = 10;
+	int noise = 0;
 
 	ofs = jeb->offset;
 	prevofs = jeb->offset - 1;
 
 	D1(printk(KERN_DEBUG "jffs2_scan_eraseblock(): Scanning block at 0x%x\n", ofs));
+
+	err = jffs2_scan_empty(c, jeb, &ofs, &noise);
+	if (err) return err;
+	if (ofs == jeb->offset + c->sector_size) {
+		D1(printk(KERN_DEBUG "Block at 0x%08x is empty (erased)\n", jeb->offset));
+		return 1;	/* special return code */
+	}
+	
+	noise = 10;
 
 	while(ofs < jeb->offset + c->sector_size) {
 		ssize_t retlen;
@@ -594,7 +614,7 @@ static int jffs2_scan_dirent_node(struct jffs2_sb_info *c, struct jffs2_eraseblo
 	fd = jffs2_alloc_full_dirent(rd.nsize+1);
 	if (!fd) {
 		return -ENOMEM;
-	}
+}
 	ret = c->mtd->read(c->mtd, *ofs + sizeof(rd), rd.nsize, &retlen, &fd->name[0]);
 	if (ret) {
 		jffs2_free_full_dirent(fd);

@@ -11,7 +11,7 @@
 
 #include <asm/mach/arch.h>
 #include <asm/mach/map.h>
-#include <asm/mach/sa1100.h>
+#include <asm/mach/serial_sa1100.h>
 
 #include "generic.h"
 

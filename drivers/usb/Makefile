@@ -44,6 +44,7 @@ obj-$(CONFIG_USB)		+= usbcore.o
 obj-$(CONFIG_USB_UHCI)		+= usb-uhci.o
 obj-$(CONFIG_USB_UHCI_ALT)	+= uhci.o
 obj-$(CONFIG_USB_OHCI)		+= usb-ohci.o
+obj-$(CONFIG_USB_OHCI_NOPCI)	+= usb-ohci-nopci.o
 
 obj-$(CONFIG_USB_MOUSE)		+= usbmouse.o
 obj-$(CONFIG_USB_HID)		+= hid.o
@@ -70,6 +71,7 @@ obj-$(CONFIG_USB_DSBR)		+= dsbr100.o
 obj-$(CONFIG_USB_MICROTEK)	+= microtek.o
 obj-$(CONFIG_USB_BLUETOOTH)	+= bluetooth.o
 obj-$(CONFIG_USB_NET1080)	+= net1080.o
+obj-$(CONFIG_USB_USBNET)        += usbnet.o
 
 # Object files in subdirectories
 

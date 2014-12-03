@@ -2821,6 +2821,14 @@ static int __init match_parm (char *s, const char *keywords[], int vals[], int m
  *
  * "hdx=slow"		: insert a huge pause after each access to the data
  *				port. Should be used only as a last resort.
+ * "hdx=present"	: Autoprobing will fail if the drive hasn't completed
+ * 			  its power on self test.  Some systems which boot very
+ * 			  quickly will arrive at ide_setup well before the drive
+ * 			  is ready.  Use this option to help autoprobe figure out
+ * 			  where the drive is.  This works the same as 
+ * 			  hdx=cyl,head,sect but without the need to specify the
+ * 			  drive geometry.  This is useful mainly for embedded
+ * 			  systems.
  *
  * "hdx=swapdata"	: when the drive is a disk, byte swap all data
  * "hdx=bswap"		: same as above..........
@@ -2930,7 +2938,7 @@ int __init ide_setup (char *s)
 		const char *hd_words[] = {"none", "noprobe", "nowerr", "cdrom",
 				"serialize", "autotune", "noautotune",
 				"slow", "swapdata", "bswap", "flash",
-				"remap", "noremap", "scsi", NULL};
+				"remap", "noremap", "scsi","present", NULL};
 		unit = s[2] - 'a';
 		hw   = unit / MAX_DRIVES;
 		unit = unit % MAX_DRIVES;
@@ -3001,6 +3009,11 @@ int __init ide_setup (char *s)
 				drive->scsi = 0;
 				goto bad_option;
 #endif /* defined(CONFIG_BLK_DEV_IDESCSI) && defined(CONFIG_SCSI) */
+			case -15: /* present */
+				drive->present = 1;
+				hwif->noprobe = 0;
+				drive->media = ide_disk;
+				goto done;
 			case 3: /* cyl,head,sect */
 				drive->media	= ide_disk;
 				drive->cyl	= drive->bios_cyl  = vals[0];

@@ -6,6 +6,17 @@
 
 # Prompt user for primary drivers.
 
+dep_tristate '  Assabet audio (UDA1341) support' CONFIG_SOUND_ASSABET_UDA1341 $CONFIG_SA1100_ASSABET $CONFIG_SOUND
+dep_tristate '  Compaq iPAQ audio support' CONFIG_SOUND_BITSY_UDA1341 $CONFIG_SA1100_BITSY $CONFIG_SOUND
+dep_tristate '  Audio support for SA1111/UDA1341' CONFIG_SOUND_SA1111_UDA1341 $CONFIG_SA1111 $CONFIG_SOUND
+dep_tristate '  Generic DAC on the SA11x0 SSP port' CONFIG_SOUND_SA1100SSP $CONFIG_ARCH_SA1100 $CONFIG_SOUND
+
+if [ "$CONFIG_SA1100_ASSABET" = "y" -o "$CONFIG_SA1100_BITSY" = "y" -o \
+     "$CONFIG_SA1100_PANGOLIN" = "y" -o "$CONFIG_SA1100_FREEBIRD" = "y" -o \
+     "$CONFIG_SA1100_YOPY" = "y" -o "$CONFIG_SA1100_JORNADA720" = "y" ]; then
+    dep_tristate '  Old Assabet/Bitsy/Pangolin/Yopy/Freebird/Jornada720 audio support (UDA1341)' CONFIG_SOUND_UDA1341 $CONFIG_SOUND
+  fi
+
 dep_tristate '  C-Media PCI (CMI8338/8378)' CONFIG_SOUND_CMPCI $CONFIG_SOUND $CONFIG_PCI
 if [ "$CONFIG_SOUND_CMPCI" = "y" -o "$CONFIG_SOUND_CMPCI" = "m" ]; then
     bool '    Enable S/PDIF loop for CMI8738' CONFIG_SOUND_CMPCI_SPDIFLOOP

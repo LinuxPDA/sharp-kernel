@@ -1145,6 +1145,11 @@ M:	nico@cam.org
 L:	sa1100-linux@pa.dec.com
 S:	Maintained
 
+SA1100 Watchdog driver
+P:	Oleg Drokin
+M:	green@crimea.edu
+S:	Maintained
+
 SBPCD CDROM DRIVER
 P:	Eberhard Moenkeberg
 M:	emoenke@gwdg.de

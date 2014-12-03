@@ -74,6 +74,19 @@ struct dma_buf_s {
 
 sa1100_dma_t dma_chan[MAX_SA1100_DMA_CHANNELS];
 
+#ifdef CONFIG_PM
+typedef struct {
+        u_long DDAR;
+        u_long SetDCSR;
+	u_long ClrDCSR;
+        dma_addr_t DBSA;
+        u_long DBTA;
+        dma_addr_t DBSB;
+        u_long DBTB;
+} dma_shadow_regs_t;
+
+dma_shadow_regs_t shadow_regs[MAX_SA1100_DMA_CHANNELS];
+#endif
 
 /*
  * DMA processing...
@@ -511,6 +524,52 @@ void sa1100_free_dma(dmach_t channel)
 	DPRINTK("freed\n");
 }
 
+#ifdef CONFIG_PM
+/* Should be called by device that uses DMA when sleep & wake-up */
+int sa1100_dma_sleep(dmach_t channel)
+{
+        sa1100_dma_t *dma = &dma_chan[channel];
+        dma_regs_t *regs = dma->regs;
+	dma_shadow_regs_t* shadow = &shadow_regs[channel];
+	
+	shadow->SetDCSR = regs->RdDCSR &
+		(DCSR_RUN | DCSR_IE | DCSR_STRTA | DCSR_STRTB);
+	shadow->ClrDCSR = ~(regs->RdDCSR) & 
+		(DCSR_RUN | DCSR_IE | DCSR_STRTA | DCSR_STRTB); 
+
+	sa1100_dma_stop(channel);	
+
+	shadow->DDAR = regs->DDAR;
+	shadow->DBSA = regs->DBSA;
+	shadow->DBTA = regs->DBTA;
+	shadow->DBSB = regs->DBSB;
+	shadow->DBTB = regs->DBTB;
+
+	return 0;
+}
+int sa1100_dma_wakeup(dmach_t channel)
+{
+        sa1100_dma_t *dma = &dma_chan[channel];
+        dma_regs_t *regs = dma->regs;
+	dma_shadow_regs_t* shadow = &shadow_regs[channel];
+
+        regs->DDAR = shadow->DDAR;
+        regs->DBSA = shadow->DBSA;
+        regs->DBTA = shadow->DBTA;
+        regs->DBSB = shadow->DBSB;
+        regs->DBTB = shadow->DBTB;
+
+	if (shadow->SetDCSR | DCSR_RUN) {
+		regs->ClrDCSR = (shadow->ClrDCSR | DCSR_RUN | DCSR_IE);
+		regs->SetDCSR = (shadow->SetDCSR & ~(DCSR_RUN | DCSR_IE));
+		sa1100_dma_resume(channel);
+	} else {	
+		regs->ClrDCSR = shadow->ClrDCSR;
+		regs->SetDCSR = shadow->SetDCSR;
+	}
+	return 0;
+}
+#endif
 
 EXPORT_SYMBOL(sa1100_request_dma);
 EXPORT_SYMBOL(sa1100_dma_set_callback);
@@ -523,6 +582,10 @@ EXPORT_SYMBOL(sa1100_dma_resume);
 EXPORT_SYMBOL(sa1100_dma_flush_all);
 EXPORT_SYMBOL(sa1100_free_dma);
 
+#ifdef CONFIG_PM
+EXPORT_SYMBOL(sa1100_dma_sleep);
+EXPORT_SYMBOL(sa1100_dma_wakeup);
+#endif
 
 static int __init sa1100_init_dma(void)
 {

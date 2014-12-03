@@ -288,7 +288,7 @@ int sa1111_check_dma_bug(dma_addr_t addr){
 	 * SDRAM bank 1 on Neponset). The default configuration selects
 	 * Assabet, so any address in bank 1 is necessarily invalid.
 	 */
-	if(machine_is_assabet() && addr >= _DRAMBnk1)
+	if((machine_is_assabet() || machine_is_pfs168()) && addr >= _DRAMBnk1)
 	  	return -1;
 
 	/* The bug only applies to buffers located more than one megabyte

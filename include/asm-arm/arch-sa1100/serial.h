@@ -28,12 +28,34 @@
  * Hardwired serial ports should be defined here.
  * PCMCIA will fill it dynamically.
  */
+#if	!defined(CONFIG_SA1100_PFS168)
 #define STD_SERIAL_PORT_DEFNS	\
        /* UART	CLK     	PORT		IRQ	FLAGS		*/ \
 	{ 0,	BASE_BAUD,	0, 		0,	STD_COM_FLAGS },   \
 	{ 0,	BASE_BAUD,	0, 		0,	STD_COM_FLAGS },   \
 	{ 0,	BASE_BAUD,	0, 		0,	STD_COM_FLAGS },   \
 	{ 0,	BASE_BAUD,	0, 		0,	STD_COM_FLAGS }
+#else
+#define STD_SERIAL_PORT_DEFNS	\
+	{	\
+		baud_base:		BASE_BAUD,	\
+		irq:			IRQ_GPIO19,	\
+		flags:			STD_COM_FLAGS,	\
+		iomem_base:		0xf0000000UL,	\
+		iomem_reg_shift:	2,		\
+		io_type:		SERIAL_IO_MEM,	\
+	},	\
+	{	\
+		baud_base:		BASE_BAUD,	\
+		irq:			IRQ_GPIO20,	\
+		flags:			STD_COM_FLAGS,	\
+		iomem_base:		0xf0001000UL,	\
+		iomem_reg_shift:	2,		\
+		io_type:		SERIAL_IO_MEM,	\
+	},	\
+	{ 0,	BASE_BAUD,	0, 		0,	STD_COM_FLAGS },	\
+	{ 0,	BASE_BAUD,	0, 		0,	STD_COM_FLAGS }
+#endif
 
 #define EXTRA_SERIAL_PORT_DEFNS
 

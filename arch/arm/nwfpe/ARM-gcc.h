@@ -4,7 +4,11 @@
 One of the macros `BIGENDIAN' or `LITTLEENDIAN' must be defined.
 -------------------------------------------------------------------------------
 */
+#ifndef __ARMEB__
 #define LITTLEENDIAN
+#else
+#define BIGENDIAN
+#endif
 
 /*
 -------------------------------------------------------------------------------

@@ -47,6 +47,11 @@
  .				 Fixed bug reported by Gardner Buchanan in
  .				   smc_enable, with outw instead of outb
  .	03/06/96  Erik Stahlman  Added hardware multicast from Peter Cammaert
+ .	03/05/00  Nicolas Pitre	IO access now done through SMC_* macros so
+ .				architectures different than a PC can easily
+ .				port this driver.
+ .				Worked it out for buses that can't make
+ .				byte access.
  .	04/14/00  Heiko Pruessing (SMA Regelsysteme)  Fixed bug in chip memory
  .				 allocation
  .      08/20/00  Arnaldo Melo   fix kfree(skb) in smc_hardware_send_packet
@@ -62,6 +67,7 @@ static const char version[] =
 #include <linux/sched.h>
 #include <linux/types.h>
 #include <linux/fcntl.h>
+#include <linux/delay.h>
 #include <linux/interrupt.h>
 #include <linux/ptrace.h>
 #include <linux/ioport.h>
@@ -71,6 +77,7 @@ static const char version[] =
 #include <linux/init.h>
 #include <asm/bitops.h>
 #include <asm/io.h>
+#include <asm/irq.h>
 #include <linux/errno.h>
 
 #include <linux/netdevice.h>
@@ -78,12 +85,19 @@ static const char version[] =
 #include <linux/skbuff.h>
 
 #include "smc9194.h"
+
+#ifdef CONFIG_SA1100_FLEXANET
+#include <asm/arch/flexanet.h>
+#endif
+
 /*------------------------------------------------------------------------
  .
  . Configuration options, for the experienced user to change.
  .
  -------------------------------------------------------------------------*/
 
+#ifdef CONFIG_ISA
+	
 /*
  . Do you want to use 32 bit xfers?  This should work on all chips, as
  . the chipset is designed to accommodate them.
@@ -99,6 +113,8 @@ static unsigned int smc_portlist[] __initdata = {
 	0x200, 0x220, 0x240, 0x260, 0x280, 0x2A0, 0x2C0, 0x2E0,
 	0x300, 0x320, 0x340, 0x360, 0x380, 0x3A0, 0x3C0, 0x3E0, 0
 };
+
+#endif  /* CONFIG_ISA */
 
 /*
  . Wait time for memory to be free.  This probably shouldn't be
@@ -312,31 +328,31 @@ static void smc_reset( int ioaddr )
 	/* This resets the registers mostly to defaults, but doesn't
 	   affect EEPROM.  That seems unnecessary */
 	SMC_SELECT_BANK( 0 );
-	outw( RCR_SOFTRESET, ioaddr + RCR );
+	SMC_outw( RCR_SOFTRESET, RCR );
 
 	/* this should pause enough for the chip to be happy */
 	SMC_DELAY( );
 
 	/* Set the transmit and receive configuration registers to
 	   default values */
-	outw( RCR_CLEAR, ioaddr + RCR );
-	outw( TCR_CLEAR, ioaddr + TCR );
+	SMC_outw( RCR_CLEAR, RCR );
+	SMC_outw( TCR_CLEAR, TCR );
 
 	/* set the control register to automatically
 	   release successfully transmitted packets, to make the best
 	   use out of our limited memory */
 	SMC_SELECT_BANK( 1 );
-	outw( inw( ioaddr + CONTROL ) | CTL_AUTO_RELEASE , ioaddr + CONTROL );
+	SMC_outw( SMC_inw( CONTROL ) | CTL_AUTO_RELEASE, CONTROL );
 
 	/* Reset the MMU */
 	SMC_SELECT_BANK( 2 );
-	outw( MC_RESET, ioaddr + MMU_CMD );
+	SMC_outw( MC_RESET, MMU_CMD );
 
 	/* Note:  It doesn't seem that waiting for the MMU busy is needed here,
 	   but this is a place where future chipsets _COULD_ break.  Be wary
  	   of issuing another MMU command right after this */
 
-	outb( 0, ioaddr + INT_MASK );
+	SMC_SET_INT( 0 );
 }
 
 /*
@@ -351,12 +367,11 @@ static void smc_enable( int ioaddr )
 {
 	SMC_SELECT_BANK( 0 );
 	/* see the header file for options in TCR/RCR NORMAL*/
-	outw( TCR_NORMAL, ioaddr + TCR );
-	outw( RCR_NORMAL, ioaddr + RCR );
+	SMC_outw( TCR_NORMAL, TCR );
+	SMC_outw( RCR_NORMAL, RCR );
 
 	/* now, enable interrupts */
-	SMC_SELECT_BANK( 2 );
-	outb( SMC_INTERRUPT_MASK, ioaddr + INT_MASK );
+	SMC_SET_INT( SMC_INTERRUPT_MASK );
 }
 
 /*
@@ -376,17 +391,16 @@ static void smc_enable( int ioaddr )
 static void smc_shutdown( int ioaddr )
 {
 	/* no more interrupts for me */
-	SMC_SELECT_BANK( 2 );
-	outb( 0, ioaddr + INT_MASK );
+	SMC_SET_INT( 0 );
 
 	/* and tell the card to stay away from that nasty outside world */
 	SMC_SELECT_BANK( 0 );
-	outb( RCR_CLEAR, ioaddr + RCR );
-	outb( TCR_CLEAR, ioaddr + TCR );
+	SMC_outw( RCR_CLEAR, RCR );
+	SMC_outw( TCR_CLEAR, TCR );
 #if 0
 	/* finally, shut the chip down */
 	SMC_SELECT_BANK( 1 );
-	outw( inw( ioaddr + CONTROL ), CTL_POWERDOWN, ioaddr + CONTROL  );
+	SMC_outw( SMC_inw( CONTROL ) | CTL_POWERDOWN, CONTROL );
 #endif
 }
 
@@ -443,7 +457,7 @@ static void smc_setmulticast( int ioaddr, int count, struct dev_mc_list * addrs 
 	SMC_SELECT_BANK( 3 );
 
 	for ( i = 0; i < 8 ; i++ ) {
-		outb( multicast_table[i], ioaddr + MULTICAST1 + i );
+		SMC_outb( multicast_table[i], MULTICAST1 + i );
 	}
 }
 
@@ -493,7 +507,7 @@ static int crc32( char * s, int length ) {
 static int smc_wait_to_send_packet( struct sk_buff * skb, struct net_device * dev )
 {
 	struct smc_local *lp 	= (struct smc_local *)dev->priv;
-	unsigned short ioaddr 	= dev->base_addr;
+	int ioaddr = dev->base_addr;
 	word 			length;
 	unsigned short 		numPages;
 	word			time_out;
@@ -537,7 +551,7 @@ static int smc_wait_to_send_packet( struct sk_buff * skb, struct net_device * de
 
 	/* now, try to allocate the memory */
 	SMC_SELECT_BANK( 2 );
-	outw( MC_ALLOC | numPages, ioaddr + MMU_CMD );
+	SMC_outw( MC_ALLOC | numPages, MMU_CMD );
 	/*
  	. Performance Hack
 	.
@@ -554,10 +568,10 @@ static int smc_wait_to_send_packet( struct sk_buff * skb, struct net_device * de
 	do {
 		word	status;
 
-		status = inb( ioaddr + INTERRUPT );
+		status = SMC_inb( INTERRUPT );
 		if ( status & IM_ALLOC_INT ) {
 			/* acknowledge the interrupt */
-			outb( IM_ALLOC_INT, ioaddr + INTERRUPT );
+			SMC_outb( IM_ALLOC_INT, INTERRUPT );
   			break;
 		}
    	} while ( -- time_out );
@@ -599,7 +613,7 @@ static void smc_hardware_send_packet( struct net_device * dev )
 	byte	 		packet_no;
 	struct sk_buff * 	skb = lp->saved_skb;
 	word			length;
-	unsigned short		ioaddr;
+	int			ioaddr;
 	byte			* buf;
 
 	ioaddr = dev->base_addr;
@@ -612,7 +626,7 @@ static void smc_hardware_send_packet( struct net_device * dev )
 	buf = skb->data;
 
 	/* If I get here, I _know_ there is a packet slot waiting for me */
-	packet_no = inb( ioaddr + PNR_ARR + 1 );
+	packet_no = SMC_inb( PNR_ARR + 1 );
 	if ( packet_no & 0x80 ) {
 		/* or isn't there?  BAD CHIP! */
 		printk(KERN_DEBUG CARDNAME": Memory allocation failed. \n");
@@ -623,27 +637,27 @@ static void smc_hardware_send_packet( struct net_device * dev )
 	}
 
 	/* we have a packet address, so tell the card to use it */
-	outb( packet_no, ioaddr + PNR_ARR );
+	SMC_outb( packet_no, PNR_ARR );
 
 	/* point to the beginning of the packet */
-	outw( PTR_AUTOINC , ioaddr + POINTER );
+	SMC_outw( PTR_AUTOINC, POINTER );
 
-   	PRINTK3((CARDNAME": Trying to xmit packet of length %x\n", length ));
-#if SMC_DEBUG > 2
+   	PRINTK3((CARDNAME": Trying to xmit packet of length %d\n", length ));
+#if SMC_DEBUG > 5
 	print_packet( buf, length );
 #endif
 
 	/* send the packet length ( +6 for status, length and ctl byte )
  	   and the status word ( set to zeros ) */
 #ifdef USE_32_BIT
-	outl(  (length +6 ) << 16 , ioaddr + DATA_1 );
+	SMC_outl(  (length+6) << 16, DATA_1 );
 #else
-	outw( 0, ioaddr + DATA_1 );
+	SMC_outw( 0, DATA_1 );
 	/* send the packet length ( +6 for status words, length, and ctl*/
-	outb( (length+6) & 0xFF,ioaddr + DATA_1 );
-	outb( (length+6) >> 8 , ioaddr + DATA_1 );
+	SMC_outw( (length+6), DATA_1 );
 #endif
 
+#ifdef USE_32_BIT
 	/* send the actual data
 	 . I _think_ it's faster to send the longs first, and then
 	 . mop up by sending the last word.  It depends heavily
@@ -651,30 +665,24 @@ static void smc_hardware_send_packet( struct net_device * dev )
  	 . a good idea to check which is optimal?  But that could take
 	 . almost as much time as is saved?
 	*/
-#ifdef USE_32_BIT
-	if ( length & 0x2  ) {
-		outsl(ioaddr + DATA_1, buf,  length >> 2 );
-		outw( *((word *)(buf + (length & 0xFFFFFFFC))),ioaddr +DATA_1);
-	}
-	else
-		outsl(ioaddr + DATA_1, buf,  length >> 2 );
+	SMC_outsl( DATA_1, buf, length >> 2 );
+	if ( length & 0x2 )
+		SMC_outw( *((word *)(buf + (length & ~3))), DATA_1);
 #else
-	outsw(ioaddr + DATA_1 , buf, (length ) >> 1);
+	SMC_outsw( DATA_1, buf, (length) >> 1);
 #endif
-	/* Send the last byte, if there is one.   */
-
+	/* Send the last word, including last byte if there is one. */
 	if ( (length & 1) == 0 ) {
-		outw( 0, ioaddr + DATA_1 );
+		SMC_outw( 0, DATA_1 );
 	} else {
-		outb( buf[length -1 ], ioaddr + DATA_1 );
-		outb( 0x20, ioaddr + DATA_1);
+		SMC_outw( buf[length-1] | 0x2000, DATA_1 );
 	}
 
 	/* enable the interrupts */
 	SMC_ENABLE_INT( (IM_TX_INT | IM_TX_EMPTY_INT) );
 
 	/* and let the chipset deal with it */
-	outw( MC_ENQUEUE , ioaddr + MMU_CMD );
+	SMC_outw( MC_ENQUEUE, MMU_CMD );
 
 	PRINTK2((CARDNAME": Sent packet of length %d \n",length));
 
@@ -706,6 +714,83 @@ static void smc_hardware_send_packet( struct net_device * dev )
 */
 int __init smc_init(struct net_device *dev)
 {
+#ifdef CONFIG_ASSABET_NEPONSET
+	volatile unsigned *ioaddr, *attaddr;
+	unsigned long base_addr, flags;
+
+	/* enable ethernet osc */
+	NCR_0 |= NCR_ENET_OSC_EN;
+
+	base_addr = 0x18000000;
+	ioaddr = (volatile unsigned *)ioremap(base_addr, 8*1024);
+
+	base_addr |= (1 << 25) + (0x8000*4);
+	attaddr = (volatile unsigned *)ioremap(base_addr, 4*1024);
+
+	__save_flags(flags);
+	__cli();
+
+	/* enable the device */
+	attaddr[LAN91C96_ECOR] |= ECOR_RESET;
+	udelay(100);
+
+	/* the device will ignore all writes to the enable bit while reset is
+	 * asserted, even if the reset bit is cleared in the same write. Must
+	 * clear reset first, then enable the device.
+	 */
+	attaddr[LAN91C96_ECOR] &= ~ECOR_RESET;
+	attaddr[LAN91C96_ECOR] |= ECOR_ENABLE;
+
+	__restore_flags(flags);
+
+	/* force byte mode */
+	attaddr[LAN91C96_ECSR] |= ECSR_IOIS8;
+
+	dev->irq = NEPONSET_ETHERNET_IRQ;
+
+	return smc_probe(dev, (int)ioaddr);
+#endif
+
+#ifdef CONFIG_SA1100_PFS168
+	volatile unsigned *ioaddr, *attaddr;
+	unsigned long base_addr, flags;
+
+	/* First, enable access to the SMC91C96 via some undocumented black
+	 * magic register bit flipping.
+	 */
+	base_addr = (volatile unsigned *)ioremap(0x1a020000, 8*1024);
+	((unsigned char *)(base_addr))[0] = 0x41;
+	udelay(100);
+	((unsigned char *)(base_addr))[8] = 0x00;
+	udelay(100);
+
+	/*
+	 * The PFS-168 uses GPIO26 for the SMC-9196 interrupt.	Before we use this, we must first set up a
+	 * couple things.  I looked in drivers/pcmcia/sa1100_assabet.c to see how it was done for the Assabet
+	 * compact flash, and copied that to come up with...
+	 */
+	/* Set GPIO 26 to input */
+	GPDR &= ~(GPIO_GPIO(26));
+	/* Set transition detect */
+	set_GPIO_IRQ_edge( GPIO_GPIO(26), GPIO_RISING_EDGE );
+
+	base_addr = (volatile unsigned *)ioremap(0x18000000, 8*1024);
+
+	dev->irq = IRQ_GPIO26;	/* Uses one of the pooled GPIO IRQs */
+
+	return smc_probe(dev, (int)base_addr);
+#endif
+
+#ifdef CONFIG_SA1100_GRAPHICSCLIENT
+	int base_addr = ADS_ETHERNET;
+
+	// Max recovery timing
+	MSC1 &= ~0xFFFF;
+	MSC1 |= 0x8649;
+	return smc_probe(dev, base_addr);
+#endif
+
+#ifdef CONFIG_ISA
 	int i;
 	int base_addr = dev->base_addr;
 
@@ -724,6 +809,39 @@ int __init smc_init(struct net_device *dev)
 
 	/* couldn't find anything */
 	return -ENODEV;
+#endif
+
+#ifdef CONFIG_SA1100_FLEXANET
+	volatile unsigned *attaddr;
+	int ioaddr;
+	unsigned flags;
+
+	/* Get the I/O and attribute base addresses declared in flexanet.h */
+	ioaddr  = FHH_ETH_IOBASE;
+	attaddr = (unsigned *) (FHH_ETH_MMBASE + (0x8000*4));
+
+	__save_flags(flags);
+	__cli();
+
+	/* first reset, then enable the device. Sequence is critical */
+	attaddr[LAN91C96_ECOR] |= ECOR_RESET;
+	udelay(100);
+	attaddr[LAN91C96_ECOR] &= ~ECOR_RESET;
+	attaddr[LAN91C96_ECOR] |= ECOR_ENABLE;
+
+	__restore_flags(flags);
+
+	/* force 16-bit mode */
+	attaddr[LAN91C96_ECSR] &= ~ECSR_IOIS8;
+
+	/* Ethernet IRQ setup (GPIO is input, falling edge) */
+	GPDR &= ~(GPIO_ETH_IRQ);
+	set_GPIO_IRQ_edge( GPIO_ETH_IRQ, GPIO_FALLING_EDGE );
+	
+	dev->irq = IRQ_GPIO_ETH;
+
+	return smc_probe(dev, ioaddr);
+#endif
 }
 
 /*----------------------------------------------------------------------
@@ -752,16 +870,14 @@ int __init smc_findirq( int ioaddr )
 	 * when done.
 	 */
 
-
-	SMC_SELECT_BANK(2);
 	/* enable ALLOCation interrupts ONLY */
-	outb( IM_ALLOC_INT, ioaddr + INT_MASK );
+	SMC_SET_INT( IM_ALLOC_INT );
 
 	/*
  	 . Allocate 512 bytes of memory.  Note that the chip was just
 	 . reset so all the memory is available
 	*/
-	outw( MC_ALLOC | 1, ioaddr + MMU_CMD );
+	SMC_outw( MC_ALLOC | 1, MMU_CMD );
 
 	/*
 	 . Wait until positive that the interrupt has been generated
@@ -769,7 +885,7 @@ int __init smc_findirq( int ioaddr )
 	while ( timeout ) {
 		byte	int_status;
 
-		int_status = inb( ioaddr + INTERRUPT );
+		int_status = SMC_inb( INTERRUPT );
 
 		if ( int_status & IM_ALLOC_INT )
 			break;		/* got the interrupt */
@@ -790,7 +906,7 @@ int __init smc_findirq( int ioaddr )
 	SMC_DELAY();
 
 	/* and disable all interrupts again */
-	outb( 0, ioaddr + INT_MASK );
+	SMC_SET_INT( 0 );
 
 	/* clear hardware interrupts again, because that's how it
 	   was when I was called... */
@@ -831,7 +947,7 @@ int __init smc_findirq( int ioaddr )
 */
 static int __init smc_probe(struct net_device *dev, int ioaddr)
 {
-	int i, memory, retval;
+	int i, memory, chip, rev, retval;
 	static unsigned version_printed;
 	unsigned int bank;
 
@@ -850,24 +966,26 @@ static int __init smc_probe(struct net_device *dev, int ioaddr)
 		return -EBUSY;
 
 	/* First, see if the high byte is 0x33 */
-	bank = inw( ioaddr + BANK_SELECT );
+	bank = SMC_inw( BANK_SELECT );
 	if ( (bank & 0xFF00) != 0x3300 ) {
 		retval = -ENODEV;
 		goto err_out;
 	}
 	/* The above MIGHT indicate a device, but I need to write to further
  	 	test this.  */
-	outw( 0x0, ioaddr + BANK_SELECT );
-	bank = inw( ioaddr + BANK_SELECT );
+	SMC_outw( 0x0, BANK_SELECT );
+	bank = SMC_inw( BANK_SELECT );
 	if ( (bank & 0xFF00 ) != 0x3300 ) {
 		retval = -ENODEV;
 		goto err_out;
 	}
+
+#ifdef CONFIG_ISA
 	/* well, we've already written once, so hopefully another time won't
  	   hurt.  This time, I need to switch the bank register to bank 1,
 	   so I can access the base address register */
 	SMC_SELECT_BANK(1);
-	base_address_register = inw( ioaddr + BASE );
+	base_address_register = SMC_inw( BASE );
 	if ( ioaddr != ( base_address_register >> 3 & 0x3E0 ) )  {
 		printk(CARDNAME ": IOADDR %x doesn't match configuration (%x)."
 			"Probably not a SMC chip\n",
@@ -877,12 +995,13 @@ static int __init smc_probe(struct net_device *dev, int ioaddr)
 		retval = -ENODEV;
 		goto err_out;
 	}
+#endif
 
 	/*  check if the revision register is something that I recognize.
 	    These might need to be added to later, as future revisions
 	    could be added.  */
 	SMC_SELECT_BANK(3);
-	revision_register  = inw( ioaddr + REVISION );
+	revision_register  = SMC_inw( REVISION );
 	if ( !chip_ids[ ( revision_register  >> 4 ) & 0xF  ] ) {
 		/* I don't recognize this chip, so... */
 		printk(CARDNAME ": IO %x: Unrecognized revision register:"
@@ -909,16 +1028,33 @@ static int __init smc_probe(struct net_device *dev, int ioaddr)
 	for ( i = 0; i < 6; i += 2 ) {
 		word	address;
 
-		address = inw( ioaddr + ADDR0 + i  );
+		address = SMC_inw( ADDR0 + i );
 		dev->dev_addr[ i + 1] = address >> 8;
 		dev->dev_addr[ i ] = address & 0xFF;
 	}
 
+#if defined(CONFIG_ASSABET_NEPONSET) || defined(CONFIG_SA1100_GRAPHICSCLIENT) || \
+	(defined CONFIG_SA1100_PFS168) || defined(CONFIG_SA1100_FLEXANET)
+	/* 
+	 * Check if MAC address is all zeroes or all ones 
+	 * (many boards got out uninitialized) 
+	 */
+	for ( i = 0; i < 6; i++ )
+		if (dev->dev_addr[i] != 0 && dev->dev_addr[i] != 0xff)
+			break;
+	/* If so, add a dummy one */
+	if (i == 6) {
+		printk (CARDNAME": uninitialized MAC address detected -- using a dummy one\n");
+		for ( i = 0; i < 6; i++ )
+			dev->dev_addr[ i ] = i;
+	}
+#endif
+
 	/* get the memory information */
 
 	SMC_SELECT_BANK( 0 );
-	memory_info_register = inw( ioaddr + MIR );
-	memory_cfg_register  = inw( ioaddr + MCR );
+	memory_info_register = SMC_inw( MIR );
+	memory_cfg_register  = SMC_inw( MCR );
 	memory = ( memory_cfg_register >> 9 )  & 0x7;  /* multiplier */
 	memory *= 256 * ( memory_info_register & 0xFF );
 
@@ -928,8 +1064,15 @@ static int __init smc_probe(struct net_device *dev, int ioaddr)
  	 one VERY long probe procedure.
 	*/
 	SMC_SELECT_BANK(3);
-	revision_register  = inw( ioaddr + REVISION );
-	version_string = chip_ids[ ( revision_register  >> 4 ) & 0xF  ];
+	revision_register  = SMC_inw( REVISION );
+
+	chip = (revision_register >> 4) & 0xF;
+	rev = revision_register & 0xF;
+
+	if (chip == CHIP_9194 && rev >= 6)
+		chip = CHIP_9196;
+
+	version_string = chip_ids[ chip ];
 	if ( !version_string ) {
 		/* I shouldn't get here because this call was done before.... */
 		retval = -ENODEV;
@@ -939,7 +1082,7 @@ static int __init smc_probe(struct net_device *dev, int ioaddr)
 	/* is it using AUI or 10BaseT ? */
 	if ( dev->if_port == 0 ) {
 		SMC_SELECT_BANK(1);
-		configuration_register = inw( ioaddr + CONFIG );
+		configuration_register = SMC_inw( CONFIG );
 		if ( configuration_register & CFG_AUI_SELECT )
 			dev->if_port = 2;
 		else
@@ -983,12 +1126,7 @@ static int __init smc_probe(struct net_device *dev, int ioaddr)
 		retval = -ENODEV;
 		goto err_out;
 	}
-	if (dev->irq == 2) {
-		/* Fixup for users that don't know that IRQ 2 is really IRQ 9,
-		 * or don't know which one to set.
-		 */
-		dev->irq = 9;
-	}
+	dev->irq = irq_cannonicalize(dev->irq);
 
 	/* now, print out the card info, in a short format.. */
 
@@ -1046,7 +1184,6 @@ err_out:
 #if SMC_DEBUG > 2
 static void print_packet( byte * buf, int length )
 {
-#if 0
 	int i;
 	int remainder;
 	int lines;
@@ -1074,8 +1211,13 @@ static void print_packet( byte * buf, int length )
 		b = *(buf ++ );
 		printk("%02x%02x ", a, b );
 	}
+	if (remainder & 1) {
+		byte a;
+
+		a = *(buf ++ );
+		printk("%02x ", a );
+	}
 	printk("\n");
-#endif
 }
 #endif
 
@@ -1104,12 +1246,10 @@ static int smc_open(struct net_device *dev)
 
 	SMC_SELECT_BANK( 1 );
 	if ( dev->if_port == 1 ) {
-		outw( inw( ioaddr + CONFIG ) & ~CFG_AUI_SELECT,
-			ioaddr + CONFIG );
+		SMC_outw( SMC_inw( CONFIG ) & ~CFG_AUI_SELECT, CONFIG );
 	}
 	else if ( dev->if_port == 2 ) {
-		outw( inw( ioaddr + CONFIG ) | CFG_AUI_SELECT,
-			ioaddr + CONFIG );
+		SMC_outw( SMC_inw( CONFIG ) | CFG_AUI_SELECT, CONFIG );
 	}
 
 	/*
@@ -1121,9 +1261,9 @@ static int smc_open(struct net_device *dev)
 	for ( i = 0; i < 6; i += 2 ) {
 		word	address;
 
-		address = dev->dev_addr[ i + 1 ] << 8 ;
+		address = dev->dev_addr[ i + 1 ] << 8;
 		address  |= dev->dev_addr[ i ];
-		outw( address, ioaddr + ADDR0 + i );
+		SMC_outw( address, ADDR0 + i );
 	}
 	
 	netif_start_queue(dev);
@@ -1180,18 +1320,16 @@ static void smc_interrupt(int irq, void * dev_id,  struct pt_regs * regs)
 	word	saved_bank;
 	word	saved_pointer;
 
-
-
 	PRINTK3((CARDNAME": SMC interrupt started \n"));
 
-	saved_bank = inw( ioaddr + BANK_SELECT );
+	saved_bank = SMC_inw( BANK_SELECT );
 
 	SMC_SELECT_BANK(2);
-	saved_pointer = inw( ioaddr + POINTER );
+	saved_pointer = SMC_inw( POINTER );
 
-	mask = inb( ioaddr + INT_MASK );
+	mask = SMC_inb( INT_MASK );
 	/* clear all interrupts */
-	outb( 0, ioaddr + INT_MASK );
+	SMC_outw( 0, INTERRUPT );
 
 
 	/* set a timeout value, so I don't stay here forever */
@@ -1200,7 +1338,7 @@ static void smc_interrupt(int irq, void * dev_id,  struct pt_regs * regs)
 	PRINTK2((KERN_WARNING CARDNAME ": MASK IS %x \n", mask ));
 	do {
 		/* read the status flag, and mask it */
-		status = inb( ioaddr + INTERRUPT ) & mask;
+		status = SMC_inb( INTERRUPT ) & mask;
 		if (!status )
 			break;
 
@@ -1216,11 +1354,11 @@ static void smc_interrupt(int irq, void * dev_id,  struct pt_regs * regs)
 			PRINTK2((KERN_WARNING CARDNAME
 				": TX ERROR handled\n"));
 			smc_tx(dev);
-			outb(IM_TX_INT, ioaddr + INTERRUPT );
+			SMC_outw( IM_TX_INT, INTERRUPT );
 		} else if (status & IM_TX_EMPTY_INT ) {
 			/* update stats */
 			SMC_SELECT_BANK( 0 );
-			card_stats = inw( ioaddr + COUNTER );
+			card_stats = SMC_inw( COUNTER );
 			/* single collisions */
 			lp->stats.collisions += card_stats & 0xF;
 			card_stats >>= 4;
@@ -1232,7 +1370,7 @@ static void smc_interrupt(int irq, void * dev_id,  struct pt_regs * regs)
 			SMC_SELECT_BANK( 2 );
 			PRINTK2((KERN_WARNING CARDNAME
 				": TX_BUFFER_EMPTY handled\n"));
-			outb( IM_TX_EMPTY_INT, ioaddr + INTERRUPT );
+			SMC_outw( IM_TX_EMPTY_INT, INTERRUPT );
 			mask &= ~IM_TX_EMPTY_INT;
 			lp->stats.tx_packets += lp->packets_waiting;
 			lp->packets_waiting = 0;
@@ -1255,22 +1393,21 @@ static void smc_interrupt(int irq, void * dev_id,  struct pt_regs * regs)
 		} else if (status & IM_RX_OVRN_INT ) {
 			lp->stats.rx_errors++;
 			lp->stats.rx_fifo_errors++;
-			outb( IM_RX_OVRN_INT, ioaddr + INTERRUPT );
+			SMC_outw( IM_RX_OVRN_INT, INTERRUPT );
 		} else if (status & IM_EPH_INT ) {
 			PRINTK((CARDNAME ": UNSUPPORTED: EPH INTERRUPT \n"));
 		} else if (status & IM_ERCV_INT ) {
 			PRINTK((CARDNAME ": UNSUPPORTED: ERCV INTERRUPT \n"));
-			outb( IM_ERCV_INT, ioaddr + INTERRUPT );
+			SMC_outw( IM_ERCV_INT, INTERRUPT );
 		}
 	} while ( timeout -- );
 
 
 	/* restore state register */
-	SMC_SELECT_BANK( 2 );
-	outb( mask, ioaddr + INT_MASK );
+	SMC_SET_INT( mask );
 
 	PRINTK3(( KERN_WARNING CARDNAME ": MASK is now %x \n", mask ));
-	outw( saved_pointer, ioaddr + POINTER );
+	SMC_outw( saved_pointer, POINTER );
 
 	SMC_SELECT_BANK( saved_bank );
 
@@ -1300,7 +1437,7 @@ static void smc_rcv(struct net_device *dev)
 
 	/* assume bank 2 */
 
-	packet_number = inw( ioaddr + FIFO_PORTS );
+	packet_number = SMC_inw( FIFO_PORTS );
 
 	if ( packet_number & FP_RXEMPTY ) {
 		/* we got called , but nothing was on the FIFO */
@@ -1310,11 +1447,17 @@ static void smc_rcv(struct net_device *dev)
 	}
 
 	/*  start reading from the start of the packet */
-	outw( PTR_READ | PTR_RCV | PTR_AUTOINC, ioaddr + POINTER );
+	SMC_outw( PTR_READ | PTR_RCV | PTR_AUTOINC, POINTER );
+
+#if defined(CONFIG_SA1100_GRAPHICS_CLIENT)
+	SMC_DELAY();
+	SMC_DELAY();
+	SMC_DELAY();
+#endif
 
 	/* First two words are status and packet_length */
-	status 		= inw( ioaddr + DATA_1 );
-	packet_length 	= inw( ioaddr + DATA_1 );
+	status 		= SMC_inw( DATA_1 );
+	packet_length 	= SMC_inw( DATA_1 );
 
 	packet_length &= 0x07ff;  /* mask off top bits */
 
@@ -1363,21 +1506,21 @@ static void smc_rcv(struct net_device *dev)
 		   performance  */
 		PRINTK3((" Reading %d dwords (and %d bytes) \n",
 			packet_length >> 2, packet_length & 3 ));
-		insl(ioaddr + DATA_1 , data, packet_length >> 2 );
-		/* read the left over bytes */
-		insb( ioaddr + DATA_1, data + (packet_length & 0xFFFFFC),
-			packet_length & 0x3  );
+		SMC_insl( DATA_1, data, packet_length >> 2 );
+		/* read the left over word */
+		if (packet_length & 2)
+			*(word*)(data + (packet_length & ~3)) = SMC_inw( DATA_1 );
 #else
 		PRINTK3((" Reading %d words and %d byte(s) \n",
-			(packet_length >> 1 ), packet_length & 1 );
-		if ( packet_length & 1 )
-			*(data++) = inb( ioaddr + DATA_1 );
-		insw(ioaddr + DATA_1 , data, (packet_length + 1 ) >> 1);
-		if ( packet_length & 1 ) {
-			data += packet_length & ~1;
-			*((data++) = inb( ioaddr + DATA_1 );
-		}
+			(packet_length >> 1 ), packet_length & 1 ));
+
+		SMC_insw( DATA_1, data, (packet_length >> 1) );
 #endif
+		/* read the last word, possibly containing the odd byte */
+		if (packet_length & 1)
+			data[packet_length-1] = SMC_inw( DATA_1 );
+		else
+			SMC_inw( DATA_1 );
 #if	SMC_DEBUG > 2
 			print_packet( data, packet_length );
 #endif
@@ -1399,7 +1542,7 @@ static void smc_rcv(struct net_device *dev)
 
 done:
 	/*  error or good, tell the card to get rid of this packet */
-	outw( MC_RELEASE, ioaddr + MMU_CMD );
+	SMC_outw( MC_RELEASE, MMU_CMD );
 }
 
 
@@ -1429,17 +1572,23 @@ static void smc_tx( struct net_device * dev )
 
 	/* assume bank 2  */
 
-	saved_packet = inb( ioaddr + PNR_ARR );
-	packet_no = inw( ioaddr + FIFO_PORTS );
+	saved_packet = SMC_inb( PNR_ARR );
+	packet_no = SMC_inw( FIFO_PORTS );
 	packet_no &= 0x7F;
 
 	/* select this as the packet to read from */
-	outb( packet_no, ioaddr + PNR_ARR );
+	SMC_outb( packet_no, PNR_ARR );
 
 	/* read the first word from this packet */
-	outw( PTR_AUTOINC | PTR_READ, ioaddr + POINTER );
+	SMC_outw( PTR_AUTOINC | PTR_READ, POINTER );
 
-	tx_status = inw( ioaddr + DATA_1 );
+#if defined(CONFIG_SA1100_GRAPHICSCLIENT)
+	SMC_DELAY();
+	SMC_DELAY();
+	SMC_DELAY();
+#endif
+
+	tx_status = SMC_inw( DATA_1 );
 	PRINTK3((CARDNAME": TX DONE STATUS: %4x \n", tx_status ));
 
 	lp->stats.tx_errors++;
@@ -1458,16 +1607,16 @@ static void smc_tx( struct net_device * dev )
 	}
 	/* re-enable transmit */
 	SMC_SELECT_BANK( 0 );
-	outw( inw( ioaddr + TCR ) | TCR_ENABLE, ioaddr + TCR );
+	SMC_outw( SMC_inw( TCR ) | TCR_ENABLE, TCR );
 
 	/* kill the packet */
 	SMC_SELECT_BANK( 2 );
-	outw( MC_FREEPKT, ioaddr + MMU_CMD );
+	SMC_outw( MC_FREEPKT, MMU_CMD );
 
 	/* one less packet waiting for me */
 	lp->packets_waiting--;
 
-	outb( saved_packet, ioaddr + PNR_ARR );
+	SMC_outb( saved_packet, PNR_ARR );
 	return;
 }
 
@@ -1509,11 +1658,11 @@ static struct net_device_stats* smc_query_statistics(struct net_device *dev) {
 */
 static void smc_set_multicast_list(struct net_device *dev)
 {
-	short ioaddr = dev->base_addr;
+	int ioaddr = dev->base_addr;
 
 	SMC_SELECT_BANK(0);
 	if ( dev->flags & IFF_PROMISC )
-		outw( inw(ioaddr + RCR ) | RCR_PROMISC, ioaddr + RCR );
+		SMC_outw( SMC_inw( RCR ) | RCR_PROMISC, RCR );
 
 /* BUG?  I never disable promiscuous mode if multicasting was turned on.
    Now, I turn off promiscuous mode, but I don't do anything to multicasting
@@ -1525,7 +1674,7 @@ static void smc_set_multicast_list(struct net_device *dev)
 	   checked before the table is
 	*/
 	else if (dev->flags & IFF_ALLMULTI)
-		outw( inw(ioaddr + RCR ) | RCR_ALMUL, ioaddr + RCR );
+		SMC_outw( SMC_inw( RCR ) | RCR_ALMUL, RCR );
 
 	/* We just get all multicast packets even if we only want them
 	 . from one source.  This will be changed at some future
@@ -1534,25 +1683,23 @@ static void smc_set_multicast_list(struct net_device *dev)
 		/* support hardware multicasting */
 
 		/* be sure I get rid of flags I might have set */
-		outw( inw( ioaddr + RCR ) & ~(RCR_PROMISC | RCR_ALMUL),
-			ioaddr + RCR );
+		SMC_outw( SMC_inw( RCR ) & ~(RCR_PROMISC | RCR_ALMUL), RCR );
 		/* NOTE: this has to set the bank, so make sure it is the
 		   last thing called.  The bank is set to zero at the top */
 		smc_setmulticast( ioaddr, dev->mc_count, dev->mc_list );
 	}
 	else  {
-		outw( inw( ioaddr + RCR ) & ~(RCR_PROMISC | RCR_ALMUL),
-			ioaddr + RCR );
+		SMC_outw( SMC_inw( RCR ) & ~(RCR_PROMISC | RCR_ALMUL), RCR );
 
 		/*
 		  since I'm disabling all multicast entirely, I need to
 		  clear the multicast list
 		*/
 		SMC_SELECT_BANK( 3 );
-		outw( 0, ioaddr + MULTICAST1 );
-		outw( 0, ioaddr + MULTICAST2 );
-		outw( 0, ioaddr + MULTICAST3 );
-		outw( 0, ioaddr + MULTICAST4 );
+		SMC_outw( 0, MULTICAST1 );
+		SMC_outw( 0, MULTICAST2 );
+		SMC_outw( 0, MULTICAST3 );
+		SMC_outw( 0, MULTICAST4 );
 	}
 }
 

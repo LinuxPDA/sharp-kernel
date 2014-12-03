@@ -140,8 +140,14 @@ install: $(CONFIGURE) Image
 zinstall: $(CONFIGURE) zImage
 	sh ./install.sh $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION) zImage $(TOPDIR)/System.map "$(INSTALL_PATH)"
 
+endianswap: endianswap.c
+	$(HOSTCC) $(HOSTCFLAGS) -o $@ $<
+
+%.swap: % endianswap
+	./endianswap < $< > $@
+
 clean:
-	$(RM) Image zImage bootpImage
+	$(RM) Image zImage bootpImage endianswap *.swap
 	@$(MAKE) -C compressed clean
 	@$(MAKE) -C bootp clean
 

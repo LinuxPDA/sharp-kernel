@@ -1,0 +1,20 @@
+*****************************************************************************
+
+Assabet/Neponset SMC91C96 driver changes
+Brad Parker <brad@parker.boston.ma.us>
+
+These changes are minor modifications to the smc9194.c driver in the
+ARM tree.  The changes are pretty simple and switch the code from 16
+bit to 8 bit accesses.  I left the "THINCLIENT" 16 bit code in with an
+#ifdef.
+
+caveats: the "phase2" (possibly rev2) Nepponset boards have a bug in
+the Neponset CPLD which makes the 91C96 not work (register accesses
+are corrupted).  If you have a rev2 board you need to update the CPLD
+with the cable which plugs into the Neponset J8 socket, Xilinx
+XPLA programming software and files from Intel.  Note that the CPLD
+update files on the Intel's web site won't program an 3128A CPLD.
+You'll need to contact Intel to get the right files (at least I did).
+
+
+-----------------------------------------------------------------------------

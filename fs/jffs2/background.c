@@ -31,7 +31,7 @@
  * provisions above, a recipient may use your version of this file
  * under either the RHEPL or the GPL.
  *
- * $Id: background.c,v 1.10 2001/03/15 15:38:23 dwmw2 Exp $
+ * $Id: background.c,v 1.11 2001/07/02 14:35:45 dwmw2 Exp $
  *
  */
 
@@ -42,7 +42,7 @@
 #include <linux/unistd.h>
 #include <linux/jffs2.h>
 #include <linux/mtd/mtd.h>
-#include <linux/smp_lock.h>
+#include <linux/interrupt.h>
 #include "nodelist.h"
 
 

@@ -266,6 +266,7 @@ Summary of ide driver parameters for kernel "command line":
  "hdx=nowerr"		: ignore the WRERR_STAT bit on this drive
  "hdx=cdrom"		: drive is present, and is a cdrom drive
  "hdx=cyl,head,sect"	: disk drive is present, with specified geometry
+ "hdx=present"		: disk drive is present, autodetect geometry
  "hdx=autotune"		: driver will attempt to tune interface speed
 				to the fastest PIO mode supported,
 				if possible for this drive only.

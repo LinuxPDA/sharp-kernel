@@ -1062,6 +1062,33 @@ static int sa1100_pcmcia_proc_status(char *buf, char **start, off_t pos,
 
 #ifdef CONFIG_CPU_FREQ
 
+/* sa1100_pcmcia_update_mecr()
+ * ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ * When sa1100_pcmcia_notifier() decides that a MECR adjustment (due
+ * to a core clock frequency change) is needed, this routine establishes
+ * new BS_xx values consistent with the clock speed `clock'.
+ */
+static void sa1100_pcmcia_update_mecr(unsigned int clock){
+  unsigned int sock;
+  unsigned long mecr = MECR;
+
+  for(sock = 0; sock < SA1100_PCMCIA_MAX_SOCK; ++sock){
+    
+    MECR_BSIO_SET(mecr, sock, 
+		  sa1100_pcmcia_mecr_bs(sa1100_pcmcia_socket[sock].speed_io,
+					clock));
+    MECR_BSA_SET(mecr, sock, 
+		 sa1100_pcmcia_mecr_bs(sa1100_pcmcia_socket[sock].speed_attr,
+				       clock));
+    MECR_BSM_SET(mecr, sock, 
+		 sa1100_pcmcia_mecr_bs(sa1100_pcmcia_socket[sock].speed_mem,
+				       clock));
+  }
+  
+  MECR = mecr;
+
+}
+
 /* sa1100_pcmcia_notifier()
  * ^^^^^^^^^^^^^^^^^^^^^^^^
  * When changing the processor core clock frequency, it is necessary
@@ -1074,29 +1101,41 @@ static int sa1100_pcmcia_proc_status(char *buf, char **start, off_t pos,
  */
 static int sa1100_pcmcia_notifier(struct notifier_block *nb,
 				  unsigned long val, void *data){
-  unsigned int sock, clock;
-  unsigned long mecr = MECR;
   struct cpufreq_info *ci = data;
 
-  clock = ci->new_freq;
-
   switch(val){
-  case CPUFREQ_POSTCHANGE:
+  case CPUFREQ_MINMAX:
 
-    for(sock = 0; sock < SA1100_PCMCIA_MAX_SOCK; ++sock){
+    break;
 
-      MECR_BSIO_SET(mecr, sock,
-		    sa1100_pcmcia_mecr_bs(sa1100_pcmcia_socket[sock].speed_io,
-					  clock));
-      MECR_BSA_SET(mecr, sock,
-		   sa1100_pcmcia_mecr_bs(sa1100_pcmcia_socket[sock].speed_attr,
-					 clock));
-      MECR_BSM_SET(mecr, sock,
-		   sa1100_pcmcia_mecr_bs(sa1100_pcmcia_socket[sock].speed_mem,
-					 clock));
+  case CPUFREQ_PRECHANGE:
+
+    if(ci->new_freq > ci->old_freq){
+      DEBUG(2, "%s(): new frequency %u.%uMHz > %u.%uMHz, pre-updating\n",
+	    __FUNCTION__, 
+	    ci->new_freq / 1000, (ci->new_freq / 100) % 10,
+	    ci->old_freq / 1000, (ci->old_freq / 100) % 10);
+      sa1100_pcmcia_update_mecr(ci->new_freq);
     }
 
-    MECR = mecr;
+    break;
+
+  case CPUFREQ_POSTCHANGE:
+
+    if(ci->new_freq < ci->old_freq){
+      DEBUG(2, "%s(): new frequency %u.%uMHz < %u.%uMHz, post-updating\n",
+	    __FUNCTION__, 
+	    ci->new_freq / 1000, (ci->new_freq / 100) % 10,
+	    ci->old_freq / 1000, (ci->old_freq / 100) % 10);
+      sa1100_pcmcia_update_mecr(ci->new_freq);
+    }
+
+    break;
+
+  default:
+    printk(KERN_ERR "%s(): unknown CPU frequency event %lx\n", __FUNCTION__,
+	   val);
+    return -1;
 
   }
 

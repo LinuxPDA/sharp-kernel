@@ -218,7 +218,6 @@ static struct super_block *jffs2_read_super(struct super_block *sb, void *data, 
 	c->blocks = kmalloc(sizeof(struct jffs2_eraseblock) * c->nr_blocks, GFP_KERNEL);
 	if (!c->blocks)
 		goto out_mtd;
-
 	for (i=0; i<c->nr_blocks; i++) {
 		INIT_LIST_HEAD(&c->blocks[i].list);
 		c->blocks[i].offset = i * c->sector_size;

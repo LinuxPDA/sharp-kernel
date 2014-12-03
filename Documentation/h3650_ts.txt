@@ -1,0 +1,116 @@
+IMPORTANT!
+This document was last updated on Wed June 7th
+The ts driver will report events as printks but will not (yet)
+read data from user space. I anticipate it should be ready
+Thursday 8th June (Australian Time)
+
+Charlie
+
+The iPaq (h3650) touch screen driver
+====================================
+
+DRAFT Version 0.0	Last Updated May 24 00
+==============================================
+
+The h3650_ts driver is STILL UNDER DEVELOPMENT. The documentation and code
+is included for REFERENCE ONLY.
+
+Introduction
+------------
+This module (h3650_ts.c) is a driver designed for the iPAQ (H3650) hand held
+device which is powered by the StrongArm (sa1110) microprocessor.
+
+The iPAQ design uses an Atmel microcontroller to service a number of peripheral
+devices such as the touch screen, leds, buttons and others - a full list is
+show below.
+
+The Atmel acts as a proxy controller for the StrongArm.
+
+Commands are sent from the StrongArm using a simple serial packet format
+shown in figure 1. Events and responses also use this format.
+
+This communication is carried out via serial port1 of the sa1110.
+
+Packet Format
+-------------
+Commands, responses and events are transmitted using the following packet
+format. 
+
+  byte	  1	  2		  3 		 len + 4
+	+-------+---------------+---------------+--=------------+
+	|SOF	|id	|len	| len bytes	| Chksum	|
+	+-------+---------------+---------------+--=------------+
+  bit	0     7  8    11 12   15 16
+
+	+-------+---------------+-------+
+	|SOF	|id	|0	|Chksum	| - Note Chksum does not include SOF
+	+-------+---------------+-------+
+  bit	0     7  8    11 12   15 16
+
+	FIGURE1
+	------
+
+  SOF	(1 byte)
+	Start of Frame character (0x02)
+  id	(4bits)
+	Each command/respomse and event has an unique ID (see table below)
+  len	(4bits)
+	Each command/response or event may have a payload of 'len' bytes.
+	FIGURE 2 shows the touch screen payload format. Other formats TBD.
+  data	'len' bytes
+	This is the payload.
+  chk	(1byte)
+	This a modulo 256 checksum. It does not incluse the SOF.
+  
+
+Table of IDs
+------------
+
+There are 10 devices (or psuedo devices), each have an uniue ID.
+The devices and IDs are listed below.
+
+Device		ID	Description
+------------------------+----------------------------------------
+VERSION		0	Get or Set the version number.
+KEYBD_ID	2	Button events?.
+TOUCHS_ID	3	Touch Screen events.
+EEPROM_READ	4	Read from EEPROM.
+EEPROM_WRITED	5	Write to EEPROM
+LED		8	Switch on/off led.
+BATTERY		9	Get battery status.
+IIC_READ	0x0b	IIC read - get data via the IIC protocol.
+IIC_WRITE	0x0c	IIC write - send data via the IIC protocol.
+BACKLIGHT	0x0d	Backligh control command.
+
+A unique minor number is assigned to each of the above devices.
+All devices support blocking and non-blocking I/O where appropriate.
+
+EXAMPLE1 - the touch screen device is assigned minor number 3 and
+is initialised as follows:
+mknod /dev/ts c maj 3
+(major number is assigned dynamically and can be found using
+'cat proc/modules' )
+Control from user space will use standard read and ioctl functions.
+fd=open("/dev/ts",O_RDONLY");
+read(fd,buff,len);
+ioctl(fd,SET_RATE,arg);
+close(fd);
+
+
+EXAMPLE2 - the led device will not have a read(), write() and may be controlled
+as follows:
+mknod /dev/led c maj 5
+fd=open("/dev/led",O_RDWR");
+ioctl(fd,LED_ON,arg);
+ioctl(fd,LED_OFF,arg);
+close(fd);
+
+The raw touch screen data read from the Atmel is formatted as follows:
+	+-------+-------+-------+-------+
+	| Xmsb	| Xlsb	| Ymsb	| Ylsb	|
+	+-------+-------+-------+-------+
+	byte 0	  1	  2	  3
+
+	Xmsb - most significant byte of Xcoordinate
+	Xlsb - most significant byte of Xcoordinate
+	FIGURE 2

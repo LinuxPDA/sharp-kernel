@@ -23,6 +23,8 @@
 #include <linux/interrupt.h>
 #include <linux/ptrace.h>
 #include <linux/errno.h>
+#include <linux/pci.h>
+#include <linux/mm.h>
 
 #include <asm/hardware.h>
 #include <asm/irq.h>
@@ -31,6 +33,7 @@
 
 #include "sa1111.h"
 
+static int sa1111_ohci_hcd_init(void);
 
 /*
  * SA1111 initialization
@@ -78,6 +81,11 @@ int __init sa1111_init(void)
 	GPDR |= GPIO_MBGNT;
 	GPDR &= ~GPIO_MBREQ;
 	TUCR |= TUCR_MR;
+
+#ifdef CONFIG_USB_OHCI
+	/* setup up sa1111 usb host controller h/w */
+	sa1111_ohci_hcd_init();
+#endif
 
 	return 0;
 }
@@ -188,3 +196,123 @@ void __init sa1111_init_irq(int gpio_nr)
 		setup_arm_irq (SA1100_GPIO_TO_IRQ(gpio_nr), &sa1111_irq);
 	}
 }
+
+/* ----------------- */
+
+#ifdef CONFIG_USB_OHCI
+
+#if defined(CONFIG_SA1100_XP860) || defined(CONFIG_ASSABET_NEPONSET) || defined(CONFIG_SA1100_PFS168)
+#define PwrSensePolLow  1
+#define PwrCtrlPolLow   1
+#else
+#define PwrSensePolLow  0
+#define PwrCtrlPolLow   0
+#endif
+
+/*
+ * The SA-1111 errata says that the DMA hardware needs to be exercised
+ * before the clocks are turned on to work properly.  This code does
+ * a tiny dma transfer to prime to hardware.
+ */
+static void __init sa1111_dma_setup(void)
+{
+	dma_addr_t vbuf;
+	void * pbuf;
+
+	/* DMA init & setup */
+
+	/* WARNING: The SA-1111 L3 function is used as part of this
+	 * SA-1111 DMA errata workaround.
+	 *
+	 * N.B., When the L3 function is enabled, it uses GPIO_B<4:5>
+	 * and takes precedence over the PS/2 mouse and GPIO_B
+	 * functions. Refer to "Intel StrongARM SA-1111 Microprocessor
+	 * Companion Chip, Sect 10.2" for details.  So this "fix" may
+	 * "break" support of either PS/2 mouse or GPIO_B if
+	 * precautions are not taken to avoid collisions in
+	 * configuration and use of these pins. AFAIK, no precautions
+	 * are taken at this time. So it is likely that the action
+	 * taken here may cause problems in PS/2 mouse and/or GPIO_B
+	 * pin use elsewhere.
+	 *
+	 * But wait, there's more... What we're doing here is
+	 * obviously altogether a bad idea. We're indiscrimanately bit
+	 * flipping config for a few different functions here which
+	 * are "owned" by other drivers. This needs to be handled
+	 * better than it is being done here at this time.  */
+
+	/* prime the dma engine with a tiny dma */
+	SKPCR |= SKPCR_I2SCLKEN;
+	SKAUD |= SKPCR_L3CLKEN | SKPCR_SCLKEN;
+	
+	SACR0 |= 0x00003305;
+	SACR1 = 0x00000000; 
+
+	/* we need memory below 1mb */
+	pbuf = consistent_alloc(GFP_KERNEL | GFP_DMA, 4, &vbuf);
+
+	SADTSA = (unsigned long)pbuf;
+	SADTCA = 4;
+
+	SADTCS |= 0x00000011;
+	SKPCR |= SKPCR_DCLKEN;
+
+	/* wait */
+	udelay(100);
+
+	SACR0 &= ~(0x00000002);
+	SACR0 &= ~(0x00000001);
+
+	/* */
+	SACR0 |= 0x00000004;
+	SACR0 &= ~(0x00000004);
+
+	SKAUD &= ~(SKPCR_L3CLKEN | SKPCR_SCLKEN);
+
+	SKPCR &= ~SKPCR_I2SCLKEN;
+
+	consistent_free(pbuf, 4, vbuf);
+}	
+
+/*
+ * reset the SA-1111 usb controller and turn on it's clocks
+ */
+static int __init sa1111_ohci_hcd_init(void) 
+{
+	volatile unsigned long *Reset = (void *)SA1111_p2v(_SA1111(0x051c));
+	volatile unsigned long *Status = (void *)SA1111_p2v(_SA1111(0x0518));
+
+	/* turn on clocks */
+	SKPCR |= SKPCR_UCLKEN;
+	udelay(100);
+
+	/* force a reset */
+	*Reset = 0x01;
+	*Reset |= 0x02;
+	udelay(100);
+
+	*Reset = 0;
+
+	/* take out of reset */
+	/* set power sense and control lines (this from the diags code) */
+        *Reset = ( PwrSensePolLow << 6 )
+               | ( PwrCtrlPolLow << 7 );
+
+	*Status = 0;
+
+	udelay(10);
+
+	/* compensate for dma bug */
+	sa1111_dma_setup();
+
+	return 0;
+}
+
+void sa1111_ohci_hcd_cleanup(void) 
+{
+	/* turn the USB clock off */
+	SKPCR &= ~SKPCR_UCLKEN;
+}
+
+
+#endif /* CONFIG_USB_OHCI */

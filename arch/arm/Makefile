@@ -19,6 +19,12 @@ ifeq ($(CONFIG_DEBUG_INFO),y)
 CFLAGS		+=-g
 endif
 
+ifeq ($(CONFIG_CPU_BIG_ENDIAN),y)
+CC		+= -mbig-endian
+AS		+= -EB
+LD		+= -EB
+endif
+
 # Select CPU dependent flags.  Note that order of declaration is important;
 # the options further down the list override previous items.
 #
@@ -192,7 +198,7 @@ arch/arm/vmlinux.lds: $(LDSCRIPT) dummy
 arch/arm/kernel arch/arm/mm arch/arm/lib: dummy
 	$(MAKE) CFLAGS="$(CFLAGS) $(CFLAGS_KERNEL)" $(subst $@, _dir_$@, $@)
 
-bzImage zImage zinstall Image bootpImage install: vmlinux
+bzImage zImage zinstall Image bootpImage install %.swap: vmlinux
 	@$(MAKEBOOT) $@
 
 CLEAN_FILES	+= \

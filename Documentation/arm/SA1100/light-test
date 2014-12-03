@@ -1,0 +1,81 @@
+/* Created by (C) Chester Kuo <chester@linux.org.tw>,released under GPL
+ * , drived from sa1100_frontligt.c!
+ *
+ * Test the LCD backlight/contrast[/frontlight] driver. 
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/ioctl.h>
+#include <sys/types.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <errno.h>
+
+#include "sa1100_frontlight.h"
+
+int main(void) {
+
+	int i, fd, retval;
+	int temp;
+   fd = open ("/dev/sa1100-fl", O_WRONLY);
+
+   if (fd ==  -1) {
+     perror("/dev/sa1100-fl");
+     exit(errno);
+   }
+
+   printf("\n\t\t\tFrontlight Driver Test Example.\n\n");
+
+   for (i=0; i<5; i++) {
+     printf("Turning OFF Frontlight...\n");
+     retval = ioctl(fd, _SA1100_FL_IOCTL_OFF, 0);
+     if (retval == -1) {
+       perror("ioctl");
+       exit(errno);
+     }
+
+     sleep(1);
+
+
+     printf("Turning ON Frontlight...\n");
+     retval = ioctl(fd, _SA1100_FL_IOCTL_ON, 0);
+     if (retval == -1) {
+       perror("ioctl");
+       exit(errno);
+     }
+
+     sleep(1);
+
+   }
+
+#if 0
+   printf("Turning OFF Frontlight...\n");
+   retval = ioctl(fd, _SA1100_FL_IOCTL_OFF, 0);
+   if (retval == -1) {
+     perror("ioctl");
+     exit(errno);
+   }
+#endif
+  
+   printf("Testing the backlight from 1 to 100\n");
+	for (temp=0;temp<=100;temp++)
+	retval = ioctl(fd,_SA1100_FL_IOCTL_BACKLIGHT,temp);
+   if (retval == -1) {
+      perror("error in ioctl at setting backlight\n");
+	exit(errno);
+    }
+
+	printf("Test the contrast from 1 to 100\n");
+        for (temp=0;temp<=100;temp++)
+    	retval = ioctl(fd,_SA1100_FL_IOCTL_CONTRAST,temp);
+    if (retval == -1) {
+ 	perror("error in ioctl at contrast \n");
+	exit(errno);
+     }
+
+   fprintf(stderr, "Done.\n");
+
+ }
+
+

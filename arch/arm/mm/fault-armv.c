@@ -84,7 +84,11 @@ static unsigned long ai_half;
 static unsigned long ai_word;
 static unsigned long ai_multi;
 
+static int ai_usermode;
+
 #ifdef CONFIG_SYSCTL
+static char *usermode_action[] = { "ignored", "SIGBUS", "fixed up" };
+
 static int proc_alignment_read(char *page, char **start, off_t off,
 			       int count, int *eof, void *data)
 {
@@ -97,6 +101,8 @@ static int proc_alignment_read(char *page, char **start, off_t off,
 	p += sprintf(p, "Half:\t\t%li\n", ai_half);
 	p += sprintf(p, "Word:\t\t%li\n", ai_word);
 	p += sprintf(p, "Multi:\t\t%li\n", ai_multi);
+	p += sprintf(p, "User faults:\t%s [%u]\n", 
+			usermode_action[ai_usermode], ai_usermode);
 
 	len = (p - page) - off;
 	if (len < 0)
@@ -108,14 +114,34 @@ static int proc_alignment_read(char *page, char **start, off_t off,
 	return len;
 }
 
+static int proc_alignment_write(struct file *file, const char *buffer,
+			       unsigned long count, void *data)
+{
+	int mode;
+
+	if (count > 0) {
+		if (get_user(mode, buffer))
+			return -EFAULT;
+		switch (mode) {
+		case '0'...'2':
+			   ai_usermode = mode - '0';
+		}
+	}
+	return count;
+}
+
 /*
  * This needs to be done after sysctl_init, otherwise sys/
  * will be overwritten.
  */
 static int __init alignment_init(void)
 {
-	create_proc_read_entry("sys/debug/alignment", 0, NULL,
-				proc_alignment_read, NULL);
+	struct proc_dir_entry *res;
+	res = create_proc_entry("sys/debug/alignment", 0, NULL);
+	if (!res)
+		return -1;
+	res->read_proc = proc_alignment_read;
+	res->write_proc = proc_alignment_write;
 	return 0;
 }
 
@@ -422,10 +448,27 @@ do_alignment(unsigned long addr, int error_code, struct pt_regs *regs)
 	int (*handler)(unsigned long addr, unsigned long instr, struct pt_regs *regs);
 	unsigned int type;
 
-	if (user_mode(regs))
-		goto user;
-
-	ai_sys += 1;
+	if (user_mode(regs)) {
+		ai_user += 1;
+		switch (ai_usermode) {
+		case 0:	/* ignore */
+			set_cr(cr_no_alignment);
+			return 0;
+		case 1:	/* SIGBUS */
+#ifdef CONFIG_DEBUG_USER
+			printk( KERN_DEBUG "%s(%d): Unaligned memory access "
+				"at pc=0x%08lx, lr=0x%08lx "
+				"(bad address=0x%08lx, code %d)\n",
+				current->comm, current->pid,
+				regs->ARM_pc, regs->ARM_lr, addr, error_code );
+#endif
+			force_sig(SIGBUS, current);
+			return 0;
+		case 2:	/* fixup */
+			break;
+		}
+	} else
+		ai_sys += 1;
 
 	instrptr = instruction_pointer(regs);
 	instr = *(unsigned long *)instrptr;
@@ -515,11 +558,6 @@ bad:
 		"%08lx at [<%08lx>]", instr, instrptr);
 	ai_skipped += 1;
 	return 1;
-
-user:
-	set_cr(cr_no_alignment);
-	ai_user += 1;
-	return 0;
 }
 
 #else

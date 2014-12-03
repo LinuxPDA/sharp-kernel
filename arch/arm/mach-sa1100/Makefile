@@ -20,7 +20,7 @@ export-objs :=	assabet.o bitsy.o freebird.o huw_webpanel.o yopy.o \
 
 # Common support (must be linked before board specific support)
 obj-y += generic.o irq.o dma-sa1100.o
-obj-$(CONFIG_SA1111) += sa1111.o dma-sa1111.o
+obj-$(CONFIG_SA1111) += sa1111.o dma-sa1111.o sa1111-pcibuf.o
 
 # This needs to be cleaned up.  We probably need to have SA1100
 # and SA1110 config symbols.
@@ -64,4 +64,20 @@ leds-$(CONFIG_SA1100_LART) += leds-lart.o
 leds-$(CONFIG_SA1100_PFS168) += leds-pfs168.o
 obj-$(CONFIG_LEDS) += $(leds-y)
 
+# SA1110 USB client support
+list-multi += sa1100usb_core.o
+sa1100usb_core-objs := usb_ctl.o usb_ep0.o usb_recv.o usb_send.o
+obj-$(CONFIG_SA1100_USB) += sa1100usb_core.o
+obj-$(CONFIG_SA1100_USB_NETLINK) += usb-eth.o
+obj-$(CONFIG_SA1100_USB_CHAR) += usb-char.o
+
+# Miscelaneous functions
+obj-$(CONFIG_PROFILER) += hwtimer.o
+obj-$(CONFIG_APM)      += apm.o
+obj-$(CONFIG_PM) += power.o suspend.o
+obj-m += gpio.o registers.o
+
 include $(TOPDIR)/Rules.make
+
+sa1100usb_core.o: $(sa1100usb_core-objs)
+	$(LD) -r -o $@ $(sa1100usb_core-objs)

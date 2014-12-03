@@ -10,8 +10,7 @@
  * the Free Software Foundation; either version 2 of the License, or
  * (at your option) any later version.
  *
- * - Based on Id: intrep.c,v 1.71 2000/10/27 16:51:29 dwmw2 Exp
- * - With the ctype() changes from v1.77.
+ * $Id: intrep.c,v 1.71.2.5 2001/01/29 11:37:46 smunton Exp $
  *
  * Ported to Linux 2.3.x and MTD:
  * Copyright (C) 2000  Alexander Larsson (alex@cendio.se), Cendio Systems AB
@@ -58,7 +57,7 @@
 
 #define __NO_VERSION__
 #include <linux/types.h>
-#include <linux/slab.h>
+#include <linux/malloc.h>
 #include <linux/jffs.h>
 #include <linux/fs.h>
 #include <linux/stat.h>
@@ -655,10 +654,10 @@ jffs_scan_flash(struct jffs_control *c)
 				   (or from start) 
 				*/
 				if (start < (pos & ~(fmc->sector_size-1))) {
-					D1(printk("Reducing start to 0x%x from 0x%x\n", pos & ~(fmc->sector_size-1), start));
+					D1(printk("Reducing start to 0x%lx from 0x%lx\n", (unsigned long)pos & ~(fmc->sector_size-1), (unsigned long)start));
 					start = pos & ~(fmc->sector_size-1);
 				}
-				D1(printk("Dirty space: 0x%x for 0x%x bytes\n", start, (pos - start)));
+				D1(printk("Dirty space: 0x%lx for 0x%lx bytes\n", (unsigned long)start, (unsigned long)(pos - start)));
 				jffs_fmalloced(fmc, (__u32) start,
 					       (__u32) (pos - start), 0);
 			}
@@ -1018,12 +1017,11 @@ jffs_insert_node(struct jffs_control *c, struct jffs_file *f,
 		f->atime = raw_inode->atime;
 		f->mtime = raw_inode->mtime;
 		f->ctime = raw_inode->ctime;
-		f->deleted = raw_inode->deleted;
 	}
 	else if ((f->highest_version < node->version)
 		 || (node->version == 0)) {
 		/* Insert at the end of the list.  I.e. this node is the
-		   oldest one so far.  */
+		   newest one so far.  */
 		node->version_prev = f->version_tail;
 		node->version_next = 0;
 		f->version_tail->version_next = node;
@@ -1037,7 +1035,6 @@ jffs_insert_node(struct jffs_control *c, struct jffs_file *f,
 		f->atime = raw_inode->atime;
 		f->mtime = raw_inode->mtime;
 		f->ctime = raw_inode->ctime;
-		f->deleted = raw_inode->deleted;
 	}
 	else if (f->version_head->version > node->version) {
 		/* Insert at the bottom of the list.  */
@@ -1047,9 +1044,6 @@ jffs_insert_node(struct jffs_control *c, struct jffs_file *f,
 		f->version_head = node;
 		if (!f->name) {
 			update_name = 1;
-		}
-		if (raw_inode->deleted) {
-			f->deleted = raw_inode->deleted;
 		}
 	}
 	else {
@@ -1073,6 +1067,11 @@ jffs_insert_node(struct jffs_control *c, struct jffs_file *f,
 			}
 		}
 	}
+
+	/* Deletion is irreversible. If any 'deleted' node is ever
+	   written, the file is deleted */
+	if (raw_inode->deleted)
+		f->deleted = raw_inode->deleted;
 
 	/* Perhaps update the name.  */
 	if (raw_inode->nsize && update_name && name && *name && (name != f->name)) {
@@ -1098,16 +1097,15 @@ jffs_insert_node(struct jffs_control *c, struct jffs_file *f,
 		if (insert_into_tree) {
 			jffs_insert_file_into_tree(f);
 		}
-		if (f->deleted) {
-			/* Mark all versions of the node as obsolete.  */
-			jffs_possibly_delete_file(f);
+		/* Once upon a time, we would call jffs_possibly_delete_file()
+		   here. That causes an oops if someone's still got the file
+		   open, so now we only do it in jffs_delete_inode()
+		   -- dwmw2
+		*/
+		if (node->data_size || node->removed_size) {
+			jffs_update_file(f, node);
 		}
-		else {
-			if (node->data_size || node->removed_size) {
-				jffs_update_file(f, node);
-			}
-			jffs_remove_redundant_nodes(f);
-		}
+		jffs_remove_redundant_nodes(f);
 
 		jffs_garbage_collect_trigger(c);
 
@@ -1346,7 +1344,7 @@ jffs_find_child(struct jffs_file *dir, const char *name, int len)
 	D3(printk("jffs_find_child()\n"));
 
 	for (f = dir->children; f; f = f->sibling_next) {
-		if (f->name
+		if (!f->deleted && f->name
 		    && !strncmp(f->name, name, len)
 		    && f->name[len] == '\0') {
 			break;
@@ -1544,7 +1542,11 @@ jffs_write_node(struct jffs_control *c, struct jffs_node *node,
 	if (f) {
 		raw_inode->version = f->highest_version + 1;
 		D1(printk (KERN_NOTICE "jffs_write_node(): setting version of %s to %d\n", f->name, raw_inode->version));
-	}
+
+		/* if the file was deleted, set the deleted bit in the raw inode */
+		if (f->deleted)
+			raw_inode->deleted = 1;
+    	}
 
 	/* Compute the checksum for the data and name chunks.  */
 	raw_inode->dchksum = jffs_checksum(data, raw_inode->dsize);
@@ -1588,6 +1590,8 @@ jffs_write_node(struct jffs_control *c, struct jffs_node *node,
 		}
 		pos += total_name_size;
 	}
+	if (raw_inode->deleted)
+		f->deleted = 1;
 
 	/* Step 3: Append the actual data, if any.  */
 	if (raw_inode->dsize) {
@@ -2420,7 +2424,7 @@ jffs_rewrite_data(struct jffs_file *f, struct jffs_node *node, int size)
 	raw_inode.nlink = f->nlink;
 	raw_inode.spare = 0;
 	raw_inode.rename = 0;
-	raw_inode.deleted = 0;
+	raw_inode.deleted = f->deleted;
 	raw_inode.accurate = 0xff;
 	raw_inode.dchksum = 0;
 	raw_inode.nchksum = 0;
@@ -2669,8 +2673,8 @@ jffs_garbage_collect_next(struct jffs_control *c)
 	   what's available */
 	if (size > JFFS_PAD(node->data_size) + total_name_size + 
 	    sizeof(struct jffs_raw_inode) + extra_available) {
-		D1(printk("Reducing size of new node from %d to %ld to avoid "
-		       "catching our tail\n", size, 
+		D1(printk("Reducing size of new node from %d to %d to avoid "
+			  "catching our tail\n", size,
 			  JFFS_PAD(node->data_size) + JFFS_PAD(node->name_size) + 
 			  sizeof(struct jffs_raw_inode) + extra_available));
 		D1(printk("space_needed = %d, extra_available = %d\n", 
@@ -2966,7 +2970,7 @@ static inline int thread_should_wake (struct jffs_control *c)
 		return 0;
 
 	/* If there are fewer free bytes than the threshold, GC */
-	if (c->fmc->dirty_size < c->gc_minfree_threshold)
+	if (c->fmc->free_size < c->gc_minfree_threshold)
 		return 1;
 
 	/* If there are more dirty bytes than the threshold, GC */

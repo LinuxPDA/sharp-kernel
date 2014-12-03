@@ -11567,6 +11567,23 @@ CONFIG_USB_DABUSB
   The module will be called dabusb.o. If you want to compile it as a
   module, say M here and read Documentation/modules.txt.
 
+Host-to-Host USB networking
+CONFIG_USB_USBNET
+  This driver supports network links over USB with USB "Network"
+  or "data transfer" cables, often used to network laptops to PCs.
+  Such cables have chips from suppliers such as NetChip and Prolific.
+  Intelligent USB devices could also use this approach to provide
+  Internet access, using standard USB cabling.
+
+  These links will have names like "usb0", "usb1", etc.  They act
+  like two-node Ethernets, so you can use 802.1d Ethernet Bridging
+  (CONFIG_BRIDGE) to simplify your network routing.
+
+  This code is also available as a kernel module (code which can be
+  inserted in and removed from the running kernel whenever you want).
+  The module will be called usbnet.o. If you want to compile it as a
+  module, say M here and read Documentation/modules.txt.
+
 PLUSB driver
 CONFIG_USB_PLUSB
   A driver for the Prolific PL-2302 USB-to-USB network device. This
@@ -14522,6 +14539,17 @@ CONFIG_SA1100_WATCHDOG
   If you want to compile it as a module, say M here and read
   Documentation/modules.txt. The module will be called sa1100_wdt.o.
 
+SA1100 Internal Watchdog
+CONFIG_SA1100_WATCHDOG
+  Watchdog timer embedded into SA11x0 chips. This will reboot your
+  system when timeout is reached.
+  NOTE, that once enabled, this timer cannot be disabled.
+
+  This driver is also available as a module ( = code which can be
+  inserted in and removed from the running kernel whenever you want).
+  If you want to compile it as a module, say M here and read
+  Documentation/modules.txt. The module will be called sa1100_wdt.o.
+
 Berkshire Products PC Watchdog
 CONFIG_PCWATCHDOG
   This is the driver for the Berkshire Products PC Watchdog card.
@@ -15636,6 +15664,30 @@ CONFIG_SOUND_MAESTRO
   Say Y or M if you have a sound system driven by ESS's Maestro line
   of PCI sound chips.  These include the Maestro 1, Maestro 2, and
   Maestro 2E.  See Documentation/sound/Maestro for more details.
+
+Assabet audio (UDA1341) support
+CONFIG_SOUND_ASSABET_UDA1341
+  Say Y or M if you have an Intel Assabet evaluation board and want to
+  use the Philips UDA 1341 audio chip (the one that drives the stereo
+  audio output) on the SA1100 SSP port.
+
+Compaq iPAQ audio support
+CONFIG_SOUND_BITSY_UDA1341
+  Say Y or M if you have a Compaq iPaq handheld computer and want to 
+  use its Philips UDA 1341 audio chip.
+
+Audio support for SA1111/UDA1341
+CONFIG_SOUND_SA1111_UDA1341
+  Say Y or M if you have an SA11x0 system with a Philips UDA 1341
+  connected to the SA11x1. An example of such a system is the Intel
+  Assabet evaluation board connected to a Neponset expansion board.
+
+Generic DAC on the SA11x0 SSP port
+CONFIG_SOUND_SA1100SSP
+  Say Y or M if you have an SA-11x0 system with a DAC on the SSP port.
+  The LART has an Burr-Brown PCM 1710 digital to analog convertor on
+  the SSP port, so you want to say Y or M for the LART. It might work
+  on other SA-1100 platforms, too, but this is not tested.
 
 Are you using a crosscompiler
 CONFIG_CROSSCOMPILE
@@ -17832,6 +17884,18 @@ Console on SA1100 serial port
 CONFIG_SERIAL_SA1100_CONSOLE
   If you have enabled the serial port on the SA1100/SA1110 StrongARM
   CPU you can make it the console by answering Y to this option.
+
+Bitsy touchscreent support
+CONFIG_TOUCHSCREEN_BITSY
+  This option enables touchscreen support for Bitsy.  You do not need
+  the SA1100 touchscreen driver for Bitsy.
+  
+Profiling support (only on SA1100 for now)
+CONFIG_PROFILER
+  This option enables an interrupt-driven profiler capable of instrumenting
+  both the kernel and applications.  Although it is generic, it requires a
+  fast timer interface, support for which currently only exists for the
+  SA1100. 
 
 L7200 serial port support
 CONFIG_SERIAL_L7200

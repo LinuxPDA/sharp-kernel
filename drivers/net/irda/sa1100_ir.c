@@ -54,6 +54,14 @@ MODULE_DESCRIPTION("StrongARM SA1100 IrDA driver");
 #define GPIO_IRDA_POWER		(0)
 #endif
 
+#ifndef BCR_IRDA_MD0
+#define BCR_IRDA_MD0		(0)
+#endif
+
+#ifndef BCR_IRDA_MD1
+#define BCR_IRDA_MD1		(0)
+#endif
+
 
 /*
  * Our netdevice.  There is only ever one of these.
@@ -89,7 +97,12 @@ struct sa1100_irda {
 
 static void sa1100_irda_dma_receive(struct sa1100_irda *si)
 {
+	if ( si->hscr0 & HSCR0_TXE ) {
+		printk("Got called, while HSCR0_TXE, aborting\n");
+		return;
+	}
 	// First empty receive FIFO
+	si->hscr0 &= ~HSCR0_TXE;
 	Ser2HSCR0 = si->hscr0 & ~HSCR0_RXE;
 
 	// Here one would enable DMA and stuff
@@ -114,6 +127,7 @@ static int sa1100_irda_set_speed(struct sa1100_irda *si, int speed)
 {
 	unsigned long flags;
 	int brd, ret = -EINVAL;
+	int t = si->using_hssr;
 
 	switch (speed) {
 	case 9600:	case 19200:	case 38400:
@@ -180,6 +194,8 @@ static int sa1100_irda_set_speed(struct sa1100_irda *si, int speed)
 			PPSR |= GPIO_IRDA_FIR;
 
 		restore_flags(flags);
+		if ( t == 0 )
+			sa1100_irda_dma_receive(si);
 		ret = 0;
 		break;
 
@@ -498,6 +514,7 @@ static void sa1100_irda_hssp_irq(struct net_device *dev)
 	struct sa1100_irda *si = dev->priv;
 	int status = Ser2HSSR0;
 
+	printk("hssp interrupt arrived st: %x cr0: %x st1: %x\n",status,Ser2HSCR0,Ser2HSSR1);
 	/*
 	 * Deal with any receive errors first.  The any of the lowest 8 bytes
 	 * in the FIFO may contain an error.
@@ -514,7 +531,11 @@ static void sa1100_irda_hssp_irq(struct net_device *dev)
 		sa1100_dma_get_current(si->rxdma, NULL, &dma_addr);
 
 		len = dma_addr - si->rxbuf_dma;
-
+		if (len >= 2047) {// Frame is too big
+			si->stats.rx_over_errors++;
+			len = 0; // we will check for that later on.
+		}
+			
 		/*
 		 * Sync the DMA region.  After this call, we have
 		 * control over the buffer.
@@ -538,11 +559,12 @@ static void sa1100_irda_hssp_irq(struct net_device *dev)
 					si->stats.rx_crc_errors++;
 				if (stat & HSSR1_ROR)
 					si->stats.rx_frame_errors++;
+				len = 0; // We won't submit this frame
 			} else
 				*ptr++ = data;
 
 			/* end of frame? */
-			if (stat & HSSR1_EOF) {
+			if (stat & HSSR1_EOF && len != 0) {
 				struct sk_buff *skb;
 
 				len = ptr - si->rx_buff.head;
@@ -550,6 +572,7 @@ static void sa1100_irda_hssp_irq(struct net_device *dev)
 				skb = alloc_skb(len + 1, GFP_ATOMIC);
 				if (skb == NULL) {
 					si->stats.rx_dropped++;
+					status = Ser2HSSR0;
 					continue;
 				}
 				skb_reserve(skb, 1);
@@ -562,12 +585,14 @@ static void sa1100_irda_hssp_irq(struct net_device *dev)
 				si->stats.rx_packets++;
 				si->stats.rx_bytes += len;
 				/*
-				 * Hope we don't have anything
-				 * more in the FIFO.
+				 * We do not expect anything in FIFO
+				 * and if we still have something there,
+				 * we'll drop that garbage later on.
 				 */
 			}
 
 			status = Ser2HSSR0;
+			printk("in loop st: %x cr0: %x st1: %x\n",status,Ser2HSCR0,Ser2HSSR1);
 		} while (status & HSSR0_EIF);
 	}
 
@@ -577,18 +602,21 @@ static void sa1100_irda_hssp_irq(struct net_device *dev)
 	 */
 	Ser2HSSR0 = status & (HSSR0_TUR|HSSR0_RAB|HSSR0_FRE);
 
+	Ser2HSCR0 = si->hscr0 = si->hscr0 & ~HSCR0_RXE; // drop the garbage.
 
 	/* Transmitter underrun */
 	if (status & HSSR0_TUR)
-		printk("sa1100_ir: error: transmitter underrun?\n");
+		printk("sa1100_ir: error: transmitter underrun? %p\n",si->txskb);
 
 	/* Receiver Abort - we lost synchronisation, start from scratch */
-	if (status & HSSR0_RAB)
-		sa1100_irda_dma_receive(si);
+	// nothing that we can do about it.
+        // if (status & HSSR0_RAB)
 
 	/* Framing error */
 	if (status & HSSR0_FRE)
 		si->stats.rx_frame_errors++;
+
+	sa1100_irda_dma_receive(si);
 }
 
 static void sa1100_irda_irq(int irq, void *dev_id, struct pt_regs *regs)
@@ -628,8 +656,16 @@ static void sa1100_irda_txdma_irq(void *id, int len)
 			si->newspeed = 0;
 		}
 
+		// here we need to wait till transmission is actually completed, before we disable transmitter.
+		while ( Ser2HSSR1 & HSSR1_TBY ) ;
+		while ( !(Ser2HSSR0 & HSSR0_TUR) ) ;
+		Ser2HSSR0 |= HSSR0_TUR;
+		//printk("txirq interrupt finished st: %x cr0: %x st1: %x\n",Ser2HSSR0,Ser2HSCR0, Ser2HSSR1);
+		si->hscr0 &= ~HSCR0_TXE;
+		sa1100_irda_dma_receive(si);
 		netif_wake_queue(dev);
-	}
+	} else
+		sa1100_irda_dma_receive(si);
 }
 
 /*
@@ -684,6 +720,8 @@ static int sa1100_irda_hard_xmit(struct sk_buff *skb, struct net_device *dev)
 		if (si->txskb)
 			BUG();
 
+		if (si->hscr0 & HSCR0_TXE)
+			printk("hardtx, sending with HSCR0_TXE!\n");
 		si->txskb = skb;
 		si->txbuf_dma = pci_map_single(NULL, skb->data,
 					 skb->len, PCI_DMA_TODEVICE);
@@ -693,6 +731,7 @@ static int sa1100_irda_hard_xmit(struct sk_buff *skb, struct net_device *dev)
 
 		si->hscr0 = (si->hscr0 & ~HSCR0_RXE) | HSCR0_TXE;
 		Ser2HSCR0 = si->hscr0;
+		//printk("tx started st: %x cr0: %x st1: %x\n",Ser2HSSR0,Ser2HSCR0, Ser2HSSR1);
 	}
 
 	if (ret == 0)

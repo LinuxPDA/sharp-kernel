@@ -32,9 +32,95 @@ typedef unsigned short			word;
 typedef unsigned long int 		dword;
 
 
-/* Because of bank switching, the SMC91xxx uses only 16 I/O ports */
+#ifdef CONFIG_ISA
+#define SMC_USES_IO_PORT
 
+/* Because of bank switching, the SMC91xxx uses only 16 I/O ports */
 #define SMC_IO_EXTENT	16
+
+#define SMC_inb( r )  inb(ioaddr+(r))
+#define SMC_inw( r )  inw(ioaddr+(r))
+#define SMC_inl( r )  inl(ioaddr+(r))
+#define SMC_outb( d, r )  outb((d),ioaddr+(r))
+#define SMC_outw( d, r )  outw((d),ioaddr+(r))
+#define SMC_outl( d, r )  outl((d),ioaddr+(r))
+#define SMC_insb( r, b, l )  insb(ioaddr+(r),(b),(l))
+#define SMC_insw( r, b, l )  insw(ioaddr+(r),(b),(l))
+#define SMC_insl( r, b, l )  insl(ioaddr+(r),(b),(l))
+#define SMC_outsb( r, b, l )  outsb(ioaddr+(r),(b),(l))
+#define SMC_outsw( r, b, l )  outsw(ioaddr+(r),(b),(l))
+#define SMC_outsl( r, b, l )  outsl(ioaddr+(r),(b),(l))
+
+#endif
+
+#if defined(CONFIG_SA1100_GRAPHICSCLIENT) || defined(CONFIG_SA1100_PFS168) || defined(CONFIG_SA1100_FLEXANET)
+#define SMC_USES_16BIT_MEM
+/* 
+ * We can only do 16-bit reads and writes in the static memory space.
+ * Byte reads must read 16 bits and return the correct byte.
+ * Byte writes must do a read/modify/write.
+ */
+
+/* The first two address lines aren't connected... */
+#define SMC_IO_EXTENT	(16<<2)
+
+#define SMC_inw( r )  (*((volatile word *)(ioaddr+((r)<<2))))
+#define SMC_inb( r )  (((r)&1) ? SMC_inw((r)&~1)>>8 : SMC_inw(r)&0xFF)
+
+#define SMC_outw( d, r )  (*((volatile word *)(ioaddr+((r)<<2))) = d)
+#define SMC_outb( d, r )  \
+    ({	word __d = (byte)(d);  \
+	word __w = SMC_inw((r)&~1);  \
+	__w &= ((r)&1) ? 0x00FF : 0xFF00;  \
+	__w |= ((r)&1) ? __d<<8 : __d;  \
+	SMC_outw(__w,(r)&~1);  })
+
+/* We remove PCIO_BASE that is added in insw()/outsw() */
+#define SMC_insw( r, b, l )  insw(ioaddr+((r)<<2)-PCIO_BASE,(b),(l))
+#define SMC_outsw( r, b, l )  outsw(ioaddr+((r)<<2)-PCIO_BASE,(b),(l))
+
+#endif
+
+#if defined(CONFIG_ASSABET_NEPONSET)
+#define SMC_USES_8BIT_MEM
+/* 
+ * We can only do 8-bit reads and writes in the static memory space.
+ * word access must splice two byte access together
+ */
+
+/* The first two address lines aren't connected... */
+#define SMC_IO_EXTENT	(16<<2)
+
+#define SMC_inb( r )  (*((volatile byte *)(ioaddr+((r)<<2))))
+
+#define SMC_outb( d, r )  (*((volatile byte *)(ioaddr+((r)<<2))) = (byte)(d))
+
+/*#define IODELAY udelay(1)*/
+#define IODELAY
+
+static inline unsigned short __SMC_inw(unsigned ioaddr, int r)
+{
+  unsigned char b1, b2;
+  IODELAY;
+  b1 = SMC_inb(r);
+  IODELAY;
+  b2 = SMC_inb(r+1);
+  return (b2 << 8) | b1;
+}
+#define SMC_inw(r) __SMC_inw(ioaddr, r)
+
+#define SMC_outw( d, r )  \
+		do { \
+		     IODELAY;\
+                     SMC_outb((d), r); \
+		     IODELAY;\
+		     SMC_outb((d)>>8, (r)+1);} while (0)
+
+/* We remove PCIO_BASE that is added in insb()/outsb() */
+#define SMC_insw( r, b, l )  insb(ioaddr+((r)<<2)-PCIO_BASE,(b),(l)<<1)
+#define SMC_outsw( r, b, l )  outsb(ioaddr+((r)<<2)-PCIO_BASE,(b),(l)<<1)
+
+#endif
 
 
 /*---------------------------------------------------------------
@@ -160,6 +246,7 @@ typedef unsigned long int 		dword;
 #define CHIP_9190	3
 #define CHIP_9194	4
 #define CHIP_9195	5
+#define CHIP_9196	6
 #define CHIP_91100	7
 
 static const char * chip_ids[ 15 ] =  { 
@@ -167,9 +254,11 @@ static const char * chip_ids[ 15 ] =  {
 	/* 3 */ "SMC91C90/91C92",
 	/* 4 */ "SMC91C94",
 	/* 5 */ "SMC91C95",
-	NULL,
+	/* 6 */ "SMC91C96",	/* can't really happen, found via rev */
 	/* 7 */ "SMC91C100", 
-	NULL, NULL, NULL, NULL, 
+	/* 8 */ "SMC91C100FD", 
+	/* 9 */ "SMC91C110", 
+	NULL, NULL, 
 	NULL, NULL, NULL};  
 
 /* 
@@ -193,6 +282,20 @@ static const char * chip_ids[ 15 ] =  {
 
 static const char * interfaces[ 2 ] = { "TP", "AUI" };
 
+/* SMC9196 ethernet config & status regs */
+/* requires A25 be set with offset of 0x8000<<2 */
+#define LAN91C96_ECOR	0x0
+#define LAN91C96_ECSR	0x2
+
+#define ECOR_RESET	0x80
+#define ECOR_LEVEL_IRQ	0x40
+#define ECOR_WR_ATTRIB	0x02
+#define ECOR_ENABLE	0x01
+
+#define ECSR_IOIS8	0x20
+#define ECSR_PWRDWN	0x04
+#define ECSR_INT	0x02
+
 /*-------------------------------------------------------------------------
  .  I define some macros to make it easier to do somewhat common
  . or slightly complicated, repeated tasks. 
@@ -200,30 +303,37 @@ static const char * interfaces[ 2 ] = { "TP", "AUI" };
 
 /* select a register bank, 0 to 3  */
 
-#define SMC_SELECT_BANK(x)  { outw( x, ioaddr + BANK_SELECT ); } 
+#define SMC_SELECT_BANK(x)  { SMC_outw( x, BANK_SELECT ); } 
 
 /* define a small delay for the reset */
-#define SMC_DELAY() { inw( ioaddr + RCR );\
-			inw( ioaddr + RCR );\
-			inw( ioaddr + RCR );  }
+#define SMC_DELAY() { SMC_inw( RCR );\
+			SMC_inw( RCR );\
+			SMC_inw( RCR );  }
 
 /* this enables an interrupt in the interrupt mask register */
 #define SMC_ENABLE_INT(x) {\
-		unsigned char mask;\
+		word mask;\
 		SMC_SELECT_BANK(2);\
-		mask = inb( ioaddr + INT_MASK );\
-		mask |= (x);\
-		outb( mask, ioaddr + INT_MASK ); \
+		mask = SMC_inw( INTERRUPT ) & 0xFF00;\
+		mask |= ((x) << 8);\
+		SMC_outw( mask, INTERRUPT );\
 }
 
 /* this disables an interrupt from the interrupt mask register */
 
 #define SMC_DISABLE_INT(x) {\
-		unsigned char mask;\
+		word mask;\
 		SMC_SELECT_BANK(2);\
-		mask = inb( ioaddr + INT_MASK );\
-		mask &= ~(x);\
-		outb( mask, ioaddr + INT_MASK ); \
+		mask = SMC_inw( INTERRUPT ) & 0xFF00;\
+		mask &= ~((x) << 8);\
+		SMC_outw( mask, INTERRUPT );\
+}
+
+/* this sets the absolute interrupt mask */
+
+#define SMC_SET_INT(x) {\
+		SMC_SELECT_BANK(2);\
+		SMC_outw( ((x) << 8), INTERRUPT );\
 }
 
 /*----------------------------------------------------------------------

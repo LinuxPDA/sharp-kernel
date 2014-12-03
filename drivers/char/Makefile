@@ -67,6 +67,13 @@ ifeq ($(ARCH),arm)
   ifeq ($(CONFIG_KMI_KEYB),y)
     KEYBD    := amba_kmi_keyb.o
   endif
+  ifeq ($(CONFIG_SA1111),y)
+    KEYBD    = sa1111_keyb.o
+  endif
+  ifeq ($(CONFIG_SA1100_GRAPHICSCLIENT),y)
+    KEYMAP	 = gckeymap.o
+    KEYBD    = gc_keyb.o
+  endif
 endif
 
 ifeq ($(ARCH),sh)
@@ -120,6 +127,20 @@ obj-$(CONFIG_SERIAL_AMBA) += serial_amba.o
 obj-$(CONFIG_SERIAL_CLPS711X) += serial_clps711x.o
 obj-$(CONFIG_SERIAL_ANAKIN) += serial_anakin.o
 obj-$(CONFIG_SERIAL_SA1100) += serial_sa1100.o
+ifeq ($(CONFIG_SERIAL_SA1100_OLD),y)
+   obj-y := $(obj-y:serial_sa1100.o=serial_sa1100_old.o)
+endif
+
+list-multi += ucb1200_core.o
+ucb1200_core-objs := ucb1200_generic.o ucb1200_sa1100.o
+export-objs += ucb1200_generic.o ucb1200_sa1100.o
+obj-$(CONFIG_UCB1200) += ucb1200_core.o
+obj-$(CONFIG_TOUCHSCREEN_UCB1200) += ucb1200_ts.o
+obj-$(CONFIG_ADC_UCB1200) += ucb1200_adc.o
+obj-$(CONFIG_AUDIO_UCB1200) += ucb1200_audio.o
+
+obj-$(CONFIG_TOUCHSCREEN_BITSY) += h3600_ts.o
+obj-$(CONFIG_PROFILER) += profiler.o
 
 obj-$(CONFIG_TOUCHSCREEN_ANAKIN) += anakin_ts.o
 
@@ -222,6 +243,10 @@ obj-$(CONFIG_MACHZ_WDT) += machzwd.o
 obj-$(CONFIG_SA1100_WATCHDOG) += sa1100_wdt.o
 obj-$(CONFIG_SOFT_WATCHDOG) += softdog.o
 
+obj-$(CONFIG_PFS168_SPI) += pfs168_spi.o
+obj-$(CONFIG_PFS168_DTMF) += pfs168_dtmf.o
+obj-$(CONFIG_PFS168_MISC) += pfs168_misc.o
+
 ifeq ($(CONFIG_ARCH_ACORN),y)
 mod-subdirs	+= ../acorn/char
 subdir-y	+= ../acorn/char
@@ -242,3 +267,9 @@ consolemap_deftbl.o: consolemap_deftbl.c $(TOPDIR)/include/linux/types.h
 
 defkeymap.c: defkeymap.map
 	loadkeys --mktable defkeymap.map > defkeymap.c
+
+jornada720map.c: jornada720map.map
+	loadkeys --mktable jornada720map.map > jornada720map.c
+
+ucb1200_core.o: $(ucb1200_core-objs)
+	$(LD) -r -o $@ $(ucb1200_core-objs)

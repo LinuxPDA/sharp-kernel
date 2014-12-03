@@ -89,6 +89,7 @@ extern int sun3lance_probe(struct net_device *);
 extern int apne_probe(struct net_device *);
 extern int bionet_probe(struct net_device *);
 extern int pamsnet_probe(struct net_device *);
+extern int cerf89x0_probe(struct net_device *dev);
 extern int cs89x0_probe(struct net_device *dev);
 extern int ethertap_probe(struct net_device *dev);
 extern int hplance_probe(struct net_device *dev);
@@ -384,6 +385,13 @@ static struct devprobe mips_probes[] __initdata = {
 	{NULL, 0},
 };
 
+struct devprobe arm_probes[] __initdata = {
+#ifdef CONFIG_CERF_CS8900A
+	{cerf89x0_probe, 0},
+#endif
+	{NULL, 0},
+};
+
 /*
  * Unified ethernet device probe, segmented per architecture and
  * per bus interface. This drives the legacy devices only for now.
@@ -413,6 +421,8 @@ static int __init ethif_probe(struct net_device *dev)
 	if (probe_list(dev, eisa_probes) == 0)
 		return 0;
 	if (probe_list(dev, mca_probes) == 0)
+		return 0;
+	if (probe_list(dev, arm_probes) == 0)
 		return 0;
         /*
          * Backwards compatibility - an I/O of 0xffe0 was used to indicate

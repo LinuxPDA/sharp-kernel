@@ -1,0 +1,115 @@
+Frontlight Driver for The Intel Assabet (SA-1110 evaluation)
+==============================================================
+  Initial version by: Nicholas Mistry (nmistry@lhsl.com)
+
+
+This driver provides basic functionality for the frontlight
+provided with the Assabet board.   It will enable and disable
+the light.  
+
+The module grabs a dynamically assigned Major, so you will have
+to do a mknod before using the device.  I typically use /dev/sa1100-fl
+
+Because the assabet does not come with its own power supply for the
+one can be obtained/made.  Below is a list of the parts i used to 
+enable mine. 
+
+**   The parts/cable described below assume that your assabet 
+**   is using the Sharp LQ039Q2DS54 Screen. 
+
+Parts List:
+------------
+  1 ERG power 8m122375 DC to AC inverter.
+    obtain from: Endicott Research Group Inc. (http://www.ergpower.com)
+
+  Assabet Side Connector:
+    1 Minitek 90312-005 Housing 
+    3 Minitek 77138-101 Pins
+	obtain both from:  FCI Framatome Group (http://www.fciconnect.com)
+	* Samples Available *  
+
+  Inverter Side Connector:
+    1 Standard 0.1" 4 pin Housing
+    3 Standard 0.1" Pins  (crimp is preferred)
+
+  3 pieces of 26 AWG Stranded Wire each aprox 4"-6" long 
+	(3 colors optional: red,black,white)
+
+
+Cable Diagram:
+--------------
+
+Inverter:				Assabet:
+ 
+ _____                                   _______
+      |      ______     /---------------|  |1  [|  (red wire)
+ V+  1|---- |]   1 |---/   /------------|_ |2  [|  (black wire)
+ GND 2|---- |]   2 |------(------\      |_||3  [|
+ CTL 3|---- |]   3 |-----/        \-----|  |4  [|  (white wire)
+ NE  4|---- |]___4_|                    |__|5__[|
+ _____|
+
+
+
+Example Program: 
+----------------
+
+/*  This following example program will blink on and off the  */
+/*  frontlight 5 times w/ an one second delay.  	      */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/ioctl.h>
+#include <sys/types.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <errno.h>
+
+#include <video/sa1100_frontlight.h>
+
+int main(void) {
+
+  int i, fd, retval;
+
+  fd = open ("/dev/sa1100-fl", O_WRONLY);
+
+  if (fd ==  -1) {
+    perror("/dev/sa1100-fl");
+    exit(errno);
+  }
+  
+  printf("\n\t\t\tFrontlight Driver Test Example.\n\n");
+  
+  for (i=0; i<5; i++) {
+    printf("Turning OFF Frontlight...\n");
+    retval = ioctl(fd, _SA1100_FL_OFF, 0);
+    if (retval == -1) {
+      perror("ioctl");
+      exit(errno);
+    }
+    
+    sleep(1);
+    
+    printf("Turning ON Frontlight...\n");
+    retval = ioctl(fd, _SA1100_FL_ON, 0);
+    if (retval == -1) {
+      perror("ioctl");
+      exit(errno);
+    }
+    
+    sleep(1);
+    
+  }
+  
+  printf("Turning OFF Frontlight...\n");
+  retval = ioctl(fd, _SA1100_FL_OFF, 0);
+  if (retval == -1) {
+    perror("ioctl");
+    exit(errno);
+  }
+
+  fprintf(stderr, "Done.\n");
+
+}
+
+

@@ -65,6 +65,8 @@ dep_bool '  Use /dev/ttyS0 device (OBSOLETE)' CONFIG_SERIAL_21285_OLD $CONFIG_SE
 dep_bool '  Console on DC21285 serial port' CONFIG_SERIAL_21285_CONSOLE $CONFIG_SERIAL_21285
 
 dep_bool 'SA1100 serial port support' CONFIG_SERIAL_SA1100 $CONFIG_ARCH_SA1100
+# while it is being fased out...
+dep_bool 'Old (original) SA1100 serial port support, disabling the new driver' CONFIG_SERIAL_SA1100_OLD $CONFIG_SERIAL_SA1100
 dep_bool '  Console on SA1100 serial port' CONFIG_SERIAL_SA1100_CONSOLE $CONFIG_SERIAL_SA1100
 if [ "$CONFIG_ARCH_SA1100" = "y" ]; then
    int  '  Default SA1100 serial baudrate' CONFIG_SA1100_DEFAULT_BAUDRATE 9600
@@ -108,6 +110,18 @@ if [ "$CONFIG_PARPORT" != "n" ]; then
       bool '  Support for console on line printer' CONFIG_LP_CONSOLE
    fi
    dep_tristate 'Support for user-space parallel port device drivers' CONFIG_PPDEV $CONFIG_PARPORT
+fi
+
+if [ "$CONFIG_ARCH_SA1100" = "y" ]; then
+   dep_tristate 'UCB1200 support' CONFIG_UCB1200 $CONFIG_EXPERIMENTAL
+   dep_tristate '   UCB1200 touchscreen support' CONFIG_TOUCHSCREEN_UCB1200 $CONFIG_UCB1200
+   dep_tristate '   UCB1200 audio support' CONFIG_AUDIO_UCB1200 $CONFIG_UCB1200
+   dep_tristate '   UCB1200 ADC support' CONFIG_ADC_UCB1200 $CONFIG_UCB1200
+   tristate 'Bitsy touchscreen support' CONFIG_TOUCHSCREEN_BITSY
+   tristate 'Profiling support (only on SA1100 for now)' CONFIG_PROFILER
+   dep_tristate 'PFS-168 SPI char device driver' CONFIG_PFS168_SPI $CONFIG_SA1100_PFS168
+   dep_tristate 'PFS-168 DTMF char device driver' CONFIG_PFS168_DTMF $CONFIG_SA1100_PFS168
+   dep_tristate 'PFS-168 Miscellaneous I/O access via proc' CONFIG_PFS168_MISC $CONFIG_SA1100_PFS168
 fi
 
 source drivers/i2c/Config.in

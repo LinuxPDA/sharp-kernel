@@ -68,6 +68,11 @@ obj-$(CONFIG_SOUND_FUSION)	+= cs46xx.o ac97_codec.o
 obj-$(CONFIG_SOUND_MAESTRO)	+= maestro.o
 obj-$(CONFIG_SOUND_MAESTRO3)	+= maestro3.o ac97_codec.o
 obj-$(CONFIG_SOUND_TRIDENT)	+= trident.o ac97_codec.o
+obj-$(CONFIG_SOUND_UDA1341)	+= sa1100-uda1341.o
+obj-$(CONFIG_SOUND_ASSABET_UDA1341) += assabet-uda1341.o uda1341.o sa1100-audio.o
+obj-$(CONFIG_SOUND_BITSY_UDA1341) += bitsy-uda1341.o uda1341.o sa1100-audio.o
+obj-$(CONFIG_SOUND_SA1111_UDA1341) += sa1111-uda1341.o uda1341.o sa1100-audio.o
+obj-$(CONFIG_SOUND_SA1100SSP)	+= sa1100ssp.o sa1100-audio.o
 
 subdir-$(CONFIG_SOUND_EMU10K1) += emu10k1
 subdir-$(CONFIG_SOUND_CS4281) += cs4281
@@ -85,7 +90,6 @@ subdir-$(CONFIG_DMASOUND) += dmasound
 ifeq ($(CONFIG_DMASOUND),y)
   obj-y += dmasound/dmasound.o
 endif
-
 
 # Declare multi-part drivers.
 
